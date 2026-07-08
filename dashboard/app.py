@@ -28,14 +28,17 @@ from poly_alpha_sniper.core.config_loader import TradingMode, load_config, load_
 from poly_alpha_sniper.dashboard import charts, metrics  # noqa: E402
 from poly_alpha_sniper.dashboard.auth import check_auth  # noqa: E402
 from poly_alpha_sniper.dashboard.components import (  # noqa: E402
-    disclaimer, hero_header, metric_card_row, not_available, not_implemented,
-    scrollable_table, section_title, status_badges, warning_banner)
+    disclaimer, hermes_brief_card, hero_header, live_status_badge, metric_card_row,
+    not_available, not_implemented, scrollable_table, section_title, status_badges,
+    warning_banner)
 from poly_alpha_sniper.dashboard.db_reader import (  # noqa: E402
     DEMO_LABEL, DashboardData, demo_data, read_runtime_state, resolve_db_path)
 from poly_alpha_sniper.dashboard.mobile_layout import inject_mobile_css  # noqa: E402
+from poly_alpha_sniper.dashboard.process_health import check_single_instance, wal_status  # noqa: E402
 from poly_alpha_sniper.dashboard.theme import inject_premium_theme  # noqa: E402
 
 BOT_NAME = "Claude x Hermes / Poly Alpha Sniper"
+HERMES_WORKSPACE_DIR = "D:/claude/agent_readonly/hermes_poly_workspace"
 
 
 def _fmt_ts(ts_ms) -> str:
@@ -135,10 +138,10 @@ def main() -> None:
     hero_header(
         f"🎯 {BOT_NAME}",
         f"session: {now_str} UTC" + (" · " + DEMO_LABEL if demo else ""))
+    live_status_badge(live_enabled)
     status_badges({
         "mode": state.get("mode") or cfg.mode.trading_mode,
         "dry_run": bool(cfg.mode.dry_run),
-        "live_enabled": live_enabled,
         "heartbeat": "fresh" if hb_fresh else "STALE",
         "panic clear": not state.get("panic_active", False),
         "kill clear": not state.get("kill_active", False),
@@ -181,9 +184,28 @@ def main() -> None:
     # 3) LIVE MARKET STATE
     # ==================================================================
     section_title("📡 Live market state")
+    discovered = diag.get("discovered_markets",
+                          (snapshots[0].get("n_markets") if snapshots else 0) or 0)
+    fresh_books_n = diag.get("fresh_books")
+    total_books_n = diag.get("total_books")
+    stale_books_n = (total_books_n - fresh_books_n) if (fresh_books_n is not None
+                                                        and total_books_n is not None) else None
+    no_fresh_cex_by_source = diag.get("cex_no_fresh_count_by_source") or {}
+    no_fresh_cex_total = sum(no_fresh_cex_by_source.values()) if no_fresh_cex_by_source else None
+    metric_card_row([
+        ("Discovered markets", discovered, None),
+        ("Fresh order books", f"{fresh_books_n}/{total_books_n}" if fresh_books_n is not None else "not available", None),
+        ("Stale book count", stale_books_n if stale_books_n is not None else "not available", None),
+        ("No-fresh-CEX count", no_fresh_cex_total if no_fresh_cex_total is not None else "not available", None),
+    ], is_mobile)
+    not_available("Active markets (distinct from discovered)",
+                  "this runtime does not track a separate active-vs-discovered count")
+    if no_fresh_cex_by_source:
+        st.caption("no-fresh-CEX by source: " + ", ".join(
+            f"{k}={v}" for k, v in no_fresh_cex_by_source.items()))
     mstate = metrics.latest_market_state(preds, diag)
     if not mstate["available"]:
-        not_available("live market state", "no predictions recorded yet")
+        not_available("latest signal/market detail", "no predictions recorded yet")
     else:
         metric_card_row([
             ("Asset", mstate["asset"] or "—", None),
@@ -212,8 +234,14 @@ def main() -> None:
     section_title("🧠 Signal intelligence")
     latest_pred = max(preds, key=lambda r: r.get("ts_ms") or 0) if preds else None
     latest_signal = signals_rows[0] if signals_rows else None
+    latest_accepted = next((p for p in sorted(preds, key=lambda r: r.get("ts_ms") or 0, reverse=True)
+                            if p.get("decision") in ("APPROVE", "SHADOW_ONLY")), None)
     latest_reject = next((p for p in sorted(preds, key=lambda r: r.get("ts_ms") or 0, reverse=True)
                           if p.get("decision") == "REJECT"), None)
+    metric_card_row([
+        ("Predictions count", info["row_counts"].get("predictions", len(preds)), None),
+        ("Signals count", info["row_counts"].get("signals", 0), None),
+    ], is_mobile)
     if latest_pred is None:
         not_available("signal intelligence", "no predictions recorded yet")
     else:
@@ -231,7 +259,14 @@ def main() -> None:
         st.caption(f"latest signal: {latest_signal or 'not available'}" if latest_signal is None
                   else f"latest signal: {latest_signal.get('asset')} {latest_signal.get('direction')} "
                        f"kind={latest_signal.get('kind')} z={latest_signal.get('zscore')}")
-        st.caption(f"latest rejection: {latest_reject.get('reject_reason') if latest_reject else 'none recorded'}")
+        st.caption(f"latest accepted candidate: "
+                  f"{latest_accepted.get('asset')} {latest_accepted.get('direction')} "
+                  f"tier={latest_accepted.get('tier')} edge={latest_accepted.get('edge_after_slippage')}"
+                  if latest_accepted else "latest accepted candidate: none recorded")
+        st.caption(f"latest rejected candidate: "
+                  f"{latest_reject.get('asset')} {latest_reject.get('direction')} "
+                  f"reason={latest_reject.get('reject_reason')}"
+                  if latest_reject else "latest rejected candidate: none recorded")
         not_implemented("Classification (CONTINUATION / FADE / NO_TRADE)")
 
     # ==================================================================
@@ -306,33 +341,86 @@ def main() -> None:
                 f"kill active: {state.get('kill_active', False)}")
         if not demo and not preds:
             st.info("**No predictions yet — reason:** " + data.why_no_predictions())
+
+        proc = check_single_instance()
+        wal = wal_status(db_path)
+        if not proc["available"]:
+            not_available("bot process health", proc["reason"])
+        elif proc["likely_duplicate"]:
+            disclaimer(f"⚠️ SINGLE-INSTANCE WARNING: {proc['count']} shadow_live processes detected "
+                      f"(expected 2 -- launcher + interpreter). Investigate before any live promotion. "
+                      f"PIDs: {[m['pid'] for m in proc['matches']]}")
+        else:
+            st.caption(f"bot process health: OK — {proc['count']} process(es) matched "
+                      f"(launcher + interpreter, normal). PIDs: {[m['pid'] for m in proc['matches']]}")
+        st.caption(f"WAL file present: {wal['wal_present']} "
+                  f"({wal['wal_size_bytes'] / 1024:.0f} KB)" if wal["wal_present"] else
+                  "WAL file present: False")
+        if incidents:
+            st.caption(f"⚠️ {len(incidents)} incident report(s) recorded — see Ops expander below.")
         scrollable_table(diag_rows[:20], "shadow_diagnostics (latest blocks)")
 
     # ==================================================================
-    # 9) HERMES / OBSIDIAN PLACEHOLDER PANEL (display-only)
+    # 10) HERMES AGENT PANEL (display-only -- Hermes is not installed/running;
+    #     this only reports on the read-only workspace/export files that
+    #     exist on disk for a future Hermes agent to consume)
     # ==================================================================
-    section_title("🪐 Hermes / Obsidian export status")
-    with st.expander("Read-only export status", expanded=False):
-        export_dir = Path(cfg.agent_export.output_dir)
-        nightly = export_dir / "daily_report.md"
-        obsidian_note = export_dir / "obsidian_daily_note.md"
+    section_title("🪐 Hermes Agent panel")
+    export_dir = Path(cfg.agent_export.output_dir)
+    workspace_dir = Path(HERMES_WORKSPACE_DIR)
+    nightly = export_dir / "daily_report.md"
+    obsidian_note = export_dir / "obsidian_daily_note.md"
+
+    if not workspace_dir.exists():
+        hermes_status = "NOT INSTALLED"
+    elif not nightly.exists():
+        hermes_status = "NOT CONFIGURED"
+    else:
+        hermes_status = "READY READ-ONLY"
+    st.markdown(f"**Hermes status:** `{hermes_status}`")
+    st.caption("Note: Hermes is not installed or running in this project -- this status only "
+              "reflects whether the read-only workspace and exported reports exist on disk for "
+              "a future Hermes agent to consume. There is no read-receipt mechanism, so a "
+              "\"LAST REPORT READ\" state cannot be honestly reported and is not shown.")
+
+    with st.expander("Paths, permissions, and last export timestamps", expanded=False):
+        st.markdown(
+            f"**read-only source path:** `{cfg.agent_export.output_dir}`\n\n"
+            f"**Obsidian target:** `{cfg.obsidian.vault_notes_dir}`\n\n"
+            f"**Hermes workspace:** `{HERMES_WORKSPACE_DIR}` — "
+            f"{'present' if workspace_dir.exists() else 'not created yet'}")
         if nightly.exists():
-            mtime = int(nightly.stat().st_mtime * 1000)
-            st.markdown(f"**latest nightly review:** `{nightly}` — {_fmt_ts(mtime)}")
-            with st.container():
-                st.text(nightly.read_text(encoding="utf-8")[:1500])
+            st.markdown(f"last exported report: {_fmt_ts(int(nightly.stat().st_mtime * 1000))}")
         else:
-            not_available("latest nightly review", f"no file at {nightly} — run "
-                          "python -m poly_alpha_sniper.tools.export_agent_readonly")
+            not_available("last exported report", "run scripts\\export_agent_readonly.bat")
         if obsidian_note.exists():
-            mtime = int(obsidian_note.stat().st_mtime * 1000)
-            st.markdown(f"**agent_readonly export status:** present — {_fmt_ts(mtime)}")
+            st.markdown(f"last Obsidian-ready note generated: "
+                       f"{_fmt_ts(int(obsidian_note.stat().st_mtime * 1000))}")
         else:
-            not_available("agent_readonly export status", "exporter has not run yet")
-        if cfg.obsidian.enabled:
-            st.markdown(f"**Obsidian sync:** enabled → `{cfg.obsidian.vault_notes_dir}`")
-        else:
-            st.markdown("**Obsidian sync:** disabled (opt-in via `obsidian.enabled: true` in config.yaml)")
+            not_available("last Obsidian-ready note", "run scripts\\export_agent_readonly.bat")
+        st.markdown(
+            "**safety permissions (by design, once a Hermes agent is connected):**\n\n"
+            "- can read reports: **yes** (`D:\\claude\\agent_readonly\\poly_alpha_sniper\\`)\n"
+            "- can read Obsidian notes: **yes** (`D:\\TradingVault\\`)\n"
+            "- can access .env: **no**\n"
+            "- can place orders: **no**\n"
+            "- can cancel orders: **no**\n"
+            "- can modify strategy: **no**")
+
+    section_title("📋 Hermes Brief")
+    stale_db = bool(info["last_write_ms"] and (time.time() * 1000 - info["last_write_ms"]) > 120_000)
+    if demo:
+        not_available("Hermes Brief", "no live database")
+    else:
+        from poly_alpha_sniper.reporting.agent_export import build_hermes_brief
+        brief = build_hermes_brief(data, state, cfg, int(time.time() * 1000), extra_signals={
+            "duplicate_process": bool(check_single_instance().get("likely_duplicate")),
+            "stale_db": stale_db,
+            "stale_heartbeat": not hb_fresh,
+        })
+        hermes_brief_card(brief)
+    st.caption("Hermes Brief is computed live from the current DB/runtime state (same logic the "
+              "exporter uses) -- it does not require the exporter to have run first.")
 
     # ------------------------------------------------------------------
     # supplementary sections (kept from the original dashboard)

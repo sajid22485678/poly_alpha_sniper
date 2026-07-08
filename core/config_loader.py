@@ -348,7 +348,7 @@ class ObsidianConfig(BaseModel):
     vault. Never requires Obsidian to be installed -- this just copies a
     plain markdown file to a folder."""
     enabled: bool = False
-    vault_notes_dir: str = "D:/TradingVault/04_Hermes Reports"
+    vault_notes_dir: str = "D:/TradingVault/06_Poly_Hermes_Reports"
     overwrite_existing: bool = False
 
 

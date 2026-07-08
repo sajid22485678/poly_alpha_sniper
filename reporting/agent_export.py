@@ -127,6 +127,7 @@ def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int)
         "latest_status": build_latest_status(data, state, cfg, now_ms),
         "trade_summary": build_trade_summary(data, cfg, now_ms),
         "reject_breakdown": build_reject_breakdown_export(data, cfg, now_ms),
+        "hermes_brief": build_hermes_brief(data, state, cfg, now_ms),
         "latest_market_state": metrics.latest_market_state(preds, diag),
         "open_positions": data.recent("positions", 50),
         "recent_orders": data.orders(25),
@@ -160,6 +161,92 @@ def _recommendation(trades: int) -> str:
     return ("CONTINUE SHADOW — sample size is sufficient for a first statistical read, "
            "but no automated go-live recommendation is made. Live promotion requires "
            "manual review of the live-canary checklist (see prior optimization report).")
+
+
+def build_hermes_brief(data: DashboardData, state: dict, cfg, now_ms: int,
+                       extra_signals: Optional[dict] = None) -> dict:
+    """Structured verdict/blocker/anomaly/next-action summary -- the same
+    content as the daily report's Recommendation + anomalies sections, but as
+    data the dashboard's Hermes panel and any future Hermes agent can render
+    directly instead of re-parsing markdown.
+
+    extra_signals (all optional, dashboard-only checks the exporter itself
+    can't perform without psutil): duplicate_process, stuck_order, stale_db,
+    stale_heartbeat -- each bool. Missing/unknown signals are treated as
+    "not detected", never assumed true or false silently mislabeled; the
+    dashboard is responsible for passing what it actually checked.
+
+    Verdict rules (fixed, never overridden by config or sample size):
+    - any of duplicate_process/stuck_order/stale_db/stale_heartbeat -> the
+      verdict includes "INVESTIGATE BEFORE LIVE"
+    - errors > 0 -> the verdict includes "NOT LIVE READY"
+    - trades < MIN_TRADES_FOR_LIVE_REVIEW -> the verdict includes
+      "CONTINUE SHADOW — SAMPLE TOO SMALL"
+    - none of the above -> "CONTINUE SHADOW" (manual review still required
+      for any live promotion; this function never recommends going live)."""
+    extra_signals = extra_signals or {}
+    status = build_latest_status(data, state, cfg, now_ms)
+    if status["predictions"] == 0 and status["trades"] == 0 and not data.has_data:
+        return {"available": False, "reason": "no bot database found/readable"}
+
+    rejects = build_reject_breakdown_export(data, cfg, now_ms)
+    trades = status["trades"]
+
+    investigate_reasons = []
+    if extra_signals.get("duplicate_process"):
+        investigate_reasons.append("duplicate process detected")
+    if extra_signals.get("stuck_order"):
+        investigate_reasons.append("stuck/non-terminal order detected")
+    if extra_signals.get("stale_db"):
+        investigate_reasons.append("DB has not been written to recently")
+    if extra_signals.get("stale_heartbeat"):
+        investigate_reasons.append("heartbeat is stale")
+
+    verdict_parts = []
+    if investigate_reasons:
+        verdict_parts.append(f"INVESTIGATE BEFORE LIVE — {'; '.join(investigate_reasons)}")
+    if status["errors"] > 0:
+        verdict_parts.append(f"NOT LIVE READY — {status['errors']} error(s) present")
+    if trades < MIN_TRADES_FOR_LIVE_REVIEW:
+        verdict_parts.append(f"CONTINUE SHADOW — SAMPLE TOO SMALL ({trades}/{MIN_TRADES_FOR_LIVE_REVIEW})")
+    verdict = " | ".join(verdict_parts) if verdict_parts else "CONTINUE SHADOW"
+
+    buckets = rejects["buckets"]
+    actionable = {k: v for k, v in buckets.items() if k not in ("no_shock", "no_fresh_cex_price") and v}
+    if actionable:
+        top_blocker_key = max(actionable, key=actionable.get)
+        top_blocker = f"{top_blocker_key} ({actionable[top_blocker_key]})"
+    elif any(buckets.values()):
+        top_blocker_key = max(buckets, key=buckets.get)
+        top_blocker = f"{top_blocker_key} ({buckets[top_blocker_key]}) — likely genuine edge scarcity, not a bug"
+    else:
+        top_blocker = "none recorded"
+
+    anomalies = list(investigate_reasons)
+    if status["panic_active"] or status["kill_active"]:
+        anomalies.append("panic or kill-switch is currently active")
+    if status["heartbeat_age_ms"] is not None and status["heartbeat_age_ms"] > 60_000:
+        anomalies.append(f"heartbeat stale ({status['heartbeat_age_ms']}ms)")
+    anomaly = "; ".join(anomalies) if anomalies else "none observed"
+
+    if investigate_reasons:
+        next_action = "Investigate flagged runtime issues before taking any further readiness steps."
+    elif status["errors"] > 0:
+        next_action = "Review the errors table before continuing to accumulate shadow samples."
+    elif trades < MIN_TRADES_FOR_LIVE_REVIEW:
+        next_action = f"Keep running shadow_live until at least {MIN_TRADES_FOR_LIVE_REVIEW} completed trades exist."
+    else:
+        next_action = "Sample is sufficient for a first statistical read; manual canary checklist review still required."
+
+    live_readiness_status = "NOT READY" if (investigate_reasons or status["errors"] > 0
+                                            or trades < MIN_TRADES_FOR_LIVE_REVIEW) else \
+        "SAMPLE SUFFICIENT — MANUAL REVIEW REQUIRED"
+
+    return {
+        "available": True, "generated_ts_ms": now_ms, "verdict": verdict,
+        "top_blocker": top_blocker, "anomaly": anomaly, "next_action": next_action,
+        "live_readiness_status": live_readiness_status,
+    }
 
 
 def build_daily_report_md(data: DashboardData, state: dict, cfg, now_ms: int) -> str:

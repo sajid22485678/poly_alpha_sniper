@@ -327,5 +327,5 @@ agent_export:
 # unless overwrite_existing is explicitly set true.
 obsidian:
   enabled: false
-  vault_notes_dir: "D:/TradingVault/04_Hermes Reports"
+  vault_notes_dir: "D:/TradingVault/06_Poly_Hermes_Reports"
   overwrite_existing: false
