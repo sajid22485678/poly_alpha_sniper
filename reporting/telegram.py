@@ -134,7 +134,32 @@ def format_signal_5min(signal, aggression_mode: str, force_exit_s: float) -> str
         f"Force Exit Before: {force_exit_s:.0f}s pre-expiry")
 
 
-def format_rejected(signal, gate, reason: str) -> str:
+def format_rejected(signal, gate, reason: str, sizing_detail: Optional[dict] = None) -> str:
+    # A min-order-size rejection means the signal already cleared the alpha gate
+    # (edge/confidence/quality all passed) -- the real blocker is that this
+    # bankroll's max_trade_usd can't buy Polymarket's share minimum at the
+    # current ask. Reporting "edge/confidence" there would be actively wrong.
+    if sizing_detail:
+        import math
+        d = sizing_detail
+        suggested_max = math.ceil(d.get("min_required_usd", 0.0) * 100) / 100
+        return (
+            "⚠️ REJECTED — min order size\n"
+            f"Reason: {_e(reason)}\n"
+            f"Tier: {gate.tier.value}\n"
+            f"Market: {_e(signal.market.title)}\n"
+            f"Asset: {signal.asset}\n"
+            f"Edge: {signal.edge.edge_after_slippage:.3f}\n"
+            f"Confidence: {signal.fair.confidence:.0f}\n"
+            f"Min Required Shares: {d.get('min_shares', 0):.2f}\n"
+            f"Ask Price: {d.get('ask_price', 0):.4f}\n"
+            f"Min Required USD: ${d.get('min_required_usd', 0):.2f}\n"
+            f"Configured max_trade_usd: ${d.get('configured_max_trade_usd', 0):.2f}\n"
+            f"Proposed Size USD: ${d.get('proposed_usd', 0):.2f}\n"
+            f"Available Cash: ${d.get('available_cash_usd', 0):.2f}\n"
+            f"Shortfall USD: ${d.get('shortfall_usd', 0):.2f}\n"
+            f"What Must Improve: Increase max_trade_usd to at least ${suggested_max:.2f} "
+            f"or skip due to small-bankroll mode.")
     improve = ", ".join(gate.failed_checks or gate.soft_penalties) or "edge/confidence"
     return (
         "⚠️ REJECTED\n"

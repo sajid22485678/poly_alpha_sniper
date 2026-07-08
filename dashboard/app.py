@@ -215,6 +215,13 @@ def main() -> None:
                        "bot to enable (dashboard-side data below still live).")
         scrollable_table(diag_rows[:30], "shadow_diagnostics (latest blocks)")
         st.write("reject breakdown (predictions):", reject_counts)
+        if min_order_blocked:
+            st.caption("Min-order rejections mean the signal already had edge/confidence — "
+                      "the blocker is Polymarket's share minimum vs. this bankroll's "
+                      "max_trade_usd, not signal quality.")
+            scrollable_table(
+                metrics.min_order_sizing_rows(preds, cfg.risk.max_trade_usd),
+                "Min-order sizing detail (why each was infeasible)")
 
     with st.expander("🎚️ Tiers & gate results", expanded=False):
         tier_dist = metrics.tier_distribution(preds)

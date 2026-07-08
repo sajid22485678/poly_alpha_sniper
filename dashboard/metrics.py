@@ -128,6 +128,38 @@ def reject_breakdown(prediction_rows: list[dict], top: int = 8) -> dict[str, int
     return dict(counts.most_common(top))
 
 
+def min_order_sizing_rows(prediction_rows: list[dict], max_trade_usd: float,
+                          default_min_shares: float = 5.0, limit: int = 20) -> list[dict]:
+    """Per-signal breakdown for REJECTED_MIN_ORDER_SIZE_TOO_HIGH rows: why the
+    order was actually infeasible (Polymarket's share minimum vs. this
+    bankroll's max_trade_usd), not "edge/confidence must improve" -- these
+    signals already had edge/confidence, that's why they reached this gate.
+    Uses only columns already written to `predictions` (no schema change);
+    ask is approximated by polymarket_price, which is the market price read
+    at signal time."""
+    rows = []
+    for r in prediction_rows:
+        if "MIN_ORDER" not in str(r.get("reject_reason") or ""):
+            continue
+        ask = float(r.get("polymarket_price") or 0)
+        if ask <= 0:
+            continue
+        min_required_usd = round(default_min_shares * ask, 4)
+        shortfall = round(max(0.0, min_required_usd - max_trade_usd), 4)
+        rows.append({
+            "ts_ms": r.get("ts_ms"), "asset": r.get("asset"),
+            "market_title": r.get("market_title"), "tier": r.get("tier"),
+            "edge": r.get("edge_after_slippage") or r.get("edge"),
+            "confidence": r.get("confidence"),
+            "ask_price": round(ask, 4), "min_shares": default_min_shares,
+            "min_required_usd": min_required_usd,
+            "configured_max_trade_usd": max_trade_usd,
+            "shortfall_usd": shortfall,
+        })
+    rows.sort(key=lambda r: r.get("ts_ms") or 0, reverse=True)
+    return rows[:limit]
+
+
 def frequency_vs_target(exit_rows: list[dict], target_per_hour: float,
                         max_per_hour: float) -> dict:
     actual = per_hour(exit_rows)

@@ -697,7 +697,14 @@ class App:
             self.freq.record_reject(market.market_id)
             if self.cfg.telegram.send_rejected_close_opportunities and gate.score >= 60:
                 from poly_alpha_sniper.reporting.telegram import format_rejected
-                await self.telegram.send(format_rejected(signal, gate, reject_reason))
+                # risk/validation (not gate) carry the sizing_detail when the true
+                # blocker is REJECTED_MIN_ORDER_SIZE_TOO_HIGH -- gate.failed_checks
+                # is empty in that case (the signal cleanly passed the alpha gate),
+                # which used to make the message wrongly say "edge/confidence".
+                sizing_source = validation if validation.reject_reason == RejectReason.MIN_ORDER_SIZE_TOO_HIGH \
+                    else (risk if risk.reject_reason == RejectReason.MIN_ORDER_SIZE_TOO_HIGH else None)
+                await self.telegram.send(format_rejected(signal, gate, reject_reason,
+                                                          sizing_detail=sizing_source.sizing_detail if sizing_source else None))
             return
         if decision == Decision.WAIT:
             return

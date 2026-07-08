@@ -13,6 +13,23 @@ from poly_alpha_sniper.core.contracts import (
 from poly_alpha_sniper.microstructure.slippage_model import estimate_slippage_bps
 
 
+def _min_order_sizing_detail(req: OrderRequest, portfolio: PortfolioSnapshot, cfg,
+                             ask: float, min_shares: float) -> dict:
+    """Numbers needed to explain a REJECTED_MIN_ORDER_SIZE_TOO_HIGH rejection
+    without implying edge/confidence must improve -- the actual blocker here is
+    Polymarket's share minimum vs. this bankroll's configured max_trade_usd."""
+    min_required_usd = round(min_shares * ask, 4) if ask else 0.0
+    return {
+        "min_shares": round(min_shares, 4),
+        "ask_price": round(ask, 4) if ask else 0.0,
+        "min_required_usd": min_required_usd,
+        "configured_max_trade_usd": cfg.risk.max_trade_usd,
+        "proposed_usd": round(req.size_usd, 4),
+        "available_cash_usd": round(portfolio.available_cash_usd, 4),
+        "shortfall_usd": round(max(0.0, min_required_usd - req.size_usd), 4),
+    }
+
+
 def validate_order(req: OrderRequest, book: Optional[OrderbookSnapshot],
                    market: MarketInfo, portfolio: PortfolioSnapshot, cfg,
                    now_ms: int, owned_shares: float = 0.0) -> RiskDecision:
@@ -46,14 +63,19 @@ def validate_order(req: OrderRequest, book: Optional[OrderbookSnapshot],
     checks.append("sizes_positive")
 
     if req.side.is_buy:
+        ask = book.best_ask if book.best_ask is not None else req.price
         if req.size_usd < market.min_order_size_usd - 1e-9:
-            return RiskDecision(False, 0.0, RejectReason.MIN_ORDER_SIZE_TOO_HIGH, checks)
+            detail = _min_order_sizing_detail(req, portfolio, cfg, ask,
+                                              min_shares=market.min_order_size_usd / ask if ask else 0.0)
+            return RiskDecision(False, 0.0, RejectReason.MIN_ORDER_SIZE_TOO_HIGH, checks,
+                                sizing_detail=detail)
         # Polymarket minimums are share-denominated (typically 5 shares):
         # enforce the TRUE minimum against this order's share count.
         min_shares = float(market.raw.get("min_order_shares") or 0)
         if min_shares > 0 and req.size_shares < min_shares - 1e-9:
+            detail = _min_order_sizing_detail(req, portfolio, cfg, ask, min_shares=min_shares)
             return RiskDecision(False, 0.0, RejectReason.MIN_ORDER_SIZE_TOO_HIGH,
-                                checks + [f"needs >= {min_shares} shares"])
+                                checks + [f"needs >= {min_shares} shares"], sizing_detail=detail)
         checks.append("min_order_ok")
         if req.size_usd > portfolio.available_cash_usd + 1e-9:
             return RiskDecision(False, 0.0, RejectReason.INSUFFICIENT_CASH, checks)

@@ -472,6 +472,11 @@ class RiskDecision:
     size_usd: float = 0.0
     reject_reason: str = ""
     checks: list[str] = field(default_factory=list)
+    # Populated for REJECTED_MIN_ORDER_SIZE_TOO_HIGH so the true blocker (Polymarket's
+    # share minimum vs. small-bankroll sizing) can be reported instead of implying
+    # edge/confidence needs to improve. Keys: min_shares, ask_price, min_required_usd,
+    # configured_max_trade_usd, proposed_usd, available_cash_usd, shortfall_usd.
+    sizing_detail: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

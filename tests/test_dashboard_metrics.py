@@ -87,3 +87,28 @@ def test_open_positions_split():
     rows = [{"outcome": "YES"}, {"outcome": "NO"}, {"outcome": "YES"}]
     yes, no = metrics.open_positions_split(rows)
     assert len(yes) == 2 and len(no) == 1
+
+
+def test_min_order_sizing_rows_computes_shortfall_from_existing_columns():
+    preds = [
+        {"ts_ms": 2000, "asset": "ETH", "market_title": "ETH test", "tier": "A_PLUS",
+         "edge_after_slippage": 0.35, "confidence": 95.0, "polymarket_price": 0.38,
+         "decision": "REJECT", "reject_reason": "REJECTED_MIN_ORDER_SIZE_TOO_HIGH"},
+        {"ts_ms": 1000, "asset": "SOL", "market_title": "SOL test", "tier": "A",
+         "edge_after_slippage": 0.66, "confidence": 95.0, "polymarket_price": 0.25,
+         "decision": "REJECT", "reject_reason": "REJECTED_MIN_ORDER_SIZE_TOO_HIGH"},
+        {"ts_ms": 1500, "asset": "BTC", "market_title": "BTC test", "tier": "C",
+         "edge_after_slippage": 0.01, "confidence": 60.0, "polymarket_price": 0.7,
+         "decision": "REJECT", "reject_reason": "hard reject: book_fresh"},
+    ]
+    rows = metrics.min_order_sizing_rows(preds, max_trade_usd=1.0)
+    assert len(rows) == 2  # the book_fresh reject is excluded
+    assert rows[0]["asset"] == "ETH"  # sorted newest first
+    assert rows[0]["min_required_usd"] == pytest.approx(1.90)   # 5 * 0.38
+    assert rows[0]["shortfall_usd"] == pytest.approx(0.90)      # 1.90 - 1.0
+    assert rows[1]["min_required_usd"] == pytest.approx(1.25)   # 5 * 0.25
+    assert rows[1]["shortfall_usd"] == pytest.approx(0.25)      # 1.25 - 1.0
+
+
+def test_min_order_sizing_rows_empty_when_no_rejects():
+    assert metrics.min_order_sizing_rows([], max_trade_usd=1.0) == []

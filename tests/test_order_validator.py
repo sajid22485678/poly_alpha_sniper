@@ -1,3 +1,5 @@
+import pytest
+
 from poly_alpha_sniper.core.contracts import (
     BookLevel, OrderbookSnapshot, OrderRequest, OrderSide, RejectReason)
 from poly_alpha_sniper.execution.order_validator import validate_order
@@ -60,6 +62,29 @@ def test_min_order_size_rejected():
     m.min_order_size_usd = 5.0
     d = _validate(m=m)
     assert d.reject_reason == RejectReason.MIN_ORDER_SIZE_TOO_HIGH
+    assert d.sizing_detail["ask_price"] == pytest.approx(0.50)
+    assert d.sizing_detail["min_required_usd"] > 0
+
+
+def test_min_order_share_floor_rejected_includes_full_sizing_detail():
+    """The practically-firing case: Polymarket's share minimum (config.yaml
+    discovery default 5) vs. this bankroll's $1 max_trade_usd. Every field the
+    small-bankroll diagnostic report needs must be present and correct -- this
+    used to surface only as a bare REJECTED_MIN_ORDER_SIZE_TOO_HIGH string with
+    no explanation of why."""
+    m = market()
+    m.raw = {"min_order_shares": 5}
+    # default _req(): price=0.50, shares=2.0, usd=1.0 -> 2.0 shares < 5 required
+    d = _validate(m=m)
+    assert d.reject_reason == RejectReason.MIN_ORDER_SIZE_TOO_HIGH
+    detail = d.sizing_detail
+    assert detail["min_shares"] == 5
+    assert detail["ask_price"] == pytest.approx(0.50)
+    assert detail["min_required_usd"] == pytest.approx(2.50)          # 5 * 0.50
+    assert detail["configured_max_trade_usd"] == cfg().risk.max_trade_usd
+    assert detail["proposed_usd"] == pytest.approx(1.0)
+    assert detail["available_cash_usd"] == pytest.approx(10.0)
+    assert detail["shortfall_usd"] == pytest.approx(1.50)             # 2.50 - 1.0
 
 
 def test_insufficient_cash_rejected():
