@@ -32,6 +32,10 @@ class OrderManager:
         self.retry = retry_policy or RetryPolicy()
         self.on_update = on_update
         self.orders: dict[str, OrderRecord] = {}
+        # asyncio only holds a WEAK reference to tasks; an unreferenced task can be
+        # garbage-collected mid-sleep, silently dropping the scheduled TIF cancel.
+        # Keep a strong reference here until the task finishes.
+        self._pending_cancel_tasks: set = set()
 
     async def _emit(self, record: OrderRecord) -> None:
         if self.on_update is not None:
@@ -113,7 +117,9 @@ class OrderManager:
                 await self.cancel(record.order_id, note="tif expired")
 
         try:
-            asyncio.get_running_loop().create_task(_cancel_later())
+            task = asyncio.get_running_loop().create_task(_cancel_later())
+            self._pending_cancel_tasks.add(task)
+            task.add_done_callback(self._pending_cancel_tasks.discard)
         except RuntimeError:
             pass  # no loop (sync backtest step) — backtest cancels explicitly
 

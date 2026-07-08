@@ -157,7 +157,8 @@ class App:
         # Execution client per mode
         self.client = self._build_client()
         self.lifecycle = OrderLifecycle()
-        self.order_manager = OrderManager(self.cfg, self.clock, self.client, self.lifecycle)
+        self.order_manager = OrderManager(self.cfg, self.clock, self.client, self.lifecycle,
+                                          on_update=self._on_order_update)
         self.sell_executor = SellExecutor(self.cfg, self.clock, self.order_manager)
         self.cancel_manager = CancelManager(self.order_manager)
         self.emergency = EmergencyExit(self.cfg, self.order_manager, self.sell_executor, self.cancel_manager)
@@ -211,6 +212,7 @@ class App:
         self.process_lock.acquire(self.mode.value)
 
         try:
+            await self._reconcile_stale_shadow_orders()
             pf = await run_preflight(self.cfg, self.secrets, offline_ok=offline_ok)
             try:
                 await self.telegram.send(format_preflight(pf), critical=not pf.ok)
@@ -283,6 +285,53 @@ class App:
             return False
         return True
 
+    async def _on_order_update(self, record) -> None:
+        """Persist post-insert order state transitions (e.g. TIF cancel, stale-sweep
+        cancel). The initial `_insert("orders", ...)` in `_execute_entry`/`_execute_exit`
+        captures the order at submit time only; without this, any later state change
+        (OPEN -> CANCELLED, fills completing async) never reaches the DB and the row
+        is left showing a stale, misleading state forever."""
+        try:
+            self.store.execute(
+                "UPDATE orders SET state=?, filled_shares=?, avg_fill_price=?, "
+                "updated_ts_ms=?, error=?, exchange_order_id=? WHERE order_id=?",
+                (record.state.value if hasattr(record.state, "value") else str(record.state),
+                 record.filled_shares, record.avg_fill_price, self.clock.now_ms(),
+                 record.error or "", record.exchange_order_id or "", record.order_id))
+        except Exception as exc:
+            log.error("order_update_persist_failed", extra={"extra": {
+                "order_id": record.order_id, "error": repr(exc)}})
+
+    async def _reconcile_stale_shadow_orders(self) -> None:
+        """Startup safety net -- see storage/order_reconciliation.py for why this
+        exists. Backs up the DB first, never deletes rows, idempotent on re-run."""
+        from poly_alpha_sniper.storage.order_reconciliation import reconcile_stale_orders
+        try:
+            result = reconcile_stale_orders(
+                self.store, self.backup_manager, self.clock.now_ms(), insert_fn=self._insert)
+        except Exception as exc:
+            log.error("stale_order_reconciliation_failed", extra={"extra": {"error": repr(exc)}})
+            return
+        if result["touched"]:
+            log.warning("stale_orders_reconciled", extra={"extra": {
+                "count": len(result["touched"]), "order_ids": result["touched"],
+                "backup": result["backup_path"]}})
+
+    async def _order_hygiene_loop(self) -> None:
+        """Defense-in-depth: periodically cancel any order still resting well past
+        its intended time-in-force, in case the primary per-order TIF-cancel timer
+        (OrderManager._schedule_tif_cancel) didn't fire. Runs against the LIVE
+        in-memory OrderManager, so this also persists to the DB via on_update."""
+        sweep_older_than_ms = max(5000, self.cfg.execution_pricing.cancel_if_not_filled_ms * 5)
+        while not self._stop.is_set():
+            await asyncio.sleep(5.0)
+            try:
+                n = await self.cancel_manager.cancel_stale(sweep_older_than_ms, self.clock.now_ms())
+                if n:
+                    log.warning("order_hygiene_cancelled_stale", extra={"extra": {"count": n}})
+            except Exception as exc:
+                log.error("order_hygiene_error", extra={"extra": {"error": repr(exc)}})
+
     async def shutdown(self) -> None:
         self._stop.set()
         for t in self._tasks:
@@ -350,6 +399,7 @@ class App:
         self._tasks.append(asyncio.create_task(self._heartbeat_loop()))
         self._tasks.append(asyncio.create_task(self._backup_loop()))
         self._tasks.append(asyncio.create_task(self._health_loop()))
+        self._tasks.append(asyncio.create_task(self._order_hygiene_loop()))
 
         await self.telegram.send(
             f"🟢 poly_alpha_sniper started | mode={self.mode.value} | dry_run={self.cfg.mode.dry_run} "
