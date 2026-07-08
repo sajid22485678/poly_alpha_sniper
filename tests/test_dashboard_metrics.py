@@ -112,3 +112,111 @@ def test_min_order_sizing_rows_computes_shortfall_from_existing_columns():
 
 def test_min_order_sizing_rows_empty_when_no_rejects():
     assert metrics.min_order_sizing_rows([], max_trade_usd=1.0) == []
+
+
+# ---------------------------------------------------------------------------
+# Premium dashboard additions
+# ---------------------------------------------------------------------------
+
+def test_today_pnl_only_sums_current_utc_day():
+    now = 1_800_000_000_000  # arbitrary fixed "now" for determinism
+    day_start = now - (now % 86_400_000)
+    rows = [
+        {"ts_ms": day_start - 1000, "realized_pnl_usd": 5.0},   # yesterday: excluded
+        {"ts_ms": day_start + 1000, "realized_pnl_usd": 0.5},   # today
+        {"ts_ms": now, "realized_pnl_usd": 0.25},               # today
+    ]
+    assert metrics.today_pnl(rows, now_ms=now) == pytest.approx(0.75)
+
+
+def test_today_pnl_empty_rows():
+    assert metrics.today_pnl([], now_ms=1_800_000_000_000) == 0.0
+
+
+def test_all_time_pnl_sums_everything():
+    rows = [{"realized_pnl_usd": 1.0}, {"realized_pnl_usd": -0.3}, {"realized_pnl_usd": 0.2}]
+    assert metrics.all_time_pnl(rows) == pytest.approx(0.9)
+
+
+def test_unified_reject_breakdown_maps_both_stages_to_canonical_buckets():
+    diag_rows = [
+        {"reason": "rejected_by_no_shock"}, {"reason": "rejected_by_no_shock"},
+        {"reason": "rejected_by_no_fresh_cex_price"},
+        {"reason": "rejected_by_stale_book"},
+    ]
+    preds = [
+        {"decision": "REJECT", "reject_reason": "REJECTED_MAX_EXPOSURE"},
+        {"decision": "REJECT", "reject_reason": "REJECTED_MIN_ORDER_SIZE_TOO_HIGH"},
+        {"decision": "REJECT", "reject_reason": "hard reject: spread_ok"},
+        {"decision": "REJECT", "reject_reason": "hard reject: book_fresh"},
+        {"decision": "SHADOW_ONLY", "reject_reason": ""},  # not a reject -- excluded
+    ]
+    out = metrics.unified_reject_breakdown(diag_rows, preds)
+    b = out["buckets"]
+    assert b["no_shock"] == 2
+    assert b["no_fresh_cex_price"] == 1
+    assert b["stale_book"] == 2          # 1 from diag + 1 from "hard reject: book_fresh"
+    assert b["max_exposure"] == 1
+    assert b["min_order"] == 1
+    assert b["spread"] == 1
+    assert out["total"] == 8
+
+
+def test_unified_reject_breakdown_never_drops_unmapped_reasons():
+    diag_rows = [{"reason": "rejected_by_price_window_not_ready"}]
+    out = metrics.unified_reject_breakdown(diag_rows, [])
+    assert out["buckets"]["other"] == 1
+    assert out["total"] == 1
+
+
+def test_unified_reject_breakdown_empty_inputs():
+    out = metrics.unified_reject_breakdown([], [])
+    assert out["total"] == 0
+    assert all(v == 0 for v in out["buckets"].values())
+
+
+def test_latest_market_state_unavailable_when_no_predictions():
+    assert metrics.latest_market_state([]) == {"available": False}
+
+
+def test_latest_market_state_uses_most_recent_row_and_diag():
+    preds = [
+        {"ts_ms": 1000, "asset": "BTC", "market_title": "old", "decision": "REJECT"},
+        {"ts_ms": 5000, "asset": "ETH", "market_title": "ETH Up or Down",
+         "direction": "UP", "polymarket_price": 0.42, "fair_probability": 0.55,
+         "edge_after_slippage": 0.13, "confidence": 90, "tier": "A",
+         "decision": "APPROVE", "reject_reason": ""},
+    ]
+    diag = {"cex_selected_source": {"ETH": "okx"}, "cex_freshest_age_ms": {"ETH": 120},
+           "latest_prices": {"ETH": 1730.5}, "fresh_books": 18, "total_books": 30,
+           "last_block_reason": "SOL:rejected_by_no_shock"}
+    out = metrics.latest_market_state(preds, diag)
+    assert out["available"] is True
+    assert out["asset"] == "ETH"  # picked ts_ms=5000, not the older BTC row
+    assert out["decision_label"] == "ENTER"
+    assert out["cex_selected_source"] == "okx"
+    assert out["cex_price"] == pytest.approx(1730.5)
+
+
+def test_latest_market_state_decision_labels():
+    base = {"ts_ms": 1, "asset": "BTC"}
+    assert metrics.latest_market_state([{**base, "decision": "REJECT"}])["decision_label"] == "SKIP"
+    assert metrics.latest_market_state([{**base, "decision": "WAIT"}])["decision_label"] == "WAIT"
+    assert metrics.latest_market_state([{**base, "decision": "SHADOW_ONLY"}])["decision_label"] == "ENTER (shadow)"
+
+
+def test_min_order_summary_counts_and_latest():
+    preds = [
+        {"ts_ms": 1000, "asset": "ETH", "polymarket_price": 0.38,
+         "decision": "REJECT", "reject_reason": "REJECTED_MIN_ORDER_SIZE_TOO_HIGH"},
+        {"ts_ms": 2000, "asset": "SOL", "polymarket_price": 0.25,
+         "decision": "REJECT", "reject_reason": "REJECTED_MIN_ORDER_SIZE_TOO_HIGH"},
+    ]
+    out = metrics.min_order_summary(preds, max_trade_usd=1.0)
+    assert out["blocked_count"] == 2
+    assert out["latest"]["asset"] == "SOL"  # newest ts_ms
+
+
+def test_min_order_summary_empty_when_none_blocked():
+    out = metrics.min_order_summary([], max_trade_usd=1.0)
+    assert out == {"blocked_count": 0, "latest": None}

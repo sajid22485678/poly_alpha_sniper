@@ -336,6 +336,22 @@ class RuntimeConfig(BaseModel):
     keep_backups: int = 20
 
 
+class AgentExportConfig(BaseModel):
+    """Read-only sanitized export for Hermes Agent / Obsidian consumption.
+    Never reads .env, never writes to bot config, never touches orders."""
+    enabled: bool = True
+    output_dir: str = "D:/claude/agent_readonly/poly_alpha_sniper"
+
+
+class ObsidianConfig(BaseModel):
+    """Optional, disabled-by-default copy of the daily note into an Obsidian
+    vault. Never requires Obsidian to be installed -- this just copies a
+    plain markdown file to a folder."""
+    enabled: bool = False
+    vault_notes_dir: str = "D:/TradingVault/04_Hermes Reports"
+    overwrite_existing: bool = False
+
+
 class Config(BaseModel):
     mode: ModeConfig = Field(default_factory=ModeConfig)
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
@@ -371,6 +387,8 @@ class Config(BaseModel):
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    agent_export: AgentExportConfig = Field(default_factory=AgentExportConfig)
+    obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
 
     @property
     def trading_mode(self) -> TradingMode:

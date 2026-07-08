@@ -314,3 +314,18 @@ runtime:
   backup_database_enabled: true
   backup_interval_minutes: 30
   keep_backups: 20
+
+# Read-only sanitized export for a future Hermes Agent / Obsidian integration.
+# Never reads .env, never writes bot config, never touches orders.
+agent_export:
+  enabled: true
+  output_dir: "D:/claude/agent_readonly/poly_alpha_sniper"
+
+# Optional copy of the daily note into an Obsidian vault. Disabled by
+# default -- does not require Obsidian to be installed, it's just a
+# date-stamped markdown file copy. Existing notes are never overwritten
+# unless overwrite_existing is explicitly set true.
+obsidian:
+  enabled: false
+  vault_notes_dir: "D:/TradingVault/04_Hermes Reports"
+  overwrite_existing: false

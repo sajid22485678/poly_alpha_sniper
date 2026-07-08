@@ -1,7 +1,10 @@
 """Pure metric computations for the dashboard (NO streamlit imports here)."""
 from __future__ import annotations
 
+import time
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
+from typing import Optional
 
 
 def _pnls(exit_rows: list[dict]) -> list[float]:
@@ -187,3 +190,134 @@ def aggression_timeline(prediction_rows: list[dict]) -> list[dict]:
             out.append({"ts_ms": r.get("ts_ms"), "mode": mode})
             last = mode
     return out
+
+
+# ---------------------------------------------------------------------------
+# Premium dashboard / agent-export additions
+# ---------------------------------------------------------------------------
+
+def today_pnl(pnl_rows: list[dict], now_ms: Optional[int] = None) -> float:
+    """Realized PnL delta for the current UTC calendar day only. now_ms is
+    injectable for tests; real callers omit it and get wall-clock time."""
+    now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
+    day_start = int(datetime.fromtimestamp(now_ms / 1000, tz=timezone.utc)
+                    .replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+    todays = [float(r.get("realized_pnl_usd") or 0) for r in pnl_rows
+             if (r.get("ts_ms") or 0) >= day_start]
+    return round(sum(todays), 4)
+
+
+def all_time_pnl(pnl_rows: list[dict]) -> float:
+    return round(sum(float(r.get("realized_pnl_usd") or 0) for r in pnl_rows), 4)
+
+
+# Canonical 7-bucket taxonomy the premium dashboard reports against. Maps both
+# pipeline stages: shadow_diagnostics.reason (pre-signal) and
+# predictions.reject_reason (post-signal, from the risk/order-validator gates).
+_REJECT_BUCKET_RULES: list[tuple[str, str]] = [
+    ("no_shock", "no_shock"),
+    ("no_fresh_cex_price", "no_fresh_cex_price"),
+    ("stale_cex", "no_fresh_cex_price"),
+    ("stale_book", "stale_book"),
+    ("book_fresh", "stale_book"),          # hard-reject check name for a stale/missing book
+    ("orderbook", "stale_book"),
+    ("spread", "spread"),
+    ("max_exposure", "max_exposure"),
+    ("max_open_positions", "max_exposure"),
+    ("min_order", "min_order"),
+    ("edge", "edge"),                      # keep last: "edge" also substrings some other reasons
+]
+CANONICAL_REJECT_BUCKETS = ("no_shock", "no_fresh_cex_price", "stale_book",
+                            "spread", "edge", "max_exposure", "min_order")
+
+
+def _canonical_bucket(raw_reason: str) -> str:
+    low = raw_reason.lower()
+    for needle, bucket in _REJECT_BUCKET_RULES:
+        if needle in low:
+            return bucket
+    return "other"
+
+
+def unified_reject_breakdown(diag_rows: list[dict], prediction_rows: list[dict]) -> dict:
+    """Merges the two rejection stages (shadow_diagnostics pre-signal blocks +
+    predictions post-signal rejects) into the 7 canonical buckets the premium
+    dashboard displays, plus an honest 'other' bucket for anything that
+    doesn't map cleanly -- counts are never silently dropped. Also returns the
+    raw reason strings per bucket for drill-down."""
+    counts: dict[str, int] = {b: 0 for b in CANONICAL_REJECT_BUCKETS}
+    counts["other"] = 0
+    raw_by_bucket: dict[str, Counter] = defaultdict(Counter)
+
+    for r in diag_rows:
+        reason = str(r.get("reason") or "")
+        if not reason:
+            continue
+        bucket = _canonical_bucket(reason)
+        counts[bucket] = counts.get(bucket, 0) + 1
+        raw_by_bucket[bucket][reason] += 1
+
+    for r in prediction_rows:
+        if r.get("decision") != "REJECT":
+            continue
+        reason = str(r.get("reject_reason") or "")
+        if not reason:
+            continue
+        bucket = _canonical_bucket(reason)
+        counts[bucket] = counts.get(bucket, 0) + 1
+        raw_by_bucket[bucket][reason] += 1
+
+    return {
+        "buckets": counts,
+        "raw_by_bucket": {k: dict(v) for k, v in raw_by_bucket.items()},
+        "total": sum(counts.values()),
+    }
+
+
+_DECISION_LABELS = {"APPROVE": "ENTER", "SHADOW_ONLY": "ENTER (shadow)",
+                    "WAIT": "WAIT", "REJECT": "SKIP"}
+
+
+def latest_market_state(prediction_rows: list[dict], diag: Optional[dict] = None) -> dict:
+    """Best-effort snapshot of 'what is the bot looking at right now', built
+    entirely from the most recent predictions row plus live runtime
+    diagnostics. Returns explicit None/'' for anything not actually recorded
+    -- callers must render those as 'not available', never fabricate a value."""
+    diag = diag or {}
+    if not prediction_rows:
+        return {"available": False}
+    latest = max(prediction_rows, key=lambda r: r.get("ts_ms") or 0)
+    asset = latest.get("asset")
+    decision_raw = latest.get("decision")
+    return {
+        "available": True,
+        "ts_ms": latest.get("ts_ms"),
+        "asset": asset,
+        "market_title": latest.get("market_title"),
+        "direction": latest.get("direction"),
+        "signal_side_price": latest.get("polymarket_price"),
+        "fair_probability": latest.get("fair_probability"),
+        "edge": latest.get("edge_after_slippage") or latest.get("edge"),
+        "confidence": latest.get("confidence"),
+        "tier": latest.get("tier"),
+        "decision_raw": decision_raw,
+        "decision_label": _DECISION_LABELS.get(str(decision_raw), "SKIP"),
+        "reject_reason": latest.get("reject_reason") or None,
+        "cex_selected_source": (diag.get("cex_selected_source") or {}).get(asset),
+        "cex_freshest_age_ms": (diag.get("cex_freshest_age_ms") or {}).get(asset),
+        "cex_price": (diag.get("latest_prices") or {}).get(asset),
+        "fresh_books": diag.get("fresh_books"),
+        "total_books": diag.get("total_books"),
+        "last_block_reason": diag.get("last_block_reason"),
+    }
+
+
+def min_order_summary(prediction_rows: list[dict], max_trade_usd: float) -> dict:
+    """Aggregate view for the min-order sizing panel: how many rejects, and
+    the most recent one's full breakdown. Empty/zeroed when none exist --
+    never fabricated."""
+    rows = min_order_sizing_rows(prediction_rows, max_trade_usd, limit=1)
+    if not rows:
+        return {"blocked_count": 0, "latest": None}
+    all_rows = min_order_sizing_rows(prediction_rows, max_trade_usd, limit=10_000)
+    return {"blocked_count": len(all_rows), "latest": rows[0]}

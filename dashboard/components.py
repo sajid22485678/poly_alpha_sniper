@@ -46,3 +46,36 @@ def scrollable_table(rows: list[dict], title: str = "", limit: int = 50) -> None
 def warning_banner(text: str) -> None:
     import streamlit as st
     st.markdown(f'<div class="demo-banner">{text}</div>', unsafe_allow_html=True)
+
+
+def section_title(text: str) -> None:
+    import streamlit as st
+    st.markdown(f'<div class="pas-section-title">{text}</div>', unsafe_allow_html=True)
+
+
+def hero_header(title: str, subtitle: str) -> None:
+    import streamlit as st
+    st.markdown(f'<div class="pas-hero"><p class="pas-hero-title">{title}</p>'
+               f'<p class="pas-hero-sub">{subtitle}</p></div>', unsafe_allow_html=True)
+
+
+def not_implemented(label: str) -> None:
+    """Honest placeholder for a feature that doesn't exist yet -- never
+    fabricate a value in its place."""
+    import streamlit as st
+    st.markdown(f'<span class="pas-not-implemented">{label}: not implemented</span>',
+               unsafe_allow_html=True)
+
+
+def not_available(label: str, reason: str = "") -> None:
+    """Honest placeholder for data that isn't present right now (as opposed
+    to a feature that doesn't exist -- see not_implemented)."""
+    import streamlit as st
+    suffix = f" ({reason})" if reason else ""
+    st.markdown(f'<span class="pas-not-available">{label}: not available{suffix}</span>',
+               unsafe_allow_html=True)
+
+
+def disclaimer(text: str) -> None:
+    import streamlit as st
+    st.markdown(f'<div class="pas-disclaimer">{text}</div>', unsafe_allow_html=True)
