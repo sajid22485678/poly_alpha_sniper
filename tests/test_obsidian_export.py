@@ -4,7 +4,8 @@ filenames, does not require Obsidian to be installed."""
 from pathlib import Path
 
 from poly_alpha_sniper.core.config_loader import load_config
-from poly_alpha_sniper.reporting.obsidian_export import copy_note_to_vault, dated_note_filename
+from poly_alpha_sniper.reporting.obsidian_export import (
+    backup_before_overwrite, copy_note_to_vault, dated_note_filename)
 
 NOW_MS = 1_752_000_000_000  # 2025-07-08T18:40:00Z
 
@@ -87,6 +88,64 @@ def test_overwrites_when_explicitly_configured(tmp_path):
 
     assert result["copied"] is True
     assert existing.read_text(encoding="utf-8") == "# v2"
+
+
+def test_overwrite_backs_up_the_prior_note_first(tmp_path):
+    """'allowed to overwrite' must never mean 'allowed to destroy without a
+    copy' -- even when overwrite_existing=True, the old note is preserved."""
+    src = tmp_path / "note.md"
+    src.write_text("# v2", encoding="utf-8")
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    existing = vault / dated_note_filename(NOW_MS)
+    existing.write_text("# v1 -- original content", encoding="utf-8")
+    cfg = _cfg(vault, enabled=True, overwrite=True)
+
+    result = copy_note_to_vault(str(src), cfg, now_ms=NOW_MS)
+
+    assert result["copied"] is True
+    assert result["backup_path"] is not None
+    backup = Path(result["backup_path"])
+    assert backup.exists()
+    assert backup.read_text(encoding="utf-8") == "# v1 -- original content"
+
+
+def test_backup_before_overwrite_returns_none_when_nothing_to_back_up(tmp_path):
+    result = backup_before_overwrite(str(tmp_path / "does_not_exist.md"))
+    assert result is None
+
+
+def test_backup_before_overwrite_creates_timestamped_copy(tmp_path):
+    original = tmp_path / "Poly Alpha Home.md"
+    original.write_text("# Home\noriginal content", encoding="utf-8")
+
+    backup_path = backup_before_overwrite(str(original), now_ms=NOW_MS)
+
+    assert backup_path is not None
+    backup = Path(backup_path)
+    assert backup.exists()
+    assert backup != original
+    assert backup.read_text(encoding="utf-8") == "# Home\noriginal content"
+    assert "backup" in backup.name
+    assert "2025-07-08" in backup.name or "2025" in backup.name  # date-stamped
+
+
+def test_backup_before_overwrite_uses_separate_backup_dir_when_given(tmp_path):
+    original = tmp_path / "note.md"
+    original.write_text("content", encoding="utf-8")
+    archive = tmp_path / "99_Poly_Archive"
+
+    backup_path = backup_before_overwrite(str(original), backup_dir=str(archive), now_ms=NOW_MS)
+
+    assert Path(backup_path).parent == archive
+    assert archive.exists()
+
+
+def test_backup_before_overwrite_does_not_touch_original(tmp_path):
+    original = tmp_path / "note.md"
+    original.write_text("untouched", encoding="utf-8")
+    backup_before_overwrite(str(original), now_ms=NOW_MS)
+    assert original.read_text(encoding="utf-8") == "untouched"
 
 
 def test_config_defaults_are_safe():

@@ -11,8 +11,8 @@ import pytest
 from poly_alpha_sniper.core.config_loader import load_config
 from poly_alpha_sniper.reporting.agent_export import (
     MIN_TRADES_FOR_LIVE_REVIEW, build_daily_report_md, build_dashboard_snapshot,
-    build_latest_status, build_obsidian_note_md, build_reject_breakdown_export,
-    build_trade_summary, write_exports)
+    build_hermes_brief, build_latest_status, build_obsidian_note_md,
+    build_reject_breakdown_export, build_trade_summary, write_exports)
 from poly_alpha_sniper.dashboard.db_reader import DashboardData
 from poly_alpha_sniper.storage.migrations import run_migrations
 from poly_alpha_sniper.storage.sqlite_store import SqliteStore
@@ -226,3 +226,126 @@ def test_write_exports_handles_missing_db_gracefully(tmp_path):
     assert result["has_data"] is False
     for p in result["files_written"]:
         assert Path(p).exists()  # still writes files, just reflecting empty state
+
+
+# ---------------------------------------------------------------------------
+# build_hermes_brief -- fixed verdict rules (Part B/E spec)
+# ---------------------------------------------------------------------------
+
+def _state(**overrides):
+    base = {"mode": "shadow_live", "heartbeat_ts_ms": NOW_MS, "panic_active": False, "kill_active": False}
+    base.update(overrides)
+    return base
+
+
+def test_hermes_brief_unavailable_with_no_data(tmp_path):
+    cfg = _cfg(tmp_path)
+    data = DashboardData(str(tmp_path / "nope.db"))
+    brief = build_hermes_brief(data, _state(), cfg, NOW_MS)
+    assert brief["available"] is False
+
+
+def test_hermes_brief_sample_too_small(tmp_path):
+    db_path = _live_db(tmp_path)  # 1 exit row
+    cfg = _cfg(tmp_path)
+    data = DashboardData(db_path)
+    brief = build_hermes_brief(data, _state(), cfg, NOW_MS)
+    assert brief["available"] is True
+    assert "CONTINUE SHADOW — SAMPLE TOO SMALL" in brief["verdict"]
+    assert "1/30" in brief["verdict"]
+    assert brief["live_readiness_status"] == "NOT READY"
+
+
+def test_hermes_brief_not_live_ready_on_errors(tmp_path):
+    path = str(tmp_path / "live.db")
+    store = SqliteStore(path)
+    run_migrations(store)
+    for i in range(35):
+        store.insert("exits", {"ts_ms": NOW_MS - i * 1000, "market_id": f"m{i}",
+                               "reason": "TAKE_PROFIT", "pnl_usd": 0.1, "hold_seconds": 2.0,
+                               "price": 0.6, "shares": 1.0})
+    store.insert("errors", {"ts_ms": NOW_MS, "where_": "test", "error": "boom"})
+    store.close()
+    cfg = _cfg(tmp_path)
+    data = DashboardData(path)
+    brief = build_hermes_brief(data, _state(), cfg, NOW_MS)
+    assert "NOT LIVE READY" in brief["verdict"]
+    assert "1 error" in brief["verdict"]
+
+
+def test_hermes_brief_investigate_before_live_on_extra_signals(tmp_path):
+    db_path = _live_db(tmp_path)
+    cfg = _cfg(tmp_path)
+    data = DashboardData(db_path)
+    for signal in ("duplicate_process", "stuck_order", "stale_db", "stale_heartbeat"):
+        brief = build_hermes_brief(data, _state(), cfg, NOW_MS, extra_signals={signal: True})
+        assert "INVESTIGATE BEFORE LIVE" in brief["verdict"], f"signal={signal}"
+
+
+def test_hermes_brief_missing_extra_signals_defaults_to_not_detected(tmp_path):
+    """Unset/unknown signals must never be silently assumed true."""
+    db_path = _live_db(tmp_path)
+    cfg = _cfg(tmp_path)
+    data = DashboardData(db_path)
+    brief = build_hermes_brief(data, _state(), cfg, NOW_MS, extra_signals=None)
+    assert "INVESTIGATE BEFORE LIVE" not in brief["verdict"]
+    brief2 = build_hermes_brief(data, _state(), cfg, NOW_MS, extra_signals={})
+    assert "INVESTIGATE BEFORE LIVE" not in brief2["verdict"]
+
+
+def test_hermes_brief_continue_shadow_when_sample_sufficient_and_healthy(tmp_path):
+    path = str(tmp_path / "live.db")
+    store = SqliteStore(path)
+    run_migrations(store)
+    for i in range(35):
+        store.insert("exits", {"ts_ms": NOW_MS - i * 1000, "market_id": f"m{i}",
+                               "reason": "TAKE_PROFIT", "pnl_usd": 0.1, "hold_seconds": 2.0,
+                               "price": 0.6, "shares": 1.0})
+    store.close()
+    cfg = _cfg(tmp_path)
+    data = DashboardData(path)
+    brief = build_hermes_brief(data, _state(), cfg, NOW_MS)
+    assert brief["verdict"] == "CONTINUE SHADOW"
+    assert brief["live_readiness_status"] == "SAMPLE SUFFICIENT — MANUAL REVIEW REQUIRED"
+
+
+def test_hermes_brief_never_says_ready_for_live(tmp_path):
+    """No matter how healthy, the brief must never say the bot is ready to
+    go live -- that's always a human, manual-review decision."""
+    path = str(tmp_path / "live.db")
+    store = SqliteStore(path)
+    run_migrations(store)
+    for i in range(100):
+        store.insert("exits", {"ts_ms": NOW_MS - i * 1000, "market_id": f"m{i}",
+                               "reason": "TAKE_PROFIT", "pnl_usd": 0.5, "hold_seconds": 2.0,
+                               "price": 0.6, "shares": 1.0})
+    store.close()
+    cfg = _cfg(tmp_path)
+    data = DashboardData(path)
+    brief = build_hermes_brief(data, _state(), cfg, NOW_MS)
+    full_text = " ".join(str(v) for v in brief.values())
+    assert not re.search(r"ready\s+for\s+live|go\s+live|start\s+live|safe\s+to\s+trade\s+live",
+                         full_text, re.IGNORECASE)
+
+
+def test_hermes_brief_top_blocker_from_reject_breakdown(tmp_path):
+    path = str(tmp_path / "live.db")
+    store = SqliteStore(path)
+    run_migrations(store)
+    for _ in range(5):
+        store.insert("predictions", {"ts_ms": NOW_MS, "asset": "ETH", "decision": "REJECT",
+                                     "reject_reason": "REJECTED_MIN_ORDER_SIZE_TOO_HIGH"})
+    store.close()
+    cfg = _cfg(tmp_path)
+    data = DashboardData(path)
+    brief = build_hermes_brief(data, _state(), cfg, NOW_MS)
+    assert "min_order" in brief["top_blocker"]
+
+
+def test_dashboard_snapshot_includes_hermes_brief(tmp_path):
+    db_path = _live_db(tmp_path)
+    cfg = _cfg(tmp_path)
+    data = DashboardData(db_path)
+    snap = build_dashboard_snapshot(data, _state(), cfg, NOW_MS)
+    assert "hermes_brief" in snap
+    assert snap["hermes_brief"]["available"] is True
