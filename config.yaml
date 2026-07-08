@@ -1,0 +1,316 @@
+# poly_alpha_sniper configuration — SAFE DEFAULTS (shadow mode, dry run).
+# Live trading additionally requires .env flags + preflight + live readiness.
+
+mode:
+  trading_mode: "shadow_live"
+  dry_run: true
+  profile: "safe_shadow"
+
+profiles:
+  safe_shadow:
+    trading_mode: "shadow_live"
+    dry_run: true
+    aggression_default: "NORMAL"
+  aggressive_shadow:
+    trading_mode: "shadow_live"
+    dry_run: true
+    aggression_default: "AGGRESSIVE"
+  live_micro_safe:
+    trading_mode: "live_micro"
+    dry_run: false
+    aggression_default: "NORMAL"
+  live_micro_aggressive:
+    trading_mode: "live_micro"
+    dry_run: false
+    aggression_default: "AGGRESSIVE"
+  backtest_5min:
+    trading_mode: "simulation"
+    dry_run: true
+    ultra_short_expiry_enabled: true
+
+assets:
+  - BTC
+  - ETH
+  - SOL
+
+cex:
+  preferred_exchange: "binance"
+  fallback_exchange: "bybit"
+  optional_exchange: "okx"
+  symbols:
+    BTC: "BTCUSDT"
+    ETH: "ETHUSDT"
+    SOL: "SOLUSDT"
+  websocket_reconnect_seconds: 2
+  max_cex_staleness_ms: 500
+  # diagnostic-only labeling threshold; never gates a trading decision
+  shadow_diagnostic_staleness_ms: 1500
+  require_multi_exchange_confirmation_live: true
+  # Bybit's main domain can be geo-blocked; bytick.com is Bybit's mirror.
+  bybit_ws_url: "wss://stream.bybit.com/v5/public/spot"
+  bybit_ws_fallback_url: "wss://stream.bytick.com/v5/public/spot"
+
+polymarket:
+  refresh_markets_seconds: 20
+  refresh_orderbooks_ms: 500
+  max_orderbook_staleness_ms: 1000
+  max_spread: 0.035
+  min_liquidity_usd: 200
+  min_time_to_expiry_seconds: 45
+  max_time_to_expiry_seconds: 330
+  use_websocket_orderbook_first: true
+  rest_snapshot_fallback: true
+  gamma_base_url: "https://gamma-api.polymarket.com"
+  clob_base_url: "https://clob.polymarket.com"
+  ws_url: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+
+ultra_short_expiry:
+  enabled: true
+  target_expiry_seconds: 300
+  min_time_to_expiry_seconds: 60
+  max_time_to_expiry_seconds: 330
+  preferred_time_to_expiry_seconds: [180, 240, 300]
+  reject_if_less_than_seconds: 45
+  force_exit_before_expiry_seconds: 20
+  max_hold_seconds: 180
+  prefer_exit_before_resolution: true
+  only_trade_a_plus_setups: false
+  allow_a_tier_live: true
+  allow_b_tier_live_when_aggressive: true
+  require_clean_threshold_mapping: true
+  reject_ambiguous_markets: true
+
+strategy:
+  cycle_ms: 100
+  prediction_windows_seconds: [1, 2, 3, 5, 10, 15, 30]
+  hard_min_edge_live_micro: 0.055
+  preferred_edge_live_micro: 0.08
+  a_plus_edge_live_micro: 0.10
+  min_edge_shadow: 0.035
+  confidence_min_live_hard_floor: 65
+  confidence_preferred_live: 75
+  max_entry_delay_ms: 1000
+  cooldown_market_seconds: 20
+  max_signals_per_hour: 200
+  max_trades_per_hour: 40
+  shock_min_abs_return: 0.0012
+  shock_min_zscore: 2.0
+
+probability_model:
+  type: "ensemble_logistic"
+  clamp_min: 0.02
+  clamp_max: 0.98
+  use_distance_to_strike_if_available: true
+  momentum_weight: 0.35
+  volatility_weight: 0.20
+  orderbook_imbalance_weight: 0.15
+  lag_weight: 0.20
+  mean_reversion_penalty: 0.12
+  time_decay_weight: 0.10
+
+market_quality:
+  enabled: true
+  min_score_shadow: 50
+  min_score_live_micro: 60
+  min_score_live_full: 75
+
+dynamic_edge:
+  enabled: true
+  hard_min_edge: 0.03
+  live_micro_min_edge_floor: 0.055
+  live_full_min_edge_floor: 0.08
+
+microstructure:
+  max_spread: 0.035
+  min_depth_at_ask_usd: 100
+  max_slippage_bps: 60
+  adverse_selection_block: true
+  require_orderbook_freshness: true
+  require_cex_freshness: true
+
+risk:
+  starting_bankroll_usd: 10
+  compound_enabled: true
+  use_realized_equity_only: true
+  position_size_pct_equity: 0.10
+  min_trade_usd: 1
+  live_micro_trade_usd: 1
+  max_trade_usd: 1
+  max_total_exposure_pct_equity: 0.30
+  max_market_exposure_pct_equity: 0.10
+  max_daily_loss_pct_equity: 0.20
+  max_daily_loss_usd: 2
+  max_open_positions: 2
+  max_consecutive_losses: 2
+  one_position_per_market: true
+  no_martingale: true
+  no_averaging_down: true
+  no_unrealized_compounding: true
+
+capital_scaling:
+  enabled: true
+  auto_increase_size: false
+  require_min_live_trades_before_scale: 100
+  require_rolling_pf_above: 1.25
+  require_good_fill_quality: true
+  tiers:
+    - equity_min: 10
+      equity_max: 25
+      max_trade_usd: 1
+    - equity_min: 25
+      equity_max: 50
+      max_trade_usd: 2
+    - equity_min: 50
+      equity_max: 100
+      max_trade_usd: 5
+    - equity_min: 100
+      equity_max: 999999
+      max_trade_pct_equity: 0.05
+
+profit_lock:
+  enabled: true
+  lock_profit_when_equity_up_pct: 50
+  lock_profit_pct: 20
+  if_equity_doubles_reduce_risk_one_day: true
+  if_drawdown_from_ath_pct: 20
+  switch_to_defensive: true
+
+micro_bankroll_mode:
+  enabled: true
+  require_higher_edge_live: true
+  reject_wide_spread: true
+  reject_min_order_too_high: true
+  stop_after_two_losses: true
+  max_positions: 2
+
+exit:
+  max_hold_seconds: 180
+  close_before_expiry_seconds: 20
+  take_profit_pct: 0.12
+  stop_loss_pct: 0.10
+  close_when_edge_below: 0.005
+  exit_on_repricing_complete: true
+  exit_on_momentum_decay: true
+  exit_on_expiry_risk: true
+  exit_on_opposite_shock: true
+  exit_on_orderbook_flip: true
+  profit_lock_enabled: true
+
+tier_exit_rules:
+  A_PLUS:
+    max_hold_seconds: 180
+    take_profit_pct: 0.14
+    stop_loss_pct: 0.10
+    close_when_edge_below: 0.005
+  A:
+    max_hold_seconds: 150
+    take_profit_pct: 0.12
+    stop_loss_pct: 0.09
+    close_when_edge_below: 0.007
+  B:
+    max_hold_seconds: 90
+    take_profit_pct: 0.08
+    stop_loss_pct: 0.06
+    close_when_edge_below: 0.010
+
+sell_execution:
+  enabled: true
+  default_mode: "smart"
+  emergency_mode: "aggressive_limit"
+  profit_take_mode: "passive_limit"
+  cancel_if_not_filled_ms: 800
+  max_chase_ticks: 1
+  min_acceptable_exit_price: 0.01
+  allow_partial_exit: true
+
+position_rules:
+  allow_both_sides_same_market: false
+  close_before_flip_side: true
+  one_direction_per_market: true
+
+rebalance:
+  enabled: true
+  min_alpha_improvement: 20
+  cooldown_seconds: 60
+  require_sell_confirmed_before_new_buy: true
+
+execution_pricing:
+  enabled: true
+  default_mode: "aggressive_limit"
+  max_chase_ticks: 1
+  max_slippage_bps: 60
+  cancel_if_not_filled_ms: 800
+  use_limit_orders_only: true
+  use_market_orders: false
+
+adaptive_aggression:
+  enabled: true
+  default_mode: "NORMAL"
+  allow_b_tier_live_only_in_aggressive: true
+  min_rolling_trades_for_aggressive: 20
+  aggressive_min_profit_factor: 1.25
+  aggressive_min_winrate: 0.52
+  aggressive_min_edge_realization: 0.60
+  defensive_loss_streak: 2
+  defensive_max_drawdown_pct: 0.15
+  defensive_min_profit_factor: 0.90
+  defensive_cooldown_minutes: 30
+
+trade_frequency:
+  enabled: true
+  target_trades_per_hour_shadow: 20
+  target_trades_per_hour_live_micro: 5
+  max_trades_per_hour_live_micro: 12
+  max_trades_per_asset_per_hour: 5
+  cooldown_after_win_seconds: 10
+  cooldown_after_loss_seconds: 60
+  cooldown_after_bad_fill_seconds: 120
+  cooldown_after_reject_seconds: 5
+  allow_reentry_after_profit: true
+  max_reentries_same_market: 2
+
+auto_tuning:
+  enabled: true
+  tune_every_minutes: 60
+  min_sample_size: 100
+  tune_thresholds_only: true
+  never_increase_risk_automatically: true
+  optimize_for:
+    - profit_factor
+    - expectancy
+    - max_drawdown
+    - realized_edge
+
+dashboard:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8501
+  refresh_seconds: 3
+  auth_enabled: true
+  mobile_friendly: true
+  read_only: true
+
+telegram:
+  enabled: true
+  send_signals: true
+  send_rejected_close_opportunities: true
+  send_trades: true
+  send_exits: true
+  send_health_every_minutes: 30
+  send_daily_report_time: "23:00"
+  controls_enabled: true
+  require_control_confirmation: true
+
+runtime:
+  watchdog_enabled: true
+  auto_restart_on_crash: true
+  max_restarts_per_hour: 5
+  graceful_shutdown_seconds: 10
+  resume_state_after_restart: true
+  heartbeat_seconds: 15
+  stale_heartbeat_seconds: 60
+  log_rotation_mb: 50
+  keep_log_days: 14
+  backup_database_enabled: true
+  backup_interval_minutes: 30
+  keep_backups: 20

@@ -1,0 +1,11 @@
+.env
+.env.backup
+.venv/
+__pycache__/
+*.pyc
+logs/
+storage_data/
+backups/
+runtime/
+data/*.csv
+.pytest_cache/

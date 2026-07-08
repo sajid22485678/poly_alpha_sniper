@@ -1,0 +1,23 @@
+# Core runtime
+aiohttp>=3.9
+websockets>=12.0
+numpy>=1.26
+pandas>=2.1
+pydantic>=2.5
+PyYAML>=6.0
+python-dotenv>=1.0
+psutil>=5.9
+
+# Dashboard
+streamlit>=1.30
+plotly>=5.18
+
+# Tests
+pytest>=7.4
+pytest-asyncio>=0.23
+
+# --- OPTIONAL: live trading extras -----------------------------------------
+# The official Polymarket CLOB client is only needed for live_micro/live_full.
+# Shadow, simulation and backtest run without it. Install with:
+#   pip install py-clob-client
+# py-clob-client

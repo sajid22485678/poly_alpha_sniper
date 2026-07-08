@@ -1,0 +1,1132 @@
+"""Application orchestrator.
+
+Wires every subsystem together and runs the trade loop. The SAME pipeline
+objects (signal engine, gate, risk, sizer, validator, exit engine) are used in
+all modes — only the execution client differs:
+
+    simulation  -> SimulatedClobClient (synthetic fills, no network orders)
+    shadow_live -> ShadowClobClient    (real data, hypothetical fills, no orders)
+    live_micro  -> LiveExecutor client (real orders, all gates enforced)
+    live_full   -> LiveExecutor client (real orders, config-bounded sizing)
+
+ASSUMPTIONS:
+- Entry evaluation is shock-driven: no CEX shock, no entry (lag-arb thesis).
+- One in-flight entry per market; exits always outrank entries for API budget.
+- Live mode refuses to start (raises SystemExit) if preflight/live-readiness
+  fails — it never silently downgrades.
+"""
+from __future__ import annotations
+
+import asyncio
+import traceback
+import uuid
+from dataclasses import asdict
+from typing import Optional
+
+from poly_alpha_sniper.core.clock import WallClock
+from poly_alpha_sniper.core.config_loader import Config, Secrets, load_config, load_secrets, PROJECT_ROOT
+from poly_alpha_sniper.core.config_validator import validate_config, validate_live_env
+from poly_alpha_sniper.core.contracts import (
+    AggressionMode, Decision, Direction, ExitReason, GateResult, MarketInfo, OrderRequest,
+    OrderSide, Outcome, PredictionRecord, RequestPriority, RejectReason, Signal, Tier,
+    TradingMode,
+)
+from poly_alpha_sniper.core.event_bus import EventBus, Topics
+from poly_alpha_sniper.core.logger import configure as configure_logging, get_logger
+
+log = get_logger("app")
+
+
+class App:
+    def __init__(self, cfg: Optional[Config] = None, secrets: Optional[Secrets] = None):
+        self.cfg = cfg or load_config()
+        self.secrets = secrets or load_secrets()
+        configure_logging(level=self.secrets.log_level,
+                          rotation_mb=self.cfg.runtime.log_rotation_mb,
+                          keep_days=self.cfg.runtime.keep_log_days)
+        self.clock = WallClock()
+        self.bus = EventBus()
+        self.mode = TradingMode(self.cfg.mode.trading_mode)
+        self._stop = asyncio.Event()
+        self._tasks: list[asyncio.Task] = []
+        self.paused = False
+        self._pending_confirmed_sells: dict[str, int] = {}
+        # runtime observability (shadow diagnostics + /status + dashboard)
+        self.diag: dict = {
+            "runtime_alive": True,
+            "prediction_loop_iterations": 0,
+            "last_prediction_loop_ts": 0,
+            "last_prediction_ts": 0,
+            "last_near_miss_ts": 0,
+            "last_discovery_ts": 0,
+            "last_block_reason": "",
+            "prediction_rows_written": 0,
+            "near_miss_rows_written": 0,
+            "diagnostic_rows_written": 0,
+            "cex_selected_source": {},       # asset -> exchange chosen as primary
+            "cex_freshest_age_ms": {},       # asset -> staleness of that primary
+            "cex_no_fresh_count_by_source": {},  # exchange -> times it was the
+                                                  # freshest-available AND still stale
+        }
+        self._diag_throttle: dict[tuple[str, str], int] = {}
+
+    # ------------------------------------------------------------------
+    # Construction
+    # ------------------------------------------------------------------
+    def build(self) -> None:
+        """Instantiate all subsystems (no network yet)."""
+        from poly_alpha_sniper.storage.db import get_store
+        from poly_alpha_sniper.storage.migrations import run_migrations
+        from poly_alpha_sniper.storage.backup_manager import BackupManager
+        from poly_alpha_sniper.core.rate_limit_governor import RateLimitGovernor
+        from poly_alpha_sniper.core.runtime_state import RuntimeState
+        from poly_alpha_sniper.data.cex_state import CexState
+        from poly_alpha_sniper.data.orderbook_state import OrderbookStore
+        from poly_alpha_sniper.data.latency_tracker import LatencyTracker
+        from poly_alpha_sniper.data.market_cache import MarketCache
+        from poly_alpha_sniper.discovery.market_discovery import MarketDiscovery
+        from poly_alpha_sniper.discovery.expiry_tracker import ExpiryTracker
+        from poly_alpha_sniper.strategy.shock_detector import ShockDetector
+        from poly_alpha_sniper.strategy.probability_model import ProbabilityModel
+        from poly_alpha_sniper.strategy.market_quality_score import MarketQualityScorer
+        from poly_alpha_sniper.strategy.signal_engine import SignalEngine
+        from poly_alpha_sniper.strategy.exit_engine import ExitEngine
+        from poly_alpha_sniper.strategy.sell_signal_engine import SellSignalEngine
+        from poly_alpha_sniper.strategy.opportunity_queue import OpportunityQueue
+        from poly_alpha_sniper.deterministic_intelligence.balanced_alpha_gate import BalancedAlphaGate
+        from poly_alpha_sniper.deterministic_intelligence.adaptive_aggression import AdaptiveAggression
+        from poly_alpha_sniper.deterministic_intelligence.trade_frequency_controller import TradeFrequencyController
+        from poly_alpha_sniper.deterministic_intelligence.final_decision_engine import FinalDecisionEngine
+        from poly_alpha_sniper.deterministic_intelligence.signal_sanity_checker import check_signal
+        from poly_alpha_sniper.risk.kill_switch import KillSwitch
+        from poly_alpha_sniper.risk.panic_mode import PanicMode
+        from poly_alpha_sniper.risk.risk_manager import RiskManager
+        from poly_alpha_sniper.risk.market_filter_list import MarketFilterList
+        from poly_alpha_sniper.portfolio.positions import Portfolio
+        from poly_alpha_sniper.execution.order_lifecycle import OrderLifecycle
+        from poly_alpha_sniper.execution.order_manager import OrderManager
+        from poly_alpha_sniper.execution.sell_executor import SellExecutor
+        from poly_alpha_sniper.execution.emergency_exit import EmergencyExit
+        from poly_alpha_sniper.execution.cancel_manager import CancelManager
+        from poly_alpha_sniper.analytics.fill_quality import FillQualityTracker
+        from poly_alpha_sniper.analytics.edge_realization import EdgeRealization
+        from poly_alpha_sniper.analytics.near_miss_logger import NearMissLogger
+        from poly_alpha_sniper.reporting.telegram import TelegramClient
+
+        errors = validate_config(self.cfg)
+        if errors:
+            raise SystemExit("Config invalid:\n- " + "\n- ".join(errors))
+
+        self.store = get_store(self.secrets.database_url)
+        run_migrations(self.store)
+        self.backup_manager = BackupManager(self.cfg, self.clock, getattr(self.store, "path", ""))
+        self.runtime_state = RuntimeState(clock=self.clock)
+        self.governor = RateLimitGovernor(self.clock)
+        self.latency = LatencyTracker()
+
+        self.cex_state = CexState(self.cfg, self.clock)
+        self.book_store = OrderbookStore(self.cfg, self.clock)
+        self.market_cache = MarketCache()
+        self.expiry_tracker = ExpiryTracker(self.cfg, self.clock)
+
+        self.kill_switch = KillSwitch()
+        self.panic = PanicMode()
+        self.portfolio = Portfolio(self.cfg, self.clock)
+        self.risk_manager = RiskManager(self.cfg, self.clock, self.kill_switch, self.panic)
+        self.filter_list = MarketFilterList(self.clock)
+
+        self.shock_detector = ShockDetector(self.cfg, self.clock)
+        self.prob_model = ProbabilityModel(self.cfg)
+        self.quality_scorer = MarketQualityScorer(self.cfg)
+        self.signal_engine = SignalEngine(self.cfg, self.clock, self.prob_model, self.quality_scorer)
+        self.gate = BalancedAlphaGate(self.cfg)
+        self.aggression = AdaptiveAggression(self.cfg, self.clock)
+        self.freq = TradeFrequencyController(self.cfg, self.clock)
+        self.final_decision = FinalDecisionEngine(self.cfg)
+        self.check_signal = check_signal
+        self.opportunity_queue = OpportunityQueue(self.clock)
+
+        self.exit_engine = ExitEngine(self.cfg, self.clock)
+        self.sell_signal_engine = SellSignalEngine(self.exit_engine)
+
+        self.fill_quality = FillQualityTracker()
+        self.edge_realization = EdgeRealization()
+        self.near_miss = NearMissLogger()
+        self.telegram = TelegramClient(self.secrets, self.cfg, self.clock)
+
+        # Execution client per mode
+        self.client = self._build_client()
+        self.lifecycle = OrderLifecycle()
+        self.order_manager = OrderManager(self.cfg, self.clock, self.client, self.lifecycle)
+        self.sell_executor = SellExecutor(self.cfg, self.clock, self.order_manager)
+        self.cancel_manager = CancelManager(self.order_manager)
+        self.emergency = EmergencyExit(self.cfg, self.order_manager, self.sell_executor, self.cancel_manager)
+
+        # data feeds are attached in run() (network)
+        self.discovery: Optional[MarketDiscovery] = None
+        self.mirror = None
+        self.controls = None
+
+        # panic wiring: cancel + freeze on activation
+        try:
+            self.panic.on_activate(self._on_panic)
+        except (AttributeError, TypeError):
+            pass
+
+    def _build_client(self):
+        from poly_alpha_sniper.execution.simulator import SimulatedClobClient
+        from poly_alpha_sniper.execution.live_executor import ShadowClobClient, LiveExecutor
+
+        book_provider = lambda token_id: self.book_store.get(token_id)  # noqa: E731
+        if self.mode == TradingMode.SIMULATION:
+            client = SimulatedClobClient(self.clock, book_provider)
+            if hasattr(client, "set_balance"):
+                client.set_balance(self.cfg.risk.starting_bankroll_usd)
+            return client
+        if self.mode == TradingMode.SHADOW_LIVE:
+            client = ShadowClobClient(self.clock, book_provider)
+            if hasattr(client, "set_balance"):
+                client.set_balance(self.cfg.risk.starting_bankroll_usd)
+            return client
+        # live modes: config/env gates first, client built during startup after
+        # preflight + readiness. Placeholder raises if used early.
+        env_errors = validate_live_env(self.cfg, self.secrets)
+        if env_errors:
+            raise SystemExit("LIVE BLOCKED — env/config gates failed:\n- " + "\n- ".join(env_errors))
+        self._live_executor = LiveExecutor(
+            self.cfg, self.secrets, self.clock, None,
+            live_gates_checker=lambda: (True, []))
+        return self._live_executor.build_client()
+
+    # ------------------------------------------------------------------
+    # Startup / shutdown
+    # ------------------------------------------------------------------
+    async def startup(self, offline_ok: bool = False) -> None:
+        from poly_alpha_sniper.core.startup_preflight import run_preflight
+        from poly_alpha_sniper.core.process_lock import ProcessLock
+        from poly_alpha_sniper.core.live_readiness import check_live_readiness
+        from poly_alpha_sniper.reporting.telegram import format_preflight
+
+        self.process_lock = ProcessLock()
+        self.process_lock.acquire(self.mode.value)
+
+        try:
+            pf = await run_preflight(self.cfg, self.secrets, offline_ok=offline_ok)
+            try:
+                await self.telegram.send(format_preflight(pf), critical=not pf.ok)
+            except Exception:
+                log.warning("preflight_telegram_failed")
+            if pf.cex_health.get("status") not in ("HEALTHY", "SKIPPED", None):
+                log.warning("cex_health_degraded", extra={"extra": pf.cex_health})
+            if not pf.ok:
+                failed = [c for c in pf.checks if not c[1]]
+                raise SystemExit("Preflight failed:\n- "
+                                 + "\n- ".join(f"{n}: {d}" for n, _, d in failed))
+
+            if self.mode.is_live:
+                reconciled = await self._reconcile_account()
+                ok, gates = await check_live_readiness(
+                    self.cfg, self.secrets, self.client, self.panic, self.kill_switch,
+                    telegram_ok=await self._telegram_ok(), reconciled=reconciled)
+                if not ok:
+                    raise SystemExit("LIVE BLOCKED — readiness gates failed:\n- "
+                                     + "\n- ".join(gates))
+                log.info("live_readiness_passed", extra={"extra": {"mode": self.mode.value}})
+        except BaseException:
+            # failed startup must not leak aiohttp sessions or hold the lock
+            await self._close_clients()
+            try:
+                self.process_lock.release()
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+
+    async def _close_clients(self) -> None:
+        """Close every network client that may hold an aiohttp session."""
+        for attr in ("telegram", "gamma", "clob_public"):
+            obj = getattr(self, attr, None)
+            if obj is not None and hasattr(obj, "close"):
+                try:
+                    await obj.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    async def _telegram_ok(self) -> bool:
+        if not self.cfg.telegram.enabled:
+            return True
+        try:
+            return await self.telegram.send("Poly Alpha Sniper: live readiness Telegram check.", critical=True)
+        except Exception:
+            return False
+
+    async def _reconcile_account(self) -> bool:
+        from poly_alpha_sniper.execution.fill_reconciler import FillReconciler
+        try:
+            balance = await self.client.get_balance_usd()
+            exch_positions = await self.client.get_positions()
+            exch_orders = await self.client.get_open_orders()
+        except Exception as exc:
+            log.error("reconcile_fetch_failed", extra={"extra": {"error": repr(exc)}})
+            return False
+        # adopt exchange truth at startup
+        if hasattr(self.portfolio, "set_cash"):
+            self.portfolio.set_cash(balance)
+        rec = FillReconciler().reconcile(
+            local_orders=[], exchange_orders=exch_orders,
+            local_positions=self.portfolio.open_positions(),
+            exchange_positions=exch_positions,
+            balance_local=balance, balance_exchange=balance)
+        self._insert("reconciliation_events", {
+            "ts_ms": self.clock.now_ms(), "ok": int(rec.ok),
+            "mismatches": ";".join(rec.mismatches)})
+        if not rec.ok and self.portfolio.open_positions():
+            return False
+        return True
+
+    async def shutdown(self) -> None:
+        self._stop.set()
+        for t in self._tasks:
+            t.cancel()
+        try:
+            if self.mode.is_live:
+                await self.cancel_manager.cancel_all_priority()
+        except Exception:
+            log.error("shutdown_cancel_failed")
+        try:
+            self.runtime_state.update(mode=self.mode.value, panic_active=self.panic.is_active)
+            self.runtime_state.save()
+        except Exception:
+            pass
+        try:
+            self.process_lock.release()
+        except Exception:
+            pass
+        for closer in ("mirror", "discovery"):
+            obj = getattr(self, closer, None)
+            if obj and hasattr(obj, "stop"):
+                try:
+                    await obj.stop()
+                except Exception:
+                    pass
+        if getattr(self, "feed", None) is not None:
+            try:
+                await self.feed.stop()
+            except Exception:
+                pass
+        await self._close_clients()
+        log.info("shutdown_complete")
+
+    # ------------------------------------------------------------------
+    # Run
+    # ------------------------------------------------------------------
+    async def run(self, offline_ok: bool = False) -> None:
+        from poly_alpha_sniper.connectors.multi_cex_feed import MultiCexFeed
+        from poly_alpha_sniper.connectors.polymarket_gamma import PolymarketGamma
+        from poly_alpha_sniper.connectors.polymarket_clob_public import PolymarketClobPublic
+        from poly_alpha_sniper.connectors.polymarket_ws import PolymarketWS
+        from poly_alpha_sniper.data.orderbook_mirror import OrderbookMirror
+        from poly_alpha_sniper.discovery.market_discovery import MarketDiscovery
+        from poly_alpha_sniper.reporting.telegram_controls import TelegramControls
+
+        await self.startup(offline_ok=offline_ok)
+
+        self.feed = MultiCexFeed(self.cfg, self.clock, self.cex_state)
+        self.gamma = PolymarketGamma(self.cfg)
+        self.clob_public = PolymarketClobPublic(self.cfg)
+        self.poly_ws = PolymarketWS(self.cfg, self.clock, self._on_book)
+        self.mirror = OrderbookMirror(self.cfg, self.clock, self.poly_ws, self.clob_public, self.book_store)
+        self.discovery = MarketDiscovery(self.cfg, self.clock, self.gamma.get_markets,
+                                         clob_fetcher=self.clob_public.get_sampling_markets)
+
+        await self.feed.start()
+        if hasattr(self.mirror, "start"):
+            await self.mirror.start()
+
+        if self.cfg.telegram.enabled and self.cfg.telegram.controls_enabled:
+            self.controls = TelegramControls(self.secrets, self.cfg, self.clock, self._control_actions())
+            self._tasks.append(asyncio.create_task(self.controls.run()))
+
+        self._tasks.append(asyncio.create_task(self._discovery_loop()))
+        self._tasks.append(asyncio.create_task(self._heartbeat_loop()))
+        self._tasks.append(asyncio.create_task(self._backup_loop()))
+        self._tasks.append(asyncio.create_task(self._health_loop()))
+
+        await self.telegram.send(
+            f"🟢 poly_alpha_sniper started | mode={self.mode.value} | dry_run={self.cfg.mode.dry_run} "
+            f"| aggression={self.aggression.current.value} | bankroll=${self.cfg.risk.starting_bankroll_usd}")
+        log.info("app_started", extra={"extra": {"mode": self.mode.value}})
+
+        try:
+            await self._trade_loop()
+        finally:
+            await self.shutdown()
+
+    async def _on_book(self, snap) -> None:
+        self.book_store.update_snapshot(snap)
+
+    # ------------------------------------------------------------------
+    # Background loops
+    # ------------------------------------------------------------------
+    async def _discovery_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                if await self.governor.acquire("gamma", RequestPriority.DISCOVERY):
+                    markets = await self.discovery.refresh()
+                    self.market_cache.upsert(markets)
+                    now = self.clock.now_ms()
+                    for m in markets:
+                        self.expiry_tracker.track(m) if hasattr(self.expiry_tracker, "track") else None
+                        if hasattr(self.mirror, "track_market"):
+                            await _maybe_await(self.mirror.track_market(m))
+                    # entry-window tokens refresh first in the REST fallback
+                    if hasattr(self.mirror, "set_priority_tokens"):
+                        priority = [t for m in markets
+                                    if m.seconds_to_expiry(now) <= 400
+                                    for t in (m.yes_token_id, m.no_token_id)]
+                        self.mirror.set_priority_tokens(priority)
+                    # untrack expired markets or the tracked set grows forever
+                    for dead in self.market_cache.prune(now):
+                        if hasattr(self.mirror, "untrack_market"):
+                            self.mirror.untrack_market(dead)
+                    self.diag["last_discovery_ts"] = now
+                    self._insert("market_snapshots", {
+                        "ts_ms": now, "n_markets": len(markets),
+                        "rejects": str(getattr(self.discovery, "reject_stats", {}))[:2000]})
+            except Exception as exc:
+                log.error("discovery_error", extra={"extra": {"error": repr(exc)}})
+            await asyncio.sleep(self.cfg.polymarket.refresh_markets_seconds)
+
+    def _diag_summary(self) -> dict:
+        fresh, total = self._book_freshness()
+        now = self.clock.now_ms()
+        return {
+            **self.diag,
+            "runtime_alive": True,
+            "prediction_loop_alive": (now - self.diag["last_prediction_loop_ts"]) < 5000,
+            "discovered_markets": len(self.market_cache),
+            "fresh_books": fresh, "total_books": total,
+            "cex_ticks_by_asset": dict(self.cex_state.tick_counts),
+            "price_windows_ready": self.cex_state.windows_ready_by_asset(),
+            "latest_prices": self.cex_state.latest_prices(),
+            "last_cex_tick_ts_by_asset": self.cex_state.last_recv_by_asset(),
+            "cex_live_staleness_budget_ms": self.cfg.cex.max_cex_staleness_ms,
+            "cex_shadow_diag_budget_ms": self.cfg.cex.shadow_diagnostic_staleness_ms,
+            "snapshot_ts_ms": now,
+        }
+
+    async def _heartbeat_loop(self) -> None:
+        beats = 0
+        while not self._stop.is_set():
+            try:
+                summary = self._diag_summary()
+                self.runtime_state.update(
+                    mode=self.mode.value, paused=self.paused,
+                    panic_active=self.panic.is_active, kill_active=self.kill_switch.is_active,
+                    aggression_mode=self.aggression.current.value,
+                    diagnostics=summary)
+                self.runtime_state.heartbeat()
+                beats += 1
+                if beats % 2 == 0:  # ~every 30 s with 15 s heartbeats
+                    log.info("runtime_diagnostics", extra={"extra": summary})
+            except Exception as exc:
+                log.error("heartbeat_error", extra={"extra": {"error": repr(exc)}})
+            await asyncio.sleep(self.cfg.runtime.heartbeat_seconds)
+
+    async def _backup_loop(self) -> None:
+        if not self.cfg.runtime.backup_database_enabled:
+            return
+        while not self._stop.is_set():
+            await asyncio.sleep(self.cfg.runtime.backup_interval_minutes * 60)
+            try:
+                dest = self.backup_manager.backup_now()
+                self._insert("database_backups", {"ts_ms": self.clock.now_ms(), "path": str(dest)})
+            except Exception as exc:
+                log.error("backup_error", extra={"extra": {"error": repr(exc)}})
+
+    async def _health_loop(self) -> None:
+        from poly_alpha_sniper.reporting.health_report import build_health
+        interval = max(1.0, self.cfg.telegram.send_health_every_minutes * 60)
+        while not self._stop.is_set():
+            await asyncio.sleep(interval)
+            try:
+                snap = self.portfolio.snapshot(self.clock.now_ms())
+                health = build_health(
+                    runtime_state=self.runtime_state.state if hasattr(self.runtime_state, "state") else {},
+                    cex_health=self.feed.health() if hasattr(self, "feed") else {},
+                    poly_health={"books": True},
+                    portfolio=snap, governor_usage=self.governor.usage(),
+                    panic=self.panic.is_active, kill=self.kill_switch.is_active,
+                    mode=self.mode.value)
+                self._insert("health_logs", {"ts_ms": self.clock.now_ms(),
+                                             "report": str(health)[:4000]})
+                if self.cfg.telegram.enabled:
+                    text = health.get("text") if isinstance(health, dict) else str(health)
+                    await self.telegram.send(text or "health: ok")
+            except Exception as exc:
+                log.error("health_error", extra={"extra": {"error": repr(exc)}})
+
+    # ------------------------------------------------------------------
+    # Trade loop — shared decision pipeline
+    # ------------------------------------------------------------------
+    async def _trade_loop(self) -> None:
+        cycle_s = self.cfg.strategy.cycle_ms / 1000.0
+        while not self._stop.is_set():
+            t0 = self.clock.now_ms()
+            try:
+                await self._manage_exits()
+                if not self.paused and not self.panic.is_active and not self.kill_switch.is_active:
+                    await self._scan_entries()
+            except Exception as exc:
+                log.error("trade_loop_error", extra={"extra": {
+                    "error": repr(exc), "trace": traceback.format_exc()[-1500:]}})
+                self._insert("errors", {"ts_ms": self.clock.now_ms(), "where": "trade_loop",
+                                        "error": repr(exc)})
+            elapsed = (self.clock.now_ms() - t0) / 1000.0
+            await asyncio.sleep(max(0.0, cycle_s - elapsed))
+
+    async def _scan_entries(self) -> None:
+        now = self.clock.now_ms()
+        self.diag["prediction_loop_iterations"] += 1
+        self.diag["last_prediction_loop_ts"] = now
+        for asset in self.cfg.assets:
+            view = self.cex_state.multi_view(asset)
+            if view is None or view.primary is None:
+                self._shadow_diag(asset, "", "rejected_by_no_fresh_cex_price",
+                                  "no ticks received yet")
+                continue
+            # record which source is currently driving decisions for this
+            # asset, and how stale it is, on EVERY scan (not just rejections)
+            self.diag["cex_selected_source"][asset] = view.primary.exchange
+            self.diag["cex_freshest_age_ms"][asset] = view.primary.staleness_ms
+            if not view.primary.fresh:
+                # the freshest source we have is STILL beyond budget -> every
+                # usable exchange is stale right now, not a selection error
+                by_source = self.diag["cex_no_fresh_count_by_source"]
+                by_source[view.primary.exchange] = by_source.get(view.primary.exchange, 0) + 1
+                self._shadow_diag(asset, "", "rejected_by_no_fresh_cex_price",
+                                  self._cex_source_detail(view), view)
+                continue
+            if not self.cex_state.window_ready(asset):
+                self._shadow_diag(asset, "", "rejected_by_price_window_not_ready",
+                                  f"ticks={self.cex_state.tick_counts.get(asset, 0)}", view)
+                continue
+            shock = self.shock_detector.detect(view)
+            if shock is None:
+                self._shadow_diag(asset, "", "rejected_by_no_shock",
+                                  f"ret2={view.primary.returns.get(2, 0.0):+.5f} "
+                                  f"z={view.primary.zscore:+.2f} "
+                                  f"px={view.primary.price:.2f}", view)
+                continue
+            self._insert("signals", {"ts_ms": now, "asset": asset,
+                                     "direction": shock.direction.value,
+                                     "zscore": shock.zscore, "impulse": shock.impulse,
+                                     "kind": "shock", "reason": shock.reason})
+            markets = [m for m in self.market_cache.active_markets(now)
+                       if m.asset == asset and self._in_entry_window(m, now)]
+            if not markets:
+                self._shadow_diag(asset, "", "rejected_by_time_to_expiry",
+                                  "shock fired but no market in entry window", view)
+                continue
+            for market in markets[:4]:
+                await self._evaluate_market(shock, market, view, now)
+
+    def _cex_source_detail(self, view) -> str:
+        """Human-readable per-source freshness breakdown for a stale-primary
+        diagnostic row. Labels each source BORDERLINE (within the wider
+        shadow_diagnostic_staleness_ms window) or FAR_STALE — informational
+        only; never affects the actual fresh/trade decision."""
+        budget = self.cfg.cex.max_cex_staleness_ms
+        diag_budget = self.cfg.cex.shadow_diagnostic_staleness_ms
+        parts = []
+        for ex, st in sorted(view.per_exchange.items(), key=lambda kv: kv[1].staleness_ms):
+            sev = "OK" if st.fresh else ("BORDERLINE" if st.staleness_ms <= diag_budget
+                                         else "FAR_STALE")
+            marker = "*" if ex == view.primary.exchange else ""
+            parts.append(f"{ex}{marker}={st.staleness_ms}ms[{sev}]")
+        return (f"selected={view.primary.exchange} age={view.primary.staleness_ms}ms "
+                f"budget={budget}ms | " + " ".join(parts))
+
+    def _shadow_diag(self, asset: str, market_id: str, reason: str,
+                     detail: str, view=None) -> None:
+        """Persist a monitoring row explaining why no signal was produced.
+        Throttled per (asset, reason) to one row / 30 s. NEVER places orders."""
+        now = self.clock.now_ms()
+        key = (asset, reason)
+        if now - self._diag_throttle.get(key, 0) < 30_000:
+            self.diag["last_block_reason"] = f"{asset}:{reason}"
+            return
+        self._diag_throttle[key] = now
+        fresh, total = self._book_freshness()
+        stats = view.primary if (view is not None and view.primary is not None) else None
+        self._insert("shadow_diagnostics", {
+            "ts_ms": now, "asset": asset, "market_id": market_id,
+            "reason": reason, "detail": detail[:300],
+            "ret_2s": stats.returns.get(2, 0.0) if stats else 0.0,
+            "zscore": stats.zscore if stats else 0.0,
+            "volatility": stats.volatility if stats else 0.0,
+            "fresh_books": fresh, "total_books": total})
+        self.diag["diagnostic_rows_written"] += 1
+        self.diag["last_block_reason"] = f"{asset}:{reason}"
+
+    def _book_freshness(self) -> tuple[int, int]:
+        mirror = getattr(self, "mirror", None)
+        if mirror is not None and hasattr(mirror, "freshness"):
+            try:
+                return mirror.freshness()
+            except Exception:  # noqa: BLE001
+                pass
+        tokens = self.book_store.tracked_tokens()
+        return sum(1 for t in tokens if self.book_store.is_fresh(t)), len(tokens)
+
+    def _in_entry_window(self, market: MarketInfo, now_ms: int) -> bool:
+        tte = market.seconds_to_expiry(now_ms)
+        u = self.cfg.ultra_short_expiry
+        blocked, _ = self.filter_list.is_blocked(market.market_id)
+        return (not blocked) and (u.min_time_to_expiry_seconds <= tte <= u.max_time_to_expiry_seconds)
+
+    async def _evaluate_market(self, shock, market: MarketInfo, view, now_ms: int,
+                               is_retry: bool = False) -> None:
+        yes_book = self.book_store.get(market.yes_token_id)
+        no_book = self.book_store.get(market.no_token_id)
+        signal = self.signal_engine.build_signal(shock, market, view, yes_book, no_book, now_ms)
+        if signal is None:
+            side_book = yes_book if market.side_for_direction(shock.direction).outcome.value == "YES" \
+                else no_book
+            max_stale = self.cfg.polymarket.max_orderbook_staleness_ms
+            if side_book is None or side_book.is_stale(now_ms, max_stale):
+                self._shadow_diag(shock.asset, market.market_id,
+                                  "rejected_by_stale_book",
+                                  f"book {'missing' if side_book is None else 'stale'} "
+                                  f"for {market.title[:50]}", view)
+            else:
+                self._shadow_diag(shock.asset, market.market_id, "rejected_by_edge",
+                                  f"no positive edge on {market.title[:50]}", view)
+            return
+        ok, issues = self.check_signal(signal)
+        if not ok:
+            self._record_prediction(signal, Decision.REJECT.value, "SANITY:" + ",".join(issues))
+            return
+
+        can, freq_reason = self.freq.can_trade(market.asset, market.market_id, self.mode)
+        snap = self.portfolio.snapshot(now_ms)
+        hard_checks = self._hard_checks(signal, market, yes_book, no_book, now_ms, can, freq_reason)
+        gate = self.gate.evaluate(signal, self.aggression.current, self.mode, hard_checks, snap)
+        signal.gate = gate
+        signal.tier = gate.tier
+        self._insert("balanced_alpha_gate_results", {
+            "ts_ms": now_ms, "market_id": market.market_id, "signal_id": signal.signal_id,
+            **{k: (";".join(v) if isinstance(v, list) else v) for k, v in gate.as_dict().items()}})
+
+        if gate.decision == Decision.WAIT and not is_retry:
+            await asyncio.sleep(0.15)
+            return await self._evaluate_market(shock, market, view, self.clock.now_ms(), is_retry=True)
+
+        risk = self.risk_manager.check_entry(signal, snap, self.mode)
+        req = self._build_order_request(signal, risk) if risk.approved else None
+        if req is not None:
+            from poly_alpha_sniper.execution.order_validator import validate_order
+            book = yes_book if signal.side.outcome == Outcome.YES else no_book
+            validation = validate_order(req, book, market, snap, self.cfg, self.clock.now_ms())
+        else:
+            from poly_alpha_sniper.core.contracts import RiskDecision
+            validation = RiskDecision(approved=False,
+                                      reject_reason=risk.reject_reason or RejectReason.INCOMPLETE_TRADE_PACKET)
+
+        decision = self.final_decision.decide(signal, gate, risk, validation, self.mode)
+        reject_reason = ("" if decision in (Decision.APPROVE, Decision.SHADOW_ONLY)
+                         else (gate.reason if gate.hard_reject else
+                               risk.reject_reason or validation.reject_reason or gate.reason))
+        self._record_prediction(signal, decision.value, reject_reason)
+        near_row = self.near_miss.consider(signal, gate)
+        if near_row is not None:
+            self._insert("near_misses", near_row)
+            self.diag["near_miss_rows_written"] += 1
+            self.diag["last_near_miss_ts"] = self.clock.now_ms()
+
+        if decision == Decision.REJECT:
+            self.freq.record_reject(market.market_id)
+            if self.cfg.telegram.send_rejected_close_opportunities and gate.score >= 60:
+                from poly_alpha_sniper.reporting.telegram import format_rejected
+                await self.telegram.send(format_rejected(signal, gate, reject_reason))
+            return
+        if decision == Decision.WAIT:
+            return
+
+        executes_here = (
+            decision == Decision.APPROVE
+            or (decision == Decision.SHADOW_ONLY and not self.mode.is_live
+                and gate.decision in (Decision.APPROVE, Decision.SHADOW_ONLY) and risk.approved
+                and validation.approved))
+        if not executes_here:
+            return
+
+        await self._execute_entry(signal, req, gate)
+
+    def _hard_checks(self, signal: Signal, market: MarketInfo, yes_book, no_book,
+                     now_ms: int, freq_ok: bool, freq_reason: str) -> dict[str, bool]:
+        book = yes_book if signal.side.outcome == Outcome.YES else no_book
+        max_stale = self.cfg.polymarket.max_orderbook_staleness_ms
+        checks = {
+            "mapping_clear": market.mapping_confidence >= 95,
+            "cex_fresh": self.cex_state.is_fresh(market.asset),
+            "book_fresh": book is not None and not book.is_stale(now_ms, max_stale),
+            "best_bid_ask": book is not None and book.best_bid is not None and book.best_ask is not None,
+            "spread_ok": book is not None and book.spread is not None
+                         and book.spread <= self.cfg.microstructure.max_spread,
+            "no_panic": not self.panic.is_active,
+            "no_kill_switch": not self.kill_switch.is_active,
+            "frequency_ok": freq_ok,
+            "expiry_window_ok": self._in_entry_window(market, now_ms),
+        }
+        if self.mode.is_live and self.cfg.cex.require_multi_exchange_confirmation_live:
+            view = self.cex_state.multi_view(market.asset)
+            checks["multi_exchange_confirm"] = bool(view and view.confirming_exchanges >= 2
+                                                    and view.direction_agreement)
+        if not freq_ok:
+            log.info("frequency_block", extra={"extra": {"reason": freq_reason}})
+        return checks
+
+    def _build_order_request(self, signal: Signal, risk) -> Optional[OrderRequest]:
+        from poly_alpha_sniper.execution.smart_limit_pricer import price_entry
+        from poly_alpha_sniper.execution.order_side import shares_for_usd
+        book = self.book_store.get(signal.market.token_for(signal.side.outcome))
+        if book is None:
+            return None
+        price, _note = price_entry(book, signal.side,
+                                   self.cfg.execution_pricing.default_mode, self.cfg)
+        if price is None or price <= 0:
+            return None
+        shares = shares_for_usd(risk.size_usd, price)
+        return OrderRequest(
+            order_id=str(uuid.uuid4()), token_id=signal.market.token_for(signal.side.outcome),
+            market_id=signal.market.market_id, side=signal.side, price=price,
+            size_shares=shares, size_usd=risk.size_usd,
+            tif_ms=self.cfg.execution_pricing.cancel_if_not_filled_ms,
+            priority=RequestPriority.NEW_ENTRY, reason=signal.exit_plan,
+            tier=signal.tier, signal_id=signal.signal_id)
+
+    async def _execute_entry(self, signal: Signal, req: OrderRequest, gate: GateResult) -> None:
+        from poly_alpha_sniper.reporting.telegram import format_auto_entry
+        if self.mode.is_live:
+            if not await self.governor.acquire("clob_order", RequestPriority.NEW_ENTRY):
+                log.warning("entry_rate_limited", extra={"extra": {"market": req.market_id}})
+                return
+        book = self.book_store.get(req.token_id)
+        try:
+            record = await self.order_manager.submit(req, book)
+        except Exception as exc:
+            log.error("entry_submit_failed", extra={"extra": {"error": repr(exc)}})
+            self._insert("errors", {"ts_ms": self.clock.now_ms(), "where": "entry_submit",
+                                    "error": repr(exc)})
+            return
+        self._insert("orders", _order_row(record, self.mode.value))
+        self.freq.record_entry(signal.asset, req.market_id)
+        if record.filled_shares > 0:
+            from poly_alpha_sniper.core.contracts import FillRecord
+            fill = FillRecord(order_id=record.order_id, token_id=req.token_id,
+                              market_id=req.market_id, side=req.side,
+                              price=record.avg_fill_price or req.price,
+                              size_shares=record.filled_shares, ts_ms=self.clock.now_ms())
+            self.portfolio.apply_fill(fill, signal.market)
+            pos = self.portfolio.get(req.token_id)
+            if pos is not None:
+                pos.tier = signal.tier
+                pos.entry_signal_id = signal.signal_id
+                pos.exit_plan = signal.exit_plan
+            self._insert("fills", asdict_safe(fill))
+            fq = self.fill_quality.score_and_track(req, record) if hasattr(self.fill_quality, "score_and_track") else None
+            if fq is not None:
+                self._insert("fill_quality", {"ts_ms": self.clock.now_ms(),
+                                              "order_id": record.order_id, **fq})
+        if self.cfg.telegram.send_trades:
+            await self.telegram.send(format_auto_entry(signal, gate, req, self.aggression.current.value))
+
+    # ------------------------------------------------------------------
+    # Exits
+    # ------------------------------------------------------------------
+    async def _manage_exits(self) -> None:
+        positions = self.portfolio.open_positions()
+        if not positions:
+            return
+        now = self.clock.now_ms()
+        for pos in positions:
+            book = self.book_store.get(pos.token_id)
+            if book is not None:
+                self.portfolio.mark(pos.token_id, book.best_bid, book.best_ask)
+        snap = self.portfolio.snapshot(now)
+        pairs = self.sell_signal_engine.evaluate_all(
+            positions,
+            market_lookup=lambda mid: self.market_cache.get(mid) if hasattr(self.market_cache, "get") else None,
+            book_lookup=lambda tid: self.book_store.get(tid),
+            fair_lookup=self._fair_for_position,
+            view_lookup=lambda asset: self.cex_state.multi_view(asset),
+            portfolio=snap, panic=self.panic.is_active, kill=self.kill_switch.is_active)
+        for pos, decision in pairs:
+            await self._execute_exit(pos, decision)
+
+    def _fair_for_position(self, pos):
+        market = self.market_cache.get(pos.market_id) if hasattr(self.market_cache, "get") else None
+        if market is None:
+            return None
+        stats = self.cex_state.stats(market.asset)
+        if stats is None:
+            return None
+        yes_book = self.book_store.get(market.yes_token_id)
+        no_book = self.book_store.get(market.no_token_id)
+        try:
+            return self.prob_model.fair(stats, market, yes_book, no_book, self.clock.now_ms())
+        except Exception:
+            return None
+
+    async def _execute_exit(self, pos, decision) -> None:
+        from poly_alpha_sniper.reporting.telegram import format_auto_exit
+        book = self.book_store.get(pos.token_id)
+        if book is None:
+            log.warning("exit_no_book", extra={"extra": {"token": pos.token_id}})
+            return
+        if self.mode.is_live:
+            prio = RequestPriority.EMERGENCY_EXIT if decision.priority <= 2 else RequestPriority.CANCEL
+            await self.governor.acquire("clob_order", prio)
+        try:
+            record = await self.sell_executor.execute_exit(pos, decision, book)
+        except Exception as exc:
+            log.error("exit_failed", extra={"extra": {"error": repr(exc), "token": pos.token_id}})
+            if decision.priority <= 2:
+                self.panic.activate(f"emergency_exit_failed:{pos.token_id}")
+            return
+        self._insert("orders", _order_row(record, self.mode.value))
+        if record.filled_shares > 0:
+            from poly_alpha_sniper.core.contracts import FillRecord
+            price = record.avg_fill_price or (book.best_bid or 0.0)
+            fill = FillRecord(order_id=record.order_id, token_id=pos.token_id,
+                              market_id=pos.market_id,
+                              side=OrderSide.SELL_YES if pos.outcome == Outcome.YES else OrderSide.SELL_NO,
+                              price=price, size_shares=record.filled_shares,
+                              ts_ms=self.clock.now_ms())
+            pnl = record.filled_shares * (price - pos.avg_entry_price)
+            hold_s = (self.clock.now_ms() - pos.entry_ts_ms) / 1000.0
+            self.portfolio.apply_fill(fill)
+            self.portfolio.record_trade_result(pnl > 0)
+            self.freq.record_result(pos.market_id.split(":")[0], pos.market_id, pnl > 0)
+            self.aggression.record_trade(pnl, 0.0, 0.0, 100.0)
+            await self._maybe_mode_change()
+            self._insert("fills", asdict_safe(fill))
+            self._insert("exits", {
+                "ts_ms": self.clock.now_ms(), "token_id": pos.token_id,
+                "market_id": pos.market_id, "reason": decision.reason.value if decision.reason else "",
+                "price": price, "shares": record.filled_shares, "pnl_usd": pnl,
+                "hold_seconds": hold_s, "detail": decision.detail})
+            self._insert("pnl", {"ts_ms": self.clock.now_ms(), "realized_pnl_usd": pnl,
+                                 "equity_usd": self.portfolio.snapshot(self.clock.now_ms()).equity_usd})
+            if self.cfg.telegram.send_exits:
+                await self.telegram.send(format_auto_exit(pos, decision, price, pnl, hold_s))
+
+    async def _maybe_mode_change(self) -> None:
+        from poly_alpha_sniper.reporting.telegram import format_mode_change
+        snap = self.portfolio.snapshot(self.clock.now_ms())
+        old = self.aggression.current
+        new = self.aggression.evaluate(snap)
+        if new != old:
+            log.info("aggression_mode_change", extra={"extra": {
+                "old": old.value, "new": new.value, "reason": self.aggression.reason}})
+            await self.telegram.send(format_mode_change(old.value, new.value,
+                                                        self.aggression.reason, snap))
+
+    # ------------------------------------------------------------------
+    # Panic / controls / persistence helpers
+    # ------------------------------------------------------------------
+    async def _on_panic(self, trigger: str) -> None:
+        from poly_alpha_sniper.reporting.incident_report import build_incident, save_incident
+        from poly_alpha_sniper.reporting.telegram import format_panic
+        log.error("panic_activated", extra={"extra": {"trigger": trigger}})
+        self._insert("panic_events", {"ts_ms": self.clock.now_ms(), "trigger": trigger})
+        try:
+            await self.cancel_manager.cancel_all_priority()
+        except Exception:
+            log.error("panic_cancel_failed")
+        try:
+            books = {p.token_id: self.book_store.get(p.token_id) for p in self.portfolio.open_positions()}
+            await self.emergency.close_everything(self.portfolio.open_positions(),
+                                                  books.get, ExitReason.PANIC)
+        except Exception:
+            log.error("panic_close_failed")
+        incident = build_incident("panic", {"trigger": trigger, "mode": self.mode.value},
+                                  self.clock.now_ms())
+        try:
+            save_incident(self.store, incident)
+        except Exception:
+            pass
+        await self.telegram.send(format_panic(trigger), critical=True)
+
+    def _control_actions(self) -> dict:
+        """Telegram command handlers. Every action routes through the normal
+        risk/panic APIs — none bypasses gates."""
+        def _cex_summary() -> str:
+            feed = getattr(self, "feed", None)
+            if feed is None:
+                return "not started"
+            parts = []
+            for name, h in feed.health().items():
+                state = "ok" if h.get("connected") else "DEGRADED"
+                parts.append(f"{name}:{state}")
+            return " ".join(parts) or "none"
+
+        def _count(sql: str) -> int:
+            try:
+                rows = self.store.query(sql)
+                return int(rows[0]["n"]) if rows else 0
+            except Exception:  # noqa: BLE001
+                return 0
+
+        async def status():
+            snap = self.portfolio.snapshot(self.clock.now_ms())
+            hour_ago = self.clock.now_ms() - 3_600_000
+            return (
+                f"mode={self.mode.value} dry_run={self.cfg.mode.dry_run} "
+                f"live_enabled={self.mode.is_live}\n"
+                f"paused={self.paused} panic={self.panic.is_active} "
+                f"kill={self.kill_switch.is_active} "
+                f"aggression={self.aggression.current.value}\n"
+                f"bankroll: equity=${snap.equity_usd:.2f} cash=${snap.available_cash_usd:.2f} "
+                f"today=${snap.realized_pnl_today_usd:+.2f} open={snap.open_positions}\n"
+                f"cex: {_cex_summary()}\n"
+                f"markets discovered: {len(self.market_cache)}\n"
+                f"predictions: {_count('SELECT COUNT(*) AS n FROM predictions')} "
+                f"signals: {_count('SELECT COUNT(*) AS n FROM signals')} "
+                f"errors(1h): {_count(f'SELECT COUNT(*) AS n FROM errors WHERE ts_ms > {hour_ago}')}\n"
+                + _pred_diag_lines())
+
+        def _pred_diag_lines() -> str:
+            d = self._diag_summary()
+            ticks = " ".join(f"{a}={n}" for a, n in d["cex_ticks_by_asset"].items()) or "none"
+            ready = " ".join(f"{a}={'y' if ok else 'n'}"
+                             for a, ok in d["price_windows_ready"].items())
+            loop_age = (self.clock.now_ms() - d["last_prediction_loop_ts"]) / 1000 \
+                if d["last_prediction_loop_ts"] else -1
+            pred_age = (self.clock.now_ms() - d["last_prediction_ts"]) / 1000 \
+                if d["last_prediction_ts"] else -1
+            sources = " ".join(f"{a}={ex}({d['cex_freshest_age_ms'].get(a, '?')}ms)"
+                              for a, ex in d["cex_selected_source"].items()) or "none yet"
+            no_fresh_by_src = " ".join(f"{ex}={n}"
+                                       for ex, n in d["cex_no_fresh_count_by_source"].items()) or "none"
+            return (f"pred_loop: alive={d['prediction_loop_alive']} "
+                    f"iter={d['prediction_loop_iterations']} last_run={loop_age:.0f}s ago\n"
+                    f"last_prediction: {'never' if pred_age < 0 else f'{pred_age:.0f}s ago'} "
+                    f"(rows={d['prediction_rows_written']}, diag_rows={d['diagnostic_rows_written']})\n"
+                    f"last_block: {d['last_block_reason'] or '-'}\n"
+                    f"books fresh: {d['fresh_books']}/{d['total_books']}\n"
+                    f"windows ready: {ready or 'none'}\n"
+                    f"ticks: {ticks}\n"
+                    f"cex selected source (age): {sources}\n"
+                    f"budgets: live={d['cex_live_staleness_budget_ms']}ms "
+                    f"shadow_diag={d['cex_shadow_diag_budget_ms']}ms\n"
+                    f"no_fresh_cex_price by source: {no_fresh_by_src}")
+
+        async def pause():
+            self.paused = True
+            return "paused: no new entries (exits still active)"
+
+        async def resume():
+            if self.panic.is_active:
+                return "cannot resume: panic active (use /clear_panic first)"
+            self.paused = False
+            return "resumed"
+
+        async def panic_cmd():
+            self.panic.activate("telegram_manual")
+            return "panic activated"
+
+        async def clear_panic():
+            self.panic.clear(manual=True)
+            return "panic cleared (entries stay paused until /resume)"
+
+        async def close_all():
+            books = {p.token_id: self.book_store.get(p.token_id) for p in self.portfolio.open_positions()}
+            res = await self.emergency.close_everything(self.portfolio.open_positions(),
+                                                        books.get, ExitReason.MANUAL)
+            return f"close_all done: {res}"
+
+        async def cancel_orders():
+            n = await self.cancel_manager.cancel_all_priority()
+            return f"cancelled {n} orders"
+
+        async def positions():
+            rows = [f"{p.market_id} {p.outcome.value} {p.shares:.2f}@{p.avg_entry_price:.3f}"
+                    for p in self.portfolio.open_positions()]
+            return "\n".join(rows) or "no open positions"
+
+        async def pnl():
+            snap = self.portfolio.snapshot(self.clock.now_ms())
+            return (f"equity=${snap.equity_usd:.2f} realized=${snap.realized_pnl_usd:.2f} "
+                    f"today=${snap.realized_pnl_today_usd:.2f} unrealized=${snap.unrealized_pnl_usd:.2f}")
+
+        async def open_orders():
+            try:
+                orders = await self.client.get_open_orders()
+                return "\n".join(f"{o.order_id[:8]} {o.side.value} {o.price}" for o in orders) or "none"
+            except Exception as exc:
+                return f"error: {exc}"
+
+        async def mode():
+            return f"trading_mode={self.mode.value} aggression={self.aggression.current.value} reason={self.aggression.reason}"
+
+        async def mode_shadow():
+            self.paused = True
+            self.kill_switch.activate("telegram_mode_shadow_requested")
+            return "live entries disabled (kill switch). Restart with --mode shadow_live to fully switch."
+
+        async def disable_live():
+            self.kill_switch.activate("telegram_disable_live")
+            return "kill switch active: live entries disabled until restart + manual clear"
+
+        async def mode_live_micro():
+            return ("Refusing runtime upgrade to live. Restart with --mode live_micro; "
+                    "all preflight + live gates will be enforced at startup.")
+
+        async def blacklist_market(arg: str = ""):
+            if not arg:
+                return "usage: /blacklist_market <market_id>"
+            self.filter_list.blacklist(arg, "telegram", ttl_s=None)
+            return f"blacklisted {arg}"
+
+        async def whitelist_market(arg: str = ""):
+            if not arg:
+                return "usage: /whitelist_market <market_id>"
+            self.filter_list.whitelist(arg)
+            return f"whitelisted {arg}"
+
+        async def disable_asset(arg: str = ""):
+            if arg in self.cfg.assets:
+                self.cfg.assets.remove(arg)
+                return f"disabled {arg}"
+            return f"unknown asset {arg}"
+
+        async def enable_asset(arg: str = ""):
+            if arg and arg not in self.cfg.assets:
+                self.cfg.assets.append(arg)
+                return f"enabled {arg}"
+            return f"{arg} already enabled or empty"
+
+        async def backup_now():
+            dest = self.backup_manager.backup_now()
+            return f"backup written: {dest}"
+
+        async def latency():
+            return str(self.latency.snapshot())
+
+        async def budget():
+            return str(self.governor.usage())
+
+        async def health():
+            now = self.clock.now_ms()
+            feed = getattr(self, "feed", None)
+            lines = ["HEALTH"]
+            if feed is not None:
+                for name, h in feed.health().items():
+                    state = "ok" if h.get("connected") else "DEGRADED"
+                    note = " (geo-blocked?)" if name == "binance" and state == "DEGRADED" else ""
+                    lines.append(f"cex {name}: {state} "
+                                 f"staleness={h.get('staleness_ms', -1)}ms{note}")
+            else:
+                lines.append("cex: feeds not started")
+            fresh_books = sum(1 for t in self.book_store.tracked_tokens()
+                              if self.book_store.is_fresh(t))
+            lines.append(f"polymarket public: {len(self.market_cache)} markets cached, "
+                         f"{fresh_books}/{len(self.book_store.tracked_tokens())} books fresh")
+            lines.append(f"polymarket auth: {'live client active' if self.mode.is_live else 'not used (shadow read-only)'}")
+            try:
+                self.store.query("SELECT 1 AS n")
+                lines.append("db: ok")
+            except Exception as exc:  # noqa: BLE001
+                lines.append(f"db: ERROR {type(exc).__name__}")
+            lines.append(f"telegram: {'enabled' if self.telegram.enabled else 'disabled'}")
+            hb = self.runtime_state.state.get("heartbeat_ts_ms", 0)
+            lines.append(f"heartbeat age: {(now - hb) / 1000:.0f}s" if hb else "heartbeat: none yet")
+            lines.append(f"rate limiter: {'healthy' if self.governor.healthy else 'PENALIZED'}")
+            hour_ago = now - 3_600_000
+            try:
+                errs = self.store.query(
+                    f"SELECT COUNT(*) AS n FROM errors WHERE ts_ms > {hour_ago}")[0]["n"]
+            except Exception:  # noqa: BLE001
+                errs = "?"
+            lines.append(f"errors last hour: {errs}")
+            lines.append(f"panic={self.panic.is_active} kill={self.kill_switch.is_active} "
+                         f"mode={self.mode.value} dry_run={self.cfg.mode.dry_run}")
+            return "\n".join(lines)
+
+        async def daily():
+            from poly_alpha_sniper.reporting.daily_report import build_daily
+            try:
+                rep = build_daily(self.store, "")
+                return rep.get("text", str(rep)) if isinstance(rep, dict) else str(rep)
+            except Exception as exc:
+                return f"daily report error: {exc}"
+
+        return {
+            "status": status, "health": health, "daily": daily, "positions": positions,
+            "open_orders": open_orders, "pnl": pnl, "mode": mode, "pause": pause,
+            "resume": resume, "panic": panic_cmd, "clear_panic": clear_panic,
+            "close_all": close_all, "cancel_orders": cancel_orders,
+            "mode_shadow": mode_shadow, "mode_live_micro": mode_live_micro,
+            "disable_live": disable_live, "blacklist_market": blacklist_market,
+            "whitelist_market": whitelist_market, "disable_asset": disable_asset,
+            "enable_asset": enable_asset, "backup_now": backup_now,
+            "latency": latency, "budget": budget,
+        }
+
+    def _record_prediction(self, signal: Signal, decision: str, reject_reason: str) -> None:
+        r = signal.shock.returns if signal.shock else {}
+        rec = PredictionRecord(
+            ts_ms=self.clock.now_ms(), asset=signal.asset,
+            market_id=signal.market.market_id, market_title=signal.market.title[:200],
+            direction=signal.direction.value, cex_price=signal.shock.returns.get(0, 0.0) if False else 0.0,
+            return_1s=r.get(1, 0.0), return_2s=r.get(2, 0.0), return_3s=r.get(3, 0.0),
+            return_5s=r.get(5, 0.0), return_10s=r.get(10, 0.0), return_15s=r.get(15, 0.0),
+            return_30s=r.get(30, 0.0),
+            volatility=signal.shock.volatility if signal.shock else 0.0,
+            zscore=signal.shock.zscore if signal.shock else 0.0,
+            polymarket_price=signal.edge.market_price, fair_probability=signal.edge.fair_probability,
+            edge=signal.edge.raw_edge, edge_after_spread=signal.edge.edge_after_spread,
+            edge_after_slippage=signal.edge.edge_after_slippage,
+            confidence=signal.fair.confidence, market_quality=signal.market_quality.score,
+            trade_quality=signal.trade_quality, alpha_score=signal.alpha_score,
+            tier=signal.tier.value, aggression_mode=self.aggression.current.value,
+            decision=decision, reject_reason=reject_reason, mode=self.mode.value)
+        self._insert("predictions", asdict_safe(rec))
+        self.diag["prediction_rows_written"] += 1
+        self.diag["last_prediction_ts"] = self.clock.now_ms()
+
+    def _insert(self, table: str, row: dict) -> None:
+        try:
+            self.store.insert(table, row)
+        except Exception as exc:
+            log.error("db_insert_failed", extra={"extra": {"table": table, "error": repr(exc)}})
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+def asdict_safe(obj) -> dict:
+    d = asdict(obj)
+    out = {}
+    for k, v in d.items():
+        if hasattr(v, "value"):
+            out[k] = v.value
+        elif isinstance(v, (dict, list)):
+            out[k] = str(v)[:1000]
+        else:
+            out[k] = v
+    return out
+
+
+def _order_row(record, mode: str) -> dict:
+    row = asdict_safe(record)
+    row["mode"] = mode
+    return row
+
+
+async def _maybe_await(x):
+    if asyncio.iscoroutine(x):
+        return await x
+    return x
