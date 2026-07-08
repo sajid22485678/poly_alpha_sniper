@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+/* Design tokens — see ../../VISUAL_SPEC.md section 10-12 for the source
+   palette/typography this was sampled from. */
+:root {
+  --v3-bg: #050503;
+  --v3-bg-elevated: #09080600;
+  --v3-card: #0c0b09;
+  --v3-card-border: #2a262040;
+  --v3-card-border-strong: #3a352c80;
+  --v3-gold: #c9a35a;
+  --v3-gold-bright: #e8c876;
+  --v3-cream: #f3ead9;
+  --v3-green: #5fd98a;
+  --v3-red: #e5615a;
+  --v3-muted: #8b8578;
+  --v3-muted-2: #5c584e;
+  --font-display: Georgia, "Times New Roman", serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  --font-data: "SF Mono", "Cascadia Code", Consolas, monospace;
+}
+
+@theme inline {
+  --color-v3-bg: var(--v3-bg);
+  --color-v3-card: var(--v3-card);
+  --color-v3-card-border: var(--v3-card-border);
+  --color-v3-card-border-strong: var(--v3-card-border-strong);
+  --color-v3-gold: var(--v3-gold);
+  --color-v3-gold-bright: var(--v3-gold-bright);
+  --color-v3-cream: var(--v3-cream);
+  --color-v3-green: var(--v3-green);
+  --color-v3-red: var(--v3-red);
+  --color-v3-muted: var(--v3-muted);
+  --color-v3-muted-2: var(--v3-muted-2);
+  --font-display: var(--font-display);
+  --font-ui: var(--font-ui);
+  --font-data: var(--font-data);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--v3-bg);
+  color: var(--v3-cream);
+  font-family: var(--font-ui);
+  font-size: 14px;
+}
+
+/* ---- reusable component classes (kept out of JSX for readability) ---- */
+
+.v3-card {
+  background: var(--v3-card);
+  border: 1px solid var(--v3-card-border);
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+
+.v3-card-inset {
+  background: #000000a0;
+  border: 1px solid var(--v3-card-border-strong);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.v3-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v3-muted);
+}
+
+.v3-label-gold {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v3-gold);
+}
+
+.v3-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--v3-card-border-strong);
+  background: #000000a0;
+  padding: 5px 12px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--v3-muted);
+}
+
+.v3-pill-gold {
+  border-color: #c9a35a55;
+  color: var(--v3-gold-bright);
+  background: #c9a35a14;
+}
+
+.v3-pill-green {
+  border-color: #5fd98a55;
+  color: var(--v3-green);
+  background: #5fd98a14;
+}
+
+.v3-pill-red {
+  border-color: #e5615a55;
+  color: var(--v3-red);
+  background: #e5615a14;
+}
+
+.v3-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.v3-divider {
+  border-top: 1px solid var(--v3-card-border);
+}
+
+.v3-mono {
+  font-family: var(--font-data);
+}
+
+.v3-hero-number {
+  font-family: var(--font-display);
+  color: var(--v3-cream);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.v3-scrollbar::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.v3-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--v3-card-border-strong);
+  border-radius: 999px;
+}
+
+@keyframes v3-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.v3-pulse {
+  animation: v3-pulse 2s ease-in-out infinite;
+}

@@ -1,0 +1,177 @@
+// Mirrors the real payload shapes written by
+// D:\claude\poly_alpha_sniper\reporting\agent_export.py — see that file for
+// the authoritative field list. Every field here is real, exported data;
+// nothing in this app invents a field that isn't in the exporter output.
+
+export interface LatestStatus {
+  generated_ts_ms: number;
+  mode: string;
+  dry_run: boolean;
+  live_enabled: boolean;
+  heartbeat_age_ms: number | null;
+  equity_usd: number;
+  trades: number;
+  winrate: number;
+  profit_factor: number;
+  expectancy_usd: number;
+  predictions: number;
+  signals: number;
+  diagnostics_rows: number;
+  fresh_books: number | null;
+  total_books: number | null;
+  last_block_reason: string | null;
+  errors: number;
+  panic_active: boolean;
+  kill_active: boolean;
+}
+
+export interface ExitRow {
+  id: number;
+  ts_ms: number;
+  token_id: string;
+  market_id: string;
+  reason: string;
+  price: number;
+  shares: number;
+  pnl_usd: number;
+  hold_seconds: number;
+  detail: string;
+}
+
+export interface TradeSummary {
+  generated_ts_ms: number;
+  trades: number;
+  winrate: number;
+  profit_factor: number;
+  expectancy_usd: number;
+  today_pnl_usd: number;
+  all_time_pnl_usd: number;
+  avg_edge: number;
+  fill_quality_avg: number;
+  max_drawdown_usd: number;
+  max_drawdown_pct: number;
+  recent_exits: ExitRow[];
+  sample_size_note: string;
+}
+
+export const CANONICAL_REJECT_BUCKETS = [
+  "no_shock",
+  "no_fresh_cex_price",
+  "stale_book",
+  "spread",
+  "edge",
+  "max_exposure",
+  "min_order",
+  "other",
+] as const;
+
+export type RejectBucket = (typeof CANONICAL_REJECT_BUCKETS)[number];
+
+export interface MinOrderLatest {
+  ts_ms: number;
+  asset: string;
+  market_title: string;
+  tier: string;
+  edge: number;
+  confidence: number;
+  ask_price: number;
+  min_shares: number;
+  min_required_usd: number;
+  configured_max_trade_usd: number;
+  shortfall_usd: number;
+}
+
+export interface RejectBreakdown {
+  generated_ts_ms: number;
+  buckets: Record<string, number>;
+  raw_by_bucket: Record<string, Record<string, number>>;
+  total: number;
+  min_order: {
+    blocked_count: number;
+    latest: MinOrderLatest | null;
+  };
+}
+
+export type HermesBrief =
+  | {
+      available: true;
+      generated_ts_ms: number;
+      verdict: string;
+      top_blocker: string;
+      anomaly: string;
+      next_action: string;
+      live_readiness_status: string;
+    }
+  | { available: false; reason: string };
+
+export type LatestMarketState =
+  | {
+      available: true;
+      ts_ms: number;
+      asset: string;
+      market_title: string;
+      direction: string;
+      signal_side_price: number;
+      fair_probability: number;
+      edge: number;
+      confidence: number;
+      tier: string;
+      decision_raw: string;
+      decision_label: string;
+      reject_reason: string | null;
+      cex_selected_source: string | null;
+      cex_freshest_age_ms: number | null;
+      cex_price: number | null;
+      fresh_books: number | null;
+      total_books: number | null;
+      last_block_reason: string | null;
+    }
+  | { available: false };
+
+export interface OrderRow {
+  id: number;
+  ts_ms: number | null;
+  order_id: string;
+  exchange_order_id: string;
+  token_id: string;
+  market_id: string;
+  side: string;
+  price: number;
+  size_shares: number;
+  size_usd: number;
+  state: string;
+  filled_shares: number;
+  avg_fill_price: number;
+  created_ts_ms: number;
+  updated_ts_ms: number;
+  error: string;
+  mode: string;
+  tier: string;
+  signal_id: string;
+  exit_reason: string;
+}
+
+export interface DashboardSnapshot {
+  generated_ts_ms: number;
+  latest_status: LatestStatus;
+  trade_summary: TradeSummary;
+  reject_breakdown: RejectBreakdown;
+  hermes_brief: HermesBrief;
+  latest_market_state: LatestMarketState;
+  open_positions: unknown[];
+  recent_orders: OrderRow[];
+  classification_framework: string;
+}
+
+/** What GET /api/snapshot returns. `missing: true` on any field means that
+ * exporter file was not found on disk — the UI must show "No data yet" for
+ * that section, never fabricate a value. */
+export interface SnapshotResponse {
+  fetched_ts_ms: number;
+  snapshot: DashboardSnapshot | null;
+  latest_status: LatestStatus | null;
+  trade_summary: TradeSummary | null;
+  reject_breakdown: RejectBreakdown | null;
+  missing_files: string[];
+  file_ages_ms: Record<string, number | null>;
+}
