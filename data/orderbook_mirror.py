@@ -71,6 +71,16 @@ class OrderbookMirror:
         if self.ws is not None:
             self.ws.unsubscribe(tokens)
 
+    def untrack_token(self, token_id: str) -> None:
+        """Stop retrying a single token's book without a full MarketInfo --
+        e.g. after a position holding it has been conservatively reconciled
+        because the book was permanently unavailable. Idempotent."""
+        self._tracked.discard(token_id)
+        self._priority.discard(token_id)
+        self.store.drop(token_id)
+        if self.ws is not None:
+            self.ws.unsubscribe([token_id])
+
     def set_priority_tokens(self, tokens: list[str]) -> None:
         """Tokens of markets in/near the entry window — refreshed first."""
         self._priority = {t for t in tokens if t}

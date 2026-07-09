@@ -33,6 +33,9 @@ from poly_alpha_sniper.core.contracts import (
 )
 from poly_alpha_sniper.core.event_bus import EventBus, Topics
 from poly_alpha_sniper.core.logger import configure as configure_logging, get_logger
+from poly_alpha_sniper.portfolio.position_reconciliation import (
+    DEFAULT_STUCK_EXIT_CUTOFF_MS, reconcile_unexitable_position,
+)
 
 log = get_logger("app")
 
@@ -51,6 +54,15 @@ class App:
         self._tasks: list[asyncio.Task] = []
         self.paused = False
         self._pending_confirmed_sells: dict[str, int] = {}
+        # positions whose exit path has been failing continuously (no book,
+        # or every attempt raises) -- ts_ms of the FIRST failure seen, per
+        # token; cleared once the position closes by any means. Used to
+        # bound the exit_no_book retry loop (see _manage_exits).
+        self._exit_stuck_since_ms: dict[str, int] = {}
+        # tokens for which emergency_exit_failed panic has already been
+        # activated -- avoids re-activating (and re-logging) every cycle
+        # for a token already known to be failing.
+        self._panic_triggered_tokens: set[str] = set()
         # runtime observability (shadow diagnostics + /status + dashboard)
         self.diag: dict = {
             "runtime_alive": True,
@@ -803,6 +815,13 @@ class App:
     # ------------------------------------------------------------------
     async def _manage_exits(self) -> None:
         positions = self.portfolio.open_positions()
+        open_tokens = {p.token_id for p in positions}
+        # position closed since we last checked (normal exit or a prior
+        # reconciliation) -> stop tracking how long it's been stuck
+        for token in list(self._exit_stuck_since_ms):
+            if token not in open_tokens:
+                self._exit_stuck_since_ms.pop(token, None)
+                self._panic_triggered_tokens.discard(token)
         if not positions:
             return
         now = self.clock.now_ms()
@@ -819,7 +838,42 @@ class App:
             view_lookup=lambda asset: self.cex_state.multi_view(asset),
             portfolio=snap, panic=self.panic.is_active, kill=self.kill_switch.is_active)
         for pos, decision in pairs:
+            since = self._exit_stuck_since_ms.setdefault(pos.token_id, now)
+            if now - since >= DEFAULT_STUCK_EXIT_CUTOFF_MS:
+                await self._reconcile_stuck_exit(pos, now - since)
+                continue
             await self._execute_exit(pos, decision)
+
+    async def _reconcile_stuck_exit(self, pos, elapsed_ms: int) -> None:
+        """A position has needed exiting for >= DEFAULT_STUCK_EXIT_CUTOFF_MS
+        without success (no book, or every attempt raising). Conservatively
+        reconcile it (shadow-only bookkeeping, never places/cancels a real
+        order) and stop retrying its book. Never clears panic."""
+        now = self.clock.now_ms()
+        record = reconcile_unexitable_position(
+            self.portfolio, pos,
+            f"exit attempts have not succeeded for {elapsed_ms}ms "
+            f"(>= {DEFAULT_STUCK_EXIT_CUTOFF_MS}ms cutoff)",
+            now, self._insert)
+        self._exit_stuck_since_ms.pop(pos.token_id, None)
+        self._panic_triggered_tokens.discard(pos.token_id)
+        if record is None:
+            return  # already gone (race with a normal fill) -- not an error
+        if hasattr(self.mirror, "untrack_token"):
+            self.mirror.untrack_token(pos.token_id)
+        log.error("position_reconciled_no_book", extra={"extra": {
+            "token": pos.token_id, "market": pos.market_id,
+            "pnl_usd": record["pnl_usd"], "elapsed_ms": elapsed_ms}})
+        try:
+            await self.telegram.send(
+                f"RECONCILED (shadow-only, conservative): a position in market "
+                f"{pos.market_id} could not be exited for {elapsed_ms / 1000:.0f}s "
+                f"(book unavailable/exit failing) and was marked as a total loss of "
+                f"cost basis (${abs(record['pnl_usd']):.4f}). This is NOT a confirmed "
+                f"market resolution. Panic remains active -- review manually before "
+                f"/clear_panic.", critical=True)
+        except Exception:
+            log.error("reconcile_telegram_send_failed")
 
     def _fair_for_position(self, pos):
         market = self.market_cache.get(pos.market_id) if hasattr(self.market_cache, "get") else None
@@ -848,11 +902,15 @@ class App:
             record = await self.sell_executor.execute_exit(pos, decision, book)
         except Exception as exc:
             log.error("exit_failed", extra={"extra": {"error": repr(exc), "token": pos.token_id}})
-            if decision.priority <= 2:
+            if decision.priority <= 2 and pos.token_id not in self._panic_triggered_tokens:
+                self._panic_triggered_tokens.add(pos.token_id)
                 self.panic.activate(f"emergency_exit_failed:{pos.token_id}")
             return
         self._insert("orders", _order_row(record, self.mode.value))
         if record.filled_shares > 0:
+            # real progress was made -- this position is not "stuck"
+            self._exit_stuck_since_ms.pop(pos.token_id, None)
+            self._panic_triggered_tokens.discard(pos.token_id)
             from poly_alpha_sniper.core.contracts import FillRecord
             price = record.avg_fill_price or (book.best_bid or 0.0)
             fill = FillRecord(order_id=record.order_id, token_id=pos.token_id,
