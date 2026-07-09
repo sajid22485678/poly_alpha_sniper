@@ -88,15 +88,28 @@ def test_no_source_file_touches_env_or_secret_looking_terms():
     as informational UI copy, same as forbidden_paths.md documenting the
     term it forbids (see test_hermes_workspace.py). Actual file access is
     covered separately by test_no_source_file_reads_outside_the_agent_readonly_export_dir,
-    which requires every readFile call to resolve under the export dir."""
-    forbidden = (
-        "process.env", "dotenv", "PRIVATE_KEY", "API_SECRET", "API_KEY",
+    which requires every readFile call to resolve under the export dir.
+
+    Exception for process.env: the LAN auth proxy (proxy.ts) reads exactly one
+    env var -- process.env.DASHBOARD_LAN_PASSWORD, a user-chosen LAN VIEWING
+    password (not a stored secret / API key) used only to Basic-Auth-gate the
+    read-only dashboard for phone access. That single, named, non-secret read
+    is allowed; any other process.env use, and every secret-looking key, is
+    still forbidden in every source file including proxy.ts."""
+    secret_terms = (
+        "dotenv", "PRIVATE_KEY", "API_SECRET", "API_KEY",
         "BOT_TOKEN", "POLYMARKET_", "TELEGRAM_", "OPENROUTER_", "DASHBOARD_PASSWORD",
     )
     for f in _source_files():
         text = _strip_ts_comments(f.read_text(encoding="utf-8"))
-        for term in forbidden:
+        for term in secret_terms:
             assert not re.search(re.escape(term), text), f"{f} references forbidden term {term!r}"
+        env_hits = re.findall(r"process\.env\.\w+", text)
+        if f.name == "proxy.ts":
+            assert env_hits == ["process.env.DASHBOARD_LAN_PASSWORD"], \
+                f"proxy.ts may only read DASHBOARD_LAN_PASSWORD, saw {env_hits}"
+        else:
+            assert "process.env" not in text, f"{f} references forbidden term 'process.env'"
 
 
 # ---------------------------------------------------------------------------
