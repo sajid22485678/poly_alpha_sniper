@@ -91,7 +91,7 @@ export function DashboardClient() {
         </SectionShell>
 
         <SectionShell title="Market Intelligence">
-          <MarketIntelPanel status={status} marketState={snapshot?.latest_market_state ?? null} rejects={rejects} />
+          <MarketIntelPanel status={status} marketState={snapshot?.latest_market_state ?? null} rejects={rejects} nowMs={now} />
         </SectionShell>
 
         <SectionShell title="Trade Tape & Reject Taxonomy">
@@ -104,7 +104,7 @@ export function DashboardClient() {
         </SectionShell>
 
         <SectionShell title="Hermes Agent">
-          <HermesPanel brief={snapshot?.hermes_brief ?? null} />
+          <HermesPanel brief={snapshot?.hermes_brief ?? null} rejects={rejects} />
         </SectionShell>
       </main>
 

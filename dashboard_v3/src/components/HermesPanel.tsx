@@ -1,6 +1,18 @@
 import { formatDateTime } from "@/lib/format";
+import { topRejectReasons } from "@/lib/derive";
 import { Card, CardHeader, Label, NotAvailable, Pill } from "@/components/ui";
-import type { HermesBrief } from "@/lib/types";
+import type { HermesBrief, RejectBreakdown } from "@/lib/types";
+
+const BUCKET_LABELS: Record<string, string> = {
+  no_shock: "No Shock",
+  no_fresh_cex_price: "No Fresh CEX Price",
+  stale_book: "Stale Book",
+  spread: "Spread Too Wide",
+  edge: "Edge Too Low",
+  max_exposure: "Max Exposure",
+  min_order: "Min Order Size",
+  other: "Other",
+};
 
 const STEPS = [
   {
@@ -36,7 +48,8 @@ function readinessTone(status: string): "green" | "gold" | "red" {
   return "gold";
 }
 
-export function HermesPanel({ brief }: { brief: HermesBrief | null }) {
+export function HermesPanel({ brief, rejects }: { brief: HermesBrief | null; rejects: RejectBreakdown | null }) {
+  const ranked = topRejectReasons(rejects?.buckets, 3);
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
       <Card>
@@ -74,8 +87,24 @@ export function HermesPanel({ brief }: { brief: HermesBrief | null }) {
             <div className="text-sm font-semibold mt-1">{brief.verdict}</div>
             <div className="grid grid-cols-2 gap-3 mt-3">
               <div>
-                <Label>Top Blocker</Label>
-                <div className="text-sm mt-1">{brief.top_blocker}</div>
+                <Label>Top Reject Reasons (raw volume)</Label>
+                {ranked.length === 0 ? (
+                  <div className="text-sm mt-1">
+                    <NotAvailable>no rejects recorded</NotAvailable>
+                  </div>
+                ) : (
+                  <ol className="text-sm mt-1 space-y-0.5">
+                    {ranked.map((r, i) => (
+                      <li key={r.bucket} className="v3-mono">
+                        {i + 1}. {BUCKET_LABELS[r.bucket] ?? r.bucket} — {r.count}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                <div className="text-xs mt-1" style={{ color: "var(--v3-muted-2)" }}>
+                  Hermes brief blocker (actionable-only, excludes no_shock/no_fresh_cex_price):{" "}
+                  {brief.top_blocker}
+                </div>
               </div>
               <div>
                 <Label>Anomaly</Label>

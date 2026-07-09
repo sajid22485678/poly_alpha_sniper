@@ -1,3 +1,4 @@
+import { CANONICAL_REJECT_BUCKETS } from "@/lib/types";
 import type { ExitRow, OrderRow } from "@/lib/types";
 
 // Pure client-side derivations from real exported data only. Nothing here
@@ -57,4 +58,32 @@ export function joinTradeTape(exits: ExitRow[], orders: OrderRow[]): TradeTapeRo
     const entry = candidates[0] ?? null;
     return { ...exit, side: entry?.side ?? null, entry_price: entry?.price ?? null };
   });
+}
+
+export interface RankedReject {
+  bucket: string;
+  count: number;
+}
+
+/** Honest top-N reject reasons by raw volume across ALL canonical buckets.
+ *
+ * This intentionally does NOT reuse reporting/agent_export.py's
+ * build_hermes_brief() top_blocker field: that field deliberately excludes
+ * no_shock/no_fresh_cex_price as "not actionable" and then picks the max of
+ * the remainder, so ties are broken by bucket declaration order (stale_book
+ * before max_exposure) rather than by which is actually bigger. When
+ * no_shock/no_fresh_cex_price dominate (as they almost always do), that
+ * exclusion hides the two largest real counts entirely. This function ranks
+ * every bucket, unfiltered, purely by count -- what "top blocker" should
+ * mean read at face value. Ties keep CANONICAL_REJECT_BUCKETS order
+ * (deterministic, not random). */
+export function topRejectReasons(
+  buckets: Record<string, number> | null | undefined,
+  limit = 3
+): RankedReject[] {
+  if (!buckets) return [];
+  return CANONICAL_REJECT_BUCKETS.map((bucket) => ({ bucket, count: buckets[bucket] ?? 0 }))
+    .filter((r) => r.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
 }
