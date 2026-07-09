@@ -11,6 +11,7 @@ from poly_alpha_sniper.core.contracts import (
     MarketInfo, OrderbookSnapshot, OrderRequest, PortfolioSnapshot, RejectReason,
     RiskDecision, is_valid_tick, round_to_tick)
 from poly_alpha_sniper.microstructure.slippage_model import estimate_slippage_bps
+from poly_alpha_sniper.risk.exposure_cap import resolve_tier_exposure_cap_pct
 
 
 def _min_order_sizing_detail(req: OrderRequest, portfolio: PortfolioSnapshot, cfg,
@@ -88,11 +89,26 @@ def validate_order(req: OrderRequest, book: Optional[OrderbookSnapshot],
         if req.size_usd > portfolio.available_cash_usd + 1e-9:
             return RiskDecision(False, 0.0, RejectReason.INSUFFICIENT_CASH, checks)
         checks.append("cash_ok")
-        # exposure caps
+        # exposure caps -- market cap is tier-aware in fixed_min_shares mode
+        # (see risk/exposure_cap.py); must agree with position_sizer.py's
+        # equivalent check or an already-sized-and-approved order gets
+        # re-rejected here for a stale reason.
         eq = max(portfolio.equity_usd, 1e-9)
         mkt_exp = portfolio.exposure_by_market.get(req.market_id, 0.0)
-        if mkt_exp + req.size_usd > eq * cfg.risk.max_market_exposure_pct_equity + 1e-9:
-            return RiskDecision(False, 0.0, RejectReason.MAX_EXPOSURE, checks)
+        fixed_shares_mode = cfg.risk.sizing_mode == "fixed_min_shares"
+        market_cap_pct = (resolve_tier_exposure_cap_pct(cfg, req.tier) if fixed_shares_mode
+                          else cfg.risk.max_market_exposure_pct_equity)
+        if mkt_exp + req.size_usd > eq * market_cap_pct + 1e-9:
+            detail = {}
+            if fixed_shares_mode:
+                tier_key = req.tier.value if hasattr(req.tier, "value") else str(req.tier or "")
+                detail = {
+                    "sizing_mode": "fixed_min_shares", "tier": tier_key,
+                    "tier_cap_pct": market_cap_pct, "equity": round(eq, 4),
+                    "allowed_exposure_usd": round(eq * market_cap_pct, 4),
+                    "proposed_usd": round(req.size_usd, 4),
+                }
+            return RiskDecision(False, 0.0, RejectReason.MAX_EXPOSURE, checks, sizing_detail=detail)
         if portfolio.total_exposure_usd + req.size_usd > eq * cfg.risk.max_total_exposure_pct_equity + 1e-9:
             return RiskDecision(False, 0.0, RejectReason.MAX_EXPOSURE, checks)
         checks.append("exposure_ok")

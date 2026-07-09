@@ -186,6 +186,18 @@ class MicroBankrollConfig(BaseModel):
     max_positions: int = 2
 
 
+class DynamicExposureByTierConfig(BaseModel):
+    """Tier-aware market exposure cap, fixed_min_shares mode only (see
+    risk/exposure_cap.py). max_trade_usd mode always uses the flat
+    risk.max_market_exposure_pct_equity regardless of this config -- this
+    only replaces that ONE check, for ONE sizing mode; total exposure cap,
+    daily loss cap, loss streak cap, kill switch, and panic are untouched."""
+    enabled: bool = True
+    default_pct: float = 0.10
+    tiers: dict[str, float] = Field(default_factory=lambda: {
+        "A_PLUS": 0.50, "A": 0.50, "B": 0.10})
+
+
 class RiskConfig(BaseModel):
     starting_bankroll_usd: float = 10
     compound_enabled: bool = True
@@ -213,6 +225,8 @@ class RiskConfig(BaseModel):
     sizing_mode: str = "max_trade_usd"   # "max_trade_usd" | "fixed_min_shares"
     fixed_order_shares: float = 5.0
     use_max_trade_usd: bool = True
+    dynamic_exposure_by_tier: DynamicExposureByTierConfig = Field(
+        default_factory=DynamicExposureByTierConfig)
 
 
 class TierExitRule(BaseModel):

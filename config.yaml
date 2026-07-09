@@ -153,6 +153,20 @@ risk:
   sizing_mode: fixed_min_shares
   fixed_order_shares: 5
   use_max_trade_usd: false
+  # Dynamic per-tier market exposure cap, fixed_min_shares mode only: at a
+  # $10-15 shadow bankroll the flat 10% market cap ($1-1.50) blocks a 5-share
+  # order at almost any ask price even after max_trade_usd was removed as a
+  # blocker. Higher-quality setups (A/A_PLUS) are allowed a larger share of
+  # equity per market; B and unrecognized tiers keep the original 10%. Total
+  # exposure cap, daily loss cap, loss streak cap, kill switch, and panic are
+  # untouched by this.
+  dynamic_exposure_by_tier:
+    enabled: true
+    default_pct: 0.10
+    tiers:
+      A_PLUS: 0.50
+      A: 0.50
+      B: 0.10
 
 capital_scaling:
   enabled: true

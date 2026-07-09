@@ -20,7 +20,8 @@ price needed more than $1 to buy Polymarket's minimum order (5 shares).
     order by construction)
 
 Both modes then share the same tail:
-6.  reject market exposure cap
+6.  reject market exposure cap (tier-aware in fixed_min_shares mode only --
+    see risk/exposure_cap.py)
 7.  reject total exposure cap
 8.  reject when spread/slippage killed the edge
 9.  reject daily loss cap
@@ -30,14 +31,17 @@ from __future__ import annotations
 
 from poly_alpha_sniper.core.contracts import (
     MarketInfo, PortfolioSnapshot, RejectReason, RiskDecision, TradingMode, clamp)
+from poly_alpha_sniper.risk.exposure_cap import resolve_tier_exposure_cap_pct
 
 
 def compute_position_size(cfg, portfolio: PortfolioSnapshot, market: MarketInfo,
                           mode: TradingMode, edge_after_slippage: float,
-                          executable_price: float = 0.0) -> RiskDecision:
+                          executable_price: float = 0.0, tier=None) -> RiskDecision:
     checks: list[str] = []
     r = cfg.risk
     equity = portfolio.equity_usd  # realized-only by contract
+    market_cap_pct = r.max_market_exposure_pct_equity
+    tier_exposure_detail = {}
 
     if r.sizing_mode == "fixed_min_shares":
         if executable_price <= 0:
@@ -58,6 +62,19 @@ def compute_position_size(cfg, portfolio: PortfolioSnapshot, market: MarketInfo,
             return RiskDecision(False, 0.0, RejectReason.INSUFFICIENT_CASH_FOR_5_SHARES,
                                 checks, sizing_detail=fixed_detail)
         checks.append("cash_ok")
+
+        market_cap_pct = resolve_tier_exposure_cap_pct(cfg, tier)
+        tier_key = tier.value if hasattr(tier, "value") else str(tier or "")
+        allowed_exposure_usd = round(equity * market_cap_pct, 4)
+        tier_exposure_detail = {
+            "sizing_mode": "fixed_min_shares",
+            "tier": tier_key,
+            "tier_cap_pct": market_cap_pct,
+            "equity": round(equity, 4),
+            "allowed_exposure_usd": allowed_exposure_usd,
+            "proposed_usd": round(size, 4),
+        }
+        fixed_detail = {**fixed_detail, **tier_exposure_detail}
     else:
         raw = equity * r.position_size_pct_equity
         max_cap = r.max_trade_usd
@@ -76,9 +93,10 @@ def compute_position_size(cfg, portfolio: PortfolioSnapshot, market: MarketInfo,
         fixed_detail = {}
 
     market_exposure = portfolio.exposure_by_market.get(market.market_id, 0.0)
-    if market_exposure + size > equity * r.max_market_exposure_pct_equity + 1e-9:
-        return RiskDecision(False, 0.0, RejectReason.MAX_EXPOSURE, checks)
-    checks.append("market_exposure_ok")
+    if market_exposure + size > equity * market_cap_pct + 1e-9:
+        return RiskDecision(False, 0.0, RejectReason.MAX_EXPOSURE, checks,
+                            sizing_detail=tier_exposure_detail)
+    checks.append("market_exposure_ok" if not tier_exposure_detail else "tier_exposure_ok")
 
     if portfolio.total_exposure_usd + size > equity * r.max_total_exposure_pct_equity + 1e-9:
         return RiskDecision(False, 0.0, RejectReason.MAX_EXPOSURE, checks)

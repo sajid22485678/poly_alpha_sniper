@@ -1,6 +1,6 @@
 import pytest
 
-from poly_alpha_sniper.core.contracts import RejectReason, TradingMode
+from poly_alpha_sniper.core.contracts import RejectReason, Tier, TradingMode
 from poly_alpha_sniper.risk.position_sizer import compute_position_size
 from poly_alpha_sniper.tests.helpers import cfg, market, portfolio_snapshot
 
@@ -223,3 +223,124 @@ def test_screenshot_regression_insufficient_cash():
                               executable_price=0.52)
     assert not d.approved
     assert d.reject_reason == RejectReason.INSUFFICIENT_CASH_FOR_5_SHARES
+
+
+# ---------------------------------------------------------------------------
+# Dynamic tier-based exposure cap (fixed_min_shares mode only): B stays at
+# 10%, A/A_PLUS get 50%, unknown/missing tiers default to 10%.
+# ---------------------------------------------------------------------------
+
+def test_tier_a_plus_screenshot_case_passes_exposure():
+    d = compute_position_size(_fixed_cfg(), portfolio_snapshot(equity=12.44, cash=12.44),
+                              market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.52, tier=Tier.A_PLUS)
+    assert d.approved, d.reject_reason
+    assert d.size_usd == pytest.approx(2.60)
+    assert d.sizing_detail["tier"] == "A_PLUS"
+    assert d.sizing_detail["tier_cap_pct"] == pytest.approx(0.50)
+    assert d.sizing_detail["allowed_exposure_usd"] == pytest.approx(6.22)
+    assert d.sizing_detail["proposed_usd"] == pytest.approx(2.60)
+
+
+def test_tier_a_ask_095_passes_the_market_exposure_check_specifically():
+    # Isolates the MARKET exposure check this ticket changes from the
+    # UNTOUCHED 30%-of-equity TOTAL exposure cap -- see the next test for
+    # what actually happens with zero other headroom at this bankroll size.
+    snap = portfolio_snapshot(equity=12.44, cash=12.44, total_exposure_usd=0.0,
+                              exposure_by_market={})
+    d = compute_position_size(_fixed_cfg(), snap, market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.95, tier=Tier.A)
+    assert "tier_exposure_ok" in d.checks  # market-level tier check passed
+    assert d.size_usd if d.approved else True  # market check itself never the blocker
+
+
+def test_tier_a_ask_095_at_reported_equity_still_blocked_by_total_exposure_cap():
+    """Honest finding: this ticket only changes the MARKET exposure check.
+    At equity=$12.44, a single $4.75 position already exceeds the UNTOUCHED
+    30%-of-equity TOTAL exposure cap ($3.732) even with zero other exposure
+    -- so this exact case is still blocked, but now by REJECTED_MAX_EXPOSURE
+    via the total cap, not the market cap, not min-order, not max_trade_usd."""
+    d = compute_position_size(_fixed_cfg(), portfolio_snapshot(equity=12.44, cash=12.44),
+                              market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.95, tier=Tier.A)
+    assert "tier_exposure_ok" in d.checks  # confirms market cap was NOT the blocker
+    assert not d.approved
+    assert d.reject_reason == RejectReason.MAX_EXPOSURE
+
+
+def test_tier_a_ask_095_passes_fully_with_total_exposure_headroom():
+    # Same tier/ask, but enough equity that the (untouched) 30% total cap
+    # isn't also in play -- proves the full pass-through end to end.
+    snap = portfolio_snapshot(equity=50, cash=50)
+    d = compute_position_size(_fixed_cfg(), snap, market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.95, tier=Tier.A)
+    assert d.approved, d.reject_reason
+    assert d.size_usd == pytest.approx(4.75)
+    assert d.sizing_detail["tier_cap_pct"] == pytest.approx(0.50)
+    assert d.sizing_detail["allowed_exposure_usd"] == pytest.approx(25.0)
+
+
+def test_tier_b_stays_at_ten_pct_and_fails_exposure():
+    d = compute_position_size(_fixed_cfg(), portfolio_snapshot(equity=12.44, cash=12.44),
+                              market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.52, tier=Tier.B)
+    assert not d.approved
+    assert d.reject_reason == RejectReason.MAX_EXPOSURE
+    assert d.sizing_detail["tier"] == "B"
+    assert d.sizing_detail["tier_cap_pct"] == pytest.approx(0.10)
+    assert d.sizing_detail["allowed_exposure_usd"] == pytest.approx(1.244)
+    assert d.sizing_detail["proposed_usd"] == pytest.approx(2.60)
+
+
+def test_unknown_tier_defaults_to_ten_pct_and_fails_exposure():
+    d = compute_position_size(_fixed_cfg(), portfolio_snapshot(equity=12.44, cash=12.44),
+                              market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.52, tier=None)
+    assert not d.approved
+    assert d.reject_reason == RejectReason.MAX_EXPOSURE
+    assert d.sizing_detail["tier_cap_pct"] == pytest.approx(0.10)
+
+
+def test_tier_c_also_defaults_to_ten_pct():
+    """Tier.C isn't in the configured tiers map -- falls back to default_pct,
+    same as unknown/missing."""
+    d = compute_position_size(_fixed_cfg(), portfolio_snapshot(equity=12.44, cash=12.44),
+                              market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.52, tier=Tier.C)
+    assert not d.approved
+    assert d.reject_reason == RejectReason.MAX_EXPOSURE
+    assert d.sizing_detail["tier_cap_pct"] == pytest.approx(0.10)
+
+
+def test_dynamic_exposure_disabled_falls_back_to_flat_cap():
+    c = _fixed_cfg()
+    c.risk.dynamic_exposure_by_tier.enabled = False
+    d = compute_position_size(c, portfolio_snapshot(equity=12.44, cash=12.44),
+                              market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.52, tier=Tier.A_PLUS)
+    assert not d.approved
+    assert d.reject_reason == RejectReason.MAX_EXPOSURE  # flat 10% still applies
+
+
+def test_max_trade_usd_mode_ignores_tier_cap_entirely():
+    """Dynamic tier caps only apply to fixed_min_shares -- max_trade_usd mode's
+    market exposure check must be completely unaffected by tier."""
+    c = cfg()
+    c.risk.sizing_mode = "max_trade_usd"
+    snap = portfolio_snapshot(equity=10, cash=10)
+    d = compute_position_size(c, snap, market(), TradingMode.SHADOW_LIVE, 0.08,
+                              tier=Tier.A_PLUS)
+    assert d.approved
+    assert d.size_usd == 1.0  # unchanged max_trade_usd-mode behavior
+    assert "tier_cap_pct" not in d.sizing_detail
+
+
+def test_total_exposure_cap_still_enforced_in_fixed_min_shares_mode():
+    """Dynamic per-tier cap only replaces the MARKET exposure check -- the
+    30% total exposure cap is untouched."""
+    snap = portfolio_snapshot(equity=50, cash=50,
+                              exposure_by_market={"other": 14.9}, total_exposure_usd=14.9)
+    d = compute_position_size(_fixed_cfg(), snap, market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.52, tier=Tier.A_PLUS)
+    assert not d.approved
+    assert d.reject_reason == RejectReason.MAX_EXPOSURE

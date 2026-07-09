@@ -1,7 +1,7 @@
 import pytest
 
 from poly_alpha_sniper.core.contracts import (
-    BookLevel, OrderbookSnapshot, OrderRequest, OrderSide, RejectReason)
+    BookLevel, OrderbookSnapshot, OrderRequest, OrderSide, RejectReason, Tier)
 from poly_alpha_sniper.execution.order_validator import validate_order
 from poly_alpha_sniper.tests.helpers import NOW_MS, book, cfg, market, portfolio_snapshot
 
@@ -216,3 +216,54 @@ def test_closed_market_rejected():
     m.closed = True
     d = _validate(m=m)
     assert d.reject_reason == RejectReason.AMBIGUOUS_MARKET
+
+
+# ---------------------------------------------------------------------------
+# Dynamic tier-based exposure cap: order_validator.py's own independent
+# exposure check must agree with position_sizer.py's, or an
+# already-approved order gets re-rejected here for a stale reason.
+# ---------------------------------------------------------------------------
+
+def _fixed_shares_cfg():
+    c = cfg()
+    c.risk.sizing_mode = "fixed_min_shares"
+    return c
+
+
+def _tiered_req(tier, price=0.52, shares=5.0):
+    return OrderRequest(order_id="o", token_id="tok_yes", market_id="m1",
+                        side=OrderSide.BUY_YES, price=price, size_shares=shares,
+                        size_usd=round(price * shares, 4), tier=tier)
+
+
+def test_tier_a_plus_screenshot_case_passes_exposure_at_order_validator_layer():
+    snap = portfolio_snapshot(equity=12.44, cash=12.44)
+    d = _validate(req=_tiered_req(Tier.A_PLUS, price=0.52), bk=book(bid=0.50, ask=0.52),
+                 snap=snap, c=_fixed_shares_cfg())
+    assert d.approved, d.reject_reason
+
+
+def test_tier_b_still_blocked_at_ten_pct_at_order_validator_layer():
+    snap = portfolio_snapshot(equity=12.44, cash=12.44)
+    d = _validate(req=_tiered_req(Tier.B, price=0.52), bk=book(bid=0.50, ask=0.52),
+                 snap=snap, c=_fixed_shares_cfg())
+    assert not d.approved
+    assert d.reject_reason == RejectReason.MAX_EXPOSURE
+    assert d.sizing_detail["tier"] == "B"
+    assert d.sizing_detail["tier_cap_pct"] == pytest.approx(0.10)
+
+
+def test_unknown_tier_defaults_to_ten_pct_at_order_validator_layer():
+    snap = portfolio_snapshot(equity=12.44, cash=12.44)
+    d = _validate(req=_tiered_req(Tier.C, price=0.52), bk=book(bid=0.50, ask=0.52),
+                 snap=snap, c=_fixed_shares_cfg())
+    assert not d.approved
+    assert d.reject_reason == RejectReason.MAX_EXPOSURE
+    assert d.sizing_detail["tier_cap_pct"] == pytest.approx(0.10)
+
+
+def test_max_trade_usd_mode_exposure_check_ignores_tier_at_order_validator_layer():
+    snap = portfolio_snapshot(equity=10, cash=10)
+    d = _validate(req=_tiered_req(Tier.A_PLUS, price=0.50, shares=2.0),
+                 snap=snap, c=_max_trade_usd_cfg())
+    assert d.approved, d.reject_reason  # unchanged max_trade_usd-mode behavior

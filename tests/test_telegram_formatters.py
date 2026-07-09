@@ -108,3 +108,55 @@ def test_min_order_rejection_message_unaffected_by_fixed_shares_addition():
     msg = format_rejected(signal(), _clean_approve_gate(), "REJECTED_MIN_ORDER_SIZE_TOO_HIGH",
                           sizing_detail=_sizing_detail())
     assert "Increase max_trade_usd to at least $1.90" in msg
+
+
+# ---------------------------------------------------------------------------
+# Dynamic tier-based exposure cap: REJECTED_MAX_EXPOSURE in fixed_min_shares
+# mode must show tier/tier_cap_pct/equity/allowed_exposure_usd/proposed_usd,
+# never the legacy max_trade_usd/min-order wording.
+# ---------------------------------------------------------------------------
+
+def _tier_exposure_sizing_detail(**overrides):
+    d = {"sizing_mode": "fixed_min_shares", "tier": "B", "tier_cap_pct": 0.10,
+        "equity": 12.44, "allowed_exposure_usd": 1.244, "proposed_usd": 2.60}
+    d.update(overrides)
+    return d
+
+
+def test_tier_exposure_rejection_shows_required_fields():
+    msg = format_rejected(signal(), _clean_approve_gate(), "REJECTED_MAX_EXPOSURE",
+                          sizing_detail=_tier_exposure_sizing_detail())
+    assert "REJECTED_MAX_EXPOSURE" in msg
+    assert "Tier: B" in msg
+    assert "Tier Exposure Cap: 10%" in msg
+    assert "Allowed Exposure USD: $1.24" in msg
+    assert "Proposed USD: $2.60" in msg
+    assert "Equity: $12.44" in msg
+
+
+def test_tier_exposure_rejection_excludes_all_forbidden_legacy_phrases():
+    msg = format_rejected(signal(), _clean_approve_gate(), "REJECTED_MAX_EXPOSURE",
+                          sizing_detail=_tier_exposure_sizing_detail())
+    forbidden = ("Increase max_trade_usd", "Configured max_trade_usd",
+                "Proposed Size USD: $1.00", "small-bankroll mode",
+                "REJECTED_MIN_ORDER_SIZE_TOO_HIGH")
+    for phrase in forbidden:
+        assert phrase not in msg, f"forbidden legacy phrase leaked: {phrase!r}"
+
+
+def test_tier_exposure_rejection_a_plus_shows_fifty_pct_cap():
+    msg = format_rejected(signal(), _clean_approve_gate(), "REJECTED_MAX_EXPOSURE",
+                          sizing_detail=_tier_exposure_sizing_detail(
+                              tier="A_PLUS", tier_cap_pct=0.50, allowed_exposure_usd=6.22))
+    assert "Tier: A_PLUS" in msg
+    assert "Tier Exposure Cap: 50%" in msg
+    assert "Allowed Exposure USD: $6.22" in msg
+
+
+def test_plain_max_exposure_without_tier_detail_falls_back_to_generic_message():
+    """The 30% TOTAL exposure cap (untouched by this change) still returns an
+    empty sizing_detail -- must not be misrendered as a tier-exposure reject."""
+    msg = format_rejected(signal(), _clean_approve_gate(), "REJECTED_MAX_EXPOSURE",
+                          sizing_detail={})
+    assert "Tier Exposure Cap" not in msg
+    assert "REJECTED_MAX_EXPOSURE" in msg

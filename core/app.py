@@ -41,6 +41,24 @@ from poly_alpha_sniper.strategy.oracle_ev import compute_oracle_ev
 
 log = get_logger("app")
 
+# risk (position_sizer) and validation (order_validator) are two independent
+# checks that can both reject for the same RejectReason -- when risk rejects
+# BEFORE an OrderRequest is ever built, `validation` is a synthetic stand-in
+# that copies risk.reject_reason but never risk.sizing_detail (see
+# App._evaluate_market). Matching on reject_reason alone would silently pick
+# the source with no detail dict; prefer whichever one actually carries data.
+_SIZING_DETAIL_REASONS = (RejectReason.MIN_ORDER_SIZE_TOO_HIGH,
+                          RejectReason.INSUFFICIENT_CASH_FOR_5_SHARES,
+                          RejectReason.MAX_EXPOSURE)
+
+
+def select_sizing_detail_source(risk, validation):
+    if risk.reject_reason in _SIZING_DETAIL_REASONS and risk.sizing_detail:
+        return risk
+    if validation.reject_reason in _SIZING_DETAIL_REASONS and validation.sizing_detail:
+        return validation
+    return None
+
 
 class App:
     def __init__(self, cfg: Optional[Config] = None, secrets: Optional[Secrets] = None):
@@ -731,13 +749,10 @@ class App:
             if self.cfg.telegram.send_rejected_close_opportunities and gate.score >= 60:
                 from poly_alpha_sniper.reporting.telegram import format_rejected
                 # risk/validation (not gate) carry the sizing_detail when the true
-                # blocker is REJECTED_MIN_ORDER_SIZE_TOO_HIGH -- gate.failed_checks
-                # is empty in that case (the signal cleanly passed the alpha gate),
+                # blocker is a sizing/exposure reject -- gate.failed_checks is
+                # empty in that case (the signal cleanly passed the alpha gate),
                 # which used to make the message wrongly say "edge/confidence".
-                sizing_reasons = (RejectReason.MIN_ORDER_SIZE_TOO_HIGH,
-                                  RejectReason.INSUFFICIENT_CASH_FOR_5_SHARES)
-                sizing_source = validation if validation.reject_reason in sizing_reasons \
-                    else (risk if risk.reject_reason in sizing_reasons else None)
+                sizing_source = select_sizing_detail_source(risk, validation)
                 await self.telegram.send(format_rejected(signal, gate, reject_reason,
                                                           sizing_detail=sizing_source.sizing_detail if sizing_source else None))
             return

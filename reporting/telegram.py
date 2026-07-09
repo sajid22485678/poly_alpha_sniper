@@ -139,6 +139,24 @@ def format_rejected(signal, gate, reason: str, sizing_detail: Optional[dict] = N
     # (edge/confidence/quality all passed) -- the real blocker is that this
     # bankroll's max_trade_usd can't buy Polymarket's share minimum at the
     # current ask. Reporting "edge/confidence" there would be actively wrong.
+    if sizing_detail and sizing_detail.get("sizing_mode") == "fixed_min_shares" \
+            and "tier_cap_pct" in sizing_detail:
+        d = sizing_detail
+        return (
+            "⚠️ REJECTED — dynamic tier exposure cap\n"
+            f"Reason: {_e(reason)}\n"
+            f"Tier: {d.get('tier') or gate.tier.value}\n"
+            f"Market: {_e(signal.market.title)}\n"
+            f"Asset: {signal.asset}\n"
+            f"Edge: {signal.edge.edge_after_slippage:.3f}\n"
+            f"Confidence: {signal.fair.confidence:.0f}\n"
+            f"Tier Exposure Cap: {d.get('tier_cap_pct', 0) * 100:.0f}%\n"
+            f"Equity: ${d.get('equity', 0):.2f}\n"
+            f"Allowed Exposure USD: ${d.get('allowed_exposure_usd', 0):.2f}\n"
+            f"Proposed USD: ${d.get('proposed_usd', 0):.2f}\n"
+            f"What Must Improve: Grow the bankroll or wait for existing exposure "
+            f"in this market to close (sizing_mode=fixed_min_shares uses a "
+            f"per-tier exposure cap, not max_trade_usd).")
     if sizing_detail and sizing_detail.get("sizing_mode") == "fixed_min_shares":
         d = sizing_detail
         return (

@@ -55,7 +55,8 @@ class RiskManager:
 
         sizing = compute_position_size(self.cfg, portfolio, signal.market, mode,
                                        signal.edge.edge_after_slippage,
-                                       executable_price=signal.edge.market_price)
+                                       executable_price=signal.edge.market_price,
+                                       tier=signal.tier)
         sizing.checks = checks + sizing.checks
         return sizing
 
