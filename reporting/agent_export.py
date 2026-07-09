@@ -165,7 +165,12 @@ def build_oracle_status(state: dict, cfg, now_ms: int) -> dict:
         "enabled": cfg.oracle_ev.enabled,
         "generated_ts_ms": now_ms,
         "market_id": anchor.get("market_id"),
+        "event_id": anchor.get("event_id"),
+        "slug": anchor.get("slug"),
         "asset": asset,
+        "hydration_attempted": bool(anchor.get("hydration_attempted", False)),
+        "hydration_success": bool(anchor.get("hydration_success", False)),
+        "fields_checked": anchor.get("fields_checked") if isinstance(anchor.get("fields_checked"), list) else [],
         "price_to_beat": price_to_beat,
         "anchor_source": anchor.get("oracle_source"),        # e.g. polymarket_event_metadata
         "settlement_anchor": "price_to_beat",                # explicit: this is what the bot uses
@@ -181,6 +186,8 @@ def build_oracle_status(state: dict, cfg, now_ms: int) -> dict:
         "oracle_anchor_quality": anchor.get("oracle_anchor_quality"),
         "time_remaining_seconds": anchor.get("time_remaining_seconds"),
         "latest_ev": ev if isinstance(ev, dict) else None,
+        "final_anchor_status": anchor.get("final_anchor_status")
+        or ("available" if price_to_beat is not None else "missing"),
         "reason": None if price_to_beat is not None else "candidate market found, price_to_beat missing",
     }
 

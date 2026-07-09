@@ -458,6 +458,12 @@ class OracleAnchor:
     time_remaining_seconds: float = 0.0
     oracle_anchor_quality: str = "unknown"       # "good" | "fallback" | "stale" | "missing"
     resolution_source_url: str = ""
+    event_id: str = ""
+    slug: str = ""
+    hydration_attempted: bool = False
+    hydration_success: bool = False
+    fields_checked: list[str] = field(default_factory=list)
+    final_anchor_status: str = "missing"
 
     @property
     def available(self) -> bool:

@@ -54,7 +54,59 @@ class PolymarketGamma:
 
     async def get_events(self, params: dict) -> list[dict]:
         data = await self._get("/events", {k: str(v) for k, v in params.items()})
-        return data if isinstance(data, list) else []
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for key in ("events", "data", "items", "results"):
+                rows = data.get(key)
+                if isinstance(rows, list):
+                    return rows
+            return [data]
+        return []
+
+    async def get_event_for_market(self, raw_market: dict) -> Optional[dict]:
+        """Best-effort public Gamma event hydration for a shallow market row.
+
+        Some /markets rows omit eventMetadata, where priceToBeat lives for
+        active 5-minute crypto markets. This method only fetches public
+        metadata and returns one event dict; it never touches orders or
+        private endpoints.
+        """
+        params_to_try: list[dict] = []
+        event_ref = self._first_embedded_event(raw_market)
+        for value in (
+            raw_market.get("eventId"), raw_market.get("event_id"),
+            event_ref.get("id") if event_ref else None,
+        ):
+            if value:
+                params_to_try.append({"id": value})
+        for value in (
+            raw_market.get("eventSlug"), raw_market.get("event_slug"),
+            event_ref.get("slug") if event_ref else None,
+        ):
+            if value:
+                params_to_try.append({"slug": value})
+
+        seen: set[tuple[tuple[str, str], ...]] = set()
+        for params in params_to_try:
+            key = tuple(sorted((str(k), str(v)) for k, v in params.items()))
+            if key in seen:
+                continue
+            seen.add(key)
+            rows = await self.get_events(params)
+            if rows:
+                return rows[0]
+        return None
+
+    @staticmethod
+    def _first_embedded_event(raw_market: dict) -> dict:
+        events = raw_market.get("events")
+        if not isinstance(events, list):
+            return {}
+        for event in events:
+            if isinstance(event, dict):
+                return event
+        return {}
 
     async def close(self) -> None:
         if self._session and not self._session.closed:

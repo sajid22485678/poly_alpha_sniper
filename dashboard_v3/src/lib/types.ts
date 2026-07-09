@@ -160,14 +160,34 @@ export interface OrderRow {
   exit_reason: string;
 }
 
+export interface OracleAnchorDiagnostics {
+  generated_ts_ms?: number;
+  market_id?: string | null;
+  event_id?: string | null;
+  slug?: string | null;
+  asset?: string | null;
+  hydration_attempted?: boolean;
+  hydration_success?: boolean;
+  fields_checked?: string[];
+  price_to_beat?: number | null;
+  metadata_url?: string | null;
+  resolution_source_url?: string | null;
+  final_anchor_status?: string | null;
+}
+
 export type OracleStatus =
-  | { available: false; enabled: boolean; reason: string }
+  | ({ available: false; enabled: boolean; reason: string } & OracleAnchorDiagnostics)
   | {
       available: true;
       enabled: boolean;
       generated_ts_ms: number;
       market_id: string | null;
+      event_id: string | null;
+      slug: string | null;
       asset: string | null;
+      hydration_attempted: boolean;
+      hydration_success: boolean;
+      fields_checked: string[];
       price_to_beat: number | null;
       // The bot's settlement anchor is always price_to_beat. anchor_source is
       // where that value came from (polymarket_event_metadata). cex_lead_source
@@ -186,6 +206,7 @@ export type OracleStatus =
       oracle_vs_cex_basis_pct: number | null;
       oracle_anchor_quality: string | null;
       time_remaining_seconds: number | null;
+      final_anchor_status: string | null;
       latest_ev: {
         ev: number;
         probability_of_payout: number;

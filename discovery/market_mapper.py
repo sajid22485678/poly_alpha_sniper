@@ -18,6 +18,7 @@ IMPORTANT SEMANTICS (verified against live payloads 2026-07-08):
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from poly_alpha_sniper.core.contracts import MarketInfo, MarketType
@@ -51,32 +52,126 @@ def _num(raw: dict, *keys, default: float = 0.0) -> float:
     return default
 
 
-def _extract_price_to_beat(raw: dict) -> tuple[float | None, str, str]:
-    """Polymarket's Gamma /markets response nests the resolution-relevant
-    reference price at events[0].eventMetadata.priceToBeat (verified against
-    a live 5-min BTC/ETH market payload 2026-07-09) -- NOT a top-level field,
-    and not present at all on the CLOB-shaped payload (no `events` array
-    there), in which case this correctly returns (None, "", resolutionSource
-    if any). Never fabricates a value; returns None when genuinely absent."""
-    resolution_source_url = str(raw.get("resolutionSource") or "")
-    events = raw.get("events")
-    if not isinstance(events, list) or not events:
-        return None, "", resolution_source_url
-    first = events[0]
-    if not isinstance(first, dict):
-        return None, "", resolution_source_url
-    if not resolution_source_url:
-        resolution_source_url = str(first.get("resolutionSource") or "")
-    meta = first.get("eventMetadata")
-    if not isinstance(meta, dict) or "priceToBeat" not in meta:
-        return None, "", resolution_source_url
+_PRICE_TO_BEAT_KEYS = ("priceToBeat", "price_to_beat")
+_RESOLUTION_URL_KEYS = (
+    "resolutionSource", "resolution_source_url", "resolutionSourceUrl",
+    "resolution_source", "resolutionUrl",
+)
+
+
+def _json_obj(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return {}
+    text = value.strip()
+    if not text:
+        return {}
     try:
-        price = float(meta["priceToBeat"])
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _valid_price(value) -> float | None:
+    try:
+        price = float(value)
     except (TypeError, ValueError):
-        return None, "", resolution_source_url
-    if price <= 0:
-        return None, "", resolution_source_url
-    return price, "polymarket_event_metadata", resolution_source_url
+        return None
+    return price if price > 0 else None
+
+
+def _events(raw: dict) -> list[dict]:
+    events = raw.get("events")
+    if not isinstance(events, list):
+        return []
+    return [ev for ev in events if isinstance(ev, dict)]
+
+
+def _metadata_containers(raw: dict) -> list[tuple[str, dict]]:
+    containers: list[tuple[str, dict]] = [("", raw)]
+    for key in ("eventMetadata", "metadata"):
+        meta = _json_obj(raw.get(key))
+        if meta:
+            containers.append((key, meta))
+    for idx, event in enumerate(_events(raw)):
+        prefix = f"events[{idx}]"
+        containers.append((prefix, event))
+        for key in ("eventMetadata", "metadata"):
+            meta = _json_obj(event.get(key))
+            if meta:
+                containers.append((f"{prefix}.{key}", meta))
+    return containers
+
+
+def _field_name(prefix: str, key: str) -> str:
+    return f"{prefix}.{key}" if prefix else key
+
+
+def _extract_resolution_source_url(raw: dict) -> str:
+    for prefix, container in _metadata_containers(raw):
+        del prefix
+        for key in _RESOLUTION_URL_KEYS:
+            value = container.get(key)
+            if value:
+                return str(value)
+    return ""
+
+
+def _event_id(raw: dict) -> str:
+    for key in ("eventId", "event_id", "eventID"):
+        if raw.get(key):
+            return str(raw.get(key))
+    for event in _events(raw):
+        for key in ("id", "eventId", "event_id"):
+            if event.get(key):
+                return str(event.get(key))
+    return ""
+
+
+def extract_oracle_anchor_metadata(raw: dict) -> tuple[float | None, str, str, dict]:
+    """Extract Polymarket's price-to-beat anchor from known Gamma schema
+    variants without ever substituting a URL or CEX price for the anchor.
+
+    Observed active-market payloads can be shallow or hydrated, and metadata
+    may arrive as a JSON object or JSON string. Missing anchors are not cached
+    here; callers decide retry policy.
+    """
+    fields_checked: list[str] = []
+    price: float | None = None
+    for prefix, container in _metadata_containers(raw):
+        for key in _PRICE_TO_BEAT_KEYS:
+            field = _field_name(prefix, key)
+            fields_checked.append(field)
+            if key not in container:
+                continue
+            price = _valid_price(container.get(key))
+            if price is not None:
+                break
+        if price is not None:
+            break
+
+    resolution_source_url = _extract_resolution_source_url(raw)
+    source = "polymarket_event_metadata" if price is not None else ""
+    status = "available" if price is not None else "missing"
+    diag = {
+        "market_id": str(raw.get("id") or raw.get("slug") or raw.get("conditionId") or ""),
+        "event_id": _event_id(raw),
+        "slug": str(raw.get("slug") or raw.get("market_slug") or ""),
+        "hydration_attempted": bool(raw.get("_anchor_hydration_attempted", False)),
+        "hydration_success": bool(raw.get("_anchor_hydration_success", False)),
+        "fields_checked": fields_checked,
+        "price_to_beat": price,
+        "resolution_source_url": resolution_source_url,
+        "final_anchor_status": status,
+    }
+    return price, source, resolution_source_url, diag
+
+
+def _extract_price_to_beat(raw: dict) -> tuple[float | None, str, str]:
+    price, source, resolution_source_url, _diag = extract_oracle_anchor_metadata(raw)
+    return price, source, resolution_source_url
 
 
 def normalize_raw_market(raw: dict) -> dict:
@@ -143,7 +238,8 @@ def map_raw_market(raw: dict, now_ms: int) -> MarketInfo:
     elif not accepting:
         reject = "NOT_ACCEPTING_ORDERS"
 
-    price_to_beat, price_to_beat_source, resolution_source_url = _extract_price_to_beat(raw)
+    price_to_beat, price_to_beat_source, resolution_source_url, anchor_diag = \
+        extract_oracle_anchor_metadata(raw)
 
     return MarketInfo(
         market_id=market_id,
@@ -175,5 +271,7 @@ def map_raw_market(raw: dict, now_ms: int) -> MarketInfo:
             "spread": _num(raw, "spread", default=-1.0),
             "accepting_orders": accepting,
             "neg_risk": bool(raw.get("negRisk") or False),
+            "event_id": anchor_diag.get("event_id", ""),
+            "oracle_anchor_diagnostics": anchor_diag,
         },
     )

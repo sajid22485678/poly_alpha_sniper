@@ -34,6 +34,9 @@ def resolve_oracle_anchor(market: MarketInfo, cex_price: Optional[float],
 
     oracle_open = market.price_to_beat
     oracle_source = market.price_to_beat_source or ("" if oracle_open is None else "unknown")
+    diag = market.raw.get("oracle_anchor_diagnostics") \
+        if isinstance(market.raw.get("oracle_anchor_diagnostics"), dict) else {}
+    fields_checked = diag.get("fields_checked") if isinstance(diag.get("fields_checked"), list) else []
 
     basis = None
     if oracle_open is not None and oracle_open > 0 and cex_price is not None:
@@ -56,6 +59,13 @@ def resolve_oracle_anchor(market: MarketInfo, cex_price: Optional[float],
         time_remaining_seconds=time_remaining,
         oracle_anchor_quality=quality,
         resolution_source_url=market.resolution_source_url,
+        event_id=str(diag.get("event_id") or market.raw.get("event_id") or ""),
+        slug=str(diag.get("slug") or market.raw.get("slug") or ""),
+        hydration_attempted=bool(diag.get("hydration_attempted", False)),
+        hydration_success=bool(diag.get("hydration_success", False)),
+        fields_checked=[str(field) for field in fields_checked],
+        final_anchor_status=str(diag.get("final_anchor_status")
+                                or ("available" if oracle_open is not None else "missing")),
     )
 
 

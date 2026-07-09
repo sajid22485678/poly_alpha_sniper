@@ -17,7 +17,8 @@ from typing import Awaitable, Callable, Optional
 from poly_alpha_sniper.core.contracts import MarketInfo
 from poly_alpha_sniper.core.logger import get_logger
 from poly_alpha_sniper.discovery.crypto_market_classifier import is_crypto_5min_candidate
-from poly_alpha_sniper.discovery.market_mapper import map_raw_market
+from poly_alpha_sniper.discovery.market_mapper import (
+    extract_oracle_anchor_metadata, map_raw_market)
 from poly_alpha_sniper.discovery.market_universe_expander import (
     build_gamma_queries, merge_markets)
 
@@ -25,20 +26,26 @@ log = get_logger("discovery")
 
 GammaFetcher = Callable[[dict], Awaitable[list[dict]]]
 ClobFetcher = Callable[[], Awaitable[list[dict]]]
+EventHydrator = Callable[[dict], Awaitable[Optional[dict]]]
 
 
 class MarketDiscovery:
     def __init__(self, cfg, clock, gamma_fetcher: GammaFetcher,
-                 clob_fetcher: Optional[ClobFetcher] = None):
+                 clob_fetcher: Optional[ClobFetcher] = None,
+                 event_hydrator: Optional[EventHydrator] = None):
         self.cfg = cfg
         self.clock = clock
         self.fetch = gamma_fetcher
         self.clob_fetch = clob_fetcher
+        self.event_hydrator = event_hydrator
         self.reject_stats: Counter = Counter()
         self.candidates_by_query: dict[str, int] = {}
         self.last_markets: list[MarketInfo] = []
         self.last_raw_sample: list[dict] = []
         self.last_raw_count = 0
+        # Cache successful anchors only. Missing anchors are intentionally not
+        # cached so a later Gamma hydration can fill price_to_beat mid-window.
+        self._oracle_anchor_cache: dict[str, dict] = {}
 
     async def refresh(self) -> list[MarketInfo]:
         now = self.clock.now_ms()
@@ -55,6 +62,7 @@ class MarketDiscovery:
                 log.warning("gamma_query_failed", extra={"extra": {
                     "label": label, "error": repr(exc)[:120]}})
         merged = merge_markets(raw_lists)
+        merged = await self._hydrate_oracle_anchors(merged)
         tradable = self._map_and_filter(merged, now)
 
         # CLOB fallback only when Gamma produced nothing tradable
@@ -63,6 +71,7 @@ class MarketDiscovery:
                 clob_rows = await self.clob_fetch()
                 self.candidates_by_query["clob_fallback"] = len(clob_rows)
                 merged = merge_markets([merged, clob_rows])
+                merged = await self._hydrate_oracle_anchors(merged)
                 tradable = self._map_and_filter(merged, now)
             except Exception as exc:  # noqa: BLE001
                 self.candidates_by_query["clob_fallback"] = -1
@@ -104,6 +113,115 @@ class MarketDiscovery:
         tradable.sort(key=lambda m: m.expiry_ts_ms)
         return tradable
 
+    async def _hydrate_oracle_anchors(self, merged: list[dict]) -> list[dict]:
+        out: list[dict] = []
+        for raw in merged:
+            enriched = dict(raw)
+            key = self._market_key(enriched)
+            price, _source, resolution_url, _diag = extract_oracle_anchor_metadata(enriched)
+            if price is not None:
+                if key:
+                    self._oracle_anchor_cache[key] = self._anchor_cache_payload(
+                        enriched, price, resolution_url)
+                out.append(enriched)
+                continue
+
+            if key and key in self._oracle_anchor_cache:
+                out.append(self._apply_cached_anchor(enriched, self._oracle_anchor_cache[key]))
+                continue
+
+            if self.event_hydrator is None:
+                out.append(enriched)
+                continue
+
+            # Always attempt hydration for a missing anchor. Verified against
+            # live Gamma (2026-07-10): Polymarket publishes priceToBeat with a
+            # per-market delay after each 5-min window opens. Sometimes it lands
+            # on the /markets embedded event directly (picked up above); other
+            # times the embedded event still has eventMetadata=null but the
+            # /events?id= endpoint already exposes the populated metadata -- so
+            # the hydration call genuinely recovers anchors and must not be
+            # skipped. Missing anchors are intentionally NOT cached, so this
+            # retries on every refresh until the anchor appears.
+            enriched["_anchor_hydration_attempted"] = True
+            event = None
+            try:
+                event = await self.event_hydrator(enriched)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("oracle_anchor_hydration_failed", extra={"extra": {
+                    "market": key, "error": repr(exc)[:120]}})
+
+            if isinstance(event, dict) and event:
+                enriched = self._merge_event(enriched, event)
+                price, _source, resolution_url, _diag = extract_oracle_anchor_metadata(enriched)
+                success = price is not None
+                enriched["_anchor_hydration_attempted"] = True
+                enriched["_anchor_hydration_success"] = success
+                if success and key:
+                    self._oracle_anchor_cache[key] = self._anchor_cache_payload(
+                        enriched, price, resolution_url)
+            else:
+                enriched["_anchor_hydration_success"] = False
+            out.append(enriched)
+        return out
+
+    @staticmethod
+    def _market_key(raw: dict) -> str:
+        for key in ("id", "slug", "conditionId", "condition_id", "market_slug"):
+            value = raw.get(key)
+            if value:
+                return str(value)
+        return ""
+
+    @staticmethod
+    def _anchor_cache_payload(raw: dict, price: float, resolution_url: str) -> dict:
+        event_id = ""
+        events = raw.get("events")
+        if isinstance(events, list):
+            for event in events:
+                if isinstance(event, dict) and event.get("id"):
+                    event_id = str(event.get("id"))
+                    break
+        return {
+            "priceToBeat": price,
+            "resolutionSource": resolution_url,
+            "eventId": str(raw.get("eventId") or raw.get("event_id") or event_id or ""),
+            "slug": str(raw.get("slug") or raw.get("market_slug") or ""),
+        }
+
+    @staticmethod
+    def _apply_cached_anchor(raw: dict, payload: dict) -> dict:
+        enriched = dict(raw)
+        if not enriched.get("priceToBeat") and not enriched.get("price_to_beat"):
+            enriched["priceToBeat"] = payload.get("priceToBeat")
+        if payload.get("resolutionSource") and not enriched.get("resolutionSource"):
+            enriched["resolutionSource"] = payload.get("resolutionSource")
+        if payload.get("eventId") and not enriched.get("eventId"):
+            enriched["eventId"] = payload.get("eventId")
+        enriched["_anchor_hydration_attempted"] = False
+        enriched["_anchor_hydration_success"] = True
+        return enriched
+
+    @staticmethod
+    def _merge_event(raw: dict, event: dict) -> dict:
+        enriched = dict(raw)
+        events = enriched.get("events")
+        event_list = list(events) if isinstance(events, list) else []
+        if event_list and isinstance(event_list[0], dict):
+            event_list[0] = {**event_list[0], **event}
+        else:
+            event_list.insert(0, event)
+        enriched["events"] = event_list
+        if event.get("id") and not enriched.get("eventId"):
+            enriched["eventId"] = event.get("id")
+        if event.get("eventMetadata") and not enriched.get("eventMetadata"):
+            enriched["eventMetadata"] = event.get("eventMetadata")
+        if event.get("metadata") and not enriched.get("metadata"):
+            enriched["metadata"] = event.get("metadata")
+        if event.get("resolutionSource") and not enriched.get("resolutionSource"):
+            enriched["resolutionSource"] = event.get("resolutionSource")
+        return enriched
+
     # ------------------------------------------------------------------
     def diagnostic_report(self) -> dict:
         now = self.clock.now_ms()
@@ -144,7 +262,8 @@ async def _diagnose() -> None:
     gamma = PolymarketGamma(cfg)
     clob = PolymarketClobPublic(cfg)
     disc = MarketDiscovery(cfg, WallClock(), gamma.get_markets,
-                           clob_fetcher=clob.get_sampling_markets)
+                           clob_fetcher=clob.get_sampling_markets,
+                           event_hydrator=gamma.get_event_for_market)
     try:
         await disc.refresh()
         print(json.dumps(disc.diagnostic_report(), indent=2, default=str))

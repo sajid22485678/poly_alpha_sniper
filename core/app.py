@@ -425,8 +425,10 @@ class App:
         self.clob_public = PolymarketClobPublic(self.cfg)
         self.poly_ws = PolymarketWS(self.cfg, self.clock, self._on_book)
         self.mirror = OrderbookMirror(self.cfg, self.clock, self.poly_ws, self.clob_public, self.book_store)
-        self.discovery = MarketDiscovery(self.cfg, self.clock, self.gamma.get_markets,
-                                         clob_fetcher=self.clob_public.get_sampling_markets)
+        self.discovery = MarketDiscovery(
+            self.cfg, self.clock, self.gamma.get_markets,
+            clob_fetcher=self.clob_public.get_sampling_markets,
+            event_hydrator=self.gamma.get_event_for_market)
 
         await self.feed.start()
         if hasattr(self.mirror, "start"):

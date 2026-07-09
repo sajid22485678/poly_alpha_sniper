@@ -9,7 +9,8 @@ function qualityTone(quality: string | null): "green" | "gold" | "red" {
 }
 
 export function OracleStatusPanel({ status, nowMs }: { status: OracleStatus | null; nowMs: number }) {
-  const metadataUrl = status?.available ? status.metadata_url || status.resolution_source_url || "" : "";
+  const metadataUrl = status?.metadata_url || status?.resolution_source_url || "";
+  const fieldsChecked = status?.fields_checked?.length ? status.fields_checked.join(", ") : "not available";
 
   return (
     <Card>
@@ -27,8 +28,31 @@ export function OracleStatusPanel({ status, nowMs }: { status: OracleStatus | nu
       </div>
 
       {!status || !status.available ? (
-        <div className="py-4 text-center">
-          <Pill tone="gold">NO ANCHOR - {status?.reason ?? "not available"}</Pill>
+        <div className="py-4">
+          <div className="text-center mb-3">
+            <Pill tone="gold">NO ANCHOR - {status?.reason ?? "not available"}</Pill>
+          </div>
+          {status ? (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Stat label="Price To Beat" value="not available" />
+                <Stat label="Candidate" value={`${status.asset ?? "unknown"} / ${status.market_id ?? "unknown"}`} small />
+                <Stat label="Hydration Attempted" value={status.hydration_attempted ? "yes" : "no"} small />
+                <Stat label="Hydration Success" value={status.hydration_success ? "yes" : "no"} small />
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+                <Stat label="Event ID" value={status.event_id || "not available"} small />
+                <Stat label="Slug" value={status.slug || "not available"} small />
+                <Stat label="Final Anchor Status" value={status.final_anchor_status || "missing"} small />
+                <Stat label="Fields Checked" value={fieldsChecked} small />
+              </div>
+              {metadataUrl ? (
+                <div className="text-xs mt-3 v3-mono truncate" style={{ color: "var(--v3-muted-2)" }}>
+                  Metadata URL (Polymarket-declared reference URL): {metadataUrl}
+                </div>
+              ) : null}
+            </>
+          ) : null}
         </div>
       ) : (
         <>
