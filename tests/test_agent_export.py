@@ -439,3 +439,33 @@ def test_dashboard_snapshot_includes_new_freshness_pipeline_fields(tmp_path):
     assert "last_scan_snapshot" in snap
     assert "no_shock_watchlist" in snap
     assert set(snap["live_feed_state"].keys()) == set(cfg.assets)
+
+
+def test_dashboard_snapshot_includes_opportunity_engine_fields(tmp_path):
+    db_path = _live_db(tmp_path)
+    cfg = _cfg(tmp_path)
+    data = DashboardData(db_path)
+    snap = build_dashboard_snapshot(data, _state(), cfg, NOW_MS)
+    assert "opportunity_diagnostics" in snap
+    assert "live_readiness" in snap
+    assert "shadow_compounding" in snap
+    od = snap["opportunity_diagnostics"]
+    # the mode is shadow-only and safety-locked by construction
+    assert od["apply_to_live"] is False
+    assert od["mode_config_safe"] is True
+    assert "opportunity_frequency" in od and "no_shock_board" in od
+    # live readiness must never claim readiness on this tiny sample
+    assert snap["live_readiness"]["verdict"] == "LIVE_NOT_READY"
+    # compounding must never touch a real balance/order path
+    assert snap["shadow_compounding"]["touches_real_balance"] is False
+    assert snap["shadow_compounding"]["touches_order_path"] is False
+
+
+def test_build_opportunity_diagnostics_inactive_in_live_mode(tmp_path):
+    from poly_alpha_sniper.reporting.agent_export import build_opportunity_diagnostics
+    db_path = _live_db(tmp_path)
+    cfg = _cfg(tmp_path)
+    data = DashboardData(db_path)
+    # a state that claims live mode must report the mode as INACTIVE
+    od = build_opportunity_diagnostics(data, _state(mode="live_micro"), cfg, NOW_MS)
+    assert od["mode_active"] is False

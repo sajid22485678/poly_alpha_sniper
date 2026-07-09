@@ -393,3 +393,25 @@ ev_thesis_exit:
   min_ev_to_hold: 0.0
   exit_on_thesis_flip: true
   exit_on_oracle_basis_flip: true
+
+# Shadow-only opportunity DISCOVERY amplifier -- increases diagnostics,
+# near-miss surfacing, and coverage visibility ONLY. Structurally cannot
+# enable live, place/cancel orders, or accept a candidate the standard
+# pipeline would reject. apply_to_live and force_trade_count MUST stay false;
+# the require_* flags are asserted-True invariants of STANDARD_QUALIFIED (a
+# candidate is only 'qualified' when oracle anchor, book, spread, depth, risk,
+# and positive EV all hold). See strategy/opportunity_engine.py.
+shadow_aggressive_opportunity_mode:
+  enabled: true
+  target_qualified_opportunities_per_hour: 12
+  force_trade_count: false
+  require_positive_ev: true
+  require_oracle_anchor: true
+  require_executable_book: true
+  require_spread_ok: true
+  require_depth_ok: true
+  require_risk_ok: true
+  allow_near_miss_watchlist: true
+  allow_shadow_diagnostics_after_early_gate: true
+  allow_threshold_research: true
+  apply_to_live: false

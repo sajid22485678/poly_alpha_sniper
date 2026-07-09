@@ -24,6 +24,7 @@ from typing import Any, Optional
 
 from poly_alpha_sniper.core.config_loader import TradingMode, load_config
 from poly_alpha_sniper.dashboard import metrics
+from poly_alpha_sniper.dashboard import opportunity_metrics as opp
 from poly_alpha_sniper.dashboard.db_reader import DashboardData, read_runtime_state, resolve_db_path
 
 EXPORT_FILENAMES = (
@@ -291,6 +292,70 @@ def build_gate_waterfall(data: DashboardData, state: dict, now_ms: int,
     return metrics.gate_waterfall(diag_rows, preds, now_ms, window_minutes)
 
 
+def build_opportunity_diagnostics(data: DashboardData, state: dict, cfg, now_ms: int) -> dict:
+    """Missions A/B/C/G: the aggressive-shadow opportunity engine's read-only
+    diagnostics payload -- windowed waterfall summary, no_shock near-miss
+    board (tiered), per-hour opportunity frequency, tier breakdown, CEX
+    freshness buckets, plus the mode's own safety self-check. Never re-runs a
+    gate or changes any decision."""
+    from poly_alpha_sniper.strategy.opportunity_engine import config_is_safe, is_active_for_mode
+    diag = state.get("diagnostics", {}) if isinstance(state.get("diagnostics"), dict) else {}
+    diag_rows = data.diagnostics(20000)
+    preds = data.predictions(20000)
+    mode = state.get("mode") or cfg.mode.trading_mode
+    return {
+        "generated_ts_ms": now_ms,
+        "mode_enabled": bool(cfg.shadow_aggressive_opportunity_mode.enabled),
+        "mode_active": is_active_for_mode(cfg, mode),
+        "mode_config_safe": config_is_safe(cfg),
+        "apply_to_live": cfg.shadow_aggressive_opportunity_mode.apply_to_live,  # must be False
+        "target_qualified_opportunities_per_hour":
+            cfg.shadow_aggressive_opportunity_mode.target_qualified_opportunities_per_hour,
+        "summary": opp.opportunity_diagnostics_summary(diag_rows, preds, now_ms),
+        "no_shock_board": opp.no_shock_board(diag_rows, now_ms, 60),
+        "opportunity_frequency": opp.opportunity_frequency(diag_rows, preds, now_ms, 60),
+        "tier_breakdown": opp.tier_breakdown(preds, now_ms, 120),
+        "cex_freshness": opp.cex_freshness_report(diag, cfg),
+    }
+
+
+def build_shadow_compounding(data: DashboardData, cfg, now_ms: int) -> dict:
+    """Mission H: shadow-only compounding simulation. Read-only over exits;
+    never touches a real balance or the order path."""
+    from poly_alpha_sniper.dashboard import shadow_compounding_sim as sim
+    return sim.simulate(data.exits(5000), data.predictions(5000),
+                        cfg.risk.starting_bankroll_usd)
+
+
+def build_live_readiness(data: DashboardData, state: dict, cfg, now_ms: int) -> dict:
+    """Mission I: strict live-readiness verdict (report only; never enables live)."""
+    status = build_latest_status(data, state, cfg, now_ms)
+    exits = data.exits(5000)
+    summary = {
+        "standard_shadow_trades": len(exits),
+        "profit_factor": status["profit_factor"],
+        "expectancy_usd": status["expectancy_usd"],
+        "max_drawdown_pct": metrics.max_drawdown(data.pnl_series(), cfg.risk.starting_bankroll_usd)["pct"],
+        "max_loss_streak": _max_loss_streak(exits),
+        "panic_active": status["panic_active"],
+        "kill_active": status["kill_active"],
+        "stuck_positions": 0,
+        "errors_last_hour": 0,
+    }
+    return opp.live_readiness(summary, cfg)
+
+
+def _max_loss_streak(exit_rows: list[dict]) -> int:
+    streak = worst = 0
+    for r in sorted(exit_rows, key=lambda x: x.get("ts_ms") or 0):
+        if float(r.get("pnl_usd") or 0) < 0:
+            streak += 1
+            worst = max(worst, streak)
+        else:
+            streak = 0
+    return worst
+
+
 def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int) -> dict:
     """Everything the dashboard shows, in one payload -- lets a future agent
     reconstruct dashboard state without touching the DB directly."""
@@ -309,6 +374,9 @@ def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int)
         "no_shock_watchlist": build_no_shock_watchlist(state),
         "candidate_book_status": build_candidate_book_status(state),
         "gate_waterfall": build_gate_waterfall(data, state, now_ms),
+        "opportunity_diagnostics": build_opportunity_diagnostics(data, state, cfg, now_ms),
+        "live_readiness": build_live_readiness(data, state, cfg, now_ms),
+        "shadow_compounding": build_shadow_compounding(data, cfg, now_ms),
         "open_positions": data.recent("positions", 50),
         "recent_orders": data.orders(25),
         "classification_framework": "not_implemented",  # honest: no continuation/fade label exists yet

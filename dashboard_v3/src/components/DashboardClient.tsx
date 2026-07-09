@@ -14,6 +14,8 @@ import { CandidateBookStatusPanel } from "@/components/CandidateBookStatusPanel"
 import { GateWaterfallPanel } from "@/components/GateWaterfallPanel";
 import { HermesPanel } from "@/components/HermesPanel";
 import { LiveFeedStatePanel } from "@/components/LiveFeedStatePanel";
+import { LiveReadinessPanel } from "@/components/LiveReadinessPanel";
+import { OpportunityEnginePanel } from "@/components/OpportunityEnginePanel";
 import { OracleStatusPanel } from "@/components/OracleStatusPanel";
 import { SafetyFooter } from "@/components/SafetyFooter";
 import { StatusBanner } from "@/components/StatusBanner";
@@ -110,6 +112,17 @@ export function DashboardClient() {
             <CandidateBookStatusPanel status={snapshot?.candidate_book_status ?? null} />
             <GateWaterfallPanel waterfall={snapshot?.gate_waterfall ?? null} />
           </div>
+        </SectionShell>
+
+        <SectionShell title="Aggressive Shadow Opportunity Engine">
+          <OpportunityEnginePanel diag={snapshot?.opportunity_diagnostics ?? null} />
+        </SectionShell>
+
+        <SectionShell title="Live Readiness & Shadow Compounding">
+          <LiveReadinessPanel
+            readiness={snapshot?.live_readiness ?? null}
+            compounding={snapshot?.shadow_compounding ?? null}
+          />
         </SectionShell>
 
         <SectionShell title="Market Intelligence">

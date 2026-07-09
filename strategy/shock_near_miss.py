@@ -18,6 +18,27 @@ from poly_alpha_sniper.core.contracts import MultiCexView
 
 NEAR_MISS_SCORE_THRESHOLD = 0.7
 
+# Ordered near-miss tiers (Mission B). All are for shock_score < 1.0 (below the
+# firing threshold); at >= 1.0 a real shock would have fired. Purely
+# diagnostic labels -- a near-miss is NEVER converted into an accepted trade.
+HOT_NEAR_MISS = "HOT_NEAR_MISS"        # >= 0.90 of threshold
+NEAR_MISS = "NEAR_MISS"                # >= 0.80
+WATCHLIST = "WATCHLIST"                # >= 0.70
+ROUTINE_NO_SHOCK = "ROUTINE_NO_SHOCK"  # < 0.70
+FIRED = "FIRED"                        # >= 1.0 (would have fired; not a no_shock case)
+
+
+def near_miss_tier(shock_score: float) -> str:
+    if shock_score >= 1.0:
+        return FIRED
+    if shock_score >= 0.90:
+        return HOT_NEAR_MISS
+    if shock_score >= 0.80:
+        return NEAR_MISS
+    if shock_score >= 0.70:
+        return WATCHLIST
+    return ROUTINE_NO_SHOCK
+
 
 @dataclass
 class ShockNearMiss:
@@ -30,11 +51,13 @@ class ShockNearMiss:
     is_near_miss: bool        # shock_score >= NEAR_MISS_SCORE_THRESHOLD and < 1.0
     direction: str
     fresh: bool
+    tier: str = ROUTINE_NO_SHOCK  # HOT_NEAR_MISS | NEAR_MISS | WATCHLIST | ROUTINE_NO_SHOCK | FIRED
+    distance_to_threshold: float = 0.0  # 1.0 - shock_score (>0 means below firing)
 
     def detail_suffix(self) -> str:
         return (f"shock_score={self.shock_score:.2f} "
                 f"ret_score={self.ret_score:.2f} zscore_score={self.zscore_score:.2f} "
-                f"near_miss={self.is_near_miss}")
+                f"tier={self.tier} near_miss={self.is_near_miss}")
 
 
 def compute_shock_near_miss(view: Optional[MultiCexView], cfg) -> Optional[ShockNearMiss]:
@@ -60,4 +83,6 @@ def compute_shock_near_miss(view: Optional[MultiCexView], cfg) -> Optional[Shock
         asset=stats.asset, trigger_ret=trigger_ret, zscore=stats.zscore,
         ret_score=ret_score, zscore_score=zscore_score, shock_score=shock_score,
         is_near_miss=NEAR_MISS_SCORE_THRESHOLD <= shock_score < 1.0,
-        direction=direction, fresh=stats.fresh)
+        direction=direction, fresh=stats.fresh,
+        tier=near_miss_tier(shock_score),
+        distance_to_threshold=round(max(0.0, 1.0 - shock_score), 4))

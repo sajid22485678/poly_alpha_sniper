@@ -163,7 +163,11 @@ async def test_app_selects_fresh_okx_when_bybit_stale(app):
                                  ts_ms=now - 30, recv_ts_ms=now - 30))
     await app._scan_entries()
     assert app.diag["cex_selected_source"]["SOL"] == "okx"
-    assert app.diag["cex_freshest_age_ms"]["SOL"] == 30
+    # the `app` fixture uses a real WallClock, so a few ms elapse between
+    # stamping the tick (now-30) and _scan_entries re-reading the clock --
+    # assert a tolerance band, not an exact millisecond (this bare `== 30`
+    # was an intermittently-failing over-strict assertion).
+    assert 30 <= app.diag["cex_freshest_age_ms"]["SOL"] <= 60
     rows = app.store.query(
         "SELECT * FROM shadow_diagnostics WHERE asset='SOL' ORDER BY id DESC")
     assert rows, "expected a diagnostic row (no_shock, since fixture has no real shock)"

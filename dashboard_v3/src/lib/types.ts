@@ -252,6 +252,93 @@ export interface NoShockWatchlistEntry {
   anchor_available: boolean;
 }
 
+export interface OpportunityFrequency {
+  window_minutes: number;
+  qualified_opportunities_per_hour: number;
+  accepted_shadow_trades_per_hour: number;
+  near_miss_per_hour: number;
+  hot_near_miss_per_hour: number;
+  watchlist_per_hour: number;
+  no_shock_rejects_per_hour: number;
+  no_fresh_cex_rejects_per_hour: number;
+}
+
+export interface NoShockBoardEntry {
+  ts_ms: number;
+  asset: string;
+  shock_score: number;
+  tier: string;
+  distance_to_threshold: number;
+  percentile: number;
+}
+
+export interface NoShockBoard {
+  window_minutes: number;
+  no_shock_scored: number;
+  no_shock_unscored_pre_fix: number;
+  avg_shock_score: number | null;
+  max_shock_score: number | null;
+  tier_counts: Record<string, number>;
+  hot_near_miss: number;
+  near_miss: number;
+  watchlist: number;
+  board: NoShockBoardEntry[];
+}
+
+export interface TierStat {
+  candidates: number;
+  accepted: number;
+  rejected: number;
+  avg_edge: number | null;
+  top_blocker: string | null;
+}
+
+export interface OpportunityWindow {
+  total_candidates: number;
+  accepted: number;
+  acceptance_pct: number;
+  stages: Record<string, number>;
+  stages_pct: Record<string, number>;
+  dominant_blocker: string;
+}
+
+export interface OpportunityDiagnostics {
+  generated_ts_ms: number;
+  mode_enabled: boolean;
+  mode_active: boolean;
+  mode_config_safe: boolean;
+  apply_to_live: boolean;
+  target_qualified_opportunities_per_hour: number;
+  summary: { generated_ts_ms: number; windows: Record<string, OpportunityWindow>; diagnosis: string };
+  no_shock_board: NoShockBoard;
+  opportunity_frequency: OpportunityFrequency;
+  tier_breakdown: { window_minutes: number; by_tier: Record<string, TierStat> };
+  cex_freshness: { by_asset: Record<string, Record<string, unknown>>; live_behavior_unchanged: boolean };
+}
+
+export interface LiveReadiness {
+  verdict: string;
+  passed: boolean;
+  requirements: { name: string; ok: boolean; detail: string }[];
+  unmet: string[];
+  note: string;
+}
+
+export interface ShadowCompounding {
+  verdict: string;
+  detail?: string;
+  standard_shadow_trades: number;
+  min_sample: number;
+  simulated_equity?: number;
+  profit_factor?: number;
+  max_drawdown_pct?: number;
+  max_loss_streak?: number;
+  compounding_safe?: boolean;
+  no_martingale: boolean;
+  touches_real_balance: boolean;
+  touches_order_path: boolean;
+}
+
 export interface DashboardSnapshot {
   generated_ts_ms: number;
   latest_status: LatestStatus;
@@ -265,6 +352,9 @@ export interface DashboardSnapshot {
   no_shock_watchlist: NoShockWatchlistEntry[];
   candidate_book_status: CandidateBookStatus;
   gate_waterfall: GateWaterfall;
+  opportunity_diagnostics?: OpportunityDiagnostics;
+  live_readiness?: LiveReadiness;
+  shadow_compounding?: ShadowCompounding;
   open_positions: unknown[];
   recent_orders: OrderRow[];
   classification_framework: string;

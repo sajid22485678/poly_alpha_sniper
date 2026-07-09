@@ -69,6 +69,15 @@ def validate_config(cfg) -> list[str]:
         errors.append("cex_freshness thresholds must satisfy "
                       "0 < live_signal_max_age_ms <= shadow_eval_max_age_ms <= fail_closed_max_age_ms")
 
+    # aggressive shadow opportunity mode: safety invariants can never be edited
+    # into an unsafe state (force trades / apply to live). config-level hard stop.
+    ao = getattr(cfg, "shadow_aggressive_opportunity_mode", None)
+    if ao is not None:
+        if ao.apply_to_live:
+            errors.append("shadow_aggressive_opportunity_mode.apply_to_live must be false")
+        if ao.force_trade_count:
+            errors.append("shadow_aggressive_opportunity_mode.force_trade_count must be false")
+
     # edges
     d = cfg.dynamic_edge
     if d.hard_min_edge <= 0:

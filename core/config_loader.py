@@ -458,6 +458,38 @@ class EvThesisExitConfig(BaseModel):
     exit_on_oracle_basis_flip: bool = True
 
 
+class ShadowAggressiveOpportunityConfig(BaseModel):
+    """Shadow-only opportunity DISCOVERY amplifier (see strategy/opportunity_engine.py).
+
+    This mode ONLY increases diagnostics, near-miss surfacing, and candidate
+    coverage visibility. It is structurally incapable of:
+      - enabling live trading (apply_to_live is hard-pinned False and never
+        consulted in live_micro/live_full),
+      - placing or cancelling any order (it never touches the execution path),
+      - accepting a trade the STANDARD pipeline would reject.
+
+    Any opportunity it surfaces beyond what the standard gates already accept
+    is classified WATCHLIST_ONLY or RESEARCH_ONLY -- never a (even shadow)
+    trade. The require_* flags are asserted-True invariants for the
+    STANDARD_QUALIFIED classification: a candidate can only be called
+    'qualified' when oracle anchor, executable book, spread, depth, risk, and
+    positive EV all hold. They exist so this config can never be edited into
+    something that calls a bad candidate qualified."""
+    enabled: bool = True
+    target_qualified_opportunities_per_hour: int = 12
+    force_trade_count: bool = False          # MUST stay False -- never force trades
+    require_positive_ev: bool = True         # MUST stay True
+    require_oracle_anchor: bool = True        # MUST stay True
+    require_executable_book: bool = True      # MUST stay True
+    require_spread_ok: bool = True            # MUST stay True
+    require_depth_ok: bool = True             # MUST stay True
+    require_risk_ok: bool = True              # MUST stay True
+    allow_near_miss_watchlist: bool = True
+    allow_shadow_diagnostics_after_early_gate: bool = True
+    allow_threshold_research: bool = True
+    apply_to_live: bool = False              # MUST stay False -- hard safety lock
+
+
 class Config(BaseModel):
     mode: ModeConfig = Field(default_factory=ModeConfig)
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
@@ -498,6 +530,8 @@ class Config(BaseModel):
     obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
     oracle_ev: OracleEvConfig = Field(default_factory=OracleEvConfig)
     ev_thesis_exit: EvThesisExitConfig = Field(default_factory=EvThesisExitConfig)
+    shadow_aggressive_opportunity_mode: ShadowAggressiveOpportunityConfig = Field(
+        default_factory=ShadowAggressiveOpportunityConfig)
 
     @property
     def trading_mode(self) -> TradingMode:
