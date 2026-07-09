@@ -274,6 +274,76 @@ def unified_reject_breakdown(diag_rows: list[dict], prediction_rows: list[dict])
     }
 
 
+# Ordered pipeline stages for the entry-rarity gate waterfall (Task C).
+# First matching needle wins, in pipeline order, so a candidate is attributed
+# to the EARLIEST gate it failed -- matching how _evaluate_market actually
+# short-circuits. "accepted" is derived separately from prediction decisions.
+_WATERFALL_STAGES: list[tuple[str, tuple[str, ...]]] = [
+    ("no_fresh_cex_price", ("no_fresh_cex_price", "stale_cex")),
+    ("price_window_not_ready", ("price_window_not_ready",)),
+    ("no_shock", ("no_shock",)),
+    ("no_candidate_market", ("time_to_expiry", "no_candidate")),
+    ("missing_oracle_anchor", ("missing_oracle_anchor", "oracle_anchor_stale",
+                               "price_to_beat_mismatch", "oracle_source_unknown",
+                               "oracle_cex_basis_unstable")),
+    ("book_fetch_failed", ("book_fetch_failed",)),
+    ("stale_book", ("stale_book", "book_fresh", "orderbook", "no_best_bid_ask")),
+    ("edge_too_small", ("edge", "incomplete_trade_packet")),
+    ("ev_too_low", ("ev_too_low", "time_to_close_risk", "book_too_thin", "model_uncalibrated")),
+    ("spread", ("spread", "slippage")),
+    ("max_exposure", ("max_exposure", "max_open_positions")),
+    ("insufficient_cash", ("insufficient_cash", "min_order")),
+    ("frequency", ("frequency", "cooldown")),
+]
+
+
+def _waterfall_stage(reason: str) -> str:
+    low = reason.lower()
+    for stage, needles in _WATERFALL_STAGES:
+        if any(n in low for n in needles):
+            return stage
+    return "other"
+
+
+def gate_waterfall(diag_rows: list[dict], prediction_rows: list[dict],
+                   now_ms: int, window_minutes: int = 60) -> dict:
+    """Ordered entry-rarity gate waterfall over the recent window: how many
+    candidates fell out at each pipeline stage, plus how many were accepted.
+    Purely descriptive of what already happened -- computed from persisted
+    shadow_diagnostics + predictions, never re-runs or loosens any gate."""
+    cutoff = now_ms - window_minutes * 60_000
+    stage_order = [s for s, _ in _WATERFALL_STAGES] + ["other", "accepted"]
+    counts = {s: 0 for s in stage_order}
+
+    for r in diag_rows:
+        if (r.get("ts_ms") or 0) < cutoff:
+            continue
+        reason = str(r.get("reason") or "")
+        if not reason or reason.startswith("watchlist_"):  # watchlist rows aren't rejects
+            continue
+        counts[_waterfall_stage(reason)] += 1
+
+    for r in prediction_rows:
+        if (r.get("ts_ms") or 0) < cutoff:
+            continue
+        decision = str(r.get("decision") or "")
+        if decision in ("APPROVE", "SHADOW_ONLY"):
+            counts["accepted"] += 1
+        elif decision == "REJECT":
+            counts[_waterfall_stage(str(r.get("reject_reason") or ""))] += 1
+
+    total = sum(counts.values())
+    return {
+        "window_minutes": window_minutes,
+        "generated_ts_ms": now_ms,
+        "stages": counts,
+        "stage_order": stage_order,
+        "total_candidates": total,
+        "accepted": counts["accepted"],
+        "acceptance_pct": round(100 * counts["accepted"] / total, 2) if total else 0.0,
+    }
+
+
 _DECISION_LABELS = {"APPROVE": "ENTER", "SHADOW_ONLY": "ENTER (shadow)",
                     "WAIT": "WAIT", "REJECT": "SKIP"}
 

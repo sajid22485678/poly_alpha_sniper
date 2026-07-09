@@ -106,6 +106,8 @@ class App:
                                               # gates -- see _scan_entries's early anchor pass
             "last_scan_snapshot": {},        # updates every scan iteration, not just signals
             "watchlist_no_shock_near_miss": [],  # bounded recent list, see shock_near_miss.py
+            "candidate_book_status": {},     # most recent candidate's executable-book
+                                              # freshness + direct-refresh outcome (Task A)
         }
         self._diag_throttle: dict[tuple[str, str], int] = {}
 
@@ -577,10 +579,17 @@ class App:
         now = self.clock.now_ms()
         self.diag["prediction_loop_iterations"] += 1
         self.diag["last_prediction_loop_ts"] = now
+        entry_markets = [m for m in self.market_cache.active_markets(now)
+                         if self._in_entry_window(m, now)]
+        if not entry_markets:
+            self._record_candidate_book_status(
+                asset="", status="NOT_EVALUATED", now_ms=now,
+                earlier_gate_reason="NO_CANDIDATE",
+                direct_refresh_attempted=False,
+                direct_refresh_result="not_reached_book_stage")
         for asset in self.cfg.assets:
             view = self.cex_state.multi_view(asset)
-            candidate_markets = [m for m in self.market_cache.active_markets(now)
-                                 if m.asset == asset and self._in_entry_window(m, now)]
+            candidate_markets = [m for m in entry_markets if m.asset == asset]
 
             # Oracle anchor visibility must not depend on CEX freshness or a
             # shock ever firing -- price_to_beat comes from Polymarket market
@@ -617,11 +626,23 @@ class App:
             self._update_scan_snapshot(asset, view, candidate_markets, anchor,
                                        freshness, block_reason, now)
             if block_reason is not None:
+                if candidate_markets:
+                    self._record_candidate_book_status(
+                        asset=asset, market=candidate_markets[0], status="NOT_REACHED_BOOK_STAGE",
+                        now_ms=now, earlier_gate_reason=block_reason,
+                        direct_refresh_attempted=False,
+                        direct_refresh_result="not_reached_book_stage")
                 continue
 
             if not self.cex_state.window_ready(asset):
                 self._shadow_diag(asset, "", "rejected_by_price_window_not_ready",
                                   f"ticks={self.cex_state.tick_counts.get(asset, 0)}", view)
+                if candidate_markets:
+                    self._record_candidate_book_status(
+                        asset=asset, market=candidate_markets[0], status="NOT_REACHED_BOOK_STAGE",
+                        now_ms=now, earlier_gate_reason="rejected_by_price_window_not_ready",
+                        direct_refresh_attempted=False,
+                        direct_refresh_result="not_reached_book_stage")
                 continue
             # In shadow modes, shock detection may use the wider
             # shadow_eval_max_age_ms budget (freshness already classified
@@ -653,6 +674,12 @@ class App:
                             del watchlist[:-50]
                         self._shadow_diag(asset, "", "watchlist_no_shock_near_miss", detail, view)
                 self._shadow_diag(asset, "", "rejected_by_no_shock", detail, view)
+                if candidate_markets:
+                    self._record_candidate_book_status(
+                        asset=asset, market=candidate_markets[0], status="NOT_REACHED_BOOK_STAGE",
+                        now_ms=now, earlier_gate_reason="rejected_by_no_shock",
+                        direct_refresh_attempted=False,
+                        direct_refresh_result="not_reached_book_stage")
                 continue
             self._insert("signals", {"ts_ms": now, "asset": asset,
                                      "direction": shock.direction.value,
@@ -661,6 +688,11 @@ class App:
             if not candidate_markets:
                 self._shadow_diag(asset, "", "rejected_by_time_to_expiry",
                                   "shock fired but no market in entry window", view)
+                self._record_candidate_book_status(
+                    asset=asset, status="NOT_EVALUATED", now_ms=now,
+                    earlier_gate_reason="NO_CANDIDATE",
+                    direct_refresh_attempted=False,
+                    direct_refresh_result="not_reached_book_stage")
                 continue
             for market in candidate_markets[:4]:
                 await self._evaluate_market(shock, market, view, now)
@@ -759,6 +791,115 @@ class App:
         blocked, _ = self.filter_list.is_blocked(market.market_id)
         return (not blocked) and (u.min_time_to_expiry_seconds <= tte <= u.max_time_to_expiry_seconds)
 
+    def _record_candidate_book_status(self, *, asset: str, status: str,
+                                      market: Optional[MarketInfo] = None, shock=None,
+                                      book=None, now_ms: Optional[int] = None,
+                                      earlier_gate_reason: Optional[str] = None,
+                                      direct_refresh_attempted: bool = False,
+                                      direct_refresh_result: str = "not_attempted",
+                                      final_reject_reason: Optional[str] = None) -> dict:
+        """Normalize the dashboard/export contract for the latest candidate's
+        executable-side book state. This is diagnostic bookkeeping only."""
+        now = now_ms if now_ms is not None else self.clock.now_ms()
+        exec_side = market.side_for_direction(shock.direction) if (market is not None and shock is not None) else None
+        exec_token = market.token_for(exec_side.outcome) if (market is not None and exec_side is not None) else None
+        threshold = self.cfg.polymarket.max_orderbook_staleness_ms
+        depth_near_best = None
+        if book is not None:
+            depth_near_best = round(book.depth_usd_at_ask(1) + book.depth_usd_at_bid(1), 2)
+        detail = {
+            "ts_ms": now,
+            "market_id": market.market_id if market is not None else None,
+            "token_id": exec_token,
+            "asset": market.asset if market is not None else asset,
+            "side": exec_side.value if exec_side is not None else None,
+            "status": status,
+            "earlier_gate_reason": earlier_gate_reason,
+            "book_age_ms": max(0, now - book.ts_ms) if book is not None else None,
+            "freshness_threshold_ms": threshold,
+            "best_bid": book.best_bid if book is not None else None,
+            "best_ask": book.best_ask if book is not None else None,
+            "spread": book.spread if book is not None else None,
+            "depth_near_best_usd": depth_near_best,
+            "direct_refresh_attempted": direct_refresh_attempted,
+            "direct_refresh_result": direct_refresh_result,
+            "final_reject_reason": final_reject_reason,
+        }
+        self.diag["candidate_book_status"] = detail
+        return detail
+
+    def _candidate_book_is_executable(self, book, now_ms: int) -> tuple[bool, str]:
+        if book is None:
+            return False, "missing_book"
+        threshold = self.cfg.polymarket.max_orderbook_staleness_ms
+        if book.is_stale(now_ms, threshold):
+            return False, "stale"
+        if book.best_bid is None or book.best_ask is None:
+            return False, "no_executable_bid_ask"
+        if book.crossed or book.spread is None or book.spread < 0:
+            return False, "invalid_spread"
+        if book.depth_usd_at_bid(1) <= 0 or book.depth_usd_at_ask(1) <= 0:
+            return False, "no_depth_near_best"
+        return True, "ok"
+
+    async def _ensure_candidate_book_fresh(self, market: MarketInfo, shock,
+                                           now_ms: int) -> dict:
+        """When the candidate's executable-side book is stale/missing at
+        evaluation time, attempt ONE direct CLOB /book refresh for that single
+        token before the pipeline hard-rejects on book_fresh (the shared
+        WS/REST mirror routinely can't keep every tracked token under the 1 s
+        budget -- see data/orderbook_mirror.py). A fresh direct fetch
+        legitimately SATISFIES the freshness gate; it never bypasses it, and
+        the order validator's staleness/spread/bid-ask checks all still run.
+
+        Read-only: only calls the public /book endpoint. Never places or
+        cancels an order. Returns a diagnostic dict (also cached to
+        self.diag['candidate_book_status']) with status in
+        FRESH | STALE | FETCH_FAILED."""
+        exec_side = market.side_for_direction(shock.direction)
+        exec_token = market.token_for(exec_side.outcome)
+
+        book = self.book_store.get(exec_token)
+        executable, reason = self._candidate_book_is_executable(book, now_ms)
+        if executable:
+            return self._record_candidate_book_status(
+                asset=market.asset, market=market, shock=shock, book=book, now_ms=now_ms,
+                status="FRESH", direct_refresh_attempted=False,
+                direct_refresh_result="not_needed", final_reject_reason=None)
+
+        refresher = getattr(self, "clob_public", None)
+        if not (self.cfg.polymarket.direct_book_refresh_on_stale_eval
+                and refresher is not None and hasattr(refresher, "get_book")):
+            return self._record_candidate_book_status(
+                asset=market.asset, market=market, shock=shock, book=book, now_ms=now_ms,
+                status="STALE", direct_refresh_attempted=False,
+                direct_refresh_result="no_refresher", final_reject_reason=RejectReason.STALE_BOOK)
+
+        try:
+            refreshed = await refresher.get_book(exec_token)
+        except Exception as exc:  # noqa: BLE001 -- network failure must not crash the loop
+            log.warning("candidate_book_direct_refresh_error", extra={"extra": {
+                "token": exec_token, "error": repr(exc)[:120]}})
+            refreshed = None
+        if refreshed is None:
+            return self._record_candidate_book_status(
+                asset=market.asset, market=market, shock=shock, book=book, now_ms=now_ms,
+                status="FETCH_FAILED", direct_refresh_attempted=True,
+                direct_refresh_result="fetch_failed", final_reject_reason=RejectReason.BOOK_FETCH_FAILED)
+
+        self.book_store.update_snapshot(refreshed)
+        executable, reason = self._candidate_book_is_executable(refreshed, now_ms)
+        if executable:
+            return self._record_candidate_book_status(
+                asset=market.asset, market=market, shock=shock, book=refreshed, now_ms=now_ms,
+                status="FRESH", direct_refresh_attempted=True,
+                direct_refresh_result="success", final_reject_reason=None)
+        # got a book but it has no executable bid/ask -- never trade on that
+        return self._record_candidate_book_status(
+            asset=market.asset, market=market, shock=shock, book=refreshed, now_ms=now_ms,
+            status="STALE", direct_refresh_attempted=True,
+            direct_refresh_result=reason, final_reject_reason=RejectReason.STALE_BOOK)
+
     async def _evaluate_market(self, shock, market: MarketInfo, view, now_ms: int,
                                is_retry: bool = False) -> None:
         yes_book = self.book_store.get(market.yes_token_id)
@@ -771,10 +912,35 @@ class App:
                 self.cfg.oracle_ev.max_anchor_age_ms, self.cfg.oracle_ev.max_basis_abs_pct)
             if not ok:
                 self._log_oracle_anchor(anchor, anchor_reject)
+                self._record_candidate_book_status(
+                    asset=shock.asset, market=market, shock=shock, status="NOT_REACHED_BOOK_STAGE",
+                    now_ms=now_ms, earlier_gate_reason=anchor_reject,
+                    direct_refresh_attempted=False,
+                    direct_refresh_result="not_reached_book_stage",
+                    final_reject_reason=anchor_reject)
                 self._shadow_diag(shock.asset, market.market_id,
                                   "rejected_by_" + anchor_reject.replace("REJECTED_", "").lower(),
                                   f"oracle anchor: {anchor_reject} for {market.title[:50]}", view)
                 return
+
+        # Anchor/scan data is already recorded above; a stale book never erases
+        # it. Try one direct refresh of the executable-side book before the
+        # book_fresh hard reject; failed fetches and still-unusable books stop
+        # here before signal construction.
+        book_status = await self._ensure_candidate_book_fresh(market, shock, now_ms)
+        if book_status["status"] == "FETCH_FAILED":
+            self._shadow_diag(shock.asset, market.market_id, "rejected_by_book_fetch_failed",
+                              f"direct CLOB /book refresh failed for {book_status['token_id'][:16]} "
+                              f"({market.title[:40]})", view)
+            return
+        if book_status["status"] == "STALE":
+            self._shadow_diag(shock.asset, market.market_id, "rejected_by_stale_book",
+                              f"{RejectReason.STALE_BOOK}: executable book invalid/stale "
+                              f"for {market.title[:50]} "
+                              f"(refresh={book_status['direct_refresh_result']})", view)
+            return
+        yes_book = self.book_store.get(market.yes_token_id)
+        no_book = self.book_store.get(market.no_token_id)
 
         signal = self.signal_engine.build_signal(shock, market, view, yes_book, no_book, now_ms)
         if signal is None:
@@ -785,7 +951,8 @@ class App:
                 self._shadow_diag(shock.asset, market.market_id,
                                   "rejected_by_stale_book",
                                   f"book {'missing' if side_book is None else 'stale'} "
-                                  f"for {market.title[:50]}", view)
+                                  f"for {market.title[:50]} "
+                                  f"(refresh={book_status['direct_refresh_result']})", view)
             else:
                 self._shadow_diag(shock.asset, market.market_id, "rejected_by_edge",
                                   f"no positive edge on {market.title[:50]}", view)

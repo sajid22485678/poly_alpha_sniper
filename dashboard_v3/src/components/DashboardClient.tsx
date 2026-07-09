@@ -10,6 +10,8 @@ import { MarketIntelPanel } from "@/components/MarketIntelPanel";
 import { TradeTape } from "@/components/TradeTape";
 import { RejectTaxonomyPanel } from "@/components/RejectTaxonomyPanel";
 import { AutoExporterStatusPanel } from "@/components/AutoExporterStatusPanel";
+import { CandidateBookStatusPanel } from "@/components/CandidateBookStatusPanel";
+import { GateWaterfallPanel } from "@/components/GateWaterfallPanel";
 import { HermesPanel } from "@/components/HermesPanel";
 import { LiveFeedStatePanel } from "@/components/LiveFeedStatePanel";
 import { OracleStatusPanel } from "@/components/OracleStatusPanel";
@@ -101,6 +103,13 @@ export function DashboardClient() {
 
         <SectionShell title="Live Feed State">
           <LiveFeedStatePanel state={snapshot?.live_feed_state ?? null} />
+        </SectionShell>
+
+        <SectionShell title="Candidate Book & Entry Gates">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+            <CandidateBookStatusPanel status={snapshot?.candidate_book_status ?? null} />
+            <GateWaterfallPanel waterfall={snapshot?.gate_waterfall ?? null} />
+          </div>
         </SectionShell>
 
         <SectionShell title="Market Intelligence">

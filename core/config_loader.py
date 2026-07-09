@@ -112,6 +112,14 @@ class PolymarketConfig(BaseModel):
     max_time_to_expiry_seconds: float = 330
     use_websocket_orderbook_first: bool = True
     rest_snapshot_fallback: bool = True
+    # When a candidate market's executable-side book is stale at evaluation
+    # time (the WS/REST mirror couldn't keep it under max_orderbook_staleness_ms
+    # among many tracked tokens), attempt ONE direct CLOB /book fetch for that
+    # single token before hard-rejecting -- see core/app.py._ensure_candidate_book_fresh.
+    # Read-only (public /book endpoint); never places or cancels an order.
+    # A fresh direct fetch legitimately satisfies the book_fresh gate; it does
+    # not bypass it. Disable to fall back to mirror-only freshness.
+    direct_book_refresh_on_stale_eval: bool = True
     gamma_base_url: str = "https://gamma-api.polymarket.com"
     clob_base_url: str = "https://clob.polymarket.com"
     ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market"

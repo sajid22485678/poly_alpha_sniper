@@ -148,15 +148,31 @@ def build_oracle_status(state: dict, cfg, now_ms: int) -> dict:
         return {"available": False, "enabled": cfg.oracle_ev.enabled,
                "reason": "no candidate market discovered yet"}
     price_to_beat = anchor.get("oracle_open_price")
+    asset = anchor.get("asset")
+    cex_sources = diag.get("cex_selected_source")
+    cex_lead_source = cex_sources.get(asset) if isinstance(cex_sources, dict) else None
+    # The SETTLEMENT ANCHOR the bot uses is price_to_beat (Polymarket event
+    # metadata, itself a Chainlink snapshot at window open). resolution_source_url
+    # is Polymarket's OWN declared resolution reference for the market -- it
+    # varies per market (usually a Chainlink stream URL, historically a Binance
+    # spot URL for some SOL variants) and is METADATA ONLY, never the bot's
+    # anchor. CEX (okx/bybit) is only a lead indicator. These are surfaced as
+    # separate, clearly-labeled fields so the dashboard never implies CEX/Binance
+    # spot is the settlement truth.
     return {
         "available": price_to_beat is not None,
         "enabled": cfg.oracle_ev.enabled,
         "generated_ts_ms": now_ms,
         "market_id": anchor.get("market_id"),
-        "asset": anchor.get("asset"),
+        "asset": asset,
         "price_to_beat": price_to_beat,
-        "oracle_source": anchor.get("oracle_source"),
+        "anchor_source": anchor.get("oracle_source"),        # e.g. polymarket_event_metadata
+        "settlement_anchor": "price_to_beat",                # explicit: this is what the bot uses
+        "cex_lead_source": cex_lead_source,                  # lead indicator only, not settlement
+        "metadata_url": anchor.get("resolution_source_url"), # Polymarket-declared, metadata only
+        # kept for backward-compat with existing readers; same value as metadata_url
         "resolution_source_url": anchor.get("resolution_source_url"),
+        "oracle_source": anchor.get("oracle_source"),
         "oracle_open_ts_ms": anchor.get("oracle_open_ts_ms"),
         "cex_price": anchor.get("cex_price"),
         "cex_ts_ms": anchor.get("cex_ts_ms"),
@@ -213,6 +229,68 @@ def build_no_shock_watchlist(state: dict) -> list[dict]:
     return watchlist if isinstance(watchlist, list) else []
 
 
+def build_candidate_book_status(state: dict) -> dict:
+    """Task A: the most recent candidate market's executable-side book
+    freshness + direct-refresh outcome (core.app.App._ensure_candidate_book_fresh).
+    Distinct from the aggregate Fresh Books count, which can hide a single
+    candidate's stale book behind a healthy-looking ratio."""
+    diag = state.get("diagnostics", {}) if isinstance(state.get("diagnostics"), dict) else {}
+    status = diag.get("candidate_book_status")
+    if isinstance(status, dict) and status.get("status"):
+        return {
+            "market_id": status.get("market_id"),
+            "token_id": status.get("token_id"),
+            "asset": status.get("asset"),
+            "side": status.get("side"),
+            "status": status.get("status"),
+            "earlier_gate_reason": status.get("earlier_gate_reason"),
+            "book_age_ms": status.get("book_age_ms"),
+            "freshness_threshold_ms": status.get("freshness_threshold_ms"),
+            "best_bid": status.get("best_bid"),
+            "best_ask": status.get("best_ask"),
+            "spread": status.get("spread"),
+            "depth_near_best_usd": status.get("depth_near_best_usd"),
+            "direct_refresh_attempted": bool(status.get("direct_refresh_attempted", False)),
+            "direct_refresh_result": status.get("direct_refresh_result"),
+            "final_reject_reason": status.get("final_reject_reason"),
+            "ts_ms": status.get("ts_ms"),
+        }
+
+    snap = diag.get("last_scan_snapshot") if isinstance(diag.get("last_scan_snapshot"), dict) else {}
+    if snap and not snap.get("candidate_market_id"):
+        reason = "NO_CANDIDATE"
+    else:
+        reason = "NOT_EVALUATED"
+    return {
+        "market_id": snap.get("candidate_market_id") if isinstance(snap, dict) else None,
+        "token_id": None,
+        "asset": snap.get("asset") if isinstance(snap, dict) else None,
+        "side": None,
+        "status": "NOT_EVALUATED",
+        "earlier_gate_reason": reason,
+        "book_age_ms": None,
+        "freshness_threshold_ms": None,
+        "best_bid": None,
+        "best_ask": None,
+        "spread": None,
+        "depth_near_best_usd": None,
+        "direct_refresh_attempted": False,
+        "direct_refresh_result": "not_reached_book_stage",
+        "final_reject_reason": None,
+        "ts_ms": snap.get("ts_ms") if isinstance(snap, dict) else None,
+    }
+
+
+def build_gate_waterfall(data: DashboardData, state: dict, now_ms: int,
+                         window_minutes: int = 60) -> dict:
+    """Task C: ordered entry-rarity gate waterfall over the recent window.
+    Read-only aggregate of persisted shadow_diagnostics + predictions; never
+    re-runs or loosens a gate."""
+    diag_rows = data.diagnostics(5000)
+    preds = data.predictions(5000)
+    return metrics.gate_waterfall(diag_rows, preds, now_ms, window_minutes)
+
+
 def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int) -> dict:
     """Everything the dashboard shows, in one payload -- lets a future agent
     reconstruct dashboard state without touching the DB directly."""
@@ -229,6 +307,8 @@ def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int)
         "live_feed_state": build_live_feed_state(state, cfg, now_ms),
         "last_scan_snapshot": build_last_scan_snapshot(state),
         "no_shock_watchlist": build_no_shock_watchlist(state),
+        "candidate_book_status": build_candidate_book_status(state),
+        "gate_waterfall": build_gate_waterfall(data, state, now_ms),
         "open_positions": data.recent("positions", 50),
         "recent_orders": data.orders(25),
         "classification_framework": "not_implemented",  # honest: no continuation/fade label exists yet

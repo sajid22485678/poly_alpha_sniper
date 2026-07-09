@@ -228,6 +228,12 @@ class RejectReason:
     TIME_TO_CLOSE_RISK = "REJECTED_TIME_TO_CLOSE_RISK"
     BOOK_TOO_THIN = "REJECTED_BOOK_TOO_THIN"
     DATA_QUALITY = "REJECTED_DATA_QUALITY"
+    # candidate-specific book freshness (see core/app.py._ensure_candidate_book_fresh):
+    # STALE_BOOK = mirror book stale and a direct refresh did not make it usable;
+    # BOOK_FETCH_FAILED = the one direct CLOB /book refresh attempt failed
+    # (network/404/429). Distinct from STALE_ORDERBOOK (order-validator layer).
+    STALE_BOOK = "REJECTED_STALE_BOOK"
+    BOOK_FETCH_FAILED = "REJECTED_BOOK_FETCH_FAILED"
 
     # fixed 5-share sizing mode (see risk/position_sizer.py)
     INSUFFICIENT_CASH_FOR_5_SHARES = "REJECTED_INSUFFICIENT_CASH_FOR_5_SHARES"

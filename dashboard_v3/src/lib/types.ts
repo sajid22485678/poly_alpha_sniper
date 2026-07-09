@@ -169,8 +169,17 @@ export type OracleStatus =
       market_id: string | null;
       asset: string | null;
       price_to_beat: number | null;
+      // The bot's settlement anchor is always price_to_beat. anchor_source is
+      // where that value came from (polymarket_event_metadata). cex_lead_source
+      // is a LEAD indicator only. metadata_url is Polymarket's own declared
+      // resolution reference (Chainlink usually, historically Binance for some
+      // SOL variants) -- metadata only, NEVER the bot's settlement truth.
+      anchor_source: string | null;
+      settlement_anchor: string; // literal "price_to_beat"
+      cex_lead_source: string | null;
+      metadata_url: string | null;
       oracle_source: string | null;
-      resolution_source_url: string | null;
+      resolution_source_url: string | null; // back-compat alias of metadata_url
       oracle_open_ts_ms: number | null;
       cex_price: number | null;
       cex_ts_ms: number | null;
@@ -183,6 +192,35 @@ export type OracleStatus =
         executable_price: number;
       } | null;
     };
+
+export interface CandidateBookStatus {
+  ts_ms?: number;
+  market_id?: string | null;
+  asset?: string | null;
+  token_id?: string | null;
+  side?: string | null;
+  status?: "FRESH" | "STALE" | "FETCH_FAILED" | "NOT_REACHED_BOOK_STAGE" | "NOT_EVALUATED";
+  earlier_gate_reason?: string | null;
+  book_age_ms?: number | null;
+  freshness_threshold_ms?: number | null;
+  best_bid?: number | null;
+  best_ask?: number | null;
+  spread?: number | null;
+  depth_near_best_usd?: number | null;
+  direct_refresh_attempted?: boolean;
+  direct_refresh_result?: string | null;
+  final_reject_reason?: string | null;
+}
+
+export interface GateWaterfall {
+  window_minutes: number;
+  generated_ts_ms: number;
+  stages: Record<string, number>;
+  stage_order: string[];
+  total_candidates: number;
+  accepted: number;
+  acceptance_pct: number;
+}
 
 export interface LiveFeedAssetState {
   selected_source: string | null;
@@ -225,6 +263,8 @@ export interface DashboardSnapshot {
   live_feed_state: LiveFeedState;
   last_scan_snapshot: LastScanSnapshot;
   no_shock_watchlist: NoShockWatchlistEntry[];
+  candidate_book_status: CandidateBookStatus;
+  gate_waterfall: GateWaterfall;
   open_positions: unknown[];
   recent_orders: OrderRow[];
   classification_framework: string;
