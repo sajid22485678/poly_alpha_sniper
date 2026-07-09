@@ -176,17 +176,16 @@ async def test_app_selects_fresh_okx_when_bybit_stale(app):
 
 
 async def test_app_rejects_no_fresh_only_when_all_stale(app):
-    """800/900ms would have hard-rejected under the old flat 500ms budget,
-    but that's within shadow_live's new live_signal_max_age_ms=1500ms tier
-    (see cex_freshness config / core.app._classify_cex_freshness) -- use
-    staleness beyond shadow_eval_max_age_ms=3000ms so this test still
-    exercises "genuinely too stale even for shadow diagnostics"."""
+    """The shadow DEGRADED band now extends to fail_closed_max_age_ms=8000ms
+    (staleness-scaled EV penalty applies inside it), so 3-4s is evaluable, not
+    a no_fresh reject. To still exercise "genuinely too stale even for shadow",
+    both sources must be beyond fail_closed_max_age_ms=8000ms."""
     from poly_alpha_sniper.core.contracts import CexTick
     now = app.clock.now_ms()
     app.cex_state.update(CexTick(asset="SOL", exchange="bybit", price=150.0,
-                                 ts_ms=now - 3500, recv_ts_ms=now - 3500))
+                                 ts_ms=now - 8500, recv_ts_ms=now - 8500))
     app.cex_state.update(CexTick(asset="SOL", exchange="okx", price=150.0,
-                                 ts_ms=now - 3800, recv_ts_ms=now - 3800))
+                                 ts_ms=now - 9000, recv_ts_ms=now - 9000))
     await app._scan_entries()
     assert app.diag["cex_selected_source"]["SOL"] == "bybit"  # least-stale of the two
     rows = app.store.query(
@@ -235,15 +234,16 @@ async def test_fresh_staleness_classified_fresh(app):
     assert app._classify_cex_freshness(view) == "fresh"
 
 
-async def test_beyond_shadow_eval_ceiling_is_fail_closed(app):
-    """Beyond shadow_eval_max_age_ms(3000) -- and therefore also beyond
-    fail_closed_max_age_ms(8000) is unreachable without first crossing this
-    -- the pipeline must stop exactly as before."""
+async def test_between_shadow_eval_and_fail_closed_is_degraded(app):
+    """The DEGRADED shadow band now extends to fail_closed_max_age_ms(8000):
+    3500ms (past shadow_eval's 3000 reference point but under the 8000 ceiling)
+    is evaluable-with-EV-penalty, NOT a hard reject. This is the coverage fix
+    for low-volume assets between sparse trade prints."""
     now = app.clock.now_ms()
     app.cex_state.update(CexTick(asset="BTC", exchange="bybit", price=100_000.0,
                                  ts_ms=now - 3500, recv_ts_ms=now - 3500))
     view = app.cex_state.multi_view("BTC")
-    assert app._classify_cex_freshness(view) == "fail_closed"
+    assert app._classify_cex_freshness(view) == "degraded"
 
 
 async def test_beyond_fail_closed_ceiling_is_also_fail_closed(app):

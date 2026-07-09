@@ -100,7 +100,9 @@ class App:
             "cex_freshest_age_ms": {},       # asset -> staleness of that primary
             "cex_no_fresh_count_by_source": {},  # exchange -> times it was the
                                                   # freshest-available AND still stale
-            "cex_freshness_degraded": {},    # asset -> bool, live_signal < age <= shadow_eval
+            "cex_freshness_degraded": {},    # asset -> bool, live_signal < age <= fail_closed
+            "cex_source_debug": {},          # asset -> structured source/fallback debug (see
+                                              # _cex_source_debug); read-only dashboard surface
             "latest_oracle_anchor": None,    # updated as soon as ANY candidate market is
                                               # discovered, independent of shock/freshness
                                               # gates -- see _scan_entries's early anchor pass
@@ -615,6 +617,7 @@ class App:
                 self.diag["cex_selected_source"][asset] = view.primary.exchange
                 self.diag["cex_freshest_age_ms"][asset] = view.primary.staleness_ms
                 self.diag["cex_freshness_degraded"][asset] = (freshness == "degraded")
+                self.diag["cex_source_debug"][asset] = self._cex_source_debug(view, freshness, now)
                 if freshness == "fail_closed":
                     # the freshest source we have is STILL beyond budget ->
                     # every usable exchange is stale right now, not a
@@ -646,12 +649,13 @@ class App:
                         direct_refresh_attempted=False,
                         direct_refresh_result="not_reached_book_stage")
                 continue
-            # In shadow modes, shock detection may use the wider
-            # shadow_eval_max_age_ms budget (freshness already classified
-            # "fresh" or "degraded" above); live modes are untouched --
-            # _classify_cex_freshness never returns "degraded" there, so
-            # this is exactly cfg.cex.max_cex_staleness_ms in live modes.
-            shock_max_staleness = (self.cfg.cex_freshness.shadow_eval_max_age_ms
+            # In shadow modes, shock detection may use the wider degraded band
+            # (up to fail_closed_max_age_ms) once freshness is classified
+            # "degraded" above; the staleness-scaled EV penalty downstream is
+            # the defense. Live modes are untouched -- _classify_cex_freshness
+            # never returns "degraded" there, so shock detection uses its own
+            # cfg.cex.max_cex_staleness_ms default in live modes.
+            shock_max_staleness = (self.cfg.cex_freshness.fail_closed_max_age_ms
                                    if freshness == "degraded" else None)
             shock = self.shock_detector.detect(view, max_staleness_ms=shock_max_staleness)
             if shock is None:
@@ -705,7 +709,17 @@ class App:
         live_micro/live_full ALWAYS use the single strict
         cex.max_cex_staleness_ms gate (never "degraded") -- this method
         can never relax live execution behavior. Shadow modes use the
-        tiered cex_freshness budgets when cex_freshness.enabled."""
+        tiered cex_freshness budgets when cex_freshness.enabled.
+
+        Shadow band (freshest-available source across Bybit/OKX; Binance is
+        geo-blocked here and simply never selected):
+          <= live_signal_max_age_ms      -> "fresh"    (no penalty)
+          <= fail_closed_max_age_ms       -> "degraded" (shadow evaluates with a
+             staleness-scaled EV penalty; see _oracle_ev_reject). This is the
+             band that keeps low-volume assets (SOL/ETH between sparse trade
+             prints) evaluable instead of going dark for hours.
+          >  fail_closed_max_age_ms       -> "fail_closed" (always rejected; the
+             config's explicit outer ceiling -- stale data past it is dead)."""
         if view is None or view.primary is None:
             return "no_data"
         staleness = view.primary.staleness_ms
@@ -714,7 +728,7 @@ class App:
         cf = self.cfg.cex_freshness
         if staleness <= cf.live_signal_max_age_ms:
             return "fresh"
-        if staleness <= cf.shadow_eval_max_age_ms:
+        if staleness <= cf.fail_closed_max_age_ms:
             return "degraded"
         return "fail_closed"
 
@@ -754,6 +768,48 @@ class App:
             parts.append(f"{ex}{marker}={st.staleness_ms}ms[{sev}]")
         return (f"selected={view.primary.exchange} age={view.primary.staleness_ms}ms "
                 f"budget={budget}ms | " + " ".join(parts))
+
+    def _cex_source_debug(self, view, freshness: str, now_ms: int) -> dict:
+        """Structured per-asset source/fallback debug for the read-only
+        dashboard + export. Proves the freshest valid source is always chosen
+        (selected == best), that a stale Binance/one source never blocks a
+        fresher one, and buckets the freshest source as FRESH/DEGRADED/
+        FAIL_CLOSED/NO_SOURCE. Diagnostic only -- never a gate."""
+        cf = self.cfg.cex_freshness
+        per_ex = {ex: st.staleness_ms for ex, st in view.per_exchange.items()}
+        # best == freshest available source (min staleness) -- the same rule
+        # CexState._select_best uses, so selected should equal best every time.
+        best_source, best_age = None, None
+        if per_ex:
+            best_source = min(per_ex, key=lambda e: per_ex[e])
+            best_age = per_ex[best_source]
+        selected = view.primary.exchange
+        selected_age = view.primary.staleness_ms
+        bucket = {"fresh": "FRESH", "degraded": "DEGRADED",
+                  "fail_closed": "FAIL_CLOSED", "no_data": "NO_SOURCE"}.get(freshness, "NO_SOURCE")
+        # "a fresher source we failed to use" -- should always be False, since
+        # selection already minimises staleness. Surfaced so a regression shows.
+        fresher_unused = any(age < selected_age for ex, age in per_ex.items() if ex != selected)
+        return {
+            "ts_ms": now_ms,
+            "asset": view.asset,
+            "selected_source": selected,
+            "selected_age_ms": selected_age,
+            "selected_status": ("FRESH" if selected_age <= cf.live_signal_max_age_ms
+                                else ("DEGRADED" if selected_age <= cf.fail_closed_max_age_ms
+                                      else "FAIL_CLOSED")),
+            "best_source": best_source,
+            "best_source_age_ms": best_age,
+            "bybit_age_ms": per_ex.get("bybit"),
+            "okx_age_ms": per_ex.get("okx"),
+            "binance_age_ms": per_ex.get("binance"),
+            "live_threshold_ms": cf.live_signal_max_age_ms,
+            "shadow_eval_threshold_ms": cf.shadow_eval_max_age_ms,
+            "fail_closed_threshold_ms": cf.fail_closed_max_age_ms,
+            "selected_is_freshest": (selected == best_source),
+            "better_fallback_existed": fresher_unused,
+            "freshness_bucket": bucket,
+        }
 
     def _shadow_diag(self, asset: str, market_id: str, reason: str,
                      detail: str, view=None) -> None:
@@ -1088,14 +1144,22 @@ class App:
             self._log_oracle_anchor(anchor, RejectReason.MODEL_UNCALIBRATED)
             return RejectReason.MODEL_UNCALIBRATED
         # CEX_FRESHNESS_DEGRADED (shadow modes, live_signal_max_age_ms < age
-        # <= shadow_eval_max_age_ms) is allowed to reach EV evaluation, but
+        # <= fail_closed_max_age_ms) is allowed to reach EV evaluation, but
         # never for free -- widen the adverse-selection buffer so it needs a
         # bigger edge to clear. This is the actual defense; the freshness
-        # gate itself was already relaxed to let it get this far.
+        # gate itself was already relaxed to let it get this far. The penalty
+        # SCALES with staleness: 1x at/under shadow_eval_max_age_ms, growing
+        # linearly toward the fail_closed ceiling, so a ~6-7s price must clear
+        # a materially bigger edge than a ~2s price (never below the base add).
         degraded = self.diag["cex_freshness_degraded"].get(signal.asset, False)
         adverse_selection_buffer = cfg.adverse_selection_buffer
         if degraded:
-            adverse_selection_buffer += self.cfg.cex_freshness.degraded_adverse_selection_buffer_add
+            cf = self.cfg.cex_freshness
+            age_ms = self.diag["cex_freshest_age_ms"].get(signal.asset, 0) or 0
+            scale = 1.0
+            if cf.shadow_eval_max_age_ms > 0:
+                scale = max(1.0, age_ms / cf.shadow_eval_max_age_ms)
+            adverse_selection_buffer += cf.degraded_adverse_selection_buffer_add * scale
         result = compute_oracle_ev(
             probability_of_payout=signal.edge.fair_probability,
             executable_price=signal.edge.market_price,
@@ -1116,16 +1180,17 @@ class App:
     def _cex_fresh_for_hard_check(self, asset: str) -> bool:
         """live_micro/live_full: unchanged, exactly cex.max_cex_staleness_ms
         via CexState.is_fresh(). Shadow modes: widened to
-        cex_freshness.shadow_eval_max_age_ms so a signal built in the
-        "degraded" zone isn't hard-rejected here after _scan_entries already
+        cex_freshness.fail_closed_max_age_ms so a signal built anywhere in the
+        "degraded" band isn't hard-rejected here after _scan_entries already
         chose to let it through -- the actual defense against a degraded
-        signal is the EV penalty in _oracle_ev_reject, not a blanket block."""
+        signal is the staleness-scaled EV penalty in _oracle_ev_reject, not a
+        blanket block. Past fail_closed_max_age_ms this still returns False."""
         if self.mode.is_live or not self.cfg.cex_freshness.enabled:
             return self.cex_state.is_fresh(asset)
         st = self.cex_state.stats(asset)
         if st is None:
             return False
-        return st.staleness_ms <= self.cfg.cex_freshness.shadow_eval_max_age_ms
+        return st.staleness_ms <= self.cfg.cex_freshness.fail_closed_max_age_ms
 
     def _hard_checks(self, signal: Signal, market: MarketInfo, yes_book, no_book,
                      now_ms: int, freq_ok: bool, freq_reason: str) -> dict[str, bool]:

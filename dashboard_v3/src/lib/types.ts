@@ -251,6 +251,26 @@ export interface LiveFeedAssetState {
 
 export type LiveFeedState = Record<string, LiveFeedAssetState>;
 
+export interface CexSourceDebugAsset {
+  asset?: string;
+  selected_source?: string | null;
+  selected_age_ms?: number | null;
+  selected_status?: string | null;
+  best_source?: string | null;
+  best_source_age_ms?: number | null;
+  bybit_age_ms?: number | null;
+  okx_age_ms?: number | null;
+  binance_age_ms?: number | null;
+  live_threshold_ms?: number;
+  shadow_eval_threshold_ms?: number;
+  fail_closed_threshold_ms?: number;
+  selected_is_freshest?: boolean;
+  better_fallback_existed?: boolean;
+  freshness_bucket?: "FRESH" | "DEGRADED" | "FAIL_CLOSED" | "NO_SOURCE" | string;
+}
+
+export type CexSourceDebug = Record<string, CexSourceDebugAsset>;
+
 export interface LastScanSnapshot {
   ts_ms?: number;
   asset?: string;
@@ -369,6 +389,7 @@ export interface DashboardSnapshot {
   latest_market_state: LatestMarketState;
   oracle_status: OracleStatus;
   live_feed_state: LiveFeedState;
+  cex_source_debug?: CexSourceDebug;
   last_scan_snapshot: LastScanSnapshot;
   no_shock_watchlist: NoShockWatchlistEntry[];
   candidate_book_status: CandidateBookStatus;

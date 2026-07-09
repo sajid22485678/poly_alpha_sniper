@@ -220,6 +220,29 @@ def build_live_feed_state(state: dict, cfg, now_ms: int) -> dict:
     return out
 
 
+def build_cex_source_debug(state: dict, cfg) -> dict:
+    """Per-asset CEX source / fallback debug (read-only). Surfaces, for each
+    asset, the selected source and its age, the best (freshest) source and its
+    age, every per-source age (bybit/okx/binance), the three freshness
+    thresholds, the FRESH/DEGRADED/FAIL_CLOSED/NO_SOURCE bucket, and two
+    regression guards: selected_is_freshest and better_fallback_existed (which
+    must always be true / false respectively -- if not, source selection has a
+    bug). Diagnostic only; never a gate."""
+    diag = state.get("diagnostics", {}) if isinstance(state.get("diagnostics"), dict) else {}
+    debug = diag.get("cex_source_debug") if isinstance(diag.get("cex_source_debug"), dict) else {}
+    out = {}
+    for asset in cfg.assets:
+        row = debug.get(asset)
+        if isinstance(row, dict):
+            out[asset] = row
+        else:
+            out[asset] = {"asset": asset, "selected_source": None, "freshness_bucket": "NO_SOURCE",
+                          "live_threshold_ms": cfg.cex_freshness.live_signal_max_age_ms,
+                          "shadow_eval_threshold_ms": cfg.cex_freshness.shadow_eval_max_age_ms,
+                          "fail_closed_threshold_ms": cfg.cex_freshness.fail_closed_max_age_ms}
+    return out
+
+
 def build_last_scan_snapshot(state: dict) -> dict:
     """Updates every scan iteration (see core.app.App._update_scan_snapshot)
     -- distinct from last_prediction_snapshot (only updates on a prediction
@@ -377,6 +400,7 @@ def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int)
         "latest_market_state": metrics.latest_market_state(preds, diag),
         "oracle_status": build_oracle_status(state, cfg, now_ms),
         "live_feed_state": build_live_feed_state(state, cfg, now_ms),
+        "cex_source_debug": build_cex_source_debug(state, cfg),
         "last_scan_snapshot": build_last_scan_snapshot(state),
         "no_shock_watchlist": build_no_shock_watchlist(state),
         "candidate_book_status": build_candidate_book_status(state),

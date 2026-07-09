@@ -81,12 +81,16 @@ class CexFreshnessConfig(BaseModel):
     penalty, never for free."
 
     live_signal_max_age_ms: fully fresh -- no penalty, normal decisioning.
-    shadow_eval_max_age_ms: shock detection / oracle-anchor / EV evaluation
-      may still proceed (flagged CEX_FRESHNESS_DEGRADED, with an EV penalty)
-      even past live_signal_max_age_ms; beyond this ceiling the pipeline
-      stops at rejected_by_no_fresh_cex_price exactly as it always has.
-    fail_closed_max_age_ms: explicit outer ceiling (must be >= the other
-      two) -- staleness beyond this is unambiguously dead, always rejected.
+    shadow_eval_max_age_ms: the reference point where the CEX_FRESHNESS_DEGRADED
+      EV penalty is at its 1x base; deeper into the degraded band the penalty
+      scales up linearly with staleness (see _oracle_ev_reject). Not itself a
+      hard reject boundary any more -- that is fail_closed_max_age_ms.
+    fail_closed_max_age_ms: the actual shadow reject boundary and explicit outer
+      ceiling (must be >= the other two). In shadow modes, shock detection /
+      oracle-anchor / EV evaluation may still proceed (flagged
+      CEX_FRESHNESS_DEGRADED, with a staleness-scaled EV penalty) up to this
+      age; staleness beyond it is unambiguously dead and always rejected as
+      rejected_by_no_fresh_cex_price. Live modes never enter the degraded band.
     dashboard_live_feed_warn_ms: dashboard-display threshold only, never a
       pipeline gate (see dashboard_v3's Live Feed State panel).
     degraded_adverse_selection_buffer_add: added on top of

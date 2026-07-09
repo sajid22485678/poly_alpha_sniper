@@ -14,6 +14,7 @@ import { CandidateBookStatusPanel } from "@/components/CandidateBookStatusPanel"
 import { GateWaterfallPanel } from "@/components/GateWaterfallPanel";
 import { HermesPanel } from "@/components/HermesPanel";
 import { LiveFeedStatePanel } from "@/components/LiveFeedStatePanel";
+import { CexSourceDebugPanel } from "@/components/CexSourceDebugPanel";
 import { LiveReadinessPanel } from "@/components/LiveReadinessPanel";
 import { OpportunityEnginePanel } from "@/components/OpportunityEnginePanel";
 import { OracleStatusPanel } from "@/components/OracleStatusPanel";
@@ -105,6 +106,10 @@ export function DashboardClient() {
 
         <SectionShell title="Live Feed State">
           <LiveFeedStatePanel state={snapshot?.live_feed_state ?? null} />
+        </SectionShell>
+
+        <SectionShell title="CEX Source / Fallback Debug">
+          <CexSourceDebugPanel debug={snapshot?.cex_source_debug ?? null} />
         </SectionShell>
 
         <SectionShell title="Candidate Book & Entry Gates">
