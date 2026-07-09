@@ -89,6 +89,10 @@ export interface RejectBreakdown {
   min_order: {
     blocked_count: number;
     latest: MinOrderLatest | null;
+    // The currently-configured risk.sizing_mode -- "latest" above reflects
+    // whichever mode was active when that historical row was recorded, not
+    // necessarily this one. See SignalEnginePanel's MinOrderFormulaBlock.
+    sizing_mode?: string;
   };
 }
 

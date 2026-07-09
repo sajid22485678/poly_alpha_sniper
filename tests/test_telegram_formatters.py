@@ -82,6 +82,15 @@ def test_fixed_min_shares_rejection_never_says_increase_max_trade_usd():
     assert "increase max_trade_usd" not in msg.lower()
 
 
+def test_fixed_min_shares_rejection_excludes_all_forbidden_legacy_phrases():
+    msg = format_rejected(signal(), _clean_approve_gate(), "REJECTED_INSUFFICIENT_CASH_FOR_5_SHARES",
+                          sizing_detail=_fixed_shares_sizing_detail())
+    forbidden = ("Increase max_trade_usd", "small-bankroll mode",
+                "Configured max_trade_usd", "Proposed Size USD: $1.00")
+    for phrase in forbidden:
+        assert phrase not in msg, f"forbidden legacy phrase leaked: {phrase!r}"
+
+
 def test_fixed_min_shares_rejection_shows_shares_and_cash_breakdown():
     msg = format_rejected(signal(), _clean_approve_gate(), "REJECTED_INSUFFICIENT_CASH_FOR_5_SHARES",
                           sizing_detail=_fixed_shares_sizing_detail())

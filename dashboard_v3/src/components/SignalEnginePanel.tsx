@@ -131,7 +131,8 @@ export function SignalEnginePanel({
               : "no evaluated market yet"
           }
         />
-        <MinOrderFormulaBlock minOrder={rejects?.min_order?.latest ?? null} />
+        <MinOrderFormulaBlock minOrder={rejects?.min_order?.latest ?? null}
+                              sizingMode={rejects?.min_order?.sizing_mode ?? null} />
         <FormulaBlock
           formula="5-MIN windows · 288 windows / day"
           detail={`next window in ${countdown}`}
@@ -152,14 +153,21 @@ function FormulaBlock({ formula, detail }: { formula: string; detail: string }) 
   );
 }
 
-function MinOrderFormulaBlock({ minOrder }: { minOrder: MinOrderLatest | null }) {
+function MinOrderFormulaBlock({ minOrder, sizingMode }: { minOrder: MinOrderLatest | null; sizingMode: string | null }) {
+  const fixedShares = sizingMode === "fixed_min_shares";
   return (
     <FormulaBlock
-      formula="min_required_usd = min_shares × ask_price"
+      formula={fixedShares
+        ? "fixed_min_shares: required_usd = fixed_order_shares × executable_price"
+        : "min_required_usd = min_shares × ask_price"}
       detail={
-        minOrder
-          ? `min_required = ${minOrder.min_shares} × ${minOrder.ask_price.toFixed(2)} = $${minOrder.min_required_usd.toFixed(2)} vs max_trade_usd=$${minOrder.configured_max_trade_usd.toFixed(2)} · shortfall=$${minOrder.shortfall_usd.toFixed(2)}`
-          : "no recent min-order block"
+        fixedShares
+          ? (minOrder
+              ? `historical record (max_trade_usd mode, before this bot switched to fixed_min_shares): min_required = ${minOrder.min_shares} × ${minOrder.ask_price.toFixed(2)} = $${minOrder.min_required_usd.toFixed(2)}. Current mode ignores max_trade_usd entirely — see REJECTED_INSUFFICIENT_CASH_FOR_5_SHARES / REJECTED_MAX_EXPOSURE instead.`
+              : "sizing_mode=fixed_min_shares — this reject type (max_trade_usd vs. share minimum) cannot occur in this mode.")
+          : (minOrder
+              ? `min_required = ${minOrder.min_shares} × ${minOrder.ask_price.toFixed(2)} = $${minOrder.min_required_usd.toFixed(2)} vs max_trade_usd=$${minOrder.configured_max_trade_usd.toFixed(2)} · shortfall=$${minOrder.shortfall_usd.toFixed(2)}`
+              : "no recent min-order block")
       }
     />
   );

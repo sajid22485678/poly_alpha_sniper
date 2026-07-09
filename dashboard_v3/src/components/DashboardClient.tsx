@@ -71,6 +71,8 @@ export function DashboardClient() {
           nowMs={now}
           missingFiles={data?.missing_files ?? []}
           connectionError={connectionError}
+          autoExportStatus={data?.auto_export_status ?? null}
+          autoExportStatusMissing={data?.auto_export_status_missing ?? true}
         />
 
         <PnlBanner summary={summary} />

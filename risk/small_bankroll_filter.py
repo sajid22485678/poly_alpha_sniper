@@ -8,7 +8,8 @@ from poly_alpha_sniper.core.contracts import MarketInfo, OrderbookSnapshot
 
 def market_ok_for_small_bankroll(market: MarketInfo, book: Optional[OrderbookSnapshot],
                                  cfg) -> tuple[bool, str]:
-    if market.min_order_size_usd > cfg.risk.max_trade_usd:
+    if cfg.risk.sizing_mode != "fixed_min_shares" \
+            and market.min_order_size_usd > cfg.risk.max_trade_usd:
         return False, (f"min order ${market.min_order_size_usd:.2f} > "
                        f"max trade ${cfg.risk.max_trade_usd:.2f}")
     if cfg.micro_bankroll_mode.reject_wide_spread and book is not None \

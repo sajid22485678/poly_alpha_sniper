@@ -64,18 +64,26 @@ def validate_order(req: OrderRequest, book: Optional[OrderbookSnapshot],
 
     if req.side.is_buy:
         ask = book.best_ask if book.best_ask is not None else req.price
-        if req.size_usd < market.min_order_size_usd - 1e-9:
-            detail = _min_order_sizing_detail(req, portfolio, cfg, ask,
-                                              min_shares=market.min_order_size_usd / ask if ask else 0.0)
-            return RiskDecision(False, 0.0, RejectReason.MIN_ORDER_SIZE_TOO_HIGH, checks,
-                                sizing_detail=detail)
-        # Polymarket minimums are share-denominated (typically 5 shares):
-        # enforce the TRUE minimum against this order's share count.
-        min_shares = float(market.raw.get("min_order_shares") or 0)
-        if min_shares > 0 and req.size_shares < min_shares - 1e-9:
-            detail = _min_order_sizing_detail(req, portfolio, cfg, ask, min_shares=min_shares)
-            return RiskDecision(False, 0.0, RejectReason.MIN_ORDER_SIZE_TOO_HIGH,
-                                checks + [f"needs >= {min_shares} shares"], sizing_detail=detail)
+        # fixed_min_shares mode sizes every order to exactly
+        # cfg.risk.fixed_order_shares at the executable price (see
+        # risk/position_sizer.py) -- fixed sizing IS the min order by
+        # construction, so these max_trade_usd-relative checks must not
+        # re-block an already-correctly-sized order. Skipping them here
+        # keeps this validator consistent with position_sizer.py's own
+        # documented fixed_min_shares contract.
+        if cfg.risk.sizing_mode != "fixed_min_shares":
+            if req.size_usd < market.min_order_size_usd - 1e-9:
+                detail = _min_order_sizing_detail(req, portfolio, cfg, ask,
+                                                  min_shares=market.min_order_size_usd / ask if ask else 0.0)
+                return RiskDecision(False, 0.0, RejectReason.MIN_ORDER_SIZE_TOO_HIGH, checks,
+                                    sizing_detail=detail)
+            # Polymarket minimums are share-denominated (typically 5 shares):
+            # enforce the TRUE minimum against this order's share count.
+            min_shares = float(market.raw.get("min_order_shares") or 0)
+            if min_shares > 0 and req.size_shares < min_shares - 1e-9:
+                detail = _min_order_sizing_detail(req, portfolio, cfg, ask, min_shares=min_shares)
+                return RiskDecision(False, 0.0, RejectReason.MIN_ORDER_SIZE_TOO_HIGH,
+                                    checks + [f"needs >= {min_shares} shares"], sizing_detail=detail)
         checks.append("min_order_ok")
         if req.size_usd > portfolio.available_cash_usd + 1e-9:
             return RiskDecision(False, 0.0, RejectReason.INSUFFICIENT_CASH, checks)

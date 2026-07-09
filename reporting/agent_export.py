@@ -114,6 +114,12 @@ def build_reject_breakdown_export(data: DashboardData, cfg, now_ms: int) -> dict
     diag_rows = data.diagnostics(500)
     unified = metrics.unified_reject_breakdown(diag_rows, preds)
     min_order = metrics.min_order_summary(preds, cfg.risk.max_trade_usd)
+    # The formula/detail in min_order["latest"] reflects whatever
+    # sizing_mode was active WHEN that historical row was recorded, computed
+    # here against the CURRENT cfg.risk.max_trade_usd -- this flag lets the
+    # dashboard caption it as historical when the live mode has since moved
+    # to fixed_min_shares, which no longer produces this reject at all.
+    min_order = {**min_order, "sizing_mode": cfg.risk.sizing_mode}
     return {"generated_ts_ms": now_ms, **unified, "min_order": min_order}
 
 

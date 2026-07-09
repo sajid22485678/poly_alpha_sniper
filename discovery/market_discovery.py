@@ -89,7 +89,12 @@ class MarketDiscovery:
             if not ok:
                 self.reject_stats[reason] += 1
                 continue
-            if market.min_order_size_usd > self.cfg.risk.max_trade_usd:
+            # fixed_min_shares mode ignores max_trade_usd entirely (see
+            # risk/position_sizer.py) -- filtering candidates out by
+            # max_trade_usd here would silently starve that mode of markets
+            # it is otherwise fully able to size and trade.
+            if self.cfg.risk.sizing_mode != "fixed_min_shares" \
+                    and market.min_order_size_usd > self.cfg.risk.max_trade_usd:
                 self.reject_stats["min_order_size_too_high"] += 1
                 continue
             if 0 < market.liquidity_usd < self.cfg.polymarket.min_liquidity_usd:

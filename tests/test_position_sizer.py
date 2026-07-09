@@ -174,3 +174,52 @@ def test_fixed_min_shares_rejects_data_quality_when_no_price():
                               executable_price=0.0)
     assert not d.approved
     assert d.reject_reason == RejectReason.DATA_QUALITY
+
+
+# ---------------------------------------------------------------------------
+# Exact regression case from the reported Telegram bug: SOL, ask=0.52,
+# available_cash=$12.44, old max_trade_usd=$1, edge=0.236, confidence=95,
+# tier=A_PLUS -- must size to 5 shares / $2.60 and approve, never reference
+# max_trade_usd or REJECTED_MIN_ORDER_SIZE_TOO_HIGH.
+# ---------------------------------------------------------------------------
+
+def test_screenshot_regression_passes_sizing_with_exposure_headroom():
+    # Same ask/edge/tier as the reported case, but enough equity that the
+    # unrelated 10%-of-equity market exposure cap isn't also in play --
+    # isolates "does fixed sizing itself pass" from the exposure-cap
+    # question covered separately below.
+    c = _fixed_cfg()
+    c.risk.max_trade_usd = 1.00
+    d = compute_position_size(c, portfolio_snapshot(equity=50, cash=50),
+                              market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.52)
+    assert d.approved, d.reject_reason
+    assert d.size_usd == pytest.approx(2.60)
+    assert d.sizing_detail["shares"] == 5.0
+    assert "configured_max_trade_usd" not in d.sizing_detail
+
+
+def test_screenshot_regression_at_reported_equity_blocked_by_exposure_not_min_order():
+    """At the ACTUAL reported equity ($12.44), the 10%-of-equity market
+    exposure cap ($1.244) is genuinely below the $2.60 fixed order -- this is
+    a real, correctly-enforced cap, not a bug. The point of this regression
+    is what it must NOT say: never MIN_ORDER_SIZE_TOO_HIGH, never mention
+    max_trade_usd -- the true blocker (MAX_EXPOSURE) must be reported."""
+    c = _fixed_cfg()
+    c.risk.max_trade_usd = 1.00
+    d = compute_position_size(c, portfolio_snapshot(equity=12.44, cash=12.44),
+                              market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.52)
+    assert not d.approved
+    assert d.reject_reason == RejectReason.MAX_EXPOSURE
+    assert d.reject_reason != RejectReason.MIN_ORDER_SIZE_TOO_HIGH
+
+
+def test_screenshot_regression_insufficient_cash():
+    c = _fixed_cfg()
+    c.risk.max_trade_usd = 1.00
+    d = compute_position_size(c, portfolio_snapshot(equity=2.59, cash=2.59),
+                              market(), TradingMode.SHADOW_LIVE, 0.236,
+                              executable_price=0.52)
+    assert not d.approved
+    assert d.reject_reason == RejectReason.INSUFFICIENT_CASH_FOR_5_SHARES

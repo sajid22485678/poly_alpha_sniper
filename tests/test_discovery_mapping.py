@@ -177,22 +177,54 @@ def test_min_order_usd_floor_not_five_dollars():
 
 
 def test_validator_enforces_share_minimum():
+    """max_trade_usd-mode behavior specifically -- pinned explicitly since
+    config.yaml's ambient default is fixed_min_shares as of WS4, which skips
+    this check entirely (see test_discovery_filter_skips_min_order_check_in_fixed_min_shares_mode)."""
     from poly_alpha_sniper.execution.order_validator import validate_order
     from poly_alpha_sniper.tests.helpers import book, market, portfolio_snapshot
     m = market()
     m.raw["min_order_shares"] = 5.0
     snap = portfolio_snapshot(equity=100, cash=10)
+    c = cfg()
+    c.risk.sizing_mode = "max_trade_usd"
     small = OrderRequest(order_id="o", token_id="tok_yes", market_id="m1",
                          side=OrderSide.BUY_YES, price=0.50, size_shares=2.0,
                          size_usd=1.0)
-    d = validate_order(small, book(bid=0.48, ask=0.50), m, snap, cfg(), NOW_MS)
+    d = validate_order(small, book(bid=0.48, ask=0.50), m, snap, c, NOW_MS)
     assert not d.approved
     assert d.reject_reason == "REJECTED_MIN_ORDER_SIZE_TOO_HIGH"
     big = OrderRequest(order_id="o2", token_id="tok_yes", market_id="m1",
                        side=OrderSide.BUY_YES, price=0.20, size_shares=5.0,
                        size_usd=1.0)
-    d2 = validate_order(big, book(bid=0.18, ask=0.20), m, snap, cfg(), NOW_MS)
+    d2 = validate_order(big, book(bid=0.18, ask=0.20), m, snap, c, NOW_MS)
     assert d2.approved, d2.reject_reason
+
+
+def test_discovery_filter_skips_min_order_check_in_fixed_min_shares_mode():
+    """discovery/market_discovery.py's own max_trade_usd-relative filter must
+    not silently drop candidate markets in fixed_min_shares mode -- that mode
+    ignores max_trade_usd entirely (see risk/position_sizer.py)."""
+    raw = gamma_updown("Bitcoin", "btc", mid="gbig", condition="0x" + "77" * 32)
+    raw["orderPriceMinTickSize"] = 0.5  # -> min_order_usd_floor = 5*0.5 = $2.50
+
+    async def fake_gamma(params):
+        return [raw]
+
+    c = cfg()
+    c.risk.sizing_mode = "max_trade_usd"
+    assert c.risk.max_trade_usd < 2.50  # sanity: the filter would otherwise not fire
+    disc = MarketDiscovery(c, SimClock(NOW_MS), fake_gamma)
+    tradable = disc._map_and_filter([raw], NOW_MS)
+    assert tradable == []
+    assert disc.reject_stats.get("min_order_size_too_high") == 1
+
+    c2 = cfg()
+    c2.risk.sizing_mode = "fixed_min_shares"
+    disc2 = MarketDiscovery(c2, SimClock(NOW_MS), fake_gamma)
+    tradable2 = disc2._map_and_filter([raw], NOW_MS)
+    assert len(tradable2) == 1
+    assert tradable2[0].asset == "BTC"
+    assert disc2.reject_stats.get("min_order_size_too_high", 0) == 0
 
 
 async def test_discovery_refresh_and_diagnostics():
