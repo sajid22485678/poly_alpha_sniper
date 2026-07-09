@@ -47,8 +47,16 @@ def test_filled_position_counts_toward_exposure_then_clears_on_exit():
 def test_max_exposure_does_not_fire_when_no_fills_exist():
     """With a portfolio snapshot that correctly reflects zero fills (as it
     would be even while a phantom unfilled order sits in the orders table),
-    a normal-sized signal must be approved, not rejected as MAX_EXPOSURE."""
-    rm = RiskManager(cfg(), SimClock(NOW_MS), KillSwitch(), PanicMode())
+    a normal-sized signal must be approved, not rejected as MAX_EXPOSURE.
+    Pins sizing_mode=max_trade_usd: this test's concern (fill-based exposure
+    accounting) is orthogonal to WS4's fixed_min_shares sizing, under which
+    a $10 equity/exposure-cap fixture can legitimately hit MAX_EXPOSURE for
+    unrelated reasons (5 shares at a non-trivial price already exceeds the
+    10%-of-equity per-market cap) -- that's a separate, real finding
+    reported elsewhere, not what this regression test is guarding."""
+    c = cfg()
+    c.risk.sizing_mode = "max_trade_usd"
+    rm = RiskManager(c, SimClock(NOW_MS), KillSwitch(), PanicMode())
     snap = portfolio_snapshot()  # equity=10, cash=10, no exposure, no positions
     d = rm.check_entry(signal(), snap, TradingMode.SHADOW_LIVE)
     assert d.approved

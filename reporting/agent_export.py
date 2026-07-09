@@ -117,6 +117,37 @@ def build_reject_breakdown_export(data: DashboardData, cfg, now_ms: int) -> dict
     return {"generated_ts_ms": now_ms, **unified, "min_order": min_order}
 
 
+def build_oracle_status(state: dict, cfg, now_ms: int) -> dict:
+    """WS3: surfaces the most recent OracleAnchor/EV computation the live
+    process recorded (core.app.App._resolve_and_record_oracle_anchor /
+    _oracle_ev_reject), via the same runtime_state.diagnostics path
+    latest_market_state already uses. "available": False (not a fabricated
+    anchor) when the process hasn't evaluated a market yet."""
+    diag = state.get("diagnostics", {}) if isinstance(state.get("diagnostics"), dict) else {}
+    anchor = diag.get("latest_oracle_anchor")
+    ev = diag.get("latest_oracle_ev")
+    if not isinstance(anchor, dict):
+        return {"available": False, "enabled": cfg.oracle_ev.enabled,
+               "reason": "no market evaluated yet"}
+    return {
+        "available": True,
+        "enabled": cfg.oracle_ev.enabled,
+        "generated_ts_ms": now_ms,
+        "market_id": anchor.get("market_id"),
+        "asset": anchor.get("asset"),
+        "price_to_beat": anchor.get("oracle_open_price"),
+        "oracle_source": anchor.get("oracle_source"),
+        "resolution_source_url": anchor.get("resolution_source_url"),
+        "oracle_open_ts_ms": anchor.get("oracle_open_ts_ms"),
+        "cex_price": anchor.get("cex_price"),
+        "cex_ts_ms": anchor.get("cex_ts_ms"),
+        "oracle_vs_cex_basis_pct": anchor.get("oracle_vs_cex_basis"),
+        "oracle_anchor_quality": anchor.get("oracle_anchor_quality"),
+        "time_remaining_seconds": anchor.get("time_remaining_seconds"),
+        "latest_ev": ev if isinstance(ev, dict) else None,
+    }
+
+
 def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int) -> dict:
     """Everything the dashboard shows, in one payload -- lets a future agent
     reconstruct dashboard state without touching the DB directly."""
@@ -129,6 +160,7 @@ def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int)
         "reject_breakdown": build_reject_breakdown_export(data, cfg, now_ms),
         "hermes_brief": build_hermes_brief(data, state, cfg, now_ms),
         "latest_market_state": metrics.latest_market_state(preds, diag),
+        "oracle_status": build_oracle_status(state, cfg, now_ms),
         "open_positions": data.recent("positions", 50),
         "recent_orders": data.orders(25),
         "classification_framework": "not_implemented",  # honest: no continuation/fade label exists yet

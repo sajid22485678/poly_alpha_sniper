@@ -204,6 +204,15 @@ class RiskConfig(BaseModel):
     no_martingale: bool = True
     no_averaging_down: bool = True
     no_unrealized_compounding: bool = True
+    # WS4: "fixed_min_shares" sizes every entry to exactly fixed_order_shares
+    # shares (at the executable price) instead of max_trade_usd, so a valid
+    # candidate is never rejected just because max_trade_usd is below what
+    # Polymarket's minimum order requires at the current price. See
+    # risk/position_sizer.py. "max_trade_usd" (default) preserves prior
+    # behavior exactly -- this is opt-in, not a silent behavior change.
+    sizing_mode: str = "max_trade_usd"   # "max_trade_usd" | "fixed_min_shares"
+    fixed_order_shares: float = 5.0
+    use_max_trade_usd: bool = True
 
 
 class TierExitRule(BaseModel):
@@ -352,6 +361,39 @@ class ObsidianConfig(BaseModel):
     overwrite_existing: bool = False
 
 
+class OracleEvConfig(BaseModel):
+    """Oracle-aware EV engine (see strategy/oracle_anchor.py, oracle_ev.py).
+    Entries fail closed (REJECTED_MISSING_ORACLE_ANCHOR etc.) when the
+    resolution-relevant price_to_beat anchor is missing/stale/mismatched --
+    this exists because Polymarket resolves these markets against a
+    Chainlink price stream, not CEX spot, and the bot's signal was
+    previously CEX-only with no anchor-awareness at all (see audit in the
+    poly_oracle_ev_5share_auto_export commit message)."""
+    enabled: bool = True
+    max_anchor_age_ms: float = 300_000       # anchor is only valid within its own 5-min window
+    max_basis_abs_pct: float = 0.02          # |cex - price_to_beat| / price_to_beat beyond this = unstable
+    fee_rate: float = 0.0                    # Polymarket crypto markets currently show takerBaseFee separately;
+    slippage_buffer: float = 0.01            # kept conservative/explicit rather than assumed zero
+    adverse_selection_buffer: float = 0.01
+    min_ev_threshold: float = 0.0            # EV must be non-negative at minimum; configurable, not asserted-correct
+    min_time_to_close_seconds: float = 5.0   # too close to expiry = oracle uncertainty too high
+
+
+class EvThesisExitConfig(BaseModel):
+    """Challenger-only EV/thesis-based exit engine (see strategy/ev_winner_hold.py).
+    NOT wired into the live/shadow trade loop -- consumed only by the
+    replay/research tooling until a replay comparison shows it improves
+    risk-adjusted outcomes over the champion fixed-TP exit logic. Flipping
+    `enabled` here does not change live trading behavior by itself; the
+    live exit path (ExitConfig / tier_exit_rules) is untouched."""
+    enabled: bool = False
+    disable_fixed_take_profit: bool = True
+    allow_hold_to_resolution: bool = True
+    min_ev_to_hold: float = 0.0
+    exit_on_thesis_flip: bool = True
+    exit_on_oracle_basis_flip: bool = True
+
+
 class Config(BaseModel):
     mode: ModeConfig = Field(default_factory=ModeConfig)
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
@@ -389,6 +431,8 @@ class Config(BaseModel):
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     agent_export: AgentExportConfig = Field(default_factory=AgentExportConfig)
     obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
+    oracle_ev: OracleEvConfig = Field(default_factory=OracleEvConfig)
+    ev_thesis_exit: EvThesisExitConfig = Field(default_factory=EvThesisExitConfig)
 
     @property
     def trading_mode(self) -> TradingMode:

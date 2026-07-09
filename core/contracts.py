@@ -140,6 +140,10 @@ class ExitReason(str, Enum):
     PANIC = "PANIC"
     MANUAL = "MANUAL"
     RESOLUTION = "RESOLUTION"
+    # WS5D challenger-only EV/thesis exit engine (strategy/ev_winner_hold.py)
+    # -- never produced by the live champion ExitEngine.
+    THESIS_INVALIDATED = "THESIS_INVALIDATED"
+    ORACLE_BASIS_FLIP = "ORACLE_BASIS_FLIP"
 
 
 # Exit priority: lower number = executed first. Shared by live + backtest.
@@ -162,6 +166,8 @@ EXIT_PRIORITY: dict[ExitReason, int] = {
     ExitReason.PARTIAL_TAKE_PROFIT: 9,
     ExitReason.RESOLUTION: 9,
     ExitReason.MANUAL: 2,
+    ExitReason.THESIS_INVALIDATED: 3,
+    ExitReason.ORACLE_BASIS_FLIP: 3,
 }
 
 
@@ -210,6 +216,21 @@ class RejectReason:
     LIVE_GATES_NOT_PASSED = "REJECTED_LIVE_GATES_NOT_PASSED"
     ONE_POSITION_PER_MARKET = "REJECTED_ONE_POSITION_PER_MARKET"
     RECONCILIATION_MISMATCH = "REJECTED_RECONCILIATION_MISMATCH"
+
+    # oracle-aware EV engine (see strategy/oracle_anchor.py, strategy/oracle_ev.py)
+    MISSING_ORACLE_ANCHOR = "REJECTED_MISSING_ORACLE_ANCHOR"
+    ORACLE_ANCHOR_STALE = "REJECTED_ORACLE_ANCHOR_STALE"
+    PRICE_TO_BEAT_MISMATCH = "REJECTED_PRICE_TO_BEAT_MISMATCH"
+    ORACLE_SOURCE_UNKNOWN = "REJECTED_ORACLE_SOURCE_UNKNOWN"
+    ORACLE_CEX_BASIS_UNSTABLE = "REJECTED_ORACLE_CEX_BASIS_UNSTABLE"
+    EV_TOO_LOW = "REJECTED_EV_TOO_LOW"
+    MODEL_UNCALIBRATED = "REJECTED_MODEL_UNCALIBRATED"
+    TIME_TO_CLOSE_RISK = "REJECTED_TIME_TO_CLOSE_RISK"
+    BOOK_TOO_THIN = "REJECTED_BOOK_TOO_THIN"
+    DATA_QUALITY = "REJECTED_DATA_QUALITY"
+
+    # fixed 5-share sizing mode (see risk/position_sizer.py)
+    INSUFFICIENT_CASH_FOR_5_SHARES = "REJECTED_INSUFFICIENT_CASH_FOR_5_SHARES"
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +355,11 @@ class MarketInfo:
     mapping_confidence: float = 0.0   # 0-100 from token mapping validator
     parse_reject_reason: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
+    # Oracle resolution anchor (see strategy/oracle_anchor.py). None until a
+    # discovery pass has populated it from Polymarket's event metadata.
+    price_to_beat: Optional[float] = None
+    price_to_beat_source: str = ""       # e.g. "polymarket_event_metadata"
+    resolution_source_url: str = ""      # e.g. "https://data.chain.link/streams/btc-usd"
 
     def seconds_to_expiry(self, now_ms: int) -> float:
         return (self.expiry_ts_ms - now_ms) / 1000.0
@@ -397,6 +423,39 @@ class FairProbability:
     confidence: float                 # 0-100
     explanation: str = ""
     components: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class OracleAnchor:
+    """The resolution-relevant reference price for one 5-minute market,
+    plus enough context to judge how much to trust it and how it compares
+    to the bot's own CEX feed. Built by strategy/oracle_anchor.py.
+
+    oracle_open_price is Polymarket's own priceToBeat value (sourced from
+    its event metadata, itself a relay of a Chainlink data stream snapshot
+    taken at window open) -- NOT a live Chainlink subscription. latest_oracle_price
+    is always None in this implementation: this bot has no live Chainlink
+    feed, only the one-time priceToBeat snapshot from discovery. Never
+    fabricate a value for a field that isn't actually available."""
+    market_id: str
+    asset: str
+    window_start_ts_ms: int
+    window_end_ts_ms: int
+    oracle_source: str                          # e.g. "polymarket_event_metadata"
+    oracle_open_price: Optional[float]           # the priceToBeat value, if any
+    oracle_open_ts_ms: Optional[int]             # when the anchor was captured (window start)
+    latest_oracle_price: Optional[float] = None  # always None -- no live oracle feed exists
+    cex_price: Optional[float] = None
+    cex_ts_ms: Optional[int] = None
+    oracle_vs_cex_basis: Optional[float] = None       # (cex_price - oracle_open_price) / oracle_open_price
+    estimated_oracle_lag_seconds: Optional[float] = None  # from strategy/oracle_lag_profiler.py, if run
+    time_remaining_seconds: float = 0.0
+    oracle_anchor_quality: str = "unknown"       # "good" | "fallback" | "stale" | "missing"
+    resolution_source_url: str = ""
+
+    @property
+    def available(self) -> bool:
+        return self.oracle_open_price is not None
 
 
 @dataclass

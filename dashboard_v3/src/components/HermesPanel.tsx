@@ -72,7 +72,7 @@ export function HermesPanel({ brief, rejects }: { brief: HermesBrief | null; rej
           title="Hermes Agent"
           right={
             <Pill tone={brief?.available ? "green" : "neutral"}>
-              {brief?.available ? "READY · READ-ONLY" : "NOT AVAILABLE"}
+              {brief?.available ? "MANUAL BRIEF READY · READ-ONLY" : "NOT AVAILABLE"}
             </Pill>
           }
         />

@@ -36,6 +36,8 @@ from poly_alpha_sniper.core.logger import configure as configure_logging, get_lo
 from poly_alpha_sniper.portfolio.position_reconciliation import (
     DEFAULT_STUCK_EXIT_CUTOFF_MS, reconcile_unexitable_position,
 )
+from poly_alpha_sniper.strategy.oracle_anchor import resolve_oracle_anchor, validate_oracle_anchor
+from poly_alpha_sniper.strategy.oracle_ev import compute_oracle_ev
 
 log = get_logger("app")
 
@@ -650,6 +652,19 @@ class App:
                                is_retry: bool = False) -> None:
         yes_book = self.book_store.get(market.yes_token_id)
         no_book = self.book_store.get(market.no_token_id)
+
+        if self.cfg.oracle_ev.enabled:
+            anchor = self._resolve_and_record_oracle_anchor(market, view, now_ms)
+            ok, anchor_reject = validate_oracle_anchor(
+                anchor, market, now_ms,
+                self.cfg.oracle_ev.max_anchor_age_ms, self.cfg.oracle_ev.max_basis_abs_pct)
+            if not ok:
+                self._log_oracle_anchor(anchor, anchor_reject)
+                self._shadow_diag(shock.asset, market.market_id,
+                                  "rejected_by_" + anchor_reject.replace("REJECTED_", "").lower(),
+                                  f"oracle anchor: {anchor_reject} for {market.title[:50]}", view)
+                return
+
         signal = self.signal_engine.build_signal(shock, market, view, yes_book, no_book, now_ms)
         if signal is None:
             side_book = yes_book if market.side_for_direction(shock.direction).outcome.value == "YES" \
@@ -668,6 +683,12 @@ class App:
         if not ok:
             self._record_prediction(signal, Decision.REJECT.value, "SANITY:" + ",".join(issues))
             return
+
+        if self.cfg.oracle_ev.enabled:
+            ev_reject = self._oracle_ev_reject(signal, market, yes_book, no_book, now_ms, anchor)
+            if ev_reject:
+                self._record_prediction(signal, Decision.REJECT.value, ev_reject)
+                return
 
         can, freq_reason = self.freq.can_trade(market.asset, market.market_id, self.mode)
         snap = self.portfolio.snapshot(now_ms)
@@ -713,8 +734,10 @@ class App:
                 # blocker is REJECTED_MIN_ORDER_SIZE_TOO_HIGH -- gate.failed_checks
                 # is empty in that case (the signal cleanly passed the alpha gate),
                 # which used to make the message wrongly say "edge/confidence".
-                sizing_source = validation if validation.reject_reason == RejectReason.MIN_ORDER_SIZE_TOO_HIGH \
-                    else (risk if risk.reject_reason == RejectReason.MIN_ORDER_SIZE_TOO_HIGH else None)
+                sizing_reasons = (RejectReason.MIN_ORDER_SIZE_TOO_HIGH,
+                                  RejectReason.INSUFFICIENT_CASH_FOR_5_SHARES)
+                sizing_source = validation if validation.reject_reason in sizing_reasons \
+                    else (risk if risk.reject_reason in sizing_reasons else None)
                 await self.telegram.send(format_rejected(signal, gate, reject_reason,
                                                           sizing_detail=sizing_source.sizing_detail if sizing_source else None))
             return
@@ -730,6 +753,77 @@ class App:
             return
 
         await self._execute_entry(signal, req, gate)
+
+    def _resolve_and_record_oracle_anchor(self, market: MarketInfo, view, now_ms: int):
+        """Builds the OracleAnchor for `market` and remembers the most recent
+        one for export/dashboard (mirrors how latest_market_state tracks the
+        most recent prediction) -- read-only bookkeeping, no order impact."""
+        cex_price = view.primary.price if (view is not None and view.primary is not None) else None
+        cex_ts_ms = (now_ms - view.primary.staleness_ms) \
+            if (view is not None and view.primary is not None) else None
+        anchor = resolve_oracle_anchor(market, cex_price, cex_ts_ms, now_ms)
+        self.diag["latest_oracle_anchor"] = asdict(anchor)
+        return anchor
+
+    def _log_oracle_anchor(self, anchor, gate_result: str, ev_result=None) -> None:
+        """Persists one row per market evaluation to oracle_anchor_log -- the
+        history strategy.oracle_lag_profiler / backtest.point_in_time_replay /
+        strategy.loss_attribution read from. Never places/cancels an order;
+        pure DB bookkeeping, same pattern as _shadow_diag/_record_prediction."""
+        self._insert("oracle_anchor_log", {
+            "ts_ms": self.clock.now_ms(),
+            "market_id": anchor.market_id, "asset": anchor.asset,
+            "window_start_ts_ms": anchor.window_start_ts_ms,
+            "window_end_ts_ms": anchor.window_end_ts_ms,
+            "oracle_source": anchor.oracle_source,
+            "price_to_beat": anchor.oracle_open_price,
+            "oracle_open_ts_ms": anchor.oracle_open_ts_ms,
+            "cex_price": anchor.cex_price, "cex_ts_ms": anchor.cex_ts_ms,
+            "basis_pct": anchor.oracle_vs_cex_basis,
+            "anchor_quality": anchor.oracle_anchor_quality,
+            "time_remaining_seconds": anchor.time_remaining_seconds,
+            "ev": ev_result.ev if ev_result else None,
+            "probability_of_payout": ev_result.probability_of_payout if ev_result else None,
+            "executable_price": ev_result.executable_price if ev_result else None,
+            "gate_result": gate_result,
+        })
+
+    def _oracle_ev_reject(self, signal: Signal, market: MarketInfo, yes_book, no_book,
+                          now_ms: int, anchor) -> str:
+        """Post-signal oracle-EV checks (needs signal.edge, so runs after
+        build_signal). Returns a REJECTED_* reason string, or "" if the
+        signal clears every check. Never places/cancels an order. Logs
+        exactly one oracle_anchor_log row per call, whatever the outcome."""
+        cfg = self.cfg.oracle_ev
+        tte_s = market.seconds_to_expiry(now_ms)
+        if tte_s < cfg.min_time_to_close_seconds:
+            self._log_oracle_anchor(anchor, RejectReason.TIME_TO_CLOSE_RISK)
+            return RejectReason.TIME_TO_CLOSE_RISK
+        book = yes_book if signal.side.outcome == Outcome.YES else no_book
+        if book is None:
+            self._log_oracle_anchor(anchor, RejectReason.DATA_QUALITY)
+            return RejectReason.DATA_QUALITY
+        depth = (book.depth_usd_at_bid(1) or 0.0) + (book.depth_usd_at_ask(1) or 0.0)
+        if depth < self.cfg.microstructure.min_depth_at_ask_usd:
+            self._log_oracle_anchor(anchor, RejectReason.BOOK_TOO_THIN)
+            return RejectReason.BOOK_TOO_THIN
+        if signal.fair.confidence <= 0:
+            self._log_oracle_anchor(anchor, RejectReason.MODEL_UNCALIBRATED)
+            return RejectReason.MODEL_UNCALIBRATED
+        result = compute_oracle_ev(
+            probability_of_payout=signal.edge.fair_probability,
+            executable_price=signal.edge.market_price,
+            fee_rate=cfg.fee_rate, slippage_buffer=cfg.slippage_buffer,
+            adverse_selection_buffer=cfg.adverse_selection_buffer)
+        self.diag["latest_oracle_ev"] = {
+            "market_id": market.market_id, "ev": result.ev,
+            "probability_of_payout": result.probability_of_payout,
+            "executable_price": result.executable_price}
+        if result.ev < cfg.min_ev_threshold:
+            self._log_oracle_anchor(anchor, RejectReason.EV_TOO_LOW, result)
+            return RejectReason.EV_TOO_LOW
+        self._log_oracle_anchor(anchor, "PASSED", result)
+        return ""
 
     def _hard_checks(self, signal: Signal, market: MarketInfo, yes_book, no_book,
                      now_ms: int, freq_ok: bool, freq_reason: str) -> dict[str, bool]:

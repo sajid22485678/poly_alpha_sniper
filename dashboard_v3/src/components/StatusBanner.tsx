@@ -30,7 +30,8 @@ export function StatusBanner({
         <span style={{ color: "var(--v3-gold)" }}>
           No data yet — waiting for the read-only exporter to write:{" "}
           <span className="v3-mono">{missingFiles.join(", ")}</span>. Run{" "}
-          <span className="v3-mono">scripts\export_agent_readonly.bat</span> from the bot project.
+          <span className="v3-mono">Update Poly Obsidian Report.bat</span> or start the
+          auto-exporter to refresh exported data.
         </span>
       </div>
     );
@@ -41,11 +42,22 @@ export function StatusBanner({
   const stale = ageMs > STALE_THRESHOLD_MS;
 
   return (
-    <div className="flex items-center justify-between mb-3 px-1">
-      <Pill tone={stale ? "red" : "green"}>
-        {stale ? "STALE EXPORT" : "EXPORT FRESH"} · last generated {formatAgeMs(ageMs)} ago
-      </Pill>
-      <span className="v3-label">auto-refreshing every 3s</span>
+    <div className="mb-3">
+      <div className="flex items-center justify-between px-1 flex-wrap gap-2">
+        <Pill tone={stale ? "red" : "green"}>
+          {stale ? "STALE EXPORT" : "EXPORT FRESH"} · last generated {formatAgeMs(ageMs)} ago
+        </Pill>
+        <span className="v3-label">auto-refreshing every 3s</span>
+      </div>
+      {stale && (
+        <div className="text-xs mt-1.5 px-1" style={{ color: "var(--v3-gold)" }}>
+          Run <span className="v3-mono">Update Poly Obsidian Report.bat</span> or start the
+          auto-exporter to refresh exported data.
+        </div>
+      )}
+      <div className="text-xs mt-1 px-1" style={{ color: "var(--v3-muted-2)" }}>
+        Data source: read-only exported JSON · no DB writes · no order endpoints
+      </div>
     </div>
   );
 }

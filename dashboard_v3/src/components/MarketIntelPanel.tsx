@@ -72,12 +72,12 @@ export function MarketIntelPanel({
         </div>
         <div className="text-xs mt-3 space-y-1.5" style={{ color: "var(--v3-muted-2)" }}>
           <p>
-            <b>Heartbeat age</b> and <b>snapshot age</b> measure different things and can
+            <b>Heartbeat age</b>{" "}and <b>snapshot age</b>{" "}measure different things and can
             legitimately diverge by hours. Heartbeat proves the bot&apos;s process loop is
             alive (a separate always-on timer). The snapshot only updates when the bot&apos;s
             pipeline reaches a full prediction — which requires a fresh CEX price <i>and</i>{" "}
-            a detected shock. Since <span className="v3-mono">no_shock</span> and{" "}
-            <span className="v3-mono">no_fresh_cex_price</span> are typically the largest
+            a detected shock. Since <span className="v3-mono">no_shock</span>{" "}and{" "}
+            <span className="v3-mono">no_fresh_cex_price</span>{" "}are typically the largest
             reject buckets (see Top Reject Reasons in the Hermes panel below), it is normal
             for the snapshot to be much older than the heartbeat during quiet markets —
             that is a timestamp semantics difference, not a broken feed. The CEX Source Age

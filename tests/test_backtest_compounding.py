@@ -41,6 +41,10 @@ def replay_result(tmp_path_factory):
     path = tmp_path_factory.mktemp("bt") / "cex.csv"
     _write_ticks(path)
     cfg = load_config(profile_override="backtest_5min")
+    # this suite specifically tests max_trade_usd-capped fixed-size behavior;
+    # pin it explicitly rather than relying on config.yaml's ambient default
+    # (WS4 changed the shipped default to fixed_min_shares).
+    cfg.risk.sizing_mode = "max_trade_usd"
     engine = ReplayEngine(cfg, str(path), seed=7)
     return engine.run_both()
 

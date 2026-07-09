@@ -146,6 +146,13 @@ risk:
   no_martingale: true
   no_averaging_down: true
   no_unrealized_compounding: true
+  # WS4 fixed 5-share sizing: max_trade_usd=$1 was blocking every valid
+  # candidate whose ask price needed more than $1 to buy Polymarket's
+  # minimum order size (5 shares) -- see poly_oracle_ev_5share_auto_export
+  # commit message for the before/after replay numbers.
+  sizing_mode: fixed_min_shares
+  fixed_order_shares: 5
+  use_max_trade_usd: false
 
 capital_scaling:
   enabled: true
@@ -329,3 +336,30 @@ obsidian:
   enabled: false
   vault_notes_dir: "D:/TradingVault/06_Poly_Hermes_Reports"
   overwrite_existing: false
+
+# Oracle-aware EV engine. Polymarket resolves these 5-minute markets against
+# a Chainlink price stream (see each market's resolutionSource), not CEX
+# spot -- the bot's signal was previously CEX-only with zero anchor
+# awareness. This fails entries closed when the price_to_beat anchor is
+# missing/stale/mismatched instead of trading blind. See
+# strategy/oracle_anchor.py, strategy/oracle_ev.py.
+oracle_ev:
+  enabled: true
+  max_anchor_age_ms: 300000
+  max_basis_abs_pct: 0.02
+  fee_rate: 0.0
+  slippage_buffer: 0.01
+  adverse_selection_buffer: 0.01
+  min_ev_threshold: 0.0
+  min_time_to_close_seconds: 5.0
+
+# Challenger-only EV/thesis exit engine (research). NOT wired into the live
+# trade loop -- consumed only by the replay tool until a replay comparison
+# shows it beats the champion fixed-TP exit on risk-adjusted metrics.
+ev_thesis_exit:
+  enabled: false
+  disable_fixed_take_profit: true
+  allow_hold_to_resolution: true
+  min_ev_to_hold: 0.0
+  exit_on_thesis_flip: true
+  exit_on_oracle_basis_flip: true

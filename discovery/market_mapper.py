@@ -51,6 +51,34 @@ def _num(raw: dict, *keys, default: float = 0.0) -> float:
     return default
 
 
+def _extract_price_to_beat(raw: dict) -> tuple[float | None, str, str]:
+    """Polymarket's Gamma /markets response nests the resolution-relevant
+    reference price at events[0].eventMetadata.priceToBeat (verified against
+    a live 5-min BTC/ETH market payload 2026-07-09) -- NOT a top-level field,
+    and not present at all on the CLOB-shaped payload (no `events` array
+    there), in which case this correctly returns (None, "", resolutionSource
+    if any). Never fabricates a value; returns None when genuinely absent."""
+    resolution_source_url = str(raw.get("resolutionSource") or "")
+    events = raw.get("events")
+    if not isinstance(events, list) or not events:
+        return None, "", resolution_source_url
+    first = events[0]
+    if not isinstance(first, dict):
+        return None, "", resolution_source_url
+    if not resolution_source_url:
+        resolution_source_url = str(first.get("resolutionSource") or "")
+    meta = first.get("eventMetadata")
+    if not isinstance(meta, dict) or "priceToBeat" not in meta:
+        return None, "", resolution_source_url
+    try:
+        price = float(meta["priceToBeat"])
+    except (TypeError, ValueError):
+        return None, "", resolution_source_url
+    if price <= 0:
+        return None, "", resolution_source_url
+    return price, "polymarket_event_metadata", resolution_source_url
+
+
 def normalize_raw_market(raw: dict) -> dict:
     """Normalize a CLOB-shaped market dict into Gamma-like keys (in-place safe:
     returns a shallow copy when translation is needed)."""
@@ -115,6 +143,8 @@ def map_raw_market(raw: dict, now_ms: int) -> MarketInfo:
     elif not accepting:
         reject = "NOT_ACCEPTING_ORDERS"
 
+    price_to_beat, price_to_beat_source, resolution_source_url = _extract_price_to_beat(raw)
+
     return MarketInfo(
         market_id=market_id,
         condition_id=str(raw.get("conditionId") or raw.get("condition_id") or ""),
@@ -133,6 +163,9 @@ def map_raw_market(raw: dict, now_ms: int) -> MarketInfo:
         volume_24h_usd=_num(raw, "volume24hr", "volume24hrClob", "volume"),
         mapping_confidence=min(parsed.confidence, mapping.confidence) if parsed.ok else 0.0,
         parse_reject_reason=reject,
+        price_to_beat=price_to_beat,
+        price_to_beat_source=price_to_beat_source,
+        resolution_source_url=resolution_source_url,
         raw={
             "slug": slug,
             "min_order_shares": min_order_shares,

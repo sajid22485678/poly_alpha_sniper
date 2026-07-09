@@ -151,6 +151,30 @@ export interface OrderRow {
   exit_reason: string;
 }
 
+export type OracleStatus =
+  | { available: false; enabled: boolean; reason: string }
+  | {
+      available: true;
+      enabled: boolean;
+      generated_ts_ms: number;
+      market_id: string | null;
+      asset: string | null;
+      price_to_beat: number | null;
+      oracle_source: string | null;
+      resolution_source_url: string | null;
+      oracle_open_ts_ms: number | null;
+      cex_price: number | null;
+      cex_ts_ms: number | null;
+      oracle_vs_cex_basis_pct: number | null;
+      oracle_anchor_quality: string | null;
+      time_remaining_seconds: number | null;
+      latest_ev: {
+        ev: number;
+        probability_of_payout: number;
+        executable_price: number;
+      } | null;
+    };
+
 export interface DashboardSnapshot {
   generated_ts_ms: number;
   latest_status: LatestStatus;
@@ -158,6 +182,7 @@ export interface DashboardSnapshot {
   reject_breakdown: RejectBreakdown;
   hermes_brief: HermesBrief;
   latest_market_state: LatestMarketState;
+  oracle_status: OracleStatus;
   open_positions: unknown[];
   recent_orders: OrderRow[];
   classification_framework: string;
@@ -166,12 +191,30 @@ export interface DashboardSnapshot {
 /** What GET /api/snapshot returns. `missing: true` on any field means that
  * exporter file was not found on disk — the UI must show "No data yet" for
  * that section, never fabricate a value. */
+export interface AutoExportStatus {
+  running: boolean;
+  pid: number;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  last_success_at: string | null;
+  last_error_at: string | null;
+  last_error_message: string;
+  interval_seconds: number;
+  exports_completed: number;
+  consecutive_failures: number;
+  lock_active: boolean;
+  log_path: string;
+  status_path: string;
+}
+
 export interface SnapshotResponse {
   fetched_ts_ms: number;
   snapshot: DashboardSnapshot | null;
   latest_status: LatestStatus | null;
   trade_summary: TradeSummary | null;
   reject_breakdown: RejectBreakdown | null;
+  auto_export_status: AutoExportStatus | null;
+  auto_export_status_missing: boolean;
   missing_files: string[];
   file_ages_ms: Record<string, number | null>;
 }

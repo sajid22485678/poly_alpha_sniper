@@ -54,7 +54,8 @@ class RiskManager:
         checks.append("micro_bankroll_ok")
 
         sizing = compute_position_size(self.cfg, portfolio, signal.market, mode,
-                                       signal.edge.edge_after_slippage)
+                                       signal.edge.edge_after_slippage,
+                                       executable_price=signal.edge.market_price)
         sizing.checks = checks + sizing.checks
         return sizing
 

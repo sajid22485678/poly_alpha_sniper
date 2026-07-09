@@ -7,7 +7,13 @@ from poly_alpha_sniper.tests.helpers import NOW_MS, book, cfg, portfolio_snapsho
 
 
 def _rm(c=None):
-    return RiskManager(c or cfg(), SimClock(NOW_MS), KillSwitch(), PanicMode())
+    if c is None:
+        # these tests exercise the "max_trade_usd" sizing mode specifically --
+        # pin it explicitly rather than relying on config.yaml's ambient
+        # default (WS4 changed the shipped default to fixed_min_shares).
+        c = cfg()
+        c.risk.sizing_mode = "max_trade_usd"
+    return RiskManager(c, SimClock(NOW_MS), KillSwitch(), PanicMode())
 
 
 def test_happy_path_approves_one_dollar():

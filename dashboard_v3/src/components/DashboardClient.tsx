@@ -9,7 +9,9 @@ import { SignalEnginePanel } from "@/components/SignalEnginePanel";
 import { MarketIntelPanel } from "@/components/MarketIntelPanel";
 import { TradeTape } from "@/components/TradeTape";
 import { RejectTaxonomyPanel } from "@/components/RejectTaxonomyPanel";
+import { AutoExporterStatusPanel } from "@/components/AutoExporterStatusPanel";
 import { HermesPanel } from "@/components/HermesPanel";
+import { OracleStatusPanel } from "@/components/OracleStatusPanel";
 import { SafetyFooter } from "@/components/SafetyFooter";
 import { StatusBanner } from "@/components/StatusBanner";
 import { SectionShell } from "@/components/ui";
@@ -90,6 +92,10 @@ export function DashboardClient() {
           />
         </SectionShell>
 
+        <SectionShell title="Oracle-Aware EV Engine">
+          <OracleStatusPanel status={snapshot?.oracle_status ?? null} nowMs={now} />
+        </SectionShell>
+
         <SectionShell title="Market Intelligence">
           <MarketIntelPanel status={status} marketState={snapshot?.latest_market_state ?? null} rejects={rejects} nowMs={now} />
         </SectionShell>
@@ -105,6 +111,13 @@ export function DashboardClient() {
 
         <SectionShell title="Hermes Agent">
           <HermesPanel brief={snapshot?.hermes_brief ?? null} rejects={rejects} />
+        </SectionShell>
+
+        <SectionShell title="Data Pipeline">
+          <AutoExporterStatusPanel
+            status={data?.auto_export_status ?? null}
+            missing={data?.auto_export_status_missing ?? true}
+          />
         </SectionShell>
       </main>
 

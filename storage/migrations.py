@@ -78,6 +78,16 @@ TABLES: dict[str, str] = {
     "shadow_diagnostics": f"{_COMMON}, asset TEXT, market_id TEXT, reason TEXT, detail TEXT, "
                           "ret_2s REAL, zscore REAL, volatility REAL, "
                           "fresh_books INTEGER, total_books INTEGER",
+    # WS3 oracle-aware EV engine: one row per market evaluation, so the
+    # research modules (lag profiler, replay engine, loss attribution) have
+    # real history to work from instead of only the single latest snapshot
+    # kept in-memory (core.app.App.diag["latest_oracle_anchor"]).
+    "oracle_anchor_log": f"{_COMMON}, market_id TEXT, asset TEXT, window_start_ts_ms INTEGER, "
+                         "window_end_ts_ms INTEGER, oracle_source TEXT, price_to_beat REAL, "
+                         "oracle_open_ts_ms INTEGER, cex_price REAL, cex_ts_ms INTEGER, "
+                         "basis_pct REAL, anchor_quality TEXT, time_remaining_seconds REAL, "
+                         "ev REAL, probability_of_payout REAL, executable_price REAL, "
+                         "gate_result TEXT",
 }
 
 SCHEMA_VERSION = 2

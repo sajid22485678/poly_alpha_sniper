@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { DashboardSnapshot, LatestStatus, RejectBreakdown, SnapshotResponse, TradeSummary } from "@/lib/types";
+import type {
+  AutoExportStatus, DashboardSnapshot, LatestStatus, RejectBreakdown, SnapshotResponse, TradeSummary,
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -28,23 +30,31 @@ const FILES = {
   latest_status: path.join(EXPORT_DIR, "latest_status.json"),
   trade_summary: path.join(EXPORT_DIR, "trade_summary.json"),
   reject_breakdown: path.join(EXPORT_DIR, "reject_breakdown.json"),
+  // auto_export_status.json is written by scripts/auto_export_loop.ps1, a
+  // separate optional process -- tracked independently so its absence
+  // never triggers the "no core data yet" banner the other 4 files do.
+  auto_export_status: path.join(EXPORT_DIR, "auto_export_status.json"),
 } as const;
 
 async function readJsonIfExists<T>(filePath: string): Promise<{ data: T | null; ageMs: number | null; missing: boolean }> {
   try {
     const [raw, st] = await Promise.all([readFile(filePath, "utf-8"), stat(filePath)]);
-    return { data: JSON.parse(raw) as T, ageMs: Date.now() - st.mtimeMs, missing: false };
+    // Defensive: some writers (e.g. PowerShell's Set-Content -Encoding utf8)
+    // prepend a UTF-8 BOM, which JSON.parse rejects outright.
+    const cleaned = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+    return { data: JSON.parse(cleaned) as T, ageMs: Date.now() - st.mtimeMs, missing: false };
   } catch {
     return { data: null, ageMs: null, missing: true };
   }
 }
 
 export async function GET() {
-  const [snapshot, latestStatus, tradeSummary, rejectBreakdown] = await Promise.all([
+  const [snapshot, latestStatus, tradeSummary, rejectBreakdown, autoExportStatus] = await Promise.all([
     readJsonIfExists<DashboardSnapshot>(FILES.dashboard_snapshot),
     readJsonIfExists<LatestStatus>(FILES.latest_status),
     readJsonIfExists<TradeSummary>(FILES.trade_summary),
     readJsonIfExists<RejectBreakdown>(FILES.reject_breakdown),
+    readJsonIfExists<AutoExportStatus>(FILES.auto_export_status),
   ]);
 
   const missing_files: string[] = [];
@@ -58,6 +68,7 @@ export async function GET() {
     file_ages_ms[key] = result.ageMs;
     if (result.missing) missing_files.push(key);
   }
+  file_ages_ms.auto_export_status = autoExportStatus.ageMs;
 
   const body: SnapshotResponse = {
     fetched_ts_ms: Date.now(),
@@ -65,6 +76,8 @@ export async function GET() {
     latest_status: latestStatus.data,
     trade_summary: tradeSummary.data,
     reject_breakdown: rejectBreakdown.data,
+    auto_export_status: autoExportStatus.data,
+    auto_export_status_missing: autoExportStatus.missing,
     missing_files,
     file_ages_ms,
   };
