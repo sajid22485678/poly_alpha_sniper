@@ -349,3 +349,93 @@ def test_dashboard_snapshot_includes_hermes_brief(tmp_path):
     snap = build_dashboard_snapshot(data, _state(), cfg, NOW_MS)
     assert "hermes_brief" in snap
     assert snap["hermes_brief"]["available"] is True
+
+
+# ---------------------------------------------------------------------------
+# CEX-freshness-pipeline fix: oracle status distinguishes "no candidate
+# market" from "candidate found, price_to_beat missing"; new live_feed_state/
+# last_scan_snapshot/no_shock_watchlist exports.
+# ---------------------------------------------------------------------------
+
+def test_oracle_status_no_candidate_market_reason(tmp_path):
+    from poly_alpha_sniper.reporting.agent_export import build_oracle_status
+    cfg = _cfg(tmp_path)
+    status = build_oracle_status(_state(), cfg, NOW_MS)
+    assert status["available"] is False
+    assert status["reason"] == "no candidate market discovered yet"
+
+
+def test_oracle_status_missing_price_to_beat_distinct_reason(tmp_path):
+    from poly_alpha_sniper.reporting.agent_export import build_oracle_status
+    cfg = _cfg(tmp_path)
+    state = _state(diagnostics={"latest_oracle_anchor": {
+        "market_id": "m1", "asset": "BTC", "oracle_open_price": None,
+        "oracle_source": "", "oracle_anchor_quality": "missing"}})
+    status = build_oracle_status(state, cfg, NOW_MS)
+    assert status["available"] is False
+    assert status["reason"] == "candidate market found, price_to_beat missing"
+    assert status["market_id"] == "m1"  # still surfaces what WAS found
+
+
+def test_oracle_status_available_when_price_to_beat_present(tmp_path):
+    from poly_alpha_sniper.reporting.agent_export import build_oracle_status
+    cfg = _cfg(tmp_path)
+    state = _state(diagnostics={"latest_oracle_anchor": {
+        "market_id": "m1", "asset": "BTC", "oracle_open_price": 100_000.0,
+        "oracle_source": "polymarket_event_metadata", "oracle_anchor_quality": "good"}})
+    status = build_oracle_status(state, cfg, NOW_MS)
+    assert status["available"] is True
+    assert status["reason"] is None
+
+
+def test_live_feed_state_covers_configured_assets(tmp_path):
+    from poly_alpha_sniper.reporting.agent_export import build_live_feed_state
+    cfg = _cfg(tmp_path)
+    state = _state(diagnostics={
+        "cex_selected_source": {"BTC": "okx"}, "cex_freshest_age_ms": {"BTC": 200},
+        "cex_freshness_degraded": {"BTC": False}})
+    feed = build_live_feed_state(state, cfg, NOW_MS)
+    assert set(feed.keys()) == set(cfg.assets)
+    assert feed["BTC"]["status"] == "ok"
+    assert feed["ETH"]["status"] == "no_data"  # never seen a tick
+
+
+def test_live_feed_state_warn_status_beyond_dashboard_threshold(tmp_path):
+    from poly_alpha_sniper.reporting.agent_export import build_live_feed_state
+    cfg = _cfg(tmp_path)
+    state = _state(diagnostics={
+        "cex_selected_source": {"BTC": "bybit"},
+        "cex_freshest_age_ms": {"BTC": cfg.cex_freshness.dashboard_live_feed_warn_ms + 1},
+        "cex_freshness_degraded": {"BTC": False}})
+    feed = build_live_feed_state(state, cfg, NOW_MS)
+    assert feed["BTC"]["status"] == "warn"
+
+
+def test_last_scan_snapshot_passthrough(tmp_path):
+    from poly_alpha_sniper.reporting.agent_export import build_last_scan_snapshot
+    snap = {"ts_ms": NOW_MS, "asset": "BTC", "block_reason": "rejected_by_no_shock"}
+    state = _state(diagnostics={"last_scan_snapshot": snap})
+    assert build_last_scan_snapshot(state) == snap
+
+
+def test_last_scan_snapshot_defaults_to_empty_dict_not_none(tmp_path):
+    from poly_alpha_sniper.reporting.agent_export import build_last_scan_snapshot
+    assert build_last_scan_snapshot(_state()) == {}
+
+
+def test_no_shock_watchlist_passthrough(tmp_path):
+    from poly_alpha_sniper.reporting.agent_export import build_no_shock_watchlist
+    entries = [{"ts_ms": NOW_MS, "asset": "SOL", "shock_score": 0.8}]
+    state = _state(diagnostics={"watchlist_no_shock_near_miss": entries})
+    assert build_no_shock_watchlist(state) == entries
+
+
+def test_dashboard_snapshot_includes_new_freshness_pipeline_fields(tmp_path):
+    db_path = _live_db(tmp_path)
+    cfg = _cfg(tmp_path)
+    data = DashboardData(db_path)
+    snap = build_dashboard_snapshot(data, _state(), cfg, NOW_MS)
+    assert "live_feed_state" in snap
+    assert "last_scan_snapshot" in snap
+    assert "no_shock_watchlist" in snap
+    assert set(snap["live_feed_state"].keys()) == set(cfg.assets)

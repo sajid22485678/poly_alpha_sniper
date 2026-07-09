@@ -80,6 +80,11 @@ def build_latest_status(data: DashboardData, state: dict, cfg, now_ms: int) -> d
         "errors": info["row_counts"].get("errors", 0),
         "panic_active": bool(state.get("panic_active", False)),
         "kill_active": bool(state.get("kill_active", False)),
+        "cex_freshness_thresholds": {
+            "live_signal_max_age_ms": cfg.cex_freshness.live_signal_max_age_ms,
+            "shadow_eval_max_age_ms": cfg.cex_freshness.shadow_eval_max_age_ms,
+            "fail_closed_max_age_ms": cfg.cex_freshness.fail_closed_max_age_ms,
+        },
     }
 
 
@@ -127,21 +132,29 @@ def build_oracle_status(state: dict, cfg, now_ms: int) -> dict:
     """WS3: surfaces the most recent OracleAnchor/EV computation the live
     process recorded (core.app.App._resolve_and_record_oracle_anchor /
     _oracle_ev_reject), via the same runtime_state.diagnostics path
-    latest_market_state already uses. "available": False (not a fabricated
-    anchor) when the process hasn't evaluated a market yet."""
+    latest_market_state already uses.
+
+    As of the CEX-freshness-pipeline fix, the anchor is extracted for any
+    discovered candidate market EVERY scan -- independent of CEX freshness
+    or the no_shock gate (see core.app.App._scan_entries) -- so this should
+    show real data within one discovery cycle whenever markets exist, not
+    "no market evaluated yet" for hours. "available" is honest about
+    whether price_to_beat itself was actually found, distinct from whether
+    ANY candidate market was seen at all."""
     diag = state.get("diagnostics", {}) if isinstance(state.get("diagnostics"), dict) else {}
     anchor = diag.get("latest_oracle_anchor")
     ev = diag.get("latest_oracle_ev")
     if not isinstance(anchor, dict):
         return {"available": False, "enabled": cfg.oracle_ev.enabled,
-               "reason": "no market evaluated yet"}
+               "reason": "no candidate market discovered yet"}
+    price_to_beat = anchor.get("oracle_open_price")
     return {
-        "available": True,
+        "available": price_to_beat is not None,
         "enabled": cfg.oracle_ev.enabled,
         "generated_ts_ms": now_ms,
         "market_id": anchor.get("market_id"),
         "asset": anchor.get("asset"),
-        "price_to_beat": anchor.get("oracle_open_price"),
+        "price_to_beat": price_to_beat,
         "oracle_source": anchor.get("oracle_source"),
         "resolution_source_url": anchor.get("resolution_source_url"),
         "oracle_open_ts_ms": anchor.get("oracle_open_ts_ms"),
@@ -151,7 +164,53 @@ def build_oracle_status(state: dict, cfg, now_ms: int) -> dict:
         "oracle_anchor_quality": anchor.get("oracle_anchor_quality"),
         "time_remaining_seconds": anchor.get("time_remaining_seconds"),
         "latest_ev": ev if isinstance(ev, dict) else None,
+        "reason": None if price_to_beat is not None else "candidate market found, price_to_beat missing",
     }
+
+
+def build_live_feed_state(state: dict, cfg, now_ms: int) -> dict:
+    """Per-asset CEX live-feed status -- selected source, price, age, and a
+    dashboard-only severity label (never a pipeline gate; see
+    cex_freshness.dashboard_live_feed_warn_ms). Distinct from
+    last_scan_snapshot (which reflects ONE recently-scanned asset) and from
+    last_prediction/last_signal snapshots (which can be old without meaning
+    the feed itself is stale)."""
+    diag = state.get("diagnostics", {}) if isinstance(state.get("diagnostics"), dict) else {}
+    sources = diag.get("cex_selected_source") or {}
+    ages = diag.get("cex_freshest_age_ms") or {}
+    degraded = diag.get("cex_freshness_degraded") or {}
+    cf = cfg.cex_freshness
+    out = {}
+    for asset in cfg.assets:
+        age = ages.get(asset)
+        if age is None:
+            out[asset] = {"selected_source": None, "source_age_ms": None, "status": "no_data"}
+            continue
+        if age > cf.dashboard_live_feed_warn_ms:
+            status = "warn"
+        elif degraded.get(asset):
+            status = "degraded"
+        else:
+            status = "ok"
+        out[asset] = {"selected_source": sources.get(asset), "source_age_ms": age, "status": status}
+    return out
+
+
+def build_last_scan_snapshot(state: dict) -> dict:
+    """Updates every scan iteration (see core.app.App._update_scan_snapshot)
+    -- distinct from last_prediction_snapshot (only updates on a prediction
+    row) and the trading signal path. Must never be read as implying the
+    bot/feed is stale when it's simply old -- last_scan_snapshot is the one
+    that proves the loop is actually iterating."""
+    diag = state.get("diagnostics", {}) if isinstance(state.get("diagnostics"), dict) else {}
+    snap = diag.get("last_scan_snapshot")
+    return snap if isinstance(snap, dict) else {}
+
+
+def build_no_shock_watchlist(state: dict) -> list[dict]:
+    diag = state.get("diagnostics", {}) if isinstance(state.get("diagnostics"), dict) else {}
+    watchlist = diag.get("watchlist_no_shock_near_miss")
+    return watchlist if isinstance(watchlist, list) else []
 
 
 def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int) -> dict:
@@ -167,6 +226,9 @@ def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int)
         "hermes_brief": build_hermes_brief(data, state, cfg, now_ms),
         "latest_market_state": metrics.latest_market_state(preds, diag),
         "oracle_status": build_oracle_status(state, cfg, now_ms),
+        "live_feed_state": build_live_feed_state(state, cfg, now_ms),
+        "last_scan_snapshot": build_last_scan_snapshot(state),
+        "no_shock_watchlist": build_no_shock_watchlist(state),
         "open_positions": data.recent("positions", 50),
         "recent_orders": data.orders(25),
         "classification_framework": "not_implemented",  # honest: no continuation/fade label exists yet

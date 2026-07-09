@@ -21,11 +21,19 @@ class ShockDetector:
         self.clock = clock
         self._last_shock_ms: dict[str, int] = {}
 
-    def detect(self, view: Optional[MultiCexView]) -> Optional[Shock]:
+    def detect(self, view: Optional[MultiCexView],
+              max_staleness_ms: Optional[int] = None) -> Optional[Shock]:
+        """max_staleness_ms overrides stats.fresh's fixed cfg.cex.max_cex_staleness_ms
+        budget -- used by shadow_live's tiered CEX-freshness handling (see
+        core/app.py._classify_cex_freshness) so a "degraded but evaluable"
+        feed can still produce a shock. None (default) preserves the exact
+        original behavior for every other caller, including all live modes."""
         if view is None or view.primary is None:
             return None
         stats = view.primary
-        if not stats.fresh or stats.reconnect_recent:
+        fresh_enough = stats.fresh if max_staleness_ms is None \
+            else stats.staleness_ms <= max_staleness_ms
+        if not fresh_enough or stats.reconnect_recent:
             return None
         if not view.direction_agreement:
             return None

@@ -50,6 +50,22 @@ cex:
   bybit_ws_url: "wss://stream.bybit.com/v5/public/spot"
   bybit_ws_fallback_url: "wss://stream.bytick.com/v5/public/spot"
 
+# Tiered CEX freshness for shadow_live/simulation only -- live_micro/
+# live_full always use the strict cex.max_cex_staleness_ms gate above,
+# unchanged. Verified against 901 real rejected_by_no_fresh_cex_price rows:
+# Binance never ticks in this deployment (correctly excluded, not blocking
+# Bybit/OKX); Bybit/OKX are genuinely alive but routinely 600-2500ms between
+# trade prints on ETH/SOL, well past the 500ms live budget. This lets the
+# pipeline still evaluate market state / oracle anchor / EV in that
+# degraded band (with an EV penalty) instead of going dark for hours.
+cex_freshness:
+  enabled: true
+  live_signal_max_age_ms: 1500
+  shadow_eval_max_age_ms: 3000
+  dashboard_live_feed_warn_ms: 5000
+  fail_closed_max_age_ms: 8000
+  degraded_adverse_selection_buffer_add: 0.015
+
 polymarket:
   refresh_markets_seconds: 20
   refresh_orderbooks_ms: 500

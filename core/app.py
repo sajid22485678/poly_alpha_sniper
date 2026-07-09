@@ -38,6 +38,7 @@ from poly_alpha_sniper.portfolio.position_reconciliation import (
 )
 from poly_alpha_sniper.strategy.oracle_anchor import resolve_oracle_anchor, validate_oracle_anchor
 from poly_alpha_sniper.strategy.oracle_ev import compute_oracle_ev
+from poly_alpha_sniper.strategy.shock_near_miss import compute_shock_near_miss
 
 log = get_logger("app")
 
@@ -99,6 +100,12 @@ class App:
             "cex_freshest_age_ms": {},       # asset -> staleness of that primary
             "cex_no_fresh_count_by_source": {},  # exchange -> times it was the
                                                   # freshest-available AND still stale
+            "cex_freshness_degraded": {},    # asset -> bool, live_signal < age <= shadow_eval
+            "latest_oracle_anchor": None,    # updated as soon as ANY candidate market is
+                                              # discovered, independent of shock/freshness
+                                              # gates -- see _scan_entries's early anchor pass
+            "last_scan_snapshot": {},        # updates every scan iteration, not just signals
+            "watchlist_no_shock_near_miss": [],  # bounded recent list, see shock_near_miss.py
         }
         self._diag_throttle: dict[tuple[str, str], int] = {}
 
@@ -572,45 +579,131 @@ class App:
         self.diag["last_prediction_loop_ts"] = now
         for asset in self.cfg.assets:
             view = self.cex_state.multi_view(asset)
-            if view is None or view.primary is None:
-                self._shadow_diag(asset, "", "rejected_by_no_fresh_cex_price",
-                                  "no ticks received yet")
+            candidate_markets = [m for m in self.market_cache.active_markets(now)
+                                 if m.asset == asset and self._in_entry_window(m, now)]
+
+            # Oracle anchor visibility must not depend on CEX freshness or a
+            # shock ever firing -- price_to_beat comes from Polymarket market
+            # metadata (see strategy/oracle_anchor.py), not the CEX feed.
+            # Diagnostic-only: does not change the shock-gated entry decision
+            # below, and does not write oracle_anchor_log (that history table
+            # is reserved for rows tied to an actual gate outcome).
+            anchor = None
+            if self.cfg.oracle_ev.enabled and candidate_markets:
+                anchor = self._resolve_and_record_oracle_anchor(candidate_markets[0], view, now)
+
+            freshness = self._classify_cex_freshness(view)
+            block_reason = None
+
+            if freshness == "no_data":
+                block_reason = "rejected_by_no_fresh_cex_price"
+                self._shadow_diag(asset, "", block_reason, "no ticks received yet")
+            else:
+                # record which source is currently driving decisions for this
+                # asset, and how stale it is, on EVERY scan (not just rejections)
+                self.diag["cex_selected_source"][asset] = view.primary.exchange
+                self.diag["cex_freshest_age_ms"][asset] = view.primary.staleness_ms
+                self.diag["cex_freshness_degraded"][asset] = (freshness == "degraded")
+                if freshness == "fail_closed":
+                    # the freshest source we have is STILL beyond budget ->
+                    # every usable exchange is stale right now, not a
+                    # selection error
+                    by_source = self.diag["cex_no_fresh_count_by_source"]
+                    by_source[view.primary.exchange] = by_source.get(view.primary.exchange, 0) + 1
+                    block_reason = "rejected_by_no_fresh_cex_price"
+                    self._shadow_diag(asset, "", block_reason,
+                                      self._cex_source_detail(view), view)
+
+            self._update_scan_snapshot(asset, view, candidate_markets, anchor,
+                                       freshness, block_reason, now)
+            if block_reason is not None:
                 continue
-            # record which source is currently driving decisions for this
-            # asset, and how stale it is, on EVERY scan (not just rejections)
-            self.diag["cex_selected_source"][asset] = view.primary.exchange
-            self.diag["cex_freshest_age_ms"][asset] = view.primary.staleness_ms
-            if not view.primary.fresh:
-                # the freshest source we have is STILL beyond budget -> every
-                # usable exchange is stale right now, not a selection error
-                by_source = self.diag["cex_no_fresh_count_by_source"]
-                by_source[view.primary.exchange] = by_source.get(view.primary.exchange, 0) + 1
-                self._shadow_diag(asset, "", "rejected_by_no_fresh_cex_price",
-                                  self._cex_source_detail(view), view)
-                continue
+
             if not self.cex_state.window_ready(asset):
                 self._shadow_diag(asset, "", "rejected_by_price_window_not_ready",
                                   f"ticks={self.cex_state.tick_counts.get(asset, 0)}", view)
                 continue
-            shock = self.shock_detector.detect(view)
+            # In shadow modes, shock detection may use the wider
+            # shadow_eval_max_age_ms budget (freshness already classified
+            # "fresh" or "degraded" above); live modes are untouched --
+            # _classify_cex_freshness never returns "degraded" there, so
+            # this is exactly cfg.cex.max_cex_staleness_ms in live modes.
+            shock_max_staleness = (self.cfg.cex_freshness.shadow_eval_max_age_ms
+                                   if freshness == "degraded" else None)
+            shock = self.shock_detector.detect(view, max_staleness_ms=shock_max_staleness)
             if shock is None:
-                self._shadow_diag(asset, "", "rejected_by_no_shock",
-                                  f"ret2={view.primary.returns.get(2, 0.0):+.5f} "
-                                  f"z={view.primary.zscore:+.2f} "
-                                  f"px={view.primary.price:.2f}", view)
+                near_miss = compute_shock_near_miss(view, self.cfg)
+                detail = (f"ret2={view.primary.returns.get(2, 0.0):+.5f} "
+                         f"z={view.primary.zscore:+.2f} "
+                         f"px={view.primary.price:.2f}")
+                if near_miss is not None:
+                    detail += " " + near_miss.detail_suffix()
+                    if near_miss.is_near_miss:
+                        watchlist = self.diag["watchlist_no_shock_near_miss"]
+                        watchlist.append({
+                            "ts_ms": now, "asset": asset,
+                            "shock_score": near_miss.shock_score,
+                            "direction": near_miss.direction,
+                            "time_remaining_s": (candidate_markets[0].seconds_to_expiry(now)
+                                                 if candidate_markets else None),
+                            "cex_age_ms": view.primary.staleness_ms,
+                            "anchor_available": anchor.available if anchor else False,
+                        })
+                        if len(watchlist) > 50:
+                            del watchlist[:-50]
+                        self._shadow_diag(asset, "", "watchlist_no_shock_near_miss", detail, view)
+                self._shadow_diag(asset, "", "rejected_by_no_shock", detail, view)
                 continue
             self._insert("signals", {"ts_ms": now, "asset": asset,
                                      "direction": shock.direction.value,
                                      "zscore": shock.zscore, "impulse": shock.impulse,
                                      "kind": "shock", "reason": shock.reason})
-            markets = [m for m in self.market_cache.active_markets(now)
-                       if m.asset == asset and self._in_entry_window(m, now)]
-            if not markets:
+            if not candidate_markets:
                 self._shadow_diag(asset, "", "rejected_by_time_to_expiry",
                                   "shock fired but no market in entry window", view)
                 continue
-            for market in markets[:4]:
+            for market in candidate_markets[:4]:
                 await self._evaluate_market(shock, market, view, now)
+
+    def _classify_cex_freshness(self, view) -> str:
+        """"no_data" | "fresh" | "degraded" | "fail_closed".
+
+        live_micro/live_full ALWAYS use the single strict
+        cex.max_cex_staleness_ms gate (never "degraded") -- this method
+        can never relax live execution behavior. Shadow modes use the
+        tiered cex_freshness budgets when cex_freshness.enabled."""
+        if view is None or view.primary is None:
+            return "no_data"
+        staleness = view.primary.staleness_ms
+        if self.mode.is_live or not self.cfg.cex_freshness.enabled:
+            return "fresh" if staleness <= self.cfg.cex.max_cex_staleness_ms else "fail_closed"
+        cf = self.cfg.cex_freshness
+        if staleness <= cf.live_signal_max_age_ms:
+            return "fresh"
+        if staleness <= cf.shadow_eval_max_age_ms:
+            return "degraded"
+        return "fail_closed"
+
+    def _update_scan_snapshot(self, asset: str, view, candidate_markets: list,
+                              anchor, freshness: str, block_reason: Optional[str],
+                              now_ms: int) -> None:
+        """Updated on EVERY scan iteration (not throttled, unlike
+        _shadow_diag) -- distinct from last_prediction/last_signal
+        snapshots, which only update when the pipeline actually produces
+        a prediction/signal row. See Dashboard V3's "Last Scan Snapshot"
+        panel; must never be mislabeled as a live-feed liveness signal."""
+        self.diag["last_scan_snapshot"] = {
+            "ts_ms": now_ms,
+            "asset": asset,
+            "candidate_market_id": candidate_markets[0].market_id if candidate_markets else None,
+            "candidate_market_title": candidate_markets[0].title if candidate_markets else None,
+            "block_reason": block_reason,
+            "cex_source": view.primary.exchange if (view and view.primary) else None,
+            "cex_source_age_ms": view.primary.staleness_ms if (view and view.primary) else None,
+            "cex_freshness": freshness,
+            "anchor_status": ("available" if (anchor and anchor.available)
+                              else ("missing" if anchor is not None else "not_evaluated")),
+        }
 
     def _cex_source_detail(self, view) -> str:
         """Human-readable per-source freshness breakdown for a stale-primary
@@ -825,20 +918,45 @@ class App:
         if signal.fair.confidence <= 0:
             self._log_oracle_anchor(anchor, RejectReason.MODEL_UNCALIBRATED)
             return RejectReason.MODEL_UNCALIBRATED
+        # CEX_FRESHNESS_DEGRADED (shadow modes, live_signal_max_age_ms < age
+        # <= shadow_eval_max_age_ms) is allowed to reach EV evaluation, but
+        # never for free -- widen the adverse-selection buffer so it needs a
+        # bigger edge to clear. This is the actual defense; the freshness
+        # gate itself was already relaxed to let it get this far.
+        degraded = self.diag["cex_freshness_degraded"].get(signal.asset, False)
+        adverse_selection_buffer = cfg.adverse_selection_buffer
+        if degraded:
+            adverse_selection_buffer += self.cfg.cex_freshness.degraded_adverse_selection_buffer_add
         result = compute_oracle_ev(
             probability_of_payout=signal.edge.fair_probability,
             executable_price=signal.edge.market_price,
             fee_rate=cfg.fee_rate, slippage_buffer=cfg.slippage_buffer,
-            adverse_selection_buffer=cfg.adverse_selection_buffer)
+            adverse_selection_buffer=adverse_selection_buffer)
         self.diag["latest_oracle_ev"] = {
             "market_id": market.market_id, "ev": result.ev,
             "probability_of_payout": result.probability_of_payout,
-            "executable_price": result.executable_price}
+            "executable_price": result.executable_price,
+            "cex_freshness_degraded": degraded,
+            "adverse_selection_buffer_used": adverse_selection_buffer}
         if result.ev < cfg.min_ev_threshold:
             self._log_oracle_anchor(anchor, RejectReason.EV_TOO_LOW, result)
             return RejectReason.EV_TOO_LOW
         self._log_oracle_anchor(anchor, "PASSED", result)
         return ""
+
+    def _cex_fresh_for_hard_check(self, asset: str) -> bool:
+        """live_micro/live_full: unchanged, exactly cex.max_cex_staleness_ms
+        via CexState.is_fresh(). Shadow modes: widened to
+        cex_freshness.shadow_eval_max_age_ms so a signal built in the
+        "degraded" zone isn't hard-rejected here after _scan_entries already
+        chose to let it through -- the actual defense against a degraded
+        signal is the EV penalty in _oracle_ev_reject, not a blanket block."""
+        if self.mode.is_live or not self.cfg.cex_freshness.enabled:
+            return self.cex_state.is_fresh(asset)
+        st = self.cex_state.stats(asset)
+        if st is None:
+            return False
+        return st.staleness_ms <= self.cfg.cex_freshness.shadow_eval_max_age_ms
 
     def _hard_checks(self, signal: Signal, market: MarketInfo, yes_book, no_book,
                      now_ms: int, freq_ok: bool, freq_reason: str) -> dict[str, bool]:
@@ -846,7 +964,7 @@ class App:
         max_stale = self.cfg.polymarket.max_orderbook_staleness_ms
         checks = {
             "mapping_clear": market.mapping_confidence >= 95,
-            "cex_fresh": self.cex_state.is_fresh(market.asset),
+            "cex_fresh": self._cex_fresh_for_hard_check(market.asset),
             "book_fresh": book is not None and not book.is_stale(now_ms, max_stale),
             "best_bid_ask": book is not None and book.best_bid is not None and book.best_ask is not None,
             "spread_ok": book is not None and book.spread is not None

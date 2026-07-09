@@ -45,19 +45,61 @@ class CexConfig(BaseModel):
     symbols: dict[str, str] = Field(default_factory=lambda: {
         "BTC": "BTCUSDT", "ETH": "ETHUSDT", "SOL": "SOLUSDT"})
     websocket_reconnect_seconds: float = 2
+    # The strict freshness budget. Always used, unchanged, for live_micro/
+    # live_full (see CexFreshnessConfig below -- live execution behavior is
+    # never relaxed by that config). In shadow_live/simulation, this is only
+    # the "fully fresh, no EV penalty" tier; CexFreshnessConfig widens what
+    # the pipeline will still evaluate (with a penalty) beyond this budget.
     max_cex_staleness_ms: int = 500
-    # Diagnostic-only severity threshold: NEVER used to gate a trading
-    # decision (the actual entry/shock/live-readiness "fresh" check always
-    # uses max_cex_staleness_ms in every mode — no logic drift between shadow
-    # and live). Used solely to label a shadow_diagnostics row as
+    # Diagnostic-only severity threshold: labels a shadow_diagnostics row as
     # "BORDERLINE" (within this wider window) vs "FAR_STALE" so an operator
     # can tell "missed freshness by a hair" from "this source is actually
-    # down" without changing whether the bot would trade.
+    # down". Superseded for actual gating purposes by CexFreshnessConfig in
+    # shadow modes; kept for this purely-cosmetic label.
     shadow_diagnostic_staleness_ms: int = 1500
     require_multi_exchange_confirmation_live: bool = True
     # Bybit main domain can be geo-blocked; bytick is Bybit's official mirror.
     bybit_ws_url: str = "wss://stream.bybit.com/v5/public/spot"
     bybit_ws_fallback_url: str = "wss://stream.bytick.com/v5/public/spot"
+
+
+class CexFreshnessConfig(BaseModel):
+    """Tiered CEX freshness handling for shadow_live/simulation ONLY -- see
+    core/app.py._classify_cex_freshness. live_micro/live_full always use the
+    strict cex.max_cex_staleness_ms single gate, completely unchanged; this
+    config can never relax live execution behavior.
+
+    Root cause this exists for: at cex.max_cex_staleness_ms=500ms, Bybit/OKX
+    public trade-print feeds for lower-volume pairs (ETH/SOL) routinely sit
+    600-2500ms between prints even while genuinely alive -- verified against
+    901 real rejected_by_no_fresh_cex_price rows, none ever showing Binance
+    selected (it never ticks in this deployment; the freshest-wins source
+    selection in data/cex_state.py was already correct and unaffected by
+    this config). The fix is not "trust stale data": it's "let the pipeline
+    still evaluate market state / oracle anchor / EV so the dashboard isn't
+    empty for hours, and only relax actual signal ACCEPTANCE with an EV
+    penalty, never for free."
+
+    live_signal_max_age_ms: fully fresh -- no penalty, normal decisioning.
+    shadow_eval_max_age_ms: shock detection / oracle-anchor / EV evaluation
+      may still proceed (flagged CEX_FRESHNESS_DEGRADED, with an EV penalty)
+      even past live_signal_max_age_ms; beyond this ceiling the pipeline
+      stops at rejected_by_no_fresh_cex_price exactly as it always has.
+    fail_closed_max_age_ms: explicit outer ceiling (must be >= the other
+      two) -- staleness beyond this is unambiguously dead, always rejected.
+    dashboard_live_feed_warn_ms: dashboard-display threshold only, never a
+      pipeline gate (see dashboard_v3's Live Feed State panel).
+    degraded_adverse_selection_buffer_add: added on top of
+      oracle_ev.adverse_selection_buffer whenever CEX_FRESHNESS_DEGRADED --
+      the actual defense against accepting a degraded-freshness signal,
+      since the hard freshness gate itself is relaxed in this zone.
+    """
+    enabled: bool = True
+    live_signal_max_age_ms: int = 1500
+    shadow_eval_max_age_ms: int = 3000
+    dashboard_live_feed_warn_ms: int = 5000
+    fail_closed_max_age_ms: int = 8000
+    degraded_adverse_selection_buffer_add: float = 0.015
 
 
 class PolymarketConfig(BaseModel):
@@ -413,6 +455,7 @@ class Config(BaseModel):
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
     assets: list[str] = Field(default_factory=lambda: ["BTC", "ETH", "SOL"])
     cex: CexConfig = Field(default_factory=CexConfig)
+    cex_freshness: CexFreshnessConfig = Field(default_factory=CexFreshnessConfig)
     polymarket: PolymarketConfig = Field(default_factory=PolymarketConfig)
     ultra_short_expiry: UltraShortExpiryConfig = Field(default_factory=UltraShortExpiryConfig)
     strategy: StrategyConfig = Field(default_factory=StrategyConfig)

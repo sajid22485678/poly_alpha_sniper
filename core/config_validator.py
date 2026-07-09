@@ -63,6 +63,12 @@ def validate_config(cfg) -> list[str]:
     if u.force_exit_before_expiry_seconds >= u.min_time_to_expiry_seconds:
         errors.append("ultra_short_expiry: force_exit window >= min time-to-expiry")
 
+    # cex freshness tiers (shadow-only, but ordering must always be sane)
+    cf = cfg.cex_freshness
+    if not (0 < cf.live_signal_max_age_ms <= cf.shadow_eval_max_age_ms <= cf.fail_closed_max_age_ms):
+        errors.append("cex_freshness thresholds must satisfy "
+                      "0 < live_signal_max_age_ms <= shadow_eval_max_age_ms <= fail_closed_max_age_ms")
+
     # edges
     d = cfg.dynamic_edge
     if d.hard_min_edge <= 0:

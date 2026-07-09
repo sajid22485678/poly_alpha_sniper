@@ -23,6 +23,11 @@ export interface LatestStatus {
   errors: number;
   panic_active: boolean;
   kill_active: boolean;
+  cex_freshness_thresholds?: {
+    live_signal_max_age_ms: number;
+    shadow_eval_max_age_ms: number;
+    fail_closed_max_age_ms: number;
+  };
 }
 
 export interface ExitRow {
@@ -179,6 +184,36 @@ export type OracleStatus =
       } | null;
     };
 
+export interface LiveFeedAssetState {
+  selected_source: string | null;
+  source_age_ms: number | null;
+  status: "no_data" | "ok" | "degraded" | "warn";
+}
+
+export type LiveFeedState = Record<string, LiveFeedAssetState>;
+
+export interface LastScanSnapshot {
+  ts_ms?: number;
+  asset?: string;
+  candidate_market_id?: string | null;
+  candidate_market_title?: string | null;
+  block_reason?: string | null;
+  cex_source?: string | null;
+  cex_source_age_ms?: number | null;
+  cex_freshness?: "no_data" | "fresh" | "degraded" | "fail_closed";
+  anchor_status?: "available" | "missing" | "not_evaluated";
+}
+
+export interface NoShockWatchlistEntry {
+  ts_ms: number;
+  asset: string;
+  shock_score: number;
+  direction: string;
+  time_remaining_s: number | null;
+  cex_age_ms: number | null;
+  anchor_available: boolean;
+}
+
 export interface DashboardSnapshot {
   generated_ts_ms: number;
   latest_status: LatestStatus;
@@ -187,6 +222,9 @@ export interface DashboardSnapshot {
   hermes_brief: HermesBrief;
   latest_market_state: LatestMarketState;
   oracle_status: OracleStatus;
+  live_feed_state: LiveFeedState;
+  last_scan_snapshot: LastScanSnapshot;
+  no_shock_watchlist: NoShockWatchlistEntry[];
   open_positions: unknown[];
   recent_orders: OrderRow[];
   classification_framework: string;

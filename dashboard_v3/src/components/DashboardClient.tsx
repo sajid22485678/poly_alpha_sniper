@@ -11,6 +11,7 @@ import { TradeTape } from "@/components/TradeTape";
 import { RejectTaxonomyPanel } from "@/components/RejectTaxonomyPanel";
 import { AutoExporterStatusPanel } from "@/components/AutoExporterStatusPanel";
 import { HermesPanel } from "@/components/HermesPanel";
+import { LiveFeedStatePanel } from "@/components/LiveFeedStatePanel";
 import { OracleStatusPanel } from "@/components/OracleStatusPanel";
 import { SafetyFooter } from "@/components/SafetyFooter";
 import { StatusBanner } from "@/components/StatusBanner";
@@ -98,8 +99,19 @@ export function DashboardClient() {
           <OracleStatusPanel status={snapshot?.oracle_status ?? null} nowMs={now} />
         </SectionShell>
 
+        <SectionShell title="Live Feed State">
+          <LiveFeedStatePanel state={snapshot?.live_feed_state ?? null} />
+        </SectionShell>
+
         <SectionShell title="Market Intelligence">
-          <MarketIntelPanel status={status} marketState={snapshot?.latest_market_state ?? null} rejects={rejects} nowMs={now} />
+          <MarketIntelPanel
+            status={status}
+            marketState={snapshot?.latest_market_state ?? null}
+            rejects={rejects}
+            lastScanSnapshot={snapshot?.last_scan_snapshot ?? null}
+            noShockWatchlist={snapshot?.no_shock_watchlist ?? null}
+            nowMs={now}
+          />
         </SectionShell>
 
         <SectionShell title="Trade Tape & Reject Taxonomy">
