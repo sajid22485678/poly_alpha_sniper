@@ -3,7 +3,8 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type {
-  AutoExportStatus, DashboardSnapshot, LatestStatus, RejectBreakdown, SnapshotResponse, TradeSummary,
+  AutoExportStatus, DashboardSnapshot, LatestStatus, LiteDashboardSnapshot, RejectBreakdown,
+  SnapshotResponse, TradeSummary,
 } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -14,16 +15,16 @@ export const dynamic = "force-dynamic";
  * SAFETY CONTRACT (mirrored by tests/test_dashboard_v3_safety.py):
  * - GET only. No POST/PUT/DELETE/PATCH handler exists in this file or
  *   anywhere else under src/app/api/ — there is no write path.
- * - The 4 file paths below are hardcoded constants, not built from request
+ * - Every file path below is a hardcoded constant, not built from request
  *   input (query params, headers, body) — no path-traversal surface.
  * - Never reads process.env, .env, or any *_KEY/*_TOKEN/*_SECRET value.
  * - Never imports/calls anything from the bot's execution or order-placement
  *   code — this route only calls node:fs readFile/stat on plain JSON files
- *   that poly_alpha_sniper/reporting/agent_export.py already redacted
- *   before writing to disk.
+ *   written by the advanced and Lite read-only exporters.
  */
 
 const EXPORT_DIR = "D:/claude/agent_readonly/poly_alpha_sniper";
+const LITE_EXPORT_DIR = "D:/claude/agent_readonly/poly_alpha_lite";
 
 const FILES = {
   dashboard_snapshot: path.join(EXPORT_DIR, "dashboard_snapshot.json"),
@@ -34,6 +35,9 @@ const FILES = {
   // separate optional process -- tracked independently so its absence
   // never triggers the "no core data yet" banner the other 4 files do.
   auto_export_status: path.join(EXPORT_DIR, "auto_export_status.json"),
+  // Optional, isolated Lite shadow export. Its absence never contributes to
+  // the advanced dashboard's core missing_files list.
+  lite_dashboard: path.join(LITE_EXPORT_DIR, "lite_dashboard.json"),
 } as const;
 
 async function readJsonIfExists<T>(filePath: string): Promise<{ data: T | null; ageMs: number | null; missing: boolean }> {
@@ -49,12 +53,13 @@ async function readJsonIfExists<T>(filePath: string): Promise<{ data: T | null; 
 }
 
 export async function GET() {
-  const [snapshot, latestStatus, tradeSummary, rejectBreakdown, autoExportStatus] = await Promise.all([
+  const [snapshot, latestStatus, tradeSummary, rejectBreakdown, autoExportStatus, liteDashboard] = await Promise.all([
     readJsonIfExists<DashboardSnapshot>(FILES.dashboard_snapshot),
     readJsonIfExists<LatestStatus>(FILES.latest_status),
     readJsonIfExists<TradeSummary>(FILES.trade_summary),
     readJsonIfExists<RejectBreakdown>(FILES.reject_breakdown),
     readJsonIfExists<AutoExportStatus>(FILES.auto_export_status),
+    readJsonIfExists<LiteDashboardSnapshot>(FILES.lite_dashboard),
   ]);
 
   const missing_files: string[] = [];
@@ -69,6 +74,7 @@ export async function GET() {
     if (result.missing) missing_files.push(key);
   }
   file_ages_ms.auto_export_status = autoExportStatus.ageMs;
+  file_ages_ms.lite_dashboard = liteDashboard.ageMs;
 
   const body: SnapshotResponse = {
     fetched_ts_ms: Date.now(),
@@ -78,6 +84,8 @@ export async function GET() {
     reject_breakdown: rejectBreakdown.data,
     auto_export_status: autoExportStatus.data,
     auto_export_status_missing: autoExportStatus.missing,
+    lite_dashboard: liteDashboard.data,
+    lite_dashboard_missing: liteDashboard.missing,
     missing_files,
     file_ages_ms,
   };

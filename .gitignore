@@ -8,4 +8,5 @@ storage_data/
 backups/
 runtime/
 data/*.csv
+/data/poly_alpha_lite.db*
 .pytest_cache/

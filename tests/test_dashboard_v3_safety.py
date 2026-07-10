@@ -50,10 +50,21 @@ def _route_source() -> str:
 # Reads only the allow-listed exporter files
 # ---------------------------------------------------------------------------
 
-def test_api_route_hardcodes_exactly_the_four_allowlisted_files():
+def test_api_route_hardcodes_required_and_optional_allowlisted_files():
     src = _route_source()
-    for filename in ("dashboard_snapshot.json", "latest_status.json", "trade_summary.json", "reject_breakdown.json"):
+    for filename in (
+        "dashboard_snapshot.json", "latest_status.json", "trade_summary.json",
+        "reject_breakdown.json", "auto_export_status.json", "lite_dashboard.json",
+    ):
         assert filename in src, f"API route does not reference {filename}"
+
+
+def test_missing_lite_export_never_marks_advanced_core_data_missing():
+    src = _route_source()
+    start = src.index("for (const [key, result]")
+    end = src.index("file_ages_ms.auto_export_status")
+    assert "liteDashboard" not in src[start:end]
+    assert "lite_dashboard_missing: liteDashboard.missing" in src
 
 
 def test_api_route_never_builds_a_path_from_request_input():

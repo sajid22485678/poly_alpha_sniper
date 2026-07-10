@@ -495,6 +495,94 @@ export interface ExperimentalProbeTrading {
   zero_reason?: string | null;
 }
 
+/** One simulated Lite trade. A null PnL means the exact market has not been
+ * resolved and must never be treated as zero in performance statistics. */
+export interface LiteTradeRow {
+  id: number | string;
+  asset: string;
+  market_id?: string;
+  event_id?: string;
+  slug?: string;
+  side: string;
+  shares: number;
+  entry_price: number;
+  entry_cost: number;
+  entry_ts: number;
+  status: string;
+  exit_price?: number | null;
+  exit_ts?: number | null;
+  pnl: number | null;
+  resolution_source?: string | null;
+  resolution_reason?: string | null;
+  anchor_available?: boolean;
+  no_anchor_trade?: boolean;
+  cex_source?: string | null;
+  cex_entry_price?: number | null;
+  momentum_pct?: number | null;
+  strategy_name?: string;
+}
+
+export interface LiteCexFeedAssetState {
+  source?: string | null;
+  selected_source?: string | null;
+  price?: number | null;
+  latest_price?: number | null;
+  age_ms?: number | null;
+  source_age_ms?: number | null;
+  stale?: boolean;
+  last_update_ts_ms?: number | null;
+  [key: string]: unknown;
+}
+
+export interface LiteCurrentMarketState {
+  slug?: string | null;
+  market_id?: string | null;
+  event_id?: string | null;
+  condition_id?: string | null;
+  window_close_ts?: number | null;
+  seconds_to_close?: number | null;
+  time_to_close_s?: number | null;
+  [key: string]: unknown;
+}
+
+export interface LiteDbDiagnostics {
+  size_bytes: number;
+  writes_per_min: number;
+}
+
+/** Fully isolated Lite shadow export. It is never merged into DashboardSnapshot,
+ * baseline PnL/KPIs, or live-readiness calculations. */
+export interface LiteDashboardSnapshot {
+  generated_ts_ms: number;
+  mode: string;
+  dry_run: boolean;
+  live_enabled: boolean;
+  warning: string;
+  heartbeat_ts_ms: number | null;
+  open_positions: number;
+  completed_trades: number;
+  pending_resolution: number;
+  unresolved_final: number;
+  total_lite_pnl: number;
+  today_lite_pnl: number;
+  winrate: number | null;
+  profit_factor: number | null;
+  expectancy: number | null;
+  entries_by_asset: Record<string, number>;
+  entries_by_side: Record<string, number>;
+  anchor_breakdown: { anchor: number; no_anchor: number };
+  resolution_source_breakdown: {
+    book_exit: number;
+    official_outcome: number;
+    unresolved: number;
+  };
+  top_reject_reasons: Record<string, number>;
+  cex_feed_state: Record<string, LiteCexFeedAssetState | null>;
+  current_market_by_asset: Record<string, LiteCurrentMarketState | null>;
+  last_20_trades: LiteTradeRow[];
+  db_diagnostics: LiteDbDiagnostics;
+}
+
 export interface DashboardSnapshot {
   generated_ts_ms: number;
   latest_status: LatestStatus;
@@ -548,6 +636,8 @@ export interface SnapshotResponse {
   reject_breakdown: RejectBreakdown | null;
   auto_export_status: AutoExportStatus | null;
   auto_export_status_missing: boolean;
+  lite_dashboard: LiteDashboardSnapshot | null;
+  lite_dashboard_missing: boolean;
   missing_files: string[];
   file_ages_ms: Record<string, number | null>;
 }

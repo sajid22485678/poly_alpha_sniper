@@ -1,0 +1,27 @@
+# Poly Alpha Lite V1 defaults. Safety and fixed sizing are hard-locked again
+# in lite/lite_config.py; these values cannot enable a live/order path.
+lite_shadow:
+  assets: [BTC, ETH, SOL]
+  fixed_order_shares: 5
+  use_max_trade_usd: false
+  max_trade_usd: null
+  max_open_positions: 6
+  max_open_per_asset: 2
+  max_one_per_asset_window_side: true
+  cex_max_age_ms: 8000
+  book_max_age_ms: 8000
+  momentum_windows_s: [10, 30, 60]
+  momentum_min_pct: 0.0002
+  max_spread: 0.20
+  min_depth_usd: 1
+  time_to_close_min_s: 20
+  time_to_close_max_s: 280
+  anchor_optional: true
+  allow_no_anchor_trades: true
+  require_fired: false
+  require_imbalance: false
+  require_oracle: false
+  allow_book_exit: true
+  allow_official_resolution: true
+  resolver_retry_seconds: 30
+  resolver_max_retries: 30

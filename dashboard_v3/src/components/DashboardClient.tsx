@@ -18,6 +18,7 @@ import { CexSourceDebugPanel } from "@/components/CexSourceDebugPanel";
 import { AdvancedQuantPanel } from "@/components/AdvancedQuantPanel";
 import { OracleAutopsyPanel } from "@/components/OracleAutopsyPanel";
 import { ExperimentalProbePanel } from "@/components/ExperimentalProbePanel";
+import { LiteShadowPanel } from "@/components/LiteShadowPanel";
 import { LiveReadinessPanel } from "@/components/LiveReadinessPanel";
 import { OpportunityEnginePanel } from "@/components/OpportunityEnginePanel";
 import { OracleStatusPanel } from "@/components/OracleStatusPanel";
@@ -144,6 +145,18 @@ export function DashboardClient() {
 
         <SectionShell title="Experimental Probe Trading">
           <ExperimentalProbePanel probe={snapshot?.experimental_probe_trading ?? null} />
+        </SectionShell>
+
+        <SectionShell
+          title="Poly Alpha Lite Shadow"
+          subtitle="Separate DB, exporter, strategy statistics, and simulated PnL — never baseline or live readiness"
+        >
+          <LiteShadowPanel
+            lite={data?.lite_dashboard ?? null}
+            missing={data?.lite_dashboard_missing ?? true}
+            nowMs={now}
+            fileAgeMs={data?.file_ages_ms?.lite_dashboard ?? null}
+          />
         </SectionShell>
 
         <SectionShell title="Candidate Book & Entry Gates">

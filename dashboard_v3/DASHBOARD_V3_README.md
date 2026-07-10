@@ -28,13 +28,19 @@ poly_alpha_sniper bot (SQLite)
   → dashboard_v3 React UI  (polls every 3s)
 ```
 
-The API route (`src/app/api/snapshot/route.ts`) only ever reads these 4
-files, as fixed constants — never a path built from a request:
+The API route (`src/app/api/snapshot/route.ts`) reads only fixed allow-listed
+files, never a path built from a request. The four required advanced files are:
 
 - `dashboard_snapshot.json`
 - `latest_status.json`
 - `trade_summary.json`
 - `reject_breakdown.json`
+
+It also reads two optional status exports: `auto_export_status.json` and the
+separate Lite file at
+`D:\claude\agent_readonly\poly_alpha_lite\lite_dashboard.json`. Missing Lite
+data never changes the advanced dashboard's missing-data banner, baseline PnL,
+KPIs, or live-readiness calculations.
 
 It never imports `.env`, never touches `process.env`, and exposes no
 POST/PUT/DELETE handler anywhere in the app — there is no write path from
