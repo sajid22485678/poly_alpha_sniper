@@ -16,6 +16,7 @@ import { HermesPanel } from "@/components/HermesPanel";
 import { LiveFeedStatePanel } from "@/components/LiveFeedStatePanel";
 import { CexSourceDebugPanel } from "@/components/CexSourceDebugPanel";
 import { AdvancedQuantPanel } from "@/components/AdvancedQuantPanel";
+import { OracleAutopsyPanel } from "@/components/OracleAutopsyPanel";
 import { LiveReadinessPanel } from "@/components/LiveReadinessPanel";
 import { OpportunityEnginePanel } from "@/components/OpportunityEnginePanel";
 import { OracleStatusPanel } from "@/components/OracleStatusPanel";
@@ -115,6 +116,10 @@ export function DashboardClient() {
 
         <SectionShell title="Oracle-Aware EV Engine">
           <OracleStatusPanel status={snapshot?.oracle_status ?? null} nowMs={now} />
+        </SectionShell>
+
+        <SectionShell title="Oracle Anchor Autopsy">
+          <OracleAutopsyPanel autopsy={snapshot?.oracle_anchor_autopsy ?? null} />
         </SectionShell>
 
         <SectionShell title="Live Feed State">

@@ -82,6 +82,14 @@ export function AdvancedQuantPanel({ research }: { research: ResearchChallenger 
               </table>
             </div>
           )}
+          {research.anchor_stats?.available && (
+            <div className="text-xs mt-1 v3-mono" style={{ color: "var(--v3-muted-2)" }}>
+              anchor: {research.anchor_stats.anchor_available_pct ?? 0}% available · {research.anchor_stats.anchor_missing_pct ?? 0}% missing
+              {research.anchor_stats.missing_reason_counts && Object.keys(research.anchor_stats.missing_reason_counts).length > 0
+                ? ` (top: ${Object.entries(research.anchor_stats.missing_reason_counts)[0]?.join("=")})`
+                : ""}
+            </div>
+          )}
           {research.drift?.available && (
             <div className="text-xs mt-1 v3-mono" style={{ color: "var(--v3-muted-2)" }}>
               drift (old→new half): anchor {((research.drift.older_half?.anchor_available_rate ?? 0) * 100).toFixed(0)}%→{((research.drift.newer_half?.anchor_available_rate ?? 0) * 100).toFixed(0)}% · cex fresh {((research.drift.older_half?.cex_fresh_rate ?? 0) * 100).toFixed(0)}%→{((research.drift.newer_half?.cex_fresh_rate ?? 0) * 100).toFixed(0)}%

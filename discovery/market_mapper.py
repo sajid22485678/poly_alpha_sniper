@@ -140,6 +140,7 @@ def extract_oracle_anchor_metadata(raw: dict) -> tuple[float | None, str, str, d
     """
     fields_checked: list[str] = []
     price: float | None = None
+    source_path = ""  # the EXACT schema path that produced the anchor value
     for prefix, container in _metadata_containers(raw):
         for key in _PRICE_TO_BEAT_KEYS:
             field = _field_name(prefix, key)
@@ -148,6 +149,7 @@ def extract_oracle_anchor_metadata(raw: dict) -> tuple[float | None, str, str, d
                 continue
             price = _valid_price(container.get(key))
             if price is not None:
+                source_path = field
                 break
         if price is not None:
             break
@@ -166,6 +168,7 @@ def extract_oracle_anchor_metadata(raw: dict) -> tuple[float | None, str, str, d
         "resolution_source_url": resolution_source_url,
         "final_anchor_status": status,
         "missing_reason": _anchor_missing_reason(raw, price),
+        "source_path": source_path,  # "" when missing; exact hit path otherwise
     }
     return price, source, resolution_source_url, diag
 

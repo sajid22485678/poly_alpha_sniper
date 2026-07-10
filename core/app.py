@@ -469,6 +469,9 @@ class App:
                 if await self.governor.acquire("gamma", RequestPriority.DISCOVERY):
                     markets = await self.discovery.refresh()
                     self.market_cache.upsert(markets)
+                    # per-asset current/next anchor autopsy (diagnostics only)
+                    self.diag["oracle_anchor_autopsy"] = getattr(
+                        self.discovery, "anchor_autopsy", {}) or {}
                     now = self.clock.now_ms()
                     for m in markets:
                         self.expiry_tracker.track(m) if hasattr(self.expiry_tracker, "track") else None

@@ -454,6 +454,9 @@ def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int)
         "opportunity_diagnostics": build_opportunity_diagnostics(data, state, cfg, now_ms),
         "live_readiness": build_live_readiness(data, state, cfg, now_ms),
         "research_challenger": build_research_challenger_export(data, cfg, now_ms),
+        "oracle_anchor_autopsy": (diag.get("oracle_anchor_autopsy")
+                                  if isinstance(diag.get("oracle_anchor_autopsy"), dict)
+                                  else {}),
         "shadow_compounding": build_shadow_compounding(data, cfg, now_ms),
         "open_positions": data.recent("positions", 50),
         "recent_orders": data.orders(25),

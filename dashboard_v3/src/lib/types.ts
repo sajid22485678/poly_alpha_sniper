@@ -389,6 +389,37 @@ export interface ShadowCompounding {
   touches_order_path: boolean;
 }
 
+/** Per-asset current/next window anchor evidence (diagnostics, never a gate). */
+export interface AnchorWindowReport {
+  asset?: string;
+  current_or_next?: string;
+  slug?: string | null;
+  event_id?: string;
+  market_id?: string;
+  title?: string;
+  seconds_since_open?: number | null;
+  seconds_until_close?: number | null;
+  hydration_attempted?: boolean;
+  hydration_success?: boolean;
+  fields_checked?: string[];
+  field_presence?: Record<string, boolean | number>;
+  final_anchor_available?: boolean;
+  final_price_to_beat?: number | null;
+  final_anchor_source_path?: string | null;
+  final_missing_reason?: string;
+  retry_count?: number;
+  last_successful_anchor_for_asset?: { price_to_beat: number; ts_ms: number; slug: string } | null;
+  last_successful_anchor_age_s?: number | null;
+  exact_window_match?: boolean;
+  note?: string;
+}
+
+export interface OracleAnchorAutopsy {
+  generated_ts_ms?: number;
+  error?: string;
+  assets?: Record<string, { current: AnchorWindowReport; next: AnchorWindowReport }>;
+}
+
 /** RESEARCH lane only — never mixed into baseline stats or live readiness. */
 export interface ResearchChallenger {
   research_only: boolean;
@@ -408,6 +439,14 @@ export interface ResearchChallenger {
   }>;
   baseline_blocker_distribution?: Record<string, number>;
   experimental_blocker_distribution?: Record<string, number>;
+  anchor_stats?: {
+    available: boolean;
+    note?: string;
+    rows?: number;
+    anchor_available_pct?: number;
+    anchor_missing_pct?: number;
+    missing_reason_counts?: Record<string, number>;
+  };
   per_asset?: Record<string, {
     markov?: { state_now: string; n_observations: number;
                continuation_probability: number; reversal_probability: number } | null;
@@ -441,6 +480,7 @@ export interface DashboardSnapshot {
   opportunity_diagnostics?: OpportunityDiagnostics;
   live_readiness?: LiveReadiness;
   research_challenger?: ResearchChallenger;
+  oracle_anchor_autopsy?: OracleAnchorAutopsy;
   shadow_compounding?: ShadowCompounding;
   open_positions: unknown[];
   recent_orders: OrderRow[];

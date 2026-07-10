@@ -154,6 +154,26 @@ def _per_challenger_stats(experimental_rows: list[dict], baseline_trades: int) -
     return out
 
 
+def _anchor_stats(baseline_rows: list[dict]) -> dict:
+    """Anchor availability from the SAME feature rows the panel's drift uses --
+    reads the writer's actual field (anchor_status == 'available'), so the
+    Oracle panel and this report can no longer disagree about field names.
+    missing-reason breakdown comes from the anchor_missing_reason column."""
+    if not baseline_rows:
+        return {"available": False, "note": "no feature rows yet"}
+    n = len(baseline_rows)
+    avail = sum(1 for r in baseline_rows if r.get("anchor_status") == "available")
+    reasons = Counter((r.get("anchor_missing_reason") or "NOT_RECORDED")
+                      for r in baseline_rows if r.get("anchor_status") != "available")
+    return {
+        "available": True,
+        "rows": n,
+        "anchor_available_pct": round(100 * avail / n, 1),
+        "anchor_missing_pct": round(100 * (n - avail) / n, 1),
+        "missing_reason_counts": dict(reasons.most_common(6)),
+    }
+
+
 def _experimental_zero_reason(enabled: bool, baseline_rows: int) -> str:
     if not enabled:
         return "research_challengers.enabled=false"
@@ -200,6 +220,7 @@ def build_research_challenger(feature_rows: list[dict], baseline_trades: int,
                                                                len(baseline_rows))
                                      if not experimental_rows else None),
         "challengers": _per_challenger_stats(experimental_rows, baseline_trades),
+        "anchor_stats": _anchor_stats(baseline_rows),
         "baseline_blocker_distribution": _blocker_distribution(baseline_rows),
         "experimental_blocker_distribution": _blocker_distribution(experimental_rows),
         "per_asset": per_asset,

@@ -45,7 +45,13 @@ class MarketDiscovery:
         self.last_raw_count = 0
         # Cache successful anchors only. Missing anchors are intentionally not
         # cached so a later Gamma hydration can fill price_to_beat mid-window.
+        # Keys are per-market ids: a new 5-min window is a NEW market with a
+        # new id/slug, so a previous window's anchor can never match it.
         self._oracle_anchor_cache: dict[str, dict] = {}
+        # Anchor autopsy support (diagnostics only, never a gate):
+        self._anchor_retry_counts: dict[str, int] = {}   # market key -> hydration attempts
+        self._anchor_last_success: dict[str, dict] = {}  # asset -> {price_to_beat, ts_ms, slug}
+        self.anchor_autopsy: dict = {}                   # rebuilt every refresh
 
     async def refresh(self) -> list[MarketInfo]:
         now = self.clock.now_ms()
@@ -63,6 +69,7 @@ class MarketDiscovery:
                     "label": label, "error": repr(exc)[:120]}})
         merged = merge_markets(raw_lists)
         merged = await self._hydrate_oracle_anchors(merged)
+        self._rebuild_anchor_autopsy(merged, now)
         tradable = self._map_and_filter(merged, now)
 
         # CLOB fallback only when Gamma produced nothing tradable
@@ -123,6 +130,7 @@ class MarketDiscovery:
                 if key:
                     self._oracle_anchor_cache[key] = self._anchor_cache_payload(
                         enriched, price, resolution_url)
+                self._note_anchor_success(enriched, price)
                 out.append(enriched)
                 continue
 
@@ -144,6 +152,8 @@ class MarketDiscovery:
             # skipped. Missing anchors are intentionally NOT cached, so this
             # retries on every refresh until the anchor appears.
             enriched["_anchor_hydration_attempted"] = True
+            if key:
+                self._anchor_retry_counts[key] = self._anchor_retry_counts.get(key, 0) + 1
             event = None
             try:
                 event = await self.event_hydrator(enriched)
@@ -160,10 +170,33 @@ class MarketDiscovery:
                 if success and key:
                     self._oracle_anchor_cache[key] = self._anchor_cache_payload(
                         enriched, price, resolution_url)
+                    self._note_anchor_success(enriched, price)
             else:
                 enriched["_anchor_hydration_success"] = False
             out.append(enriched)
         return out
+
+    def _note_anchor_success(self, raw: dict, price: float) -> None:
+        """Track the newest successful anchor per asset for the autopsy --
+        diagnostics only, never reused as an anchor for another market."""
+        from poly_alpha_sniper.discovery.anchor_autopsy import _parse_slug
+        parsed = _parse_slug(raw.get("slug") or "")
+        if parsed:
+            self._anchor_last_success[parsed[0]] = {
+                "price_to_beat": price, "ts_ms": self.clock.now_ms(),
+                "slug": raw.get("slug")}
+
+    def _rebuild_anchor_autopsy(self, merged: list[dict], now_ms: int) -> None:
+        """Per-asset current/next anchor autopsy, rebuilt every refresh.
+        Diagnostics only -- failures must never break discovery."""
+        try:
+            from poly_alpha_sniper.discovery.anchor_autopsy import build_anchor_autopsy
+            self.anchor_autopsy = build_anchor_autopsy(
+                merged, list(self.cfg.assets), now_ms,
+                retry_counts=self._anchor_retry_counts,
+                last_success=self._anchor_last_success)
+        except Exception as exc:  # noqa: BLE001
+            self.anchor_autopsy = {"error": repr(exc)[:120]}
 
     @staticmethod
     def _market_key(raw: dict) -> str:
