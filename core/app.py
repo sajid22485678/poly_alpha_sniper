@@ -780,7 +780,34 @@ class App:
                 near_miss=compute_shock_near_miss(view, self.cfg), book=book,
                 scoring_version=SCORING_VERSION, now_ms=now_ms, lane="baseline")
             self._insert("feature_store", row)
+            self._record_experimental_decisions(row, now_ms)
         except Exception:  # noqa: BLE001 -- diagnostics must never break scanning
+            pass
+
+    def _record_experimental_decisions(self, baseline_row: dict, now_ms: int) -> None:
+        """EXPERIMENTAL_SHADOW challenger lane: evaluate the named research
+        challengers against the SAME point-in-time features the baseline just
+        recorded, and write one lane="experimental" row carrying every
+        challenger's would-enter decision. Diagnostics only -- never an order,
+        never baseline stats, never live readiness. Crash-proof by contract."""
+        try:
+            if not getattr(self.cfg, "research_challengers", None) \
+                    or not self.cfg.research_challengers.enabled:
+                return
+            from poly_alpha_sniper.research.challenger_engine import (
+                ChallengerEngine, build_experimental_row)
+            if getattr(self, "_challenger_engine", None) is None:
+                self._challenger_engine = ChallengerEngine()
+            cash = None
+            try:
+                snap = self.portfolio.snapshot(now_ms)
+                cash = getattr(snap, "cash_usd", None)
+            except Exception:  # noqa: BLE001 -- cash gate degrades to not-evaluated
+                pass
+            decisions = self._challenger_engine.evaluate(baseline_row, now_ms,
+                                                         available_cash_usd=cash)
+            self._insert("feature_store", build_experimental_row(baseline_row, decisions))
+        except Exception:  # noqa: BLE001 -- research must never break scanning
             pass
 
     def _cex_source_detail(self, view) -> str:

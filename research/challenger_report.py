@@ -103,8 +103,70 @@ def _drift(rows: list[dict]) -> dict:
             "newer_half": summarize(new), "n_rows": len(ordered)}
 
 
+def _parse_extra(row: dict) -> dict:
+    import json
+    try:
+        extra = json.loads(row.get("extra") or "{}")
+        return extra if isinstance(extra, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _blocker_distribution(rows: list[dict]) -> dict:
+    return dict(Counter((r.get("blocker") or "none") for r in rows).most_common(6))
+
+
+def _per_challenger_stats(experimental_rows: list[dict], baseline_trades: int) -> dict:
+    """Per-challenger counts/would-enter/reject-reasons/avg-EV parsed from the
+    experimental rows' decision payloads. Status is honest and never a
+    promotion: INSUFFICIENT_SAMPLE below the trade floor, CANDIDATE_FOR_REPLAY
+    when a challenger has >=10 clean would-enters (a human then runs replay),
+    else NOT_PROMOTED."""
+    stats: dict[str, dict] = {}
+    for row in experimental_rows:
+        for name, d in (_parse_extra(row).get("challengers") or {}).items():
+            if not isinstance(d, dict):
+                continue
+            s = stats.setdefault(name, {"rows": 0, "would_enter": 0,
+                                        "reject_reasons": Counter(), "evs": []})
+            s["rows"] += 1
+            if d.get("would_enter"):
+                s["would_enter"] += 1
+            elif d.get("blocker"):
+                s["reject_reasons"][d["blocker"]] += 1
+            if isinstance(d.get("ev"), (int, float)):
+                s["evs"].append(float(d["ev"]))
+    out = {}
+    for name, s in stats.items():
+        if baseline_trades < MIN_TRADES_FOR_PROMOTION_REVIEW:
+            status = "INSUFFICIENT_SAMPLE"
+        elif s["would_enter"] >= 10:
+            status = "CANDIDATE_FOR_REPLAY"
+        else:
+            status = "NOT_PROMOTED"
+        out[name] = {
+            "rows": s["rows"],
+            "would_enter": s["would_enter"],
+            "top_reject_reasons": dict(s["reject_reasons"].most_common(3)),
+            "avg_ev": round(sum(s["evs"]) / len(s["evs"]), 5) if s["evs"] else None,
+            "status": status,
+        }
+    return out
+
+
+def _experimental_zero_reason(enabled: bool, baseline_rows: int) -> str:
+    if not enabled:
+        return "research_challengers.enabled=false"
+    if baseline_rows == 0:
+        return ("no feature rows at all yet — bot restart required to activate "
+                "the feature store + challenger writer")
+    return ("baseline rows exist but no experimental rows — the running bot "
+            "predates the challenger writer; restart to activate it")
+
+
 def build_research_challenger(feature_rows: list[dict], baseline_trades: int,
-                              assets: list[str], now_ms: int) -> dict:
+                              assets: list[str], now_ms: int,
+                              challengers_enabled: bool = True) -> dict:
     """Assemble the research/challenger export section from real feature-store
     rows. Purely diagnostic; the returned promotion_status can only ever be
     NOT_PROMOTED at current sample sizes -- promotion is a human decision on
@@ -134,6 +196,12 @@ def build_research_challenger(feature_rows: list[dict], baseline_trades: int,
             "experimental_rows": len(experimental_rows),
             "mixed": False,
         },
+        "experimental_zero_reason": (_experimental_zero_reason(challengers_enabled,
+                                                               len(baseline_rows))
+                                     if not experimental_rows else None),
+        "challengers": _per_challenger_stats(experimental_rows, baseline_trades),
+        "baseline_blocker_distribution": _blocker_distribution(baseline_rows),
+        "experimental_blocker_distribution": _blocker_distribution(experimental_rows),
         "per_asset": per_asset,
         "drift": _drift(baseline_rows),
         "promotion_status": ("NOT_PROMOTED — INSUFFICIENT_SAMPLE "

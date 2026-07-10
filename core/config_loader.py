@@ -106,6 +106,17 @@ class CexFreshnessConfig(BaseModel):
     degraded_adverse_selection_buffer_add: float = 0.015
 
 
+class ResearchChallengersConfig(BaseModel):
+    """EXPERIMENTAL_SHADOW challenger lane (research/challenger_engine.py).
+
+    Writes lane="experimental" feature-store rows with per-challenger
+    would-enter decisions. STRICTLY diagnostic: never places orders, never
+    changes baseline gates, never counts toward baseline shadow stats or
+    live readiness. Disabling it only stops the experimental rows -- the
+    baseline pipeline is untouched either way."""
+    enabled: bool = True
+
+
 class PolymarketConfig(BaseModel):
     refresh_markets_seconds: float = 20
     refresh_orderbooks_ms: int = 500
@@ -500,6 +511,7 @@ class Config(BaseModel):
     assets: list[str] = Field(default_factory=lambda: ["BTC", "ETH", "SOL"])
     cex: CexConfig = Field(default_factory=CexConfig)
     cex_freshness: CexFreshnessConfig = Field(default_factory=CexFreshnessConfig)
+    research_challengers: ResearchChallengersConfig = Field(default_factory=ResearchChallengersConfig)
     polymarket: PolymarketConfig = Field(default_factory=PolymarketConfig)
     ultra_short_expiry: UltraShortExpiryConfig = Field(default_factory=UltraShortExpiryConfig)
     strategy: StrategyConfig = Field(default_factory=StrategyConfig)

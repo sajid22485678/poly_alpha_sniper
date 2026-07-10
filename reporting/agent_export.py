@@ -424,7 +424,9 @@ def build_research_challenger_export(data: DashboardData, cfg, now_ms: int) -> d
         from poly_alpha_sniper.research.challenger_report import build_research_challenger
         rows = data.recent("feature_store", 1000)
         trades = len(data.exits())
-        return build_research_challenger(rows, trades, list(cfg.assets), now_ms)
+        enabled = bool(getattr(getattr(cfg, "research_challengers", None), "enabled", False))
+        return build_research_challenger(rows, trades, list(cfg.assets), now_ms,
+                                         challengers_enabled=enabled)
     except Exception as exc:  # noqa: BLE001 -- research is optional, exporter is not
         return {"research_only": True, "available": False,
                 "error": repr(exc)[:120]}

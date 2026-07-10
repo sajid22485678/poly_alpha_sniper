@@ -47,6 +47,41 @@ export function AdvancedQuantPanel({ research }: { research: ResearchChallenger 
           <div className="text-xs mt-3 v3-mono" style={{ color: "var(--v3-muted-2)" }}>
             lanes: baseline {research.lane_separation?.baseline_rows ?? 0} rows · experimental {research.lane_separation?.experimental_rows ?? 0} rows · mixed: {String(research.lane_separation?.mixed ?? false)}
           </div>
+          {research.experimental_zero_reason ? (
+            <div className="text-xs mt-1" style={{ color: "var(--v3-gold)" }}>
+              experimental rows = 0: {research.experimental_zero_reason}
+            </div>
+          ) : null}
+          {research.challengers && Object.keys(research.challengers).length > 0 && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-xs v3-mono">
+                <thead>
+                  <tr style={{ color: "var(--v3-muted-2)" }}>
+                    <th className="text-left py-1">challenger</th>
+                    <th className="text-right">rows</th>
+                    <th className="text-right">would enter</th>
+                    <th className="text-right">avg EV</th>
+                    <th className="text-left pl-3">top reject</th>
+                    <th className="text-left pl-3">status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(research.challengers).map(([name, c]) => (
+                    <tr key={name} className="border-t" style={{ borderColor: "var(--v3-border)" }}>
+                      <td className="py-1">{name}</td>
+                      <td className="text-right">{c.rows}</td>
+                      <td className="text-right" style={{ color: c.would_enter > 0 ? "var(--v3-green)" : "var(--v3-muted-2)" }}>
+                        {c.would_enter}
+                      </td>
+                      <td className="text-right">{c.avg_ev ?? "—"}</td>
+                      <td className="pl-3">{Object.keys(c.top_reject_reasons)[0] ?? "—"}</td>
+                      <td className="pl-3">{c.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           {research.drift?.available && (
             <div className="text-xs mt-1 v3-mono" style={{ color: "var(--v3-muted-2)" }}>
               drift (old→new half): anchor {((research.drift.older_half?.anchor_available_rate ?? 0) * 100).toFixed(0)}%→{((research.drift.newer_half?.anchor_available_rate ?? 0) * 100).toFixed(0)}% · cex fresh {((research.drift.older_half?.cex_fresh_rate ?? 0) * 100).toFixed(0)}%→{((research.drift.newer_half?.cex_fresh_rate ?? 0) * 100).toFixed(0)}%

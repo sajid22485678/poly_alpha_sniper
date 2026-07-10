@@ -398,6 +398,16 @@ export interface ResearchChallenger {
   note?: string;
   scoring_version?: string;
   lane_separation?: { baseline_rows: number; experimental_rows: number; mixed: boolean };
+  experimental_zero_reason?: string | null;
+  challengers?: Record<string, {
+    rows: number;
+    would_enter: number;
+    top_reject_reasons: Record<string, number>;
+    avg_ev: number | null;
+    status: string;
+  }>;
+  baseline_blocker_distribution?: Record<string, number>;
+  experimental_blocker_distribution?: Record<string, number>;
   per_asset?: Record<string, {
     markov?: { state_now: string; n_observations: number;
                continuation_probability: number; reversal_probability: number } | null;

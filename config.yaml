@@ -66,6 +66,16 @@ cex_freshness:
   fail_closed_max_age_ms: 8000
   degraded_adverse_selection_buffer_add: 0.015
 
+# EXPERIMENTAL_SHADOW challenger lane (research/challenger_engine.py):
+# writes lane="experimental" feature-store rows with per-challenger
+# would-enter decisions. Diagnostics ONLY -- never places orders, never
+# changes baseline gates/thresholds, never counted in baseline shadow stats
+# or live readiness. Hard gates (anchor, CEX <=8s, valid market/token,
+# executable book, catastrophic spread/depth, severe negative EV, cash,
+# duplicate guard) can never be loosened by any challenger.
+research_challengers:
+  enabled: true
+
 polymarket:
   refresh_markets_seconds: 20
   refresh_orderbooks_ms: 500
