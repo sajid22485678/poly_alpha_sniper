@@ -17,6 +17,7 @@ import { LiveFeedStatePanel } from "@/components/LiveFeedStatePanel";
 import { CexSourceDebugPanel } from "@/components/CexSourceDebugPanel";
 import { AdvancedQuantPanel } from "@/components/AdvancedQuantPanel";
 import { OracleAutopsyPanel } from "@/components/OracleAutopsyPanel";
+import { ExperimentalProbePanel } from "@/components/ExperimentalProbePanel";
 import { LiveReadinessPanel } from "@/components/LiveReadinessPanel";
 import { OpportunityEnginePanel } from "@/components/OpportunityEnginePanel";
 import { OracleStatusPanel } from "@/components/OracleStatusPanel";
@@ -132,6 +133,10 @@ export function DashboardClient() {
 
         <SectionShell title="Advanced Quant (Research)">
           <AdvancedQuantPanel research={snapshot?.research_challenger ?? null} />
+        </SectionShell>
+
+        <SectionShell title="Experimental Probe Trading">
+          <ExperimentalProbePanel probe={snapshot?.experimental_probe_trading ?? null} />
         </SectionShell>
 
         <SectionShell title="Candidate Book & Entry Gates">

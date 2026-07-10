@@ -463,6 +463,23 @@ export interface ResearchChallenger {
   promotion_status?: string;
 }
 
+/** Simulated research probes — never baseline, never live readiness, never real funds. */
+export interface ExperimentalProbeTrading {
+  enabled: boolean;
+  error?: string;
+  warning: string;
+  probe_rows?: number;
+  open_positions?: number;
+  completed_trades?: number;
+  unresolved_trades?: number;
+  pnl_usd?: number;
+  winrate?: number | null;
+  profit_factor?: number | null;
+  avg_hold_s?: number | null;
+  by_strategy?: Record<string, { entries: number; closed: number; pnl_usd: number }>;
+  zero_reason?: string | null;
+}
+
 export interface DashboardSnapshot {
   generated_ts_ms: number;
   latest_status: LatestStatus;
@@ -481,6 +498,7 @@ export interface DashboardSnapshot {
   live_readiness?: LiveReadiness;
   research_challenger?: ResearchChallenger;
   oracle_anchor_autopsy?: OracleAnchorAutopsy;
+  experimental_probe_trading?: ExperimentalProbeTrading;
   shadow_compounding?: ShadowCompounding;
   open_positions: unknown[];
   recent_orders: OrderRow[];

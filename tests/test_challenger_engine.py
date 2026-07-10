@@ -189,6 +189,7 @@ def app(tmp_path):
                             "DATABASE_URL": f"sqlite:///{db}"}))
     a.clock = SimClock(NOW_MS)
     a.build()
+    a.test_db_path = db  # DashboardData takes a PATH, not the store object
     yield a
     a.store.close()
 
@@ -224,11 +225,11 @@ async def test_live_readiness_ignores_experimental_rows(app):
     from poly_alpha_sniper.dashboard.db_reader import DashboardData
     from poly_alpha_sniper.reporting.agent_export import build_live_readiness
     state = {"diagnostics": app.diag, "mode": "shadow_live"}
-    before = build_live_readiness(DashboardData(app.store), state, app.cfg, NOW_MS)
+    before = build_live_readiness(DashboardData(app.test_db_path), state, app.cfg, NOW_MS)
     engine = ChallengerEngine()
     row = build_experimental_row(_good_row(), engine.evaluate(_good_row(), NOW_MS, 100.0))
     app._insert("feature_store", row)
-    after = build_live_readiness(DashboardData(app.store), state, app.cfg, NOW_MS)
+    after = build_live_readiness(DashboardData(app.test_db_path), state, app.cfg, NOW_MS)
     assert before == after
 
 

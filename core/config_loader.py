@@ -106,6 +106,26 @@ class CexFreshnessConfig(BaseModel):
     degraded_adverse_selection_buffer_add: float = 0.015
 
 
+class ResearchProbeTradingConfig(BaseModel):
+    """EXPERIMENTAL_PROBE_TRADING lane (research/probe_trader.py). Simulated
+    probe positions from CEX-vs-anchor direction -- no shock/imbalance
+    trigger required, but anchor/book/CEX/spread/depth/cash hard gates can
+    never be loosened. Separate simulated bankroll; never baseline stats,
+    never live readiness, never real orders."""
+    enabled: bool = True
+    max_open_positions: int = 3
+    max_one_per_asset_window: bool = True
+    time_to_close_min_s: float = 45.0
+    time_to_close_max_s: float = 240.0
+    min_anchor_distance_pct: dict[str, float] = Field(
+        default_factory=lambda: {"very_loose": 0.0003, "loose": 0.0005, "normal": 0.0010})
+    strategies: dict[str, bool] = Field(
+        default_factory=lambda: {"cex_direction_probe": True,
+                                 "anchor_distance_probe": True,
+                                 "combined_probe": True,
+                                 "random_control_probe": False})
+
+
 class ResearchChallengersConfig(BaseModel):
     """EXPERIMENTAL_SHADOW challenger lane (research/challenger_engine.py).
 
@@ -512,6 +532,7 @@ class Config(BaseModel):
     cex: CexConfig = Field(default_factory=CexConfig)
     cex_freshness: CexFreshnessConfig = Field(default_factory=CexFreshnessConfig)
     research_challengers: ResearchChallengersConfig = Field(default_factory=ResearchChallengersConfig)
+    research_probe_trading: ResearchProbeTradingConfig = Field(default_factory=ResearchProbeTradingConfig)
     polymarket: PolymarketConfig = Field(default_factory=PolymarketConfig)
     ultra_short_expiry: UltraShortExpiryConfig = Field(default_factory=UltraShortExpiryConfig)
     strategy: StrategyConfig = Field(default_factory=StrategyConfig)

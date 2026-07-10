@@ -104,9 +104,19 @@ TABLES: dict[str, str] = {
                      "scoring_version TEXT, book_bid REAL, book_ask REAL, spread REAL, "
                      "book_age_ms INTEGER, depth_usd REAL, blocker TEXT, decision TEXT, "
                      "edge REAL, ev REAL, tier TEXT, extra TEXT",
+    # EXPERIMENTAL_PROBE_TRADING lane (research/probe_trader.py): simulated
+    # probe entries/exits with honest outcomes (UNRESOLVED when no real exit
+    # book was observed -- never fabricated). Separate from baseline positions/
+    # orders/exits forever; never live readiness input. Append-only:
+    # ENTRY and EXIT are separate events sharing probe_id.
+    "experimental_probe_trades": f"{_COMMON}, probe_id TEXT, event TEXT, strategy TEXT, "
+                                 "asset TEXT, market_id TEXT, slug TEXT, side TEXT, "
+                                 "shares REAL, price REAL, status TEXT, pnl_usd REAL, "
+                                 "hold_s REAL, reason TEXT, anchor_ptb REAL, cex_price REAL, "
+                                 "probe_version TEXT, extra TEXT",
 }
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def run_migrations(store) -> None:

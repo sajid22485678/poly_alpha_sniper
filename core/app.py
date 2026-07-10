@@ -812,6 +812,17 @@ class App:
             self._insert("feature_store", build_experimental_row(baseline_row, decisions))
         except Exception:  # noqa: BLE001 -- research must never break scanning
             pass
+        try:
+            # EXPERIMENTAL_PROBE_TRADING: simulated probe positions with a
+            # separate simulated bankroll. Shadow-only; crash-proof.
+            if getattr(self.cfg, "research_probe_trading", None) \
+                    and self.cfg.research_probe_trading.enabled:
+                from poly_alpha_sniper.research.probe_trader import ProbeTrader
+                if getattr(self, "_probe_trader", None) is None:
+                    self._probe_trader = ProbeTrader(self.cfg.research_probe_trading)
+                self._probe_trader.on_scan(baseline_row, now_ms, self._insert)
+        except Exception:  # noqa: BLE001 -- research must never break scanning
+            pass
 
     def _cex_source_detail(self, view) -> str:
         """Human-readable per-source freshness breakdown for a stale-primary

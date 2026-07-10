@@ -432,6 +432,57 @@ def build_research_challenger_export(data: DashboardData, cfg, now_ms: int) -> d
                 "error": repr(exc)[:120]}
 
 
+def build_probe_trading_export(data: DashboardData, cfg, now_ms: int) -> dict:
+    """EXPERIMENTAL_PROBE_TRADING summary (shadow-only, separate simulated
+    bankroll). Reconstructed from append-only ENTRY/EXIT event rows; UNRESOLVED
+    probes carry pnl=None and are excluded from winrate/PF -- outcomes are
+    never fabricated. Crash-proof: degrades to a stub."""
+    try:
+        enabled = bool(getattr(getattr(cfg, "research_probe_trading", None), "enabled", False))
+        rows = data.recent("experimental_probe_trades", 500)
+        entries = {r["probe_id"]: r for r in rows if r.get("event") == "ENTRY"}
+        exits = [r for r in rows if r.get("event") == "EXIT"]
+        closed = [r for r in exits if r.get("status") == "CLOSED" and r.get("pnl_usd") is not None]
+        unresolved = [r for r in exits if r.get("status") != "CLOSED"]
+        open_ids = set(entries) - {r["probe_id"] for r in exits}
+        wins = [r for r in closed if r["pnl_usd"] > 0]
+        losses = [r for r in closed if r["pnl_usd"] <= 0]
+        gross_win = sum(r["pnl_usd"] for r in wins)
+        gross_loss = abs(sum(r["pnl_usd"] for r in losses))
+        by_strategy: dict[str, dict] = {}
+        for r in entries.values():
+            s = by_strategy.setdefault(r.get("strategy") or "?",
+                                       {"entries": 0, "closed": 0, "pnl_usd": 0.0})
+            s["entries"] += 1
+        for r in closed:
+            s = by_strategy.setdefault(r.get("strategy") or "?",
+                                       {"entries": 0, "closed": 0, "pnl_usd": 0.0})
+            s["closed"] += 1
+            s["pnl_usd"] = round(s["pnl_usd"] + r["pnl_usd"], 4)
+        return {
+            "generated_ts_ms": now_ms,
+            "enabled": enabled,
+            "warning": "EXPERIMENTAL PROBE — NOT BASELINE, NOT LIVE READINESS, NOT REAL FUNDS",
+            "probe_rows": len(rows),
+            "open_positions": len(open_ids),
+            "completed_trades": len(closed),
+            "unresolved_trades": len(unresolved),
+            "pnl_usd": round(sum(r["pnl_usd"] for r in closed), 4),
+            "winrate": round(len(wins) / len(closed), 3) if closed else None,
+            "profit_factor": (round(gross_win / gross_loss, 3) if gross_loss > 0
+                              else (None if not closed else float("inf"))),
+            "avg_hold_s": (round(sum(r.get("hold_s") or 0 for r in closed) / len(closed), 1)
+                           if closed else None),
+            "by_strategy": by_strategy,
+            "zero_reason": (None if rows else
+                            ("research_probe_trading.enabled=false" if not enabled
+                             else "no probe rows yet — bot restart required to activate the writer")),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"enabled": False, "error": repr(exc)[:120],
+                "warning": "EXPERIMENTAL PROBE — NOT BASELINE, NOT LIVE READINESS, NOT REAL FUNDS"}
+
+
 def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int) -> dict:
     """Everything the dashboard shows, in one payload -- lets a future agent
     reconstruct dashboard state without touching the DB directly."""
@@ -457,6 +508,7 @@ def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int)
         "oracle_anchor_autopsy": (diag.get("oracle_anchor_autopsy")
                                   if isinstance(diag.get("oracle_anchor_autopsy"), dict)
                                   else {}),
+        "experimental_probe_trading": build_probe_trading_export(data, cfg, now_ms),
         "shadow_compounding": build_shadow_compounding(data, cfg, now_ms),
         "open_positions": data.recent("positions", 50),
         "recent_orders": data.orders(25),

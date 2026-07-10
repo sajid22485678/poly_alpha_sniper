@@ -76,6 +76,28 @@ cex_freshness:
 research_challengers:
   enabled: true
 
+# EXPERIMENTAL_PROBE_TRADING (research/probe_trader.py): simulated probe
+# positions from CEX-vs-anchor direction, no shock/imbalance trigger, with a
+# SEPARATE simulated bankroll. Hard gates (exact-window price_to_beat, CEX
+# <=8s, executable book, catastrophic spread/depth, cash, duplicate guard)
+# can never be loosened. Never baseline stats, never live readiness, never
+# real orders. Outcomes are honest: no exit book observed -> UNRESOLVED.
+research_probe_trading:
+  enabled: true
+  max_open_positions: 3
+  max_one_per_asset_window: true
+  time_to_close_min_s: 45
+  time_to_close_max_s: 240
+  min_anchor_distance_pct:
+    very_loose: 0.0003
+    loose: 0.0005
+    normal: 0.0010
+  strategies:
+    cex_direction_probe: true
+    anchor_distance_probe: true
+    combined_probe: true
+    random_control_probe: false
+
 polymarket:
   refresh_markets_seconds: 20
   refresh_orderbooks_ms: 500
