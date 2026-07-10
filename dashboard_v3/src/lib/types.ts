@@ -412,12 +412,25 @@ export interface AnchorWindowReport {
   last_successful_anchor_age_s?: number | null;
   exact_window_match?: boolean;
   note?: string;
+  /** "scan_candidate" when reconciled from the live candidate the Oracle panel shows. */
+  source?: string;
 }
 
 export interface OracleAnchorAutopsy {
   generated_ts_ms?: number;
   error?: string;
   assets?: Record<string, { current: AnchorWindowReport; next: AnchorWindowReport }>;
+  /** ORACLE_EXPORT_MISMATCH entries when panel and autopsy disagreed. */
+  warnings?: string[];
+}
+
+export interface DbDiagnostics {
+  db_size_mb?: number;
+  feature_store_rows?: number;
+  feature_rows_per_min_10m?: number;
+  throttle_ms?: number;
+  warning?: string | null;
+  error?: string;
 }
 
 /** RESEARCH lane only — never mixed into baseline stats or live readiness. */
@@ -471,7 +484,9 @@ export interface ExperimentalProbeTrading {
   probe_rows?: number;
   open_positions?: number;
   completed_trades?: number;
+  pending_resolution?: number;
   unresolved_trades?: number;
+  resolution_source_breakdown?: { book_exit: number; official_outcome: number; unresolved: number };
   pnl_usd?: number;
   winrate?: number | null;
   profit_factor?: number | null;
@@ -499,6 +514,7 @@ export interface DashboardSnapshot {
   research_challenger?: ResearchChallenger;
   oracle_anchor_autopsy?: OracleAnchorAutopsy;
   experimental_probe_trading?: ExperimentalProbeTrading;
+  db_diagnostics?: DbDiagnostics;
   shadow_compounding?: ShadowCompounding;
   open_positions: unknown[];
   recent_orders: OrderRow[];

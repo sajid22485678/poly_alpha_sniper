@@ -45,6 +45,14 @@ MIN_TIME_TO_CLOSE_S = 45.0       # mirrors ultra_short_expiry.reject_if_less_tha
 SEVERE_NEGATIVE_EV = -0.02       # per-share EV below this is never recordable as entry
 FIXED_SHARES = 5.0               # experimental sizing mirrors baseline fixed_min_shares
 
+# anchor gate failures name the precise upstream reason (never generic)
+_ANCHOR_BLOCKER = {
+    "UPSTREAM_NOT_PUBLISHED": "anchor_upstream_not_published",
+    "HYDRATION_FAILED": "anchor_hydration_failed",
+    "SCHEMA_UNKNOWN": "anchor_schema_unknown",
+    "EVENT_NOT_FOUND": "missing_anchor",
+}
+
 
 @dataclass
 class ChallengerDecision:
@@ -160,18 +168,41 @@ class ChallengerEngine:
         gates_ok, gate_failure, gates = hard_safety_gates(f, available_cash_usd)
         ev = self._bayesian_ev(f, regime)
 
+        # Precise blocker taxonomy: gate failures name the actual problem, and
+        # a fundamental data problem (anchor/CEX/book) outranks "no trigger" --
+        # a scan with no anchor must never read as merely no_challenger_trigger.
+        _GATE_BLOCKER = {
+            "anchor_available": _ANCHOR_BLOCKER.get(
+                str(f.get("anchor_missing_reason") or ""), "missing_anchor"),
+            "cex_not_fail_closed": "cex_fail_closed",
+            "market_valid": "invalid_market",
+            "token_mapping": "token_invalid",
+            "executable_book": "no_executable_book",
+            "spread_ok": "spread_depth_bad",
+            "depth_ok": "spread_depth_bad",
+            "cash_ok": "cash_or_exposure",
+        }
+        gate_blocker = _GATE_BLOCKER.get(gate_failure, gate_failure)
+        _DATA_GATES = ("anchor_available", "cex_not_fail_closed", "market_valid",
+                       "token_mapping", "executable_book")
+
         def decide(name: str, trigger: bool, trigger_reason: str,
-                   extra_ok: bool = True, extra_blocker: str = "") -> ChallengerDecision:
-            """Shared decision ladder: trigger -> hard gates -> EV -> dup guard.
-            ROUTINE_NO_SHOCK never enters by default -- a challenger must have
-            its own named trigger to get past the first rung."""
+                   extra_ok: bool = True, extra_blocker: str = "",
+                   no_trigger_blocker: str = "shock_too_low") -> ChallengerDecision:
+            """Shared decision ladder: data gates -> trigger -> extra -> EV ->
+            dup guard. ROUTINE_NO_SHOCK never enters by default -- a challenger
+            must have its own named trigger to get past the trigger rung."""
+            if not gates_ok and gate_failure in _DATA_GATES:
+                return ChallengerDecision(name, False,
+                                          f"hard gate failed: {gate_failure}",
+                                          gate_blocker, ev, False)
             if not trigger:
                 return ChallengerDecision(name, False, trigger_reason,
-                                          "no_challenger_trigger", ev, gates_ok)
+                                          no_trigger_blocker, ev, gates_ok)
             if not gates_ok:
                 return ChallengerDecision(name, False,
                                           f"hard gate failed: {gate_failure}",
-                                          gate_failure, ev, False)
+                                          gate_blocker, ev, False)
             if not extra_ok:
                 return ChallengerDecision(name, False, extra_blocker,
                                           extra_blocker, ev, True)
@@ -197,7 +228,8 @@ class ChallengerEngine:
                 f"both detector legs >= 85% of threshold (min={both_legs:.2f})"),
             "hot_near_miss_entry": decide(
                 "hot_near_miss_entry", tier in ("HOT_NEAR_MISS", "FIRED"),
-                f"near-miss tier {tier or 'none'}"),
+                f"near-miss tier {tier or 'none'}",
+                no_trigger_blocker="no_hot_near_miss"),
             "bayesian_ev_adjusted": decide(
                 "bayesian_ev_adjusted",
                 both_legs >= 0.85 and ev is not None and ev > 0.01,

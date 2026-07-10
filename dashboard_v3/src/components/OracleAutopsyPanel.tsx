@@ -81,6 +81,11 @@ export function OracleAutopsyPanel({ autopsy }: { autopsy: OracleAnchorAutopsy |
         </div>
       ) : (
         <div className="space-y-3">
+          {(autopsy?.warnings?.length ?? 0) > 0 && (
+            <div className="text-xs" style={{ color: "var(--v3-red)" }}>
+              {autopsy!.warnings!.map((w, i) => <div key={i}>{w}</div>)}
+            </div>
+          )}
           {assets.map((asset) => (
             <div key={asset}>
               <div className="font-semibold mb-1">{asset}</div>

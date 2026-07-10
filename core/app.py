@@ -473,6 +473,15 @@ class App:
                     self.diag["oracle_anchor_autopsy"] = getattr(
                         self.discovery, "anchor_autopsy", {}) or {}
                     now = self.clock.now_ms()
+                    # resolve pending probe outcomes via OFFICIAL market data
+                    # (shadow research only; crash-proof by contract)
+                    try:
+                        if getattr(self, "_probe_trader", None) is not None \
+                                and self._probe_trader.pending_resolution:
+                            await self._probe_trader.resolve_pending(
+                                self.gamma.get_markets, now, self._insert)
+                    except Exception:  # noqa: BLE001
+                        pass
                     for m in markets:
                         self.expiry_tracker.track(m) if hasattr(self.expiry_tracker, "track") else None
                         if hasattr(self.mirror, "track_market"):
@@ -771,8 +780,10 @@ class App:
                 build_scan_feature_row, should_record)
             from poly_alpha_sniper.strategy.shock_near_miss import (
                 SCORING_VERSION, compute_shock_near_miss)
+            near_miss = compute_shock_near_miss(view, self.cfg)
             last = self._feature_store_throttle.get(asset)
-            if not should_record(last, now_ms, block_reason):
+            if not should_record(last, now_ms, block_reason,
+                                 near_miss.tier if near_miss else ""):
                 return
             self._feature_store_throttle[asset] = now_ms
             market = candidate_markets[0] if candidate_markets else None
@@ -780,7 +791,7 @@ class App:
             row = build_scan_feature_row(
                 asset=asset, view=view, market=market, anchor=anchor,
                 freshness=freshness, block_reason=block_reason,
-                near_miss=compute_shock_near_miss(view, self.cfg), book=book,
+                near_miss=near_miss, book=book,
                 scoring_version=SCORING_VERSION, now_ms=now_ms, lane="baseline")
             self._insert("feature_store", row)
             self._record_experimental_decisions(row, now_ms)
@@ -1167,6 +1178,24 @@ class App:
             if (view is not None and view.primary is not None) else None
         anchor = resolve_oracle_anchor(market, cex_price, cex_ts_ms, now_ms)
         self.diag["latest_oracle_anchor"] = asdict(anchor)
+        # Per-asset live-candidate anchor state: the SAME source the Oracle
+        # panel reflects, so the autopsy export can reconcile against it and
+        # CURRENT can never read NOT_RECORDED while an anchored candidate is
+        # actively being scanned (the discovery raw rows can lag/drop a
+        # market near window end while the cache still scans it).
+        anchor_diag = market.raw.get("oracle_anchor_diagnostics") \
+            if isinstance(market.raw.get("oracle_anchor_diagnostics"), dict) else {}
+        self.diag.setdefault("candidate_anchor_by_asset", {})[market.asset] = {
+            "ts_ms": now_ms,
+            "slug": str(market.raw.get("slug") or ""),
+            "market_id": market.market_id,
+            "event_id": str(anchor_diag.get("event_id") or ""),
+            "price_to_beat": market.price_to_beat,
+            "missing_reason": str(anchor_diag.get("missing_reason") or ""),
+            "source_path": str(anchor_diag.get("source_path") or ""),
+            "hydration_attempted": bool(anchor_diag.get("hydration_attempted", False)),
+            "hydration_success": bool(anchor_diag.get("hydration_success", False)),
+        }
         return anchor
 
     def _log_oracle_anchor(self, anchor, gate_result: str, ev_result=None) -> None:

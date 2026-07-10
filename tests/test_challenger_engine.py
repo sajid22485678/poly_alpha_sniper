@@ -87,12 +87,20 @@ def test_hot_candidate_with_all_gates_can_would_enter():
         assert decisions[name].promotion_status == "NOT_PROMOTED"
 
 
-def test_missing_anchor_blocks_every_challenger():
+def test_missing_anchor_blocks_every_challenger_with_precise_reason():
+    """A missing anchor must NEVER read as merely no_challenger_trigger --
+    the data problem outranks the trigger question."""
     engine = ChallengerEngine()
     decisions = engine.evaluate(_good_row(price_to_beat=None), NOW_MS, 100.0)
     for d in decisions.values():
         assert d.would_enter is False
-        assert d.blocker in ("anchor_available", "no_challenger_trigger")
+        assert d.blocker == "missing_anchor"
+    # and when the upstream reason is known, it is named exactly
+    engine2 = ChallengerEngine()
+    decisions2 = engine2.evaluate(
+        _good_row(price_to_beat=None, anchor_missing_reason="UPSTREAM_NOT_PUBLISHED"),
+        NOW_MS, 100.0)
+    assert all(d.blocker == "anchor_upstream_not_published" for d in decisions2.values())
 
 
 def test_stale_cex_blocks_every_challenger():
@@ -126,7 +134,12 @@ def test_routine_no_shock_does_not_enter_by_default():
                      near_miss_tier="ROUTINE_NO_SHOCK", ret_2s=0.0002, zscore=0.4)
     decisions = engine.evaluate(cold, NOW_MS, 100.0)
     assert not any(d.would_enter for d in decisions.values())
-    assert all(d.blocker == "no_challenger_trigger" for d in decisions.values())
+    # precise trigger rejects: shock proximity for the shock-family
+    # challengers, tier for the hot-near-miss challenger
+    assert decisions["hot_near_miss_entry"].blocker == "no_hot_near_miss"
+    for name, d in decisions.items():
+        if name != "hot_near_miss_entry":
+            assert d.blocker == "shock_too_low", (name, d.blocker)
 
 
 def test_duplicate_experimental_position_guard():

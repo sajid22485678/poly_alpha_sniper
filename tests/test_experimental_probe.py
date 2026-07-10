@@ -134,14 +134,14 @@ def test_pre_close_book_exit_records_honest_pnl():
     exits = sink.events("EXIT")
     assert len(exits) == 1
     x = exits[0]
-    assert x["status"] == "CLOSED"
+    assert x["status"] == "CLOSED_EXIT_PRICE"
     assert x["price"] == 0.60                       # YES exits at recorded bid
     assert x["pnl_usd"] == pytest.approx((0.60 - 0.50) * FIXED_SHARES)
     assert x["hold_s"] == pytest.approx(175.0)
     assert trader.open_positions == {}
 
 
-def test_rollover_without_exit_book_stays_unresolved_with_no_pnl():
+def test_rollover_without_exit_book_goes_pending_resolution_with_no_pnl():
     trader, sink = ProbeTrader(_cfg()), _Sink()
     trader.on_scan(_row(), NOW_MS, sink)
     # scans move to a DIFFERENT market; original window closed >60s ago
@@ -149,9 +149,58 @@ def test_rollover_without_exit_book_stays_unresolved_with_no_pnl():
     trader.on_scan(_row(market_id="m2", market_slug="btc-updown-5m-2"), later, sink)
     exits = [x for x in sink.events("EXIT") if x["probe_id"].startswith("probe-m1")]
     assert len(exits) == 1
-    assert exits[0]["status"] == "UNRESOLVED"
+    assert exits[0]["status"] == "PENDING_RESOLUTION"
     assert exits[0]["pnl_usd"] is None              # outcome never fabricated
     assert exits[0]["price"] is None
+    assert len(trader.pending_resolution) == 1      # awaiting official outcome
+
+
+def _resolved_market_row(yes_price: str, no_price: str, closed=True) -> list[dict]:
+    return [{"id": "m1", "closed": closed, "outcomePrices": f'["{yes_price}", "{no_price}"]'}]
+
+
+async def test_official_outcome_resolves_win_and_loss():
+    """PENDING probes resolve against the OFFICIAL closed-market outcome:
+    BUY_YES wins when YES settles at 1, loses when NO settles at 1. Payout is
+    1 or 0 per share -- never an invented price."""
+    for yes, no, expect_status, expect_pnl in (
+            ("1", "0", "CLOSED_WIN", 5 * (1.0 - 0.50)),
+            ("0", "1", "CLOSED_LOSS", 5 * (0.0 - 0.50))):
+        trader, sink = ProbeTrader(_cfg()), _Sink()
+        trader.on_scan(_row(), NOW_MS, sink)                       # entry YES @0.50
+        trader.on_scan(_row(market_id="m2"), NOW_MS + 261_000, sink)  # -> PENDING
+
+        async def fetch(_params, _rows=_resolved_market_row(yes, no)):
+            return _rows
+
+        await trader.resolve_pending(fetch, NOW_MS + 300_000, sink)
+        res = sink.events("RESOLUTION")
+        assert len(res) == 1
+        assert res[0]["status"] == expect_status
+        assert res[0]["pnl_usd"] == pytest.approx(expect_pnl)
+        assert res[0]["reason"] == "official_outcome"
+        assert trader.pending_resolution == {}
+
+
+async def test_unresolved_market_retries_then_goes_final():
+    trader, sink = ProbeTrader(_cfg()), _Sink()
+    trader.on_scan(_row(), NOW_MS, sink)
+    trader.on_scan(_row(market_id="m2"), NOW_MS + 261_000, sink)
+
+    async def fetch_not_closed(_params):
+        return _resolved_market_row("0.6", "0.4", closed=False)  # no evidence
+
+    from poly_alpha_sniper.research.probe_trader import MAX_RESOLUTION_RETRIES
+    for i in range(MAX_RESOLUTION_RETRIES - 1):
+        await trader.resolve_pending(fetch_not_closed, NOW_MS + 300_000 + i, sink)
+        assert trader.pending_resolution                  # still retrying
+        assert sink.events("RESOLUTION") == []            # nothing fabricated
+    await trader.resolve_pending(fetch_not_closed, NOW_MS + 400_000, sink)
+    res = sink.events("RESOLUTION")
+    assert len(res) == 1
+    assert res[0]["status"] == "UNRESOLVED_FINAL"
+    assert res[0]["pnl_usd"] is None                      # never counted as win/loss
+    assert trader.pending_resolution == {}
 
 
 def test_disabled_config_opens_nothing():

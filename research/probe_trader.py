@@ -28,9 +28,15 @@ from typing import Callable, Optional
 
 from poly_alpha_sniper.research.challenger_engine import hard_safety_gates
 
-PROBE_VERSION = "probe_v1"
+PROBE_VERSION = "probe_v2"
 FIXED_SHARES = 5.0
-EXIT_BEFORE_CLOSE_S = 25.0        # exit at the last reliably-booked moment
+# Exit while the market is STILL a scan candidate. Post-mortem (2026-07-10):
+# v1 used 25s, but markets leave the candidate window at 60s-to-expiry
+# (ultra_short_expiry.min_time_to_expiry_seconds), so no scan ever saw the
+# position's market with ttc<=25s and every probe rolled to UNRESOLVED with
+# NO_FINAL_BOOK_OBSERVED. 70s is reachable on the last in-window scans.
+EXIT_BEFORE_CLOSE_S = 70.0
+MAX_RESOLUTION_RETRIES = 12       # ~4 min of discovery refreshes before FINAL
 STRATEGIES = ("cex_direction_probe", "anchor_distance_probe", "combined_probe")
 
 # anchor-precise reject reasons (never generic)
@@ -66,6 +72,9 @@ class ProbeTrader:
         self.cfg = cfg
         self.bankroll = starting_bankroll_usd
         self.open_positions: dict[str, ProbePosition] = {}   # probe_id -> pos
+        # rolled past close with no exit book: awaiting OFFICIAL outcome
+        self.pending_resolution: dict[str, ProbePosition] = {}
+        self._resolution_retries: dict[str, int] = {}
         self._entered_keys: set[str] = set()                  # market|side dedup
         self.last_reject: dict = {}
 
@@ -196,14 +205,73 @@ class ProbeTrader:
                 pnl = round((exit_price - pos.entry_price) * pos.shares, 4)
                 self.bankroll += pos.shares * exit_price
                 self._close(pos, now_ms, insert, "PRE_CLOSE_BOOK_EXIT",
-                            "CLOSED", exit_price, pnl)
+                            "CLOSED_EXIT_PRICE", exit_price, pnl)
             elif pos.window_close_ts_ms is not None and now_ms > pos.window_close_ts_ms + 60_000:
                 # market rolled over without an exit book: never fabricate.
-                # Bankroll releases the entry cost back as an accounting no-op?
-                # NO -- honest: the stake stays spent until a real outcome is
-                # known; UNRESOLVED positions carry pnl=None.
+                # The stake stays spent; the position moves to PENDING_RESOLUTION
+                # and the resolver retries the OFFICIAL Polymarket outcome.
+                self.pending_resolution[pos.probe_id] = pos
                 self._close(pos, now_ms, insert, "NO_FINAL_BOOK_OBSERVED",
-                            "UNRESOLVED", None, None)
+                            "PENDING_RESOLUTION", None, None)
+
+    # ------------------------------------------------------------------
+    async def resolve_pending(self, fetch_markets, now_ms: int,
+                              insert: Callable[[str, dict], None]) -> None:
+        """Resolve PENDING_RESOLUTION probes against the OFFICIAL public
+        Polymarket outcome for the exact same market_id. Evidence required:
+        market closed with degenerate outcomePrices (>=0.99 / <=0.01). No
+        evidence -> retry (up to MAX_RESOLUTION_RETRIES) -> UNRESOLVED_FINAL
+        with pnl=None. Outcomes are never fabricated; resolution_source_url
+        is never consulted. fetch_markets = Gamma get_markets(params)."""
+        from poly_alpha_sniper.research.probe_resolver import outcome_from_market_row
+        for probe_id, pos in list(self.pending_resolution.items()):
+            retries = self._resolution_retries.get(probe_id, 0)
+            outcome, detail = None, "fetch_failed"
+            try:
+                rows = await fetch_markets({"id": pos.market_id})
+                row = rows[0] if rows else None
+                outcome, detail = outcome_from_market_row(row)
+            except Exception as exc:  # noqa: BLE001 -- resolver must never crash the loop
+                detail = f"error:{type(exc).__name__}"
+            if outcome is not None:
+                won = (outcome == "YES") == (pos.side == "BUY_YES")
+                payout = pos.shares * (1.0 if won else 0.0)
+                pnl = round(payout - pos.shares * pos.entry_price, 4)
+                self.bankroll += payout
+                self.pending_resolution.pop(probe_id, None)
+                self._resolution_retries.pop(probe_id, None)
+                insert("experimental_probe_trades", {
+                    "ts_ms": now_ms, "probe_id": probe_id, "event": "RESOLUTION",
+                    "strategy": pos.strategy, "asset": pos.asset,
+                    "market_id": pos.market_id, "slug": pos.slug, "side": pos.side,
+                    "shares": pos.shares, "price": 1.0 if won else 0.0,
+                    "status": "CLOSED_WIN" if won else "CLOSED_LOSS",
+                    "pnl_usd": pnl,
+                    "hold_s": round((now_ms - pos.entry_ts_ms) / 1000, 1),
+                    "reason": "official_outcome",
+                    "anchor_ptb": pos.anchor_ptb, "cex_price": pos.cex_price_at_entry,
+                    "probe_version": PROBE_VERSION,
+                    "extra": json.dumps({"retries": retries, "outcome": outcome,
+                                         "resolution_source": "gamma_market_outcome",
+                                         "bankroll_after": round(self.bankroll, 4)})})
+            else:
+                retries += 1
+                self._resolution_retries[probe_id] = retries
+                if retries >= MAX_RESOLUTION_RETRIES:
+                    self.pending_resolution.pop(probe_id, None)
+                    self._resolution_retries.pop(probe_id, None)
+                    insert("experimental_probe_trades", {
+                        "ts_ms": now_ms, "probe_id": probe_id, "event": "RESOLUTION",
+                        "strategy": pos.strategy, "asset": pos.asset,
+                        "market_id": pos.market_id, "slug": pos.slug, "side": pos.side,
+                        "shares": pos.shares, "price": None,
+                        "status": "UNRESOLVED_FINAL", "pnl_usd": None,
+                        "hold_s": round((now_ms - pos.entry_ts_ms) / 1000, 1),
+                        "reason": f"no_official_outcome_after_{retries}_retries ({detail})",
+                        "anchor_ptb": pos.anchor_ptb, "cex_price": pos.cex_price_at_entry,
+                        "probe_version": PROBE_VERSION,
+                        "extra": json.dumps({"retries": retries,
+                                             "last_resolution_error": detail})})
 
     def _close(self, pos: ProbePosition, now_ms: int,
                insert: Callable[[str, dict], None], reason: str, status: str,

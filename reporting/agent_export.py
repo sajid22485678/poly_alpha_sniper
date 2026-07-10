@@ -432,6 +432,85 @@ def build_research_challenger_export(data: DashboardData, cfg, now_ms: int) -> d
                 "error": repr(exc)[:120]}
 
 
+def build_db_diagnostics(data: DashboardData, now_ms: int) -> dict:
+    """DB size / write-rate health (read-only). Exists because a feature-store
+    flooding bug once grew the DB to 2.17 GB unnoticed while the backup loop
+    copied it every 30 min -- this makes runaway growth visible on the
+    dashboard instead of on the disk-space alarm."""
+    try:
+        import os
+        size = os.path.getsize(data.db_path) if os.path.exists(data.db_path) else 0
+        feature_rows = data.count("feature_store")
+        recent = data.safe_query(
+            "SELECT COUNT(*) AS n FROM feature_store WHERE ts_ms >= ?",
+            (now_ms - 600_000,))
+        rate_per_min = round((recent[0]["n"] if recent else 0) / 10.0, 1)
+        warning = None
+        if size > 500 * 1024 * 1024:
+            warning = ("DB exceeds 500MB — backups are being skipped; stop the bot "
+                       "and run tools/db_maintenance.py")
+        elif rate_per_min > 60:
+            warning = f"feature_store writing {rate_per_min} rows/min — throttle may be broken"
+        return {"db_size_mb": round(size / 1e6, 1), "feature_store_rows": feature_rows,
+                "feature_rows_per_min_10m": rate_per_min,
+                "throttle_ms": 10_000, "warning": warning}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": repr(exc)[:100]}
+
+
+def _reconcile_anchor_autopsy(diag: dict, now_ms: int) -> dict:
+    """Merge the discovery-refresh autopsy with the LIVE scan-candidate anchor
+    state (the exact source the Oracle panel reflects). Rule: if an anchored
+    candidate for the current window is actively being scanned, CURRENT must
+    show it -- never NOT_RECORDED (discovery raw rows can drop a market near
+    window end while the cache still scans it). Disagreements raise explicit
+    ORACLE_EXPORT_MISMATCH warnings instead of silently picking a side."""
+    autopsy = diag.get("oracle_anchor_autopsy")
+    autopsy = dict(autopsy) if isinstance(autopsy, dict) else {}
+    candidates = diag.get("candidate_anchor_by_asset")
+    candidates = candidates if isinstance(candidates, dict) else {}
+    warnings: list[str] = []
+    assets = autopsy.get("assets")
+    if isinstance(assets, dict):
+        try:
+            from poly_alpha_sniper.discovery.anchor_autopsy import WINDOW_S, _parse_slug
+            now_s = now_ms // 1000
+            for asset, windows in assets.items():
+                cand = candidates.get(asset)
+                if not isinstance(cand, dict) or not isinstance(windows, dict):
+                    continue
+                parsed = _parse_slug(cand.get("slug") or "")
+                in_current = bool(parsed and parsed[1] <= now_s < parsed[1] + WINDOW_S)
+                fresh = (now_ms - (cand.get("ts_ms") or 0)) <= 60_000
+                if not (in_current and fresh):
+                    continue
+                cur = windows.get("current") or {}
+                if cand.get("price_to_beat") is not None and not cur.get("final_anchor_available"):
+                    if cur.get("final_missing_reason") not in ("NOT_RECORDED", None, ""):
+                        warnings.append(
+                            f"ORACLE_EXPORT_MISMATCH:{asset}: scan candidate has anchor "
+                            f"{cand['price_to_beat']} but autopsy said "
+                            f"{cur.get('final_missing_reason')}")
+                    windows["current"] = {
+                        "asset": asset, "current_or_next": "current",
+                        "slug": cand.get("slug"), "market_id": cand.get("market_id"),
+                        "event_id": cand.get("event_id"),
+                        "final_anchor_available": True,
+                        "final_price_to_beat": cand.get("price_to_beat"),
+                        "final_anchor_source_path": cand.get("source_path") or None,
+                        "final_missing_reason": "",
+                        "hydration_attempted": cand.get("hydration_attempted"),
+                        "hydration_success": cand.get("hydration_success"),
+                        "exact_window_match": True,
+                        "seconds_until_close": (parsed[1] + WINDOW_S - now_s) if parsed else None,
+                        "source": "scan_candidate",  # reconciled from the live candidate
+                    }
+        except Exception as exc:  # noqa: BLE001 -- reconciliation must never break export
+            warnings.append(f"autopsy_reconciliation_error:{repr(exc)[:80]}")
+    autopsy["warnings"] = warnings
+    return autopsy
+
+
 def build_probe_trading_export(data: DashboardData, cfg, now_ms: int) -> dict:
     """EXPERIMENTAL_PROBE_TRADING summary (shadow-only, separate simulated
     bankroll). Reconstructed from append-only ENTRY/EXIT event rows; UNRESOLVED
@@ -441,10 +520,22 @@ def build_probe_trading_export(data: DashboardData, cfg, now_ms: int) -> dict:
         enabled = bool(getattr(getattr(cfg, "research_probe_trading", None), "enabled", False))
         rows = data.recent("experimental_probe_trades", 500)
         entries = {r["probe_id"]: r for r in rows if r.get("event") == "ENTRY"}
-        exits = [r for r in rows if r.get("event") == "EXIT"]
-        closed = [r for r in exits if r.get("status") == "CLOSED" and r.get("pnl_usd") is not None]
-        unresolved = [r for r in exits if r.get("status") != "CLOSED"]
-        open_ids = set(entries) - {r["probe_id"] for r in exits}
+        terminal = [r for r in rows if r.get("event") in ("EXIT", "RESOLUTION")]
+        _CLOSED = ("CLOSED", "CLOSED_EXIT_PRICE", "CLOSED_WIN", "CLOSED_LOSS")
+        closed = [r for r in terminal if r.get("status") in _CLOSED
+                  and r.get("pnl_usd") is not None]
+        resolved_ids = {r["probe_id"] for r in terminal
+                        if r.get("status") in _CLOSED + ("UNRESOLVED_FINAL", "UNRESOLVED")}
+        pending = [r for r in terminal if r.get("status") == "PENDING_RESOLUTION"
+                   and r["probe_id"] not in resolved_ids]
+        unresolved = [r for r in terminal
+                      if r.get("status") in ("UNRESOLVED", "UNRESOLVED_FINAL")]
+        open_ids = set(entries) - {r["probe_id"] for r in terminal}
+        source_breakdown = {
+            "book_exit": sum(1 for r in closed if r.get("reason") == "PRE_CLOSE_BOOK_EXIT"),
+            "official_outcome": sum(1 for r in closed if r.get("reason") == "official_outcome"),
+            "unresolved": len(unresolved),
+        }
         wins = [r for r in closed if r["pnl_usd"] > 0]
         losses = [r for r in closed if r["pnl_usd"] <= 0]
         gross_win = sum(r["pnl_usd"] for r in wins)
@@ -466,7 +557,9 @@ def build_probe_trading_export(data: DashboardData, cfg, now_ms: int) -> dict:
             "probe_rows": len(rows),
             "open_positions": len(open_ids),
             "completed_trades": len(closed),
+            "pending_resolution": len(pending),
             "unresolved_trades": len(unresolved),
+            "resolution_source_breakdown": source_breakdown,
             "pnl_usd": round(sum(r["pnl_usd"] for r in closed), 4),
             "winrate": round(len(wins) / len(closed), 3) if closed else None,
             "profit_factor": (round(gross_win / gross_loss, 3) if gross_loss > 0
@@ -505,10 +598,9 @@ def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int)
         "opportunity_diagnostics": build_opportunity_diagnostics(data, state, cfg, now_ms),
         "live_readiness": build_live_readiness(data, state, cfg, now_ms),
         "research_challenger": build_research_challenger_export(data, cfg, now_ms),
-        "oracle_anchor_autopsy": (diag.get("oracle_anchor_autopsy")
-                                  if isinstance(diag.get("oracle_anchor_autopsy"), dict)
-                                  else {}),
+        "oracle_anchor_autopsy": _reconcile_anchor_autopsy(diag, now_ms),
         "experimental_probe_trading": build_probe_trading_export(data, cfg, now_ms),
+        "db_diagnostics": build_db_diagnostics(data, now_ms),
         "shadow_compounding": build_shadow_compounding(data, cfg, now_ms),
         "open_positions": data.recent("positions", 50),
         "recent_orders": data.orders(25),

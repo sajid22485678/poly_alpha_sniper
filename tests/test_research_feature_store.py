@@ -57,12 +57,17 @@ def test_missing_reason_empty_when_anchor_available():
 # Feature store: throttled, append-only, point-in-time honest
 # ---------------------------------------------------------------------------
 
-def test_should_record_throttles_but_always_records_unblocked_scans():
+def test_should_record_throttles_always_except_fired_shock():
+    """Flood post-mortem (2026-07-10): block_reason=None ("passed early
+    gates") is the NORMAL state of a healthy scan, not a rare event -- the old
+    exemption bypassed the throttle every iteration and wrote ~110k rows/lane/
+    hour (2.17 GB DB). Only a genuinely rare FIRED shock skips the throttle."""
     assert should_record(None, NOW_MS, "rejected_by_no_shock") is True
     assert should_record(NOW_MS - 1000, NOW_MS, "rejected_by_no_shock") is False
     assert should_record(NOW_MS - THROTTLE_MS, NOW_MS, "rejected_by_no_shock") is True
-    # a scan that passed all early gates is always interesting
-    assert should_record(NOW_MS - 1, NOW_MS, None) is True
+    assert should_record(NOW_MS - 1, NOW_MS, None) is False          # flood fix
+    assert should_record(NOW_MS - THROTTLE_MS, NOW_MS, None) is True
+    assert should_record(NOW_MS - 1, NOW_MS, None, near_miss_tier="FIRED") is True
 
 
 def test_build_scan_feature_row_captures_pipeline_view():

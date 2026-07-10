@@ -96,6 +96,13 @@ export function DashboardClient() {
           </div>
         )}
 
+        {snapshot?.db_diagnostics?.warning && (
+          <div className="v3-card !py-2 text-sm" style={{ color: "var(--v3-red)" }}>
+            DB HEALTH: {snapshot.db_diagnostics.warning}
+            {" "}({snapshot.db_diagnostics.db_size_mb ?? "?"} MB, {snapshot.db_diagnostics.feature_store_rows ?? "?"} feature rows, {snapshot.db_diagnostics.feature_rows_per_min_10m ?? "?"} rows/min)
+          </div>
+        )}
+
         <PnlBanner summary={summary} />
 
         <SectionShell title="Key Metrics">

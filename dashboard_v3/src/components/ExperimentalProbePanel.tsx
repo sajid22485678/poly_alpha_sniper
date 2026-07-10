@@ -22,12 +22,18 @@ export function ExperimentalProbePanel({ probe }: { probe: ExperimentalProbeTrad
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <Stat label="Open" value={String(probe.open_positions ?? 0)} />
             <Stat label="Completed" value={String(probe.completed_trades ?? 0)} />
+            <Stat label="Pending Resolution" value={String(probe.pending_resolution ?? 0)} />
             <Stat label="Unresolved (no PnL)" value={String(probe.unresolved_trades ?? 0)} />
             <Stat label="Probe PnL (simulated)" value={`$${(probe.pnl_usd ?? 0).toFixed(2)}`} />
           </div>
+          {probe.resolution_source_breakdown && (
+            <div className="text-xs mt-2 v3-mono" style={{ color: "var(--v3-muted-2)" }}>
+              resolution sources: official outcome {probe.resolution_source_breakdown.official_outcome} · book exit {probe.resolution_source_breakdown.book_exit} · unresolved {probe.resolution_source_breakdown.unresolved} (unresolved never counts in winrate/PF)
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
             <Stat label="Winrate" value={probe.winrate !== null && probe.winrate !== undefined ? `${(probe.winrate * 100).toFixed(0)}%` : "—"} />
             <Stat label="Profit Factor" value={probe.profit_factor !== null && probe.profit_factor !== undefined ? String(probe.profit_factor) : "—"} />

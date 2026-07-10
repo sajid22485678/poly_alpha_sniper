@@ -20,15 +20,22 @@ import json
 from typing import Optional
 
 # One row per asset per THROTTLE_MS keeps volume ~ 3 assets * 8640 rows/day at
-# 10s -- rich enough for research, small enough for SQLite. Interesting scans
-# (an actual shock evaluation, i.e. no early blocker) always record.
+# 10s -- rich enough for research, small enough for SQLite.
 THROTTLE_MS = 10_000
 
 
 def should_record(last_recorded_ms: Optional[int], now_ms: int,
-                  block_reason: Optional[str]) -> bool:
-    if block_reason is None:
-        return True  # reached shock evaluation -- always interesting
+                  block_reason: Optional[str], near_miss_tier: str = "") -> bool:
+    """Throttle ALWAYS applies, with one exception: an actual FIRED shock
+    (rare by construction under the v2 AND-gate scoring) records immediately.
+
+    Post-mortem (2026-07-10): the original exemption was block_reason is None
+    ("reached shock evaluation"), which is the NORMAL state of every healthy
+    scan, not a rare event -- it bypassed the throttle on ~every iteration and
+    flooded the DB with ~110k rows/lane/hour (2+ GB/day incl. backups)."""
+    del block_reason  # kept in the signature for call-site clarity only
+    if near_miss_tier == "FIRED":
+        return True
     return last_recorded_ms is None or (now_ms - last_recorded_ms) >= THROTTLE_MS
 
 

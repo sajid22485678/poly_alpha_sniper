@@ -132,6 +132,73 @@ def test_extractor_diag_source_path_matches_hit():
 
 
 # ---------------------------------------------------------------------------
+# Export reconciliation: Oracle GOOD can never coexist with CURRENT NOT_RECORDED
+# ---------------------------------------------------------------------------
+
+def _diag_with(autopsy_current: dict, candidate: dict) -> dict:
+    return {
+        "oracle_anchor_autopsy": {"assets": {"BTC": {
+            "current": autopsy_current,
+            "next": {"slug": None, "final_missing_reason": "NOT_RECORDED"}}}},
+        "candidate_anchor_by_asset": {"BTC": candidate},
+    }
+
+
+def _live_candidate(**over) -> dict:
+    cand = {"ts_ms": NOW_MS, "slug": f"btc-updown-5m-{CUR_START}",
+            "market_id": "m1", "event_id": "e1", "price_to_beat": 100_000.0,
+            "missing_reason": "", "source_path": "events[0].eventMetadata.priceToBeat",
+            "hydration_attempted": True, "hydration_success": True}
+    cand.update(over)
+    return cand
+
+
+def test_reconciliation_overrides_not_recorded_with_live_candidate():
+    """The exact reported bug: Oracle panel GOOD while autopsy CURRENT said
+    NOT_RECORDED (discovery raw rows dropped the market near window end while
+    the cache still scans it). The export must show the live candidate."""
+    from poly_alpha_sniper.reporting.agent_export import _reconcile_anchor_autopsy
+    out = _reconcile_anchor_autopsy(
+        _diag_with({"slug": None, "final_missing_reason": "NOT_RECORDED",
+                    "final_anchor_available": False}, _live_candidate()), NOW_MS)
+    cur = out["assets"]["BTC"]["current"]
+    assert cur["final_anchor_available"] is True
+    assert cur["final_price_to_beat"] == 100_000.0
+    assert cur["source"] == "scan_candidate"
+    assert cur["final_missing_reason"] == ""
+    assert out["warnings"] == []          # NOT_RECORDED -> reconcile, no alarm
+
+
+def test_reconciliation_flags_real_disagreement():
+    """If the autopsy gave a SUBSTANTIVE missing reason while the live
+    candidate has an anchor, that's a real disagreement -- reconcile but emit
+    ORACLE_EXPORT_MISMATCH instead of silently picking a side."""
+    from poly_alpha_sniper.reporting.agent_export import _reconcile_anchor_autopsy
+    out = _reconcile_anchor_autopsy(
+        _diag_with({"slug": f"btc-updown-5m-{CUR_START}",
+                    "final_missing_reason": "UPSTREAM_NOT_PUBLISHED",
+                    "final_anchor_available": False}, _live_candidate()), NOW_MS)
+    assert out["assets"]["BTC"]["current"]["final_anchor_available"] is True
+    assert any("ORACLE_EXPORT_MISMATCH" in w for w in out["warnings"])
+
+
+def test_reconciliation_ignores_stale_or_wrong_window_candidates():
+    from poly_alpha_sniper.reporting.agent_export import _reconcile_anchor_autopsy
+    # stale candidate (>60s old) must not override
+    stale = _reconcile_anchor_autopsy(
+        _diag_with({"final_missing_reason": "NOT_RECORDED",
+                    "final_anchor_available": False},
+                   _live_candidate(ts_ms=NOW_MS - 120_000)), NOW_MS)
+    assert stale["assets"]["BTC"]["current"]["final_anchor_available"] is False
+    # previous-window candidate must not override
+    prev = _reconcile_anchor_autopsy(
+        _diag_with({"final_missing_reason": "NOT_RECORDED",
+                    "final_anchor_available": False},
+                   _live_candidate(slug=f"btc-updown-5m-{PREV_START}")), NOW_MS)
+    assert prev["assets"]["BTC"]["current"]["final_anchor_available"] is False
+
+
+# ---------------------------------------------------------------------------
 # Discovery wiring: autopsy rebuilt per refresh, prehydrates next window
 # ---------------------------------------------------------------------------
 
