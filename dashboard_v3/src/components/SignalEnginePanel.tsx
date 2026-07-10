@@ -28,6 +28,13 @@ function decisionColor(label: string | undefined) {
   return "var(--v3-muted)";
 }
 
+function formatSignalAge(ageMs: number | null | undefined): string {
+  if (ageMs === null || ageMs === undefined) return "unknown";
+  if (ageMs < 60_000) return `${Math.round(ageMs / 1000)}s`;
+  if (ageMs < 3_600_000) return `${Math.round(ageMs / 60_000)}m`;
+  return `${(ageMs / 3_600_000).toFixed(1)}h`;
+}
+
 export function SignalEnginePanel({
   marketState,
   status,
@@ -61,6 +68,21 @@ export function SignalEnginePanel({
           </div>
         ) : (
           <>
+            {/* HISTORICAL last-signal snapshot: a predictions row only exists
+                when a shock once fired, so this can be hours old while the
+                pipeline is healthy. Age + stale label prevent reading an old
+                "hard reject: book_fresh" as the CURRENT blocker (that lives in
+                Last Scan / Gate Waterfall). */}
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <Pill tone={state.is_stale ? "gold" : "neutral"}>
+                {state.is_stale
+                  ? (state.staleness_label ?? "STALE HISTORICAL SIGNAL — not current blocker")
+                  : "historical last signal"}
+              </Pill>
+              <span className="text-xs v3-mono" style={{ color: "var(--v3-muted-2)" }}>
+                age: {formatSignalAge(state.age_ms)}
+              </span>
+            </div>
             <div className="flex items-center gap-3 mb-4">
               <div className="v3-card-inset flex-1 text-center">
                 <div className="font-bold text-lg">{state.direction}</div>

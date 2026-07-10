@@ -112,6 +112,7 @@ class App:
                                               # freshness + direct-refresh outcome (Task A)
         }
         self._diag_throttle: dict[tuple[str, str], int] = {}
+        self._feature_store_throttle: dict[str, int] = {}  # asset -> last row ts_ms
 
     # ------------------------------------------------------------------
     # Construction
@@ -752,6 +753,35 @@ class App:
             "anchor_status": ("available" if (anchor and anchor.available)
                               else ("missing" if anchor is not None else "not_evaluated")),
         }
+        self._record_feature_snapshot(asset, view, candidate_markets, anchor,
+                                      freshness, block_reason, now_ms)
+
+    def _record_feature_snapshot(self, asset: str, view, candidate_markets: list,
+                                 anchor, freshness: str, block_reason: Optional[str],
+                                 now_ms: int) -> None:
+        """Research feature store (append-only, throttled, shadow-only): one
+        wide point-in-time row per scanned candidate so replay/challenger/
+        drift research works from what the pipeline actually saw. Never
+        raises into the scan loop; never influences any trading decision."""
+        try:
+            from poly_alpha_sniper.research.feature_store import (
+                build_scan_feature_row, should_record)
+            from poly_alpha_sniper.strategy.shock_near_miss import (
+                SCORING_VERSION, compute_shock_near_miss)
+            last = self._feature_store_throttle.get(asset)
+            if not should_record(last, now_ms, block_reason):
+                return
+            self._feature_store_throttle[asset] = now_ms
+            market = candidate_markets[0] if candidate_markets else None
+            book = self.book_store.get(market.yes_token_id) if market is not None else None
+            row = build_scan_feature_row(
+                asset=asset, view=view, market=market, anchor=anchor,
+                freshness=freshness, block_reason=block_reason,
+                near_miss=compute_shock_near_miss(view, self.cfg), book=book,
+                scoring_version=SCORING_VERSION, now_ms=now_ms, lane="baseline")
+            self._insert("feature_store", row)
+        except Exception:  # noqa: BLE001 -- diagnostics must never break scanning
+            pass
 
     def _cex_source_detail(self, view) -> str:
         """Human-readable per-source freshness breakdown for a stale-primary

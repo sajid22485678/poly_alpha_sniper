@@ -54,6 +54,21 @@ def _heartbeat_age_ms(state: dict, now_ms: int) -> Optional[int]:
 # Individual export payloads (pure functions: data in, dict/str out)
 # ---------------------------------------------------------------------------
 
+def _current_blocker(diag: dict) -> Optional[str]:
+    """The blocker of the LATEST scan iteration (last_scan_snapshot), falling
+    back to last_block_reason. This is what "why is the bot not trading RIGHT
+    NOW" means -- as opposed to the historical Signal Engine snapshot, which
+    reflects the last time a shock fired (possibly hours ago)."""
+    snap = diag.get("last_scan_snapshot")
+    if isinstance(snap, dict) and snap.get("block_reason"):
+        return str(snap["block_reason"])
+    last = diag.get("last_block_reason")
+    if last:
+        # "SOL:rejected_by_no_shock" -> "rejected_by_no_shock"
+        return str(last).split(":", 1)[-1]
+    return None
+
+
 def build_latest_status(data: DashboardData, state: dict, cfg, now_ms: int) -> dict:
     diag = state.get("diagnostics", {}) if isinstance(state.get("diagnostics"), dict) else {}
     info = data.db_info()
@@ -68,6 +83,13 @@ def build_latest_status(data: DashboardData, state: dict, cfg, now_ms: int) -> d
         "live_enabled": _live_enabled(cfg),
         "heartbeat_age_ms": _heartbeat_age_ms(state, now_ms),
         "equity_usd": curve[-1]["equity"] if curve else cfg.risk.starting_bankroll_usd,
+        # Verified against DB (2026-07-10): the pnl equity column re-baselines
+        # to starting_bankroll on each bot restart (runtime bankroll), while
+        # exits accumulates all-time. So equity_usd here can differ from
+        # starting + all_time_pnl -- that is expected, not an accounting bug.
+        "equity_basis": ("runtime bankroll: re-baselined to "
+                         f"${cfg.risk.starting_bankroll_usd:.2f} at restart + realized PnL since; "
+                         "all-time PnL is trade_summary.all_time_pnl_usd"),
         "trades": len(exit_rows),
         "winrate": metrics.winrate(exit_rows),
         "profit_factor": metrics.profit_factor(exit_rows),
@@ -78,6 +100,10 @@ def build_latest_status(data: DashboardData, state: dict, cfg, now_ms: int) -> d
         "fresh_books": diag.get("fresh_books"),
         "total_books": diag.get("total_books"),
         "last_block_reason": diag.get("last_block_reason"),
+        # CURRENT blocker: from the live per-scan snapshot, never from the
+        # (possibly hours-old) last predictions row. None means the latest
+        # scan passed its early gates (e.g. a shock is being evaluated).
+        "current_blocker": _current_blocker(diag),
         "errors": info["row_counts"].get("errors", 0),
         "panic_active": bool(state.get("panic_active", False)),
         "kill_active": bool(state.get("kill_active", False)),
@@ -188,6 +214,9 @@ def build_oracle_status(state: dict, cfg, now_ms: int) -> dict:
         "latest_ev": ev if isinstance(ev, dict) else None,
         "final_anchor_status": anchor.get("final_anchor_status")
         or ("available" if price_to_beat is not None else "missing"),
+        # honest taxonomy of WHY it's missing (UPSTREAM_NOT_PUBLISHED /
+        # SCHEMA_UNKNOWN / HYDRATION_FAILED / EVENT_NOT_FOUND); "" if available
+        "missing_reason": anchor.get("missing_reason") or "",
         "reason": None if price_to_beat is not None else "candidate market found, price_to_beat missing",
     }
 
@@ -386,6 +415,21 @@ def _max_loss_streak(exit_rows: list[dict]) -> int:
     return worst
 
 
+def build_research_challenger_export(data: DashboardData, cfg, now_ms: int) -> dict:
+    """RESEARCH lane export (shadow-only): Markov/regime/drift diagnostics
+    from real feature-store rows, with explicit baseline/experimental lane
+    separation and a promotion status that is never automatic. Failure of the
+    research layer must never break the exporter -- degrade to a stub."""
+    try:
+        from poly_alpha_sniper.research.challenger_report import build_research_challenger
+        rows = data.recent("feature_store", 1000)
+        trades = len(data.exits())
+        return build_research_challenger(rows, trades, list(cfg.assets), now_ms)
+    except Exception as exc:  # noqa: BLE001 -- research is optional, exporter is not
+        return {"research_only": True, "available": False,
+                "error": repr(exc)[:120]}
+
+
 def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int) -> dict:
     """Everything the dashboard shows, in one payload -- lets a future agent
     reconstruct dashboard state without touching the DB directly."""
@@ -397,7 +441,7 @@ def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int)
         "trade_summary": build_trade_summary(data, cfg, now_ms),
         "reject_breakdown": build_reject_breakdown_export(data, cfg, now_ms),
         "hermes_brief": build_hermes_brief(data, state, cfg, now_ms),
-        "latest_market_state": metrics.latest_market_state(preds, diag),
+        "latest_market_state": metrics.latest_market_state(preds, diag, now_ms=now_ms),
         "oracle_status": build_oracle_status(state, cfg, now_ms),
         "live_feed_state": build_live_feed_state(state, cfg, now_ms),
         "cex_source_debug": build_cex_source_debug(state, cfg),
@@ -407,6 +451,7 @@ def build_dashboard_snapshot(data: DashboardData, state: dict, cfg, now_ms: int)
         "gate_waterfall": build_gate_waterfall(data, state, now_ms),
         "opportunity_diagnostics": build_opportunity_diagnostics(data, state, cfg, now_ms),
         "live_readiness": build_live_readiness(data, state, cfg, now_ms),
+        "research_challenger": build_research_challenger_export(data, cfg, now_ms),
         "shadow_compounding": build_shadow_compounding(data, cfg, now_ms),
         "open_positions": data.recent("positions", 50),
         "recent_orders": data.orders(25),

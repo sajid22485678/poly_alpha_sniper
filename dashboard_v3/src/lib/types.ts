@@ -20,6 +20,8 @@ export interface LatestStatus {
   fresh_books: number | null;
   total_books: number | null;
   last_block_reason: string | null;
+  // blocker of the LATEST scan iteration (live), never a historical signal
+  current_blocker?: string | null;
   errors: number;
   panic_active: boolean;
   kill_active: boolean;
@@ -116,6 +118,13 @@ export type HermesBrief =
 export type LatestMarketState =
   | {
       available: true;
+      // HISTORICAL last-signal snapshot (a predictions row only exists when a
+      // shock once fired) -- can be hours old while the pipeline is healthy.
+      // Never the CURRENT blocker; that is LatestStatus.current_blocker.
+      snapshot_kind?: string;
+      age_ms?: number | null;
+      is_stale?: boolean;
+      staleness_label?: string | null;
       ts_ms: number;
       asset: string;
       market_title: string;
@@ -380,6 +389,31 @@ export interface ShadowCompounding {
   touches_order_path: boolean;
 }
 
+/** RESEARCH lane only — never mixed into baseline stats or live readiness. */
+export interface ResearchChallenger {
+  research_only: boolean;
+  available?: boolean;
+  error?: string;
+  generated_ts_ms?: number;
+  note?: string;
+  scoring_version?: string;
+  lane_separation?: { baseline_rows: number; experimental_rows: number; mixed: boolean };
+  per_asset?: Record<string, {
+    markov?: { state_now: string; n_observations: number;
+               continuation_probability: number; reversal_probability: number } | null;
+    regime?: { regime: string; confidence: number; reasons: string[] } | null;
+    n_feature_rows?: number;
+  }>;
+  drift?: {
+    available: boolean;
+    note?: string;
+    n_rows?: number;
+    older_half?: { top_blockers: Record<string, number>; anchor_available_rate: number; cex_fresh_rate: number };
+    newer_half?: { top_blockers: Record<string, number>; anchor_available_rate: number; cex_fresh_rate: number };
+  };
+  promotion_status?: string;
+}
+
 export interface DashboardSnapshot {
   generated_ts_ms: number;
   latest_status: LatestStatus;
@@ -396,6 +430,7 @@ export interface DashboardSnapshot {
   gate_waterfall: GateWaterfall;
   opportunity_diagnostics?: OpportunityDiagnostics;
   live_readiness?: LiveReadiness;
+  research_challenger?: ResearchChallenger;
   shadow_compounding?: ShadowCompounding;
   open_positions: unknown[];
   recent_orders: OrderRow[];

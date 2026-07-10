@@ -66,6 +66,7 @@ def resolve_oracle_anchor(market: MarketInfo, cex_price: Optional[float],
         fields_checked=[str(field) for field in fields_checked],
         final_anchor_status=str(diag.get("final_anchor_status")
                                 or ("available" if oracle_open is not None else "missing")),
+        missing_reason="" if oracle_open is not None else str(diag.get("missing_reason") or ""),
     )
 
 

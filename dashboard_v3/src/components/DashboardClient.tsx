@@ -15,6 +15,7 @@ import { GateWaterfallPanel } from "@/components/GateWaterfallPanel";
 import { HermesPanel } from "@/components/HermesPanel";
 import { LiveFeedStatePanel } from "@/components/LiveFeedStatePanel";
 import { CexSourceDebugPanel } from "@/components/CexSourceDebugPanel";
+import { AdvancedQuantPanel } from "@/components/AdvancedQuantPanel";
 import { LiveReadinessPanel } from "@/components/LiveReadinessPanel";
 import { OpportunityEnginePanel } from "@/components/OpportunityEnginePanel";
 import { OracleStatusPanel } from "@/components/OracleStatusPanel";
@@ -81,6 +82,18 @@ export function DashboardClient() {
           autoExportStatusMissing={data?.auto_export_status_missing ?? true}
         />
 
+        {/* CURRENT blocker: from the live scan snapshot -- never from the
+            (possibly hours-old) historical Signal Engine row. */}
+        {status?.current_blocker !== undefined && (
+          <div className="v3-card !py-2 flex items-center gap-2 flex-wrap">
+            <span className="v3-label">CURRENT BLOCKER</span>
+            <span className="v3-mono text-sm font-semibold"
+                  style={{ color: status.current_blocker ? "var(--v3-gold)" : "var(--v3-green)" }}>
+              {status.current_blocker ?? "none — latest scan passed early gates"}
+            </span>
+          </div>
+        )}
+
         <PnlBanner summary={summary} />
 
         <SectionShell title="Key Metrics">
@@ -110,6 +123,10 @@ export function DashboardClient() {
 
         <SectionShell title="CEX Source / Fallback Debug">
           <CexSourceDebugPanel debug={snapshot?.cex_source_debug ?? null} />
+        </SectionShell>
+
+        <SectionShell title="Advanced Quant (Research)">
+          <AdvancedQuantPanel research={snapshot?.research_challenger ?? null} />
         </SectionShell>
 
         <SectionShell title="Candidate Book & Entry Gates">

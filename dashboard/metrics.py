@@ -348,20 +348,36 @@ _DECISION_LABELS = {"APPROVE": "ENTER", "SHADOW_ONLY": "ENTER (shadow)",
                     "WAIT": "WAIT", "REJECT": "SKIP"}
 
 
-def latest_market_state(prediction_rows: list[dict], diag: Optional[dict] = None) -> dict:
-    """Best-effort snapshot of 'what is the bot looking at right now', built
-    entirely from the most recent predictions row plus live runtime
-    diagnostics. Returns explicit None/'' for anything not actually recorded
-    -- callers must render those as 'not available', never fabricate a value."""
+SIGNAL_SNAPSHOT_STALE_MS = 10 * 60 * 1000  # 10 min: older than any live 5-min window
+STALE_SIGNAL_LABEL = "STALE HISTORICAL SIGNAL — not current blocker"
+
+
+def latest_market_state(prediction_rows: list[dict], diag: Optional[dict] = None,
+                        now_ms: Optional[int] = None) -> dict:
+    """HISTORICAL last-signal snapshot: built from the most recent predictions
+    row plus live runtime diagnostics. A predictions row only exists when a
+    shock once fired and reached signal-building, so this can be HOURS old
+    while the pipeline is perfectly healthy -- it must never be read as "the
+    current blocker" (that is last_scan_snapshot / gate_waterfall). When
+    now_ms is provided, age/staleness labels are attached so the dashboard
+    can say so explicitly. Returns explicit None/'' for anything not actually
+    recorded -- callers must render those as 'not available', never fabricate."""
     diag = diag or {}
     if not prediction_rows:
-        return {"available": False}
+        return {"available": False, "snapshot_kind": "historical_last_signal"}
     latest = max(prediction_rows, key=lambda r: r.get("ts_ms") or 0)
     asset = latest.get("asset")
     decision_raw = latest.get("decision")
+    ts_ms = latest.get("ts_ms")
+    age_ms = (now_ms - ts_ms) if (now_ms is not None and ts_ms) else None
+    is_stale = bool(age_ms is not None and age_ms > SIGNAL_SNAPSHOT_STALE_MS)
     return {
         "available": True,
-        "ts_ms": latest.get("ts_ms"),
+        "snapshot_kind": "historical_last_signal",
+        "age_ms": age_ms,
+        "is_stale": is_stale,
+        "staleness_label": STALE_SIGNAL_LABEL if is_stale else None,
+        "ts_ms": ts_ms,
         "asset": asset,
         "market_title": latest.get("market_title"),
         "direction": latest.get("direction"),

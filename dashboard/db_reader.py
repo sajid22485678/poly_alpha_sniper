@@ -171,7 +171,7 @@ _KNOWN_TABLES = {
     "database_backups", "calibration_results", "reconciliation_events",
     "shadow_live_discrepancy", "latency_metrics", "market_memory",
     "balanced_alpha_gate_results", "telegram_commands", "tuning_changes",
-    "market_snapshots", "shadow_diagnostics",
+    "market_snapshots", "shadow_diagnostics", "feature_store",
 }
 
 DEMO_LABEL = "DEMO DATA — NOT REAL BOT DATA"

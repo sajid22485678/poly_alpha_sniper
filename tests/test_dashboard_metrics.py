@@ -176,7 +176,29 @@ def test_unified_reject_breakdown_empty_inputs():
 
 
 def test_latest_market_state_unavailable_when_no_predictions():
-    assert metrics.latest_market_state([]) == {"available": False}
+    assert metrics.latest_market_state([]) == {
+        "available": False, "snapshot_kind": "historical_last_signal"}
+
+
+def test_latest_market_state_staleness_labeling():
+    """The Signal Engine snapshot is HISTORICAL (last predictions row, which
+    can be hours old). With now_ms it must self-describe its age and label
+    itself stale past 10 min so an old 'hard reject: book_fresh' can never be
+    read as the current blocker."""
+    preds = [{"ts_ms": 1_000_000, "asset": "BTC", "decision": "REJECT",
+              "reject_reason": "hard reject: book_fresh"}]
+    fresh = metrics.latest_market_state(preds, now_ms=1_000_000 + 60_000)
+    assert fresh["snapshot_kind"] == "historical_last_signal"
+    assert fresh["age_ms"] == 60_000
+    assert fresh["is_stale"] is False
+    assert fresh["staleness_label"] is None
+
+    stale = metrics.latest_market_state(preds, now_ms=1_000_000 + 3 * 3600_000)
+    assert stale["is_stale"] is True
+    assert stale["staleness_label"] == metrics.STALE_SIGNAL_LABEL
+    # without now_ms (legacy v1/v2 dashboard callers) nothing breaks
+    legacy = metrics.latest_market_state(preds)
+    assert legacy["age_ms"] is None and legacy["is_stale"] is False
 
 
 def test_latest_market_state_uses_most_recent_row_and_diag():

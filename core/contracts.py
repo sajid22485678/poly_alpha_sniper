@@ -464,6 +464,10 @@ class OracleAnchor:
     hydration_success: bool = False
     fields_checked: list[str] = field(default_factory=list)
     final_anchor_status: str = "missing"
+    # why the anchor is absent -- "" when available. One of:
+    # UPSTREAM_NOT_PUBLISHED | SCHEMA_UNKNOWN | HYDRATION_FAILED | EVENT_NOT_FOUND
+    # (see discovery/market_mapper._anchor_missing_reason)
+    missing_reason: str = ""
 
     @property
     def available(self) -> bool:

@@ -165,8 +165,51 @@ def extract_oracle_anchor_metadata(raw: dict) -> tuple[float | None, str, str, d
         "price_to_beat": price,
         "resolution_source_url": resolution_source_url,
         "final_anchor_status": status,
+        "missing_reason": _anchor_missing_reason(raw, price),
     }
     return price, source, resolution_source_url, diag
+
+
+def _anchor_missing_reason(raw: dict, price: float | None) -> str:
+    """Classify WHY price_to_beat is absent -- honest taxonomy, never guesses:
+
+    UPSTREAM_NOT_PUBLISHED: a metadata slot exists but is null/empty or lacks
+      a price key -- verified live (2026-07-10): Polymarket publishes
+      priceToBeat per-market with a delay after each 5-min window opens, and
+      leaves eventMetadata=null the rest of the time. Fail-closed is correct.
+    SCHEMA_UNKNOWN: metadata dict is non-empty but no recognized price key --
+      an actual schema change; the extractor needs a new variant.
+    HYDRATION_FAILED: a /events hydration was attempted and did not recover
+      the anchor.
+    EVENT_NOT_FOUND: the row has no embedded event and no metadata slot at
+      all (shallow, e.g. CLOB-shaped fallback row).
+    """
+    if price is not None:
+        return ""
+    if raw.get("_anchor_hydration_attempted") and not raw.get("_anchor_hydration_success"):
+        return "HYDRATION_FAILED"
+    metadata_dicts: list[dict] = []
+    slot_present = False
+    for key in ("eventMetadata", "metadata"):
+        if key in raw:
+            slot_present = True
+            meta = _json_obj(raw.get(key))
+            if meta:
+                metadata_dicts.append(meta)
+    for event in _events(raw):
+        for key in ("eventMetadata", "metadata"):
+            if key in event:
+                slot_present = True
+                meta = _json_obj(event.get(key))
+                if meta:
+                    metadata_dicts.append(meta)
+    if metadata_dicts:
+        return "SCHEMA_UNKNOWN"      # populated metadata, but no price key we know
+    if slot_present:
+        return "UPSTREAM_NOT_PUBLISHED"  # slot exists, value null/empty
+    if not _events(raw):
+        return "EVENT_NOT_FOUND"     # genuinely shallow row, nothing to read
+    return "UPSTREAM_NOT_PUBLISHED"  # event embedded but carries no metadata slot
 
 
 def _extract_price_to_beat(raw: dict) -> tuple[float | None, str, str]:

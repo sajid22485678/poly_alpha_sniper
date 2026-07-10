@@ -88,9 +88,25 @@ TABLES: dict[str, str] = {
                          "basis_pct REAL, anchor_quality TEXT, time_remaining_seconds REAL, "
                          "ev REAL, probability_of_payout REAL, executable_price REAL, "
                          "gate_result TEXT",
+    # Research feature store: one wide snapshot per scanned candidate (throttled)
+    # so replay/challenger/drift research works from real point-in-time features
+    # instead of re-deriving them from scattered diagnostic rows. Append-only;
+    # old rows are never mutated. NO secrets, ever. lane separates
+    # baseline vs experimental so research stats can never contaminate the
+    # official shadow record. extra is a small JSON bag for forward-compat.
+    "feature_store": f"{_COMMON}, asset TEXT, lane TEXT, market_slug TEXT, market_id TEXT, "
+                     "event_id TEXT, condition_id TEXT, yes_token_id TEXT, no_token_id TEXT, "
+                     "time_to_close_s REAL, price_to_beat REAL, anchor_status TEXT, "
+                     "anchor_source TEXT, anchor_missing_reason TEXT, cex_source TEXT, "
+                     "cex_age_ms INTEGER, cex_freshness TEXT, cex_price REAL, "
+                     "ret_1s REAL, ret_2s REAL, ret_5s REAL, volatility REAL, zscore REAL, "
+                     "shock_score REAL, ret_score REAL, zscore_score REAL, near_miss_tier TEXT, "
+                     "scoring_version TEXT, book_bid REAL, book_ask REAL, spread REAL, "
+                     "book_age_ms INTEGER, depth_usd REAL, blocker TEXT, decision TEXT, "
+                     "edge REAL, ev REAL, tier TEXT, extra TEXT",
 }
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def run_migrations(store) -> None:
