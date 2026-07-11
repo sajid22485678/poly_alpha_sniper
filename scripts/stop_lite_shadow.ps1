@@ -11,6 +11,8 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $RuntimeDir = Join-Path $ProjectRoot "runtime\lite_shadow"
 $LockFile = Join-Path $RuntimeDir "process.lock"
+$HeartbeatFile = Join-Path $RuntimeDir "heartbeat.json"
+$StateFile = Join-Path $RuntimeDir "state.json"
 $StopRequestFile = Join-Path $RuntimeDir "stop.request"
 $ExpectedPython = [System.IO.Path]::GetFullPath(
     (Join-Path $ProjectRoot ".venv\Scripts\python.exe"))
@@ -111,6 +113,18 @@ if ([string]$lock.mode -ne "lite_shadow") {
     exit 1
 }
 
+$launchNonce = [string]$lock.launch_nonce
+$heartbeat = Read-JsonSafe -Path $HeartbeatFile
+$state = Read-JsonSafe -Path $StateFile
+if ([string]::IsNullOrWhiteSpace($launchNonce) -or $null -eq $heartbeat -or $null -eq $state -or
+    [string]$heartbeat.launch_nonce -ne $launchNonce -or
+    [string]$state.launch_nonce -ne $launchNonce -or
+    [string]$heartbeat.mode -ne "lite_shadow" -or
+    [string]$state.mode -ne "lite_shadow") {
+    Write-Error "Lite lock/state/heartbeat launch nonce validation failed; refusing to stop any process."
+    exit 2
+}
+
 $targetPid = 0
 if (-not [int]::TryParse([string]$lock.pid, [ref]$targetPid) -or $targetPid -le 0) {
     Write-Error "Lite process lock has no valid PID; refusing to stop any process."
@@ -134,6 +148,7 @@ $request = [ordered]@{
     requested_ts_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     target_pid      = $targetPid
     mode            = "lite_shadow"
+    launch_nonce    = $launchNonce
 }
 $requestJson = $request | ConvertTo-Json -Compress
 $tempRequest = "{0}.tmp.{1}" -f $StopRequestFile, $PID

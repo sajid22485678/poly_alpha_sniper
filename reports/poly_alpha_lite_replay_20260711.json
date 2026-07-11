@@ -1,0 +1,318 @@
+{
+  "method": {
+    "chronological_split": "60/20/20 by exact asset/window",
+    "candidate": "first entered side locks exact asset/window; fees and exact official outcomes included",
+    "optimizer_replay_supported": false,
+    "optimizer_replay_blocker": "legacy DB lacks point-in-time horizon returns, full book levels/hash/timestamps, decision snapshots, and pullback observations",
+    "lookahead": false,
+    "fees_and_costs": "current crypto taker fee curve applied at each recorded historical entry/exit price; per-level fee reconstruction is impossible for legacy rows and no slippage is invented",
+    "execution_realism": "historical top-of-book fills remain unverified because full levels, source timestamps, hashes, and five-share depth were not stored; forward schema now requires them",
+    "entry_price_improvement": "not historically measurable; forward WAIT_FOR_PULLBACK rows persist expected and actual improvement"
+  },
+  "legacy_headline": {
+    "entries": 329,
+    "completed": 266,
+    "net_realized_pnl": 87.125,
+    "profit_factor": 1.494326,
+    "expectancy": 0.327537594,
+    "win_rate": 0.654135,
+    "average_win": 1.5136494253,
+    "average_loss": -1.9368131868,
+    "max_drawdown_timestamp_batched": 10.3,
+    "entries_per_hour": 64.234523,
+    "completed_per_hour": 51.934295,
+    "unresolved": 63
+  },
+  "corrected_all_entries": {
+    "entries": 329,
+    "completed": 329,
+    "net_realized_pnl": -65.68353,
+    "profit_factor": 0.789869,
+    "expectancy": -0.1996459878,
+    "win_rate": 0.510638,
+    "average_win": 1.4696427976,
+    "average_loss": -1.9415125466,
+    "max_drawdown_timestamp_batched": 71.28629,
+    "entries_per_hour": 64.297559,
+    "completed_per_hour": 64.297559,
+    "unresolved": 0
+  },
+  "candidate_conflict_free_first_entry": {
+    "entries": 182,
+    "completed": 182,
+    "net_realized_pnl": -33.01382,
+    "profit_factor": 0.815468,
+    "expectancy": -0.1813946154,
+    "win_rate": 0.598901,
+    "average_win": 1.3384565138,
+    "average_loss": -2.4507613699,
+    "max_drawdown_timestamp_batched": 46.79651,
+    "entries_per_hour": 35.568862,
+    "completed_per_hour": 35.568862,
+    "unresolved": 0
+  },
+  "corrected_by_asset": {
+    "BTC": {
+      "entries": 99,
+      "completed": 99,
+      "net_realized_pnl": -21.50009,
+      "profit_factor": 0.762415,
+      "expectancy": -0.2171726263,
+      "win_rate": 0.505051,
+      "average_win": 1.379881,
+      "average_loss": -1.8468191837,
+      "max_drawdown_timestamp_batched": 23.84294,
+      "entries_per_hour": 19.882512,
+      "completed_per_hour": 19.882512,
+      "unresolved": 0
+    },
+    "ETH": {
+      "entries": 110,
+      "completed": 110,
+      "net_realized_pnl": -9.64427,
+      "profit_factor": 0.905951,
+      "expectancy": -0.0876751818,
+      "win_rate": 0.572727,
+      "average_win": 1.4746096825,
+      "average_loss": -2.1818017021,
+      "max_drawdown_timestamp_batched": 17.5024,
+      "entries_per_hour": 21.497664,
+      "completed_per_hour": 21.497664,
+      "unresolved": 0
+    },
+    "SOL": {
+      "entries": 120,
+      "completed": 120,
+      "net_realized_pnl": -34.53917,
+      "profit_factor": 0.711077,
+      "expectancy": -0.2878264167,
+      "win_rate": 0.458333,
+      "average_win": 1.5455550909,
+      "average_loss": -1.8391492308,
+      "max_drawdown_timestamp_batched": 37.20792,
+      "entries_per_hour": 23.452091,
+      "completed_per_hour": 23.452091,
+      "unresolved": 0
+    }
+  },
+  "corrected_by_side": {
+    "BUY_NO": {
+      "entries": 166,
+      "completed": 166,
+      "net_realized_pnl": -68.221,
+      "profit_factor": 0.624631,
+      "expectancy": -0.4109698795,
+      "win_rate": 0.46988,
+      "average_win": 1.4554182051,
+      "average_loss": -2.0652684091,
+      "max_drawdown_timestamp_batched": 83.46248,
+      "entries_per_hour": 32.441929,
+      "completed_per_hour": 32.441929,
+      "unresolved": 0
+    },
+    "BUY_YES": {
+      "entries": 163,
+      "completed": 163,
+      "net_realized_pnl": 2.53747,
+      "profit_factor": 1.019394,
+      "expectancy": 0.0155673006,
+      "win_rate": 0.552147,
+      "average_win": 1.4819707778,
+      "average_loss": -1.7923273973,
+      "max_drawdown_timestamp_batched": 24.71118,
+      "entries_per_hour": 32.529126,
+      "completed_per_hour": 32.529126,
+      "unresolved": 0
+    }
+  },
+  "candidate_by_asset": {
+    "BTC": {
+      "entries": 58,
+      "completed": 58,
+      "net_realized_pnl": -15.23727,
+      "profit_factor": 0.743645,
+      "expectancy": -0.2627115517,
+      "win_rate": 0.568966,
+      "average_win": 1.3394227273,
+      "average_loss": -2.3775288,
+      "max_drawdown_timestamp_batched": 21.57457,
+      "entries_per_hour": 11.648341,
+      "completed_per_hour": 11.648341,
+      "unresolved": 0
+    },
+    "ETH": {
+      "entries": 62,
+      "completed": 62,
+      "net_realized_pnl": -16.18684,
+      "profit_factor": 0.751167,
+      "expectancy": -0.2610780645,
+      "win_rate": 0.612903,
+      "average_win": 1.2859007895,
+      "average_loss": -2.71046125,
+      "max_drawdown_timestamp_batched": 22.78576,
+      "entries_per_hour": 12.116865,
+      "completed_per_hour": 12.116865,
+      "unresolved": 0
+    },
+    "SOL": {
+      "entries": 62,
+      "completed": 62,
+      "net_realized_pnl": -1.58971,
+      "profit_factor": 0.970786,
+      "expectancy": -0.0256404839,
+      "win_rate": 0.612903,
+      "average_win": 1.3901731579,
+      "average_loss": -2.2673454167,
+      "max_drawdown_timestamp_batched": 9.88842,
+      "entries_per_hour": 12.116914,
+      "completed_per_hour": 12.116914,
+      "unresolved": 0
+    }
+  },
+  "candidate_by_side": {
+    "BUY_NO": {
+      "entries": 100,
+      "completed": 100,
+      "net_realized_pnl": -42.74604,
+      "profit_factor": 0.61904,
+      "expectancy": -0.4274604,
+      "win_rate": 0.55,
+      "average_win": 1.2629081818,
+      "average_loss": -2.4934664444,
+      "max_drawdown_timestamp_batched": 54.76605,
+      "entries_per_hour": 19.854669,
+      "completed_per_hour": 19.854669,
+      "unresolved": 0
+    },
+    "BUY_YES": {
+      "entries": 82,
+      "completed": 82,
+      "net_realized_pnl": 9.73222,
+      "profit_factor": 1.145911,
+      "expectancy": 0.1186856098,
+      "win_rate": 0.658537,
+      "average_win": 1.4154038889,
+      "average_loss": -2.3821282143,
+      "max_drawdown_timestamp_batched": 10.24594,
+      "entries_per_hour": 16.446601,
+      "completed_per_hour": 16.446601,
+      "unresolved": 0
+    }
+  },
+  "conflict_comparison": {
+    "corrected_all_entries": {
+      "asset_windows": 182,
+      "opposite_side_conflicts": 147,
+      "opposite_side_conflict_rate": 0.8076923077
+    },
+    "candidate_conflict_free_first_entry": {
+      "asset_windows": 182,
+      "opposite_side_conflicts": 0,
+      "opposite_side_conflict_rate": 0.0
+    }
+  },
+  "frequency_change": {
+    "entries_before": 329,
+    "entries_after": 182,
+    "retained_fraction": 0.5531914894
+  },
+  "entry_mode": {
+    "historical": "UNKNOWN_LEGACY_NOT_RECORDED",
+    "new_forward_schema_records": [
+      "ENTER_NOW",
+      "WAIT_FOR_PULLBACK"
+    ]
+  },
+  "segments": {
+    "train": {
+      "corrected_all_entries": {
+        "entries": 198,
+        "completed": 198,
+        "net_realized_pnl": -31.46482,
+        "profit_factor": 0.831223,
+        "expectancy": -0.1589132323,
+        "win_rate": 0.515152,
+        "average_win": 1.5192515686,
+        "average_loss": -1.9419633333,
+        "max_drawdown_timestamp_batched": 37.06758,
+        "entries_per_hour": 65.077817,
+        "completed_per_hour": 65.077817,
+        "unresolved": 0
+      },
+      "candidate_conflict_free_first_entry": {
+        "entries": 109,
+        "completed": 109,
+        "net_realized_pnl": -11.30206,
+        "profit_factor": 0.890101,
+        "expectancy": -0.1036886239,
+        "win_rate": 0.633028,
+        "average_win": 1.3266478261,
+        "average_loss": -2.571019,
+        "max_drawdown_timestamp_batched": 28.26953,
+        "entries_per_hour": 35.929562,
+        "completed_per_hour": 35.929562,
+        "unresolved": 0
+      }
+    },
+    "validation": {
+      "corrected_all_entries": {
+        "entries": 66,
+        "completed": 66,
+        "net_realized_pnl": -16.98025,
+        "profit_factor": 0.741048,
+        "expectancy": -0.2572765152,
+        "win_rate": 0.5,
+        "average_win": 1.47251,
+        "average_loss": -1.9870630303,
+        "max_drawdown_timestamp_batched": 24.53095,
+        "entries_per_hour": 60.971275,
+        "completed_per_hour": 60.971275,
+        "unresolved": 0
+      },
+      "candidate_conflict_free_first_entry": {
+        "entries": 36,
+        "completed": 36,
+        "net_realized_pnl": -10.16468,
+        "profit_factor": 0.737411,
+        "expectancy": -0.2823522222,
+        "win_rate": 0.555556,
+        "average_win": 1.427239,
+        "average_loss": -2.41934125,
+        "max_drawdown_timestamp_batched": 21.64554,
+        "entries_per_hour": 33.257059,
+        "completed_per_hour": 33.257059,
+        "unresolved": 0
+      }
+    },
+    "holdout": {
+      "corrected_all_entries": {
+        "entries": 65,
+        "completed": 65,
+        "net_realized_pnl": -17.23846,
+        "profit_factor": 0.715452,
+        "expectancy": -0.2652070769,
+        "win_rate": 0.507692,
+        "average_win": 1.3134393939,
+        "average_loss": -1.89318625,
+        "max_drawdown_timestamp_batched": 20.0647,
+        "entries_per_hour": 61.363996,
+        "completed_per_hour": 61.363996,
+        "unresolved": 0
+      },
+      "candidate_conflict_free_first_entry": {
+        "entries": 37,
+        "completed": 37,
+        "net_realized_pnl": -11.54708,
+        "profit_factor": 0.690886,
+        "expectancy": -0.3120832432,
+        "win_rate": 0.540541,
+        "average_win": 1.290414,
+        "average_loss": -2.1973741176,
+        "max_drawdown_timestamp_batched": 18.41268,
+        "entries_per_hour": 34.930275,
+        "completed_per_hour": 34.930275,
+        "unresolved": 0
+      }
+    }
+  }
+}

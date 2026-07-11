@@ -41,12 +41,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$expectedExecutables = @([System.IO.Path]::GetFullPath($python), [System.IO.Path]::GetFullPath($basePython.Trim()));" ^
   "$modulePattern = '(?i)(?:^|\s)-m\s+\S*lite[.]lite_bot\S*(?:\s|$)';" ^
   "New-Item -ItemType Directory -Force -Path $logDir | Out-Null;" ^
+  "$launchNonce = [Guid]::NewGuid().ToString('N');" ^
+  "$launchStartedMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();" ^
+  "$env:POLY_ALPHA_LITE_LAUNCH_NONCE = $launchNonce;" ^
   "$process = Start-Process -FilePath $python -ArgumentList @('-m','lite.lite_bot') -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru;" ^
+  "$env:POLY_ALPHA_LITE_LAUNCH_NONCE = $null;" ^
   "Write-Output ('Started Lite shadow launcher PID {0}; waiting for its safety heartbeat...' -f $process.Id);" ^
   "$deadline = [DateTime]::UtcNow.AddSeconds(15);" ^
   "$ready = $false;" ^
   "$litePid = 0;" ^
   "$liteIdentityValid = $false;" ^
+  "$ownedLaunch = $false;" ^
   "while ([DateTime]::UtcNow -lt $deadline) {" ^
   "  if ((Test-Path -LiteralPath $lockFile) -and (Test-Path -LiteralPath $heartbeatFile) -and (Test-Path -LiteralPath $stateFile)) {" ^
   "    try {" ^
@@ -59,14 +64,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "      $executableMatch = @($expectedExecutables | Where-Object { [string]::Equals($actualExecutable, $_, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0;" ^
   "      $commandMatch = $liteProcess -and ([string]$liteProcess.CommandLine -match $modulePattern);" ^
   "      $liteIdentityValid = $executableMatch -and $commandMatch;" ^
-  "      $ready = $liteIdentityValid -and ([string]$lock.mode -eq 'lite_shadow') -and ([int]$heartbeat.pid -eq $litePid) -and ([string]$heartbeat.mode -eq 'lite_shadow') -and ([int]$state.pid -eq $litePid) -and ([string]$state.mode -eq 'lite_shadow') -and ($state.dry_run -is [bool]) -and ([bool]$state.dry_run) -and ($state.live_enabled -is [bool]) -and (-not [bool]$state.live_enabled);" ^
+  "      $ownedLaunch = $liteIdentityValid -and ([string]$lock.launch_nonce -eq $launchNonce) -and ([int64]$lock.started_ts_ms -ge $launchStartedMs);" ^
+  "      $nonceMatch = $ownedLaunch -and ([string]$heartbeat.launch_nonce -eq $launchNonce) -and ([string]$state.launch_nonce -eq $launchNonce);" ^
+  "      $ready = $nonceMatch -and ([string]$lock.mode -eq 'lite_shadow') -and ([int]$heartbeat.pid -eq $litePid) -and ([string]$heartbeat.mode -eq 'lite_shadow') -and ([int]$state.pid -eq $litePid) -and ([string]$state.mode -eq 'lite_shadow') -and ($state.running -is [bool]) -and ([bool]$state.running) -and ($state.dry_run -is [bool]) -and ([bool]$state.dry_run) -and ($state.live_enabled -is [bool]) -and (-not [bool]$state.live_enabled);" ^
   "    } catch { $ready = $false; $liteIdentityValid = $false };" ^
   "  };" ^
   "  if ($ready) { break };" ^
   "  Start-Sleep -Milliseconds 250;" ^
   "};" ^
   "if (-not $ready) {" ^
-  "  if ($liteIdentityValid -and $litePid -gt 0) { Stop-Process -Id $litePid -Force -ErrorAction SilentlyContinue };" ^
+  "  if ($ownedLaunch -and $litePid -gt 0) { Stop-Process -Id $litePid -Force -ErrorAction SilentlyContinue };" ^
   "  if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue };" ^
   "  Write-Error ('Lite failed to publish a verified lite_shadow/dry_run=true/live_enabled=false heartbeat within 15 seconds. See {0} and {1}.' -f $stdoutLog, $stderrLog);" ^
   "  exit 1;" ^

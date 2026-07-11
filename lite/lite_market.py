@@ -121,8 +121,17 @@ def parse_market_row(
         return None, "no_market"
     if start_s <= 0 or start_s % WINDOW_S != 0:
         return None, "no_market"
-    if raw.get("closed") is True or raw.get("active") is False \
-            or raw.get("archived") is True or raw.get("acceptingOrders") is False:
+    state = {
+        "closed": raw.get("closed"),
+        "active": raw.get("active"),
+        "archived": raw.get("archived"),
+        "acceptingOrders": raw.get("acceptingOrders"),
+    }
+    if any(value is None for value in state.values()):
+        return None, "market_state_invalid"
+    if (state["closed"] is not False or state["active"] is not True
+            or state["archived"] is not False
+            or state["acceptingOrders"] is not True):
         return None, "expired_market"
 
     tokens = [str(v) for v in _as_list(raw.get("clobTokenIds"))]
@@ -158,7 +167,7 @@ def parse_market_row(
 class LiteMarketFinder:
     """Small current-window cache around an injected public Gamma fetcher."""
 
-    def __init__(self, gamma_get_markets, cache_s: float = 20.0):
+    def __init__(self, gamma_get_markets, cache_s: float = 2.0):
         self._fetch = gamma_get_markets
         self._cache_s = float(cache_s)
         self._cache: dict[str, tuple[float, LiteMarket]] = {}
@@ -173,11 +182,13 @@ class LiteMarketFinder:
             rows = await self._fetch({"slug": slug, "limit": 10})
         except Exception:  # one public metadata failure rejects this scan
             return None, "no_market"
-        exact = next(
-            (row for row in (rows or []) if isinstance(row, dict) and str(row.get("slug") or "") == slug),
-            None,
-        )
-        market, reason = parse_market_row(asset, exact, expected_slug=slug)
+        exact_rows = [
+            row for row in (rows or [])
+            if isinstance(row, dict) and str(row.get("slug") or "") == slug
+        ]
+        if len(exact_rows) != 1:
+            return None, "ambiguous_market" if exact_rows else "no_market"
+        market, reason = parse_market_row(asset, exact_rows[0], expected_slug=slug)
         if market is None:
             return None, reason
         if market.window_start_s != current_window_start_s(now_ms):
@@ -215,6 +226,28 @@ class LiteGammaClient:
                 return []
             data = await response.json()
             return data if isinstance(data, list) else []
+
+    async def get_market(self, market_id: str) -> Optional[dict]:
+        """Fetch one exact market, including closed short-lived markets."""
+        if not str(market_id or "").isdigit():
+            return None
+        session = await self._sess()
+        async with session.get(f"{self.base_url}/markets/{market_id}") as response:
+            if response.status != 200:
+                return None
+            data = await response.json()
+            return data if isinstance(data, dict) else None
+
+    async def get_event(self, event_id: str) -> Optional[dict]:
+        """Fetch the stored event so market-to-event identity is provable."""
+        if not str(event_id or "").isdigit():
+            return None
+        session = await self._sess()
+        async with session.get(f"{self.base_url}/events/{event_id}") as response:
+            if response.status != 200:
+                return None
+            data = await response.json()
+            return data if isinstance(data, dict) else None
 
     async def close(self) -> None:
         if self._session is not None and not getattr(self._session, "closed", True):

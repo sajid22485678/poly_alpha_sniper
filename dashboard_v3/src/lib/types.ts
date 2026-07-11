@@ -507,11 +507,15 @@ export interface LiteTradeRow {
   shares: number;
   entry_price: number;
   entry_cost: number;
+  entry_fee?: number;
+  fee_buffer?: number;
   entry_ts: number;
   status: string;
   exit_price?: number | null;
   exit_ts?: number | null;
   pnl: number | null;
+  gross_pnl?: number | null;
+  exit_fee?: number;
   resolution_source?: string | null;
   resolution_reason?: string | null;
   anchor_available?: boolean;
@@ -520,6 +524,14 @@ export interface LiteTradeRow {
   cex_entry_price?: number | null;
   momentum_pct?: number | null;
   strategy_name?: string;
+  entry_mode?: string | null;
+  execution_verified?: boolean | number;
+  resolution_verified?: boolean | number;
+  wait_duration_ms?: number | null;
+  entry_fill_levels?: string | null;
+  entry_worst_price?: number | null;
+  exit_fill_levels?: string | null;
+  exit_worst_price?: number | null;
 }
 
 export interface LiteCexFeedAssetState {
@@ -542,6 +554,14 @@ export interface LiteCurrentMarketState {
   window_close_ts?: number | null;
   seconds_to_close?: number | null;
   time_to_close_s?: number | null;
+  direction?: {
+    output?: string; side?: string | null; yes_score?: number; no_score?: number;
+    score_difference?: number; confidence?: number; reason?: string;
+  } | null;
+  entry_decision?: {
+    action?: string; reason?: string; target_price?: number | null;
+    max_chase_price?: number | null; deadline_ts?: number | null;
+  } | null;
   [key: string]: unknown;
 }
 
@@ -559,15 +579,23 @@ export interface LiteDashboardSnapshot {
   live_enabled: boolean;
   warning: string;
   heartbeat_ts_ms: number | null;
+  current_commit?: string;
   open_positions: number;
+  exit_pending?: number;
   completed_trades: number;
+  verified_completed_trades?: number;
   pending_resolution: number;
+  unresolved_retrying?: number;
   unresolved_final: number;
   total_lite_pnl: number;
+  verified_realized_pnl?: number;
   today_lite_pnl: number;
   winrate: number | null;
   profit_factor: number | null;
   expectancy: number | null;
+  max_drawdown?: number | null;
+  average_win?: number | null;
+  average_loss?: number | null;
   entries_by_asset: Record<string, number>;
   entries_by_side: Record<string, number>;
   anchor_breakdown: { anchor: number; no_anchor: number };
@@ -577,6 +605,23 @@ export interface LiteDashboardSnapshot {
     unresolved: number;
   };
   top_reject_reasons: Record<string, number>;
+  historical_both_side_conflicts?: number;
+  asset_window_locks?: { active: number; by_status: Record<string, number> };
+  anti_dead_bot_last_hour?: Record<string, number>;
+  performance_by_entry_mode?: Record<string, { trades: number; pnl: number }>;
+  committed_exposure_usd?: number;
+  last_error?: string | null;
+  live_small_preview?: {
+    fixed_shares: number; equity_source: string; equity_usd: number;
+    exposure_cap_pct: number; exposure_cap_usd: number;
+    committed_exposure_usd: number; available_balance_usd: number;
+    fee_buffer_usd: number; max_daily_realized_loss_usd: number;
+    max_consecutive_losses: number; consecutive_losses: number;
+    kill_switch_engaged: boolean; guard_reasons: string[];
+  };
+  live_readiness_verdict?: string;
+  live_readiness_blockers?: string[];
+  real_orders_possible?: boolean;
   cex_feed_state: Record<string, LiteCexFeedAssetState | null>;
   current_market_by_asset: Record<string, LiteCurrentMarketState | null>;
   last_20_trades: LiteTradeRow[];

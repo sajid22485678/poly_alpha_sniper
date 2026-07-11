@@ -7,7 +7,7 @@ import type {
   LiteTradeRow,
 } from "@/lib/types";
 
-const LITE_WARNING = "LITE SHADOW ONLY — NOT BASELINE, NOT LIVE READINESS, NOT REAL FUNDS";
+const LITE_WARNING = "LITE SHADOW ONLY — SEPARATE FROM ADVANCED READINESS — NO REAL ORDERS";
 const HEARTBEAT_STALE_MS = 30_000;
 
 export function LiteShadowPanel({
@@ -57,7 +57,7 @@ export function LiteShadowPanel({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             <Stat label="Mode" value={lite.mode} valueColor={safetyLocked ? "var(--v3-green)" : "var(--v3-red)"} />
             <Stat label="Dry Run" value={String(lite.dry_run)} valueColor={lite.dry_run ? "var(--v3-green)" : "var(--v3-red)"} />
             <Stat label="Live Enabled" value={String(lite.live_enabled)} valueColor={!lite.live_enabled ? "var(--v3-green)" : "var(--v3-red)"} />
@@ -67,16 +67,19 @@ export function LiteShadowPanel({
               valueColor={heartbeatStale ? "var(--v3-red)" : undefined}
             />
             <Stat label="Export Age" value={fileAgeMs === null ? "not available" : `${formatAgeMs(fileAgeMs)} ago`} />
+            <Stat label="Commit" value={lite.current_commit?.slice(0, 8) ?? "unknown"} />
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mt-3">
             <Stat label="Open Positions" value={String(lite.open_positions)} />
             <Stat label="Completed Trades" value={String(lite.completed_trades)} />
+            <Stat label="Verified Completed" value={String(lite.verified_completed_trades ?? 0)} />
             <Stat label="Pending Resolution" value={String(lite.pending_resolution)} />
+            <Stat label="Retrying" value={String(lite.unresolved_retrying ?? 0)} />
             <Stat label="Unresolved Final" value={String(lite.unresolved_final)} />
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mt-3">
             <Stat
               label="Total Lite PnL"
               value={formatUsd(lite.total_lite_pnl, { signed: true })}
@@ -90,13 +93,21 @@ export function LiteShadowPanel({
             <Stat label="Winrate" value={formatPct(lite.winrate, 1)} />
             <Stat label="Profit Factor" value={formatNumber(lite.profit_factor, 2)} />
             <Stat label="Expectancy" value={formatUsd(lite.expectancy, { signed: true })} />
+            <Stat
+              label="Verified PnL"
+              value={formatUsd(lite.verified_realized_pnl ?? 0, { signed: true })}
+              valueColor={pnlColor(lite.verified_realized_pnl)}
+            />
+            <Stat label="Max Drawdown" value={formatUsd(lite.max_drawdown ?? null)} />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3 mt-4">
             <Breakdown title="Entries by Asset" values={lite.entries_by_asset} />
             <Breakdown title="Entries by Side" values={lite.entries_by_side} />
             <Breakdown title="Anchor Usage" values={lite.anchor_breakdown} />
             <Breakdown title="Resolution Sources" values={lite.resolution_source_breakdown} />
+            <Breakdown title="Entry Decisions (1h)" values={lite.anti_dead_bot_last_hour ?? {}} />
+            <Breakdown title="Window Locks" values={lite.asset_window_locks?.by_status ?? {}} />
           </div>
 
           <div className="v3-divider mt-4 pt-4">
@@ -138,6 +149,18 @@ export function LiteShadowPanel({
                   <Stat label="Writes / Min" value={formatNumber(lite.db_diagnostics.writes_per_min, 1)} inset={false} />
                 </div>
               </div>
+              <div className="v3-card-inset">
+                <Label>Live-Small Readiness Preview</Label>
+                <div className="mt-2">
+                  <Detail label="Verdict" value={lite.live_readiness_verdict ?? "not available"} />
+                  <Detail label="Real Orders Possible" value={String(lite.real_orders_possible ?? false)} />
+                  <Detail label="Both-Side History" value={String(lite.historical_both_side_conflicts ?? 0)} />
+                  <Detail label="Active Window Locks" value={String(lite.asset_window_locks?.active ?? 0)} />
+                  <Detail label="Exposure / Cap" value={`${formatUsd(lite.live_small_preview?.committed_exposure_usd ?? 0)} / ${formatUsd(lite.live_small_preview?.exposure_cap_usd ?? null)}`} />
+                  <Detail label="Available Preview" value={formatUsd(lite.live_small_preview?.available_balance_usd ?? null)} />
+                  <Detail label="Last Error" value={lite.last_error ?? "none"} />
+                </div>
+              </div>
             </div>
           </div>
         </>
@@ -173,6 +196,8 @@ function AssetState({
       <Detail label="Feed Age" value={formatAgeMs(feedAgeMs)} />
       <Detail label="Market" value={market?.slug ?? "none"} />
       <Detail label="Time to Close" value={closeS == null ? "not available" : `${formatNumber(closeS, 0)}s`} />
+      <Detail label="Direction" value={market?.direction?.output ?? "not decided"} />
+      <Detail label="Entry State" value={market?.entry_decision?.action ?? "not decided"} />
     </div>
   );
 }
@@ -207,7 +232,12 @@ function TradeTable({ trades }: { trades: LiteTradeRow[] }) {
             <td className="py-2 pr-3 text-right v3-mono">{formatUsd(trade.entry_cost)}</td>
             <td className="py-2 pr-3">
               <div>{trade.status}</div>
-              <div style={{ color: "var(--v3-muted-2)" }}>{trade.resolution_source ?? "pending"}</div>
+              <div style={{ color: "var(--v3-muted-2)" }}>
+                {trade.entry_mode ?? "LEGACY MODE UNKNOWN"} · {trade.execution_verified ? "ENTRY VERIFIED" : "ENTRY UNVERIFIED"}
+              </div>
+              <div style={{ color: "var(--v3-muted-2)" }}>
+                {trade.resolution_source ?? "pending"} · {trade.resolution_verified ? "RESOLUTION VERIFIED" : "RESOLUTION UNVERIFIED"}
+              </div>
             </td>
             <td className="py-2 text-right font-semibold v3-mono" style={{ color: pnlColor(trade.pnl) }}>
               {trade.pnl === null ? "—" : formatUsd(trade.pnl, { signed: true })}

@@ -6,14 +6,19 @@ lite_shadow:
   use_max_trade_usd: false
   max_trade_usd: null
   max_open_positions: 6
-  max_open_per_asset: 2
-  max_one_per_asset_window_side: true
+  max_open_per_asset: 1
+  max_one_per_asset_window: true
   cex_max_age_ms: 8000
   book_max_age_ms: 8000
   momentum_windows_s: [10, 30, 60]
   momentum_min_pct: 0.0002
+  direction_score_min: 0.60
+  direction_score_flat: 0.20
+  pullback_wait_s: 6
+  pullback_target_improvement: 0.01
+  max_chase_worsening: 0.02
+  extension_score: 1.8
   max_spread: 0.20
-  min_depth_usd: 1
   time_to_close_min_s: 20
   time_to_close_max_s: 280
   anchor_optional: true
@@ -24,4 +29,15 @@ lite_shadow:
   allow_book_exit: true
   allow_official_resolution: true
   resolver_retry_seconds: 30
+  resolver_retry_cap_seconds: 300
+  resolver_final_recheck_seconds: 3600
   resolver_max_retries: 30
+  resolver_batch_size: 12
+  crypto_taker_fee_rate: 0.07
+  live_small_equity_usd: 13
+  equity_exposure_cap_pct: 0.75
+  fee_buffer_usd: 0.02
+  shadow_live_small_preview: true
+  live_kill_switch_engaged: true
+  max_daily_realized_loss_usd: 2
+  max_consecutive_losses: 3

@@ -146,6 +146,39 @@ $lockPidValid = $lockPidField.Present -and
 $lockModeValid = $lockModeField.Present -and [string]$lockModeField.Value -eq "lite_shadow"
 
 $processIdentity = Test-LiteProcessIdentity -ProcessId $targetPid
+$exactLiteProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $candidate = $_
+    $candidatePath = ""
+    try { $candidatePath = [System.IO.Path]::GetFullPath([string]$candidate.ExecutablePath) } catch {}
+    $pathMatch = @($ExpectedExecutables | Where-Object {
+        [string]::Equals($candidatePath, $_, [System.StringComparison]::OrdinalIgnoreCase)
+    }).Count -gt 0
+    $pathMatch -and ([string]$candidate.CommandLine -match $ModulePattern)
+})
+$ownedLiteProcessIds = New-Object 'System.Collections.Generic.HashSet[int]'
+if ($lockPidValid) {
+    [void]$ownedLiteProcessIds.Add($targetPid)
+    # Windows venv launchers can retain a redirector parent whose command line
+    # is identical while the base interpreter child owns the runtime lock.
+    # Walk only the lock owner's exact parent chain; unrelated sibling/child
+    # Lite invocations remain orphans and keep status fail-closed.
+    $cursor = $exactLiteProcesses | Where-Object { $_.ProcessId -eq $targetPid } |
+        Select-Object -First 1
+    while ($null -ne $cursor) {
+        $parent = $exactLiteProcesses | Where-Object {
+            $_.ProcessId -eq $cursor.ParentProcessId
+        } | Select-Object -First 1
+        if ($null -eq $parent -or $ownedLiteProcessIds.Contains([int]$parent.ProcessId)) {
+            break
+        }
+        [void]$ownedLiteProcessIds.Add([int]$parent.ProcessId)
+        $cursor = $parent
+    }
+}
+$orphanLiteProcesses = @($exactLiteProcesses | Where-Object {
+    -not $ownedLiteProcessIds.Contains([int]$_.ProcessId)
+})
+$orphanCount = $orphanLiteProcesses.Count
 # A process with the exact Lite executable/module identity is running even if
 # its lock mode is corrupt. Treat that as unsafe (exit 2) so start never creates
 # a duplicate; do not misreport it as stopped merely because metadata is bad.
@@ -162,6 +195,20 @@ if ($lockModeField.Present) {
 $heartbeatPidField = Get-JsonProperty -Object $heartbeat -Name "pid"
 $heartbeatModeField = Get-JsonProperty -Object $heartbeat -Name "mode"
 $heartbeatTsField = Get-JsonProperty -Object $heartbeat -Name "ts_ms"
+$lockNonceField = Get-JsonProperty -Object $lock -Name "launch_nonce"
+$heartbeatNonceField = Get-JsonProperty -Object $heartbeat -Name "launch_nonce"
+$stateNonceField = Get-JsonProperty -Object $state -Name "launch_nonce"
+$nonceCrosscheck = "UNKNOWN"
+if ($lockNonceField.Present -and $heartbeatNonceField.Present -and $stateNonceField.Present) {
+    $nonce = [string]$lockNonceField.Value
+    if (-not [string]::IsNullOrWhiteSpace($nonce) -and
+        $nonce -eq [string]$heartbeatNonceField.Value -and
+        $nonce -eq [string]$stateNonceField.Value) {
+        $nonceCrosscheck = "MATCH"
+    } else {
+        $nonceCrosscheck = "MISMATCH"
+    }
+}
 if (-not $heartbeatTsField.Present) {
     $heartbeatTsField = Get-JsonProperty -Object $state -Name "heartbeat_ts_ms"
 }
@@ -194,6 +241,7 @@ if ($heartbeatTsField.Present -and
 $modeField = Get-JsonProperty -Object $state -Name "mode"
 $dryRunField = Get-JsonProperty -Object $state -Name "dry_run"
 $liveEnabledField = Get-JsonProperty -Object $state -Name "live_enabled"
+$stateRunningField = Get-JsonProperty -Object $state -Name "running"
 $modeText = "UNKNOWN"
 if ($modeField.Present -and -not [string]::IsNullOrWhiteSpace([string]$modeField.Value)) {
     $modeText = [string]$modeField.Value
@@ -208,6 +256,7 @@ if ($lockModeField.Present -and -not $lockModeValid) {
     $safetyStatus = "VIOLATION"
 } elseif ($lockModeValid -and $safetyFieldsKnown) {
     if ($modeText -eq "lite_shadow" -and [bool]$dryRunField.Value -and
+        ($stateRunningField.Value -is [bool]) -and [bool]$stateRunningField.Value -and
         (-not [bool]$liveEnabledField.Value)) {
         $safetyStatus = "OK"
     } else {
@@ -256,7 +305,11 @@ Write-Output "-----------------------------"
 Write-Output ("running             : {0}" -f $runningText)
 Write-Output ("pid                 : {0}" -f $pidText)
 Write-Output ("process_identity    : {0} ({1})" -f $processIdentity.Valid, $processIdentity.Reason)
+Write-Output ("exact_lite_processes: {0}" -f $exactLiteProcesses.Count)
+Write-Output ("owned_lite_processes: {0}" -f $ownedLiteProcessIds.Count)
+Write-Output ("orphan_lite_processes: {0}" -f $orphanCount)
 Write-Output ("lock_mode_crosscheck: {0}" -f $lockModeCrosscheck)
+Write-Output ("launch_nonce_check  : {0}" -f $nonceCrosscheck)
 Write-Output ("heartbeat           : {0}" -f $heartbeatText)
 Write-Output ("heartbeat_age       : {0}" -f $heartbeatAgeText)
 Write-Output ("heartbeat_fresh     : {0}" -f $heartbeatFreshText)
@@ -275,9 +328,14 @@ Write-Output ("db_path             : {0}" -f $dbPathText)
 # Lite process. Only a healthy, safe Lite process returns 0.
 if ($running) {
     if ($safetyStatus -eq "OK" -and $heartbeatCrosscheck -eq "MATCH" -and
-        $heartbeatFresh) {
+        $nonceCrosscheck -eq "MATCH" -and $orphanCount -eq 0 -and $heartbeatFresh) {
         exit 0
     }
+    exit 2
+}
+if ($exactLiteProcesses.Count -gt 0) {
+    # An exact Lite module process without the authoritative lock is unsafe;
+    # start must refuse to create another and status must never call it stopped.
     exit 2
 }
 exit 1

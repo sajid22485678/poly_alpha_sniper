@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import time
 import asyncio
+import math
+import statistics
 from collections import deque
 from typing import Optional
 
@@ -47,16 +49,21 @@ class LiteCexFeed:
         calls omit it, so a slow/fallback request can never masquerade as a
         fresh sample by inheriting the poll's start time.
         """
+        async def fetch_with_receipt(asset: str):
+            result = await self._fetch_price(asset)
+            received_ms = (int(now_ms) if now_ms is not None
+                           else int(time.time() * 1000))
+            return result, received_ms
+
         results = await asyncio.gather(
-            *(self._fetch_price(asset) for asset in self.assets),
+            *(fetch_with_receipt(asset) for asset in self.assets),
             return_exceptions=True,
         )
         for asset, result in zip(self.assets, results):
             if isinstance(result, BaseException):
                 continue
-            price, source = result
+            (price, source), received_ms = result
             if price is not None and price > 0:
-                received_ms = now_ms if now_ms is not None else int(time.time() * 1000)
                 self.record(asset, price, received_ms, source)
 
     async def _fetch_price(self, asset: str) -> tuple[Optional[float], str]:
@@ -75,7 +82,12 @@ class LiteCexFeed:
     # -- pure state (unit-testable without network) -----------------------
     def record(self, asset: str, price: float, ts_ms: int, source: str = "test") -> None:
         q = self._samples.setdefault(asset, deque())
-        q.append((ts_ms, price))
+        normalized_source = str(source or "unknown")
+        # Never compare prices across venues.  A fallback/source switch starts
+        # a new evidenced momentum series instead of manufacturing a return.
+        if q and q[-1][2] != normalized_source:
+            q.clear()
+        q.append((int(ts_ms), float(price), normalized_source))
         self._source[asset] = source
         cutoff = ts_ms - MEMORY_S * 1000
         while q and q[0][0] < cutoff:
@@ -86,8 +98,10 @@ class LiteCexFeed:
         q = self._samples.get(asset)
         if not q:
             return None, None, ""
-        ts, price = q[-1]
-        return price, max(0, now_ms - ts), self._source.get(asset, "")
+        ts, price, _source = q[-1]
+        # Preserve a negative age so downstream validity checks can reject a
+        # future-dated sample instead of silently clamping it to fresh.
+        return price, int(now_ms) - int(ts), self._source.get(asset, "")
 
     def momentum_pct(self, asset: str, window_s: int, now_ms: int) -> Optional[float]:
         """(now - then) / then using the oldest sample at least window_s old
@@ -95,26 +109,68 @@ class LiteCexFeed:
         q = self._samples.get(asset)
         if not q or len(q) < 2:
             return None
-        now_price = q[-1][1]
+        now_ts, now_price, source = q[-1]
+        if now_ts > int(now_ms):
+            return None
         target = now_ms - window_s * 1000
         past = None
-        for ts, price in q:                    # oldest -> newest
+        past_ts = None
+        for ts, price, sample_source in q:     # oldest -> newest
+            if sample_source != source:
+                continue
             if ts <= target:
                 past = price
+                past_ts = ts
             else:
                 break
-        if past is None or past <= 0:
+        tolerance_ms = max(4_000, int(window_s * 250))
+        if (past is None or past <= 0 or past_ts is None
+                or past_ts < target - tolerance_ms):
             return None
         return (now_price - past) / past
+
+    def momentum_map(self, asset: str, windows_s: list[int],
+                     now_ms: int) -> dict[int, Optional[float]]:
+        return {
+            int(window): self.momentum_pct(asset, int(window), now_ms)
+            for window in windows_s
+        }
 
     def momentum_values(self, asset: str, windows_s: list[int], now_ms: int) -> list[float]:
         """Return only evidenced window returns; insufficient history is absent."""
         values = [self.momentum_pct(asset, int(window), now_ms) for window in windows_s]
         return [value for value in values if value is not None]
 
+    def feature_snapshot(self, asset: str, windows_s: list[int], now_ms: int) -> dict:
+        q = self._samples.get(asset) or ()
+        returns = self.momentum_map(asset, windows_s, now_ms)
+        tick_return = None
+        tick_returns: list[float] = []
+        recent = [sample for sample in q if sample[0] >= int(now_ms) - 30_000]
+        for previous, current in zip(recent, recent[1:]):
+            if previous[2] != current[2] or previous[1] <= 0:
+                continue
+            value = (current[1] - previous[1]) / previous[1]
+            if math.isfinite(value):
+                tick_returns.append(value)
+        if tick_returns:
+            tick_return = tick_returns[-1]
+        volatility = statistics.pstdev(tick_returns) if len(tick_returns) >= 2 else 0.0
+        return {
+            "returns": returns,
+            "return_10s": returns.get(10),
+            "return_30s": returns.get(30),
+            "return_60s": returns.get(60),
+            "tick_return": tick_return,
+            "volatility": volatility,
+            "sample_count": len(recent),
+            "source": self._source.get(asset, ""),
+        }
+
     def state(self, asset: str, now_ms: int, max_age_ms: int) -> dict:
         price, age_ms, source = self.latest(asset, now_ms)
-        stale = not (price is not None and age_ms is not None and age_ms <= max_age_ms)
+        stale = not (price is not None and age_ms is not None
+                     and 0 <= age_ms <= max_age_ms)
         return {
             "price": price,
             "age_ms": age_ms,

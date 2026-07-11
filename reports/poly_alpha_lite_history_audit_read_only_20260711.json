@@ -1,0 +1,3153 @@
+{
+  "generated_ts_ms": 1783747100511,
+  "mode": "READ_ONLY",
+  "baseline_db": "D:\\claude\\poly_alpha_sniper\\runtime\\lite_audit\\poly_alpha_lite_before_20260711_064032_WIB.db",
+  "baseline_sha256": "f887994c6da9f685c1e7d6656858886ab422efee612c111d1704c9920909054c",
+  "baseline_trade_count": 329,
+  "baseline_conflicts": [
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783708500",
+      "market_id": "2863220",
+      "event_id": "685225",
+      "condition_id": "0x74f6ac63692843213c2988c06285d7409514ad98f176723529d07fbfbed847ba",
+      "window_close_ts": 1783708800000,
+      "buy_yes_ids": [
+        8
+      ],
+      "buy_no_ids": [
+        5
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783708500",
+      "market_id": "2863224",
+      "event_id": "685229",
+      "condition_id": "0x3ea25e4d1fa9a0586da659d23d7cd2bac3c183dfea8550859b770e52529f7533",
+      "window_close_ts": 1783708800000,
+      "buy_yes_ids": [
+        6
+      ],
+      "buy_no_ids": [
+        4
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783708500",
+      "market_id": "2863222",
+      "event_id": "685223",
+      "condition_id": "0x10c45d514707b62683648d2c124bc3ee341408b1206b119a6b538a961768fcfe",
+      "window_close_ts": 1783708800000,
+      "buy_yes_ids": [
+        7
+      ],
+      "buy_no_ids": [
+        3
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783708800",
+      "market_id": "2863236",
+      "event_id": "685231",
+      "condition_id": "0x6ae76ca79384eed6df5e1fdf45726e431c6c3c8233df68f93f3ec01ca467e358",
+      "window_close_ts": 1783709100000,
+      "buy_yes_ids": [
+        14
+      ],
+      "buy_no_ids": [
+        12
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783708800",
+      "market_id": "2863235",
+      "event_id": "685230",
+      "condition_id": "0x70ffeb12b02940f3f3b2948446c76383539a3d80392bf9a3e350478cc210cfea",
+      "window_close_ts": 1783709100000,
+      "buy_yes_ids": [
+        9
+      ],
+      "buy_no_ids": [
+        11
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783708800",
+      "market_id": "2863241",
+      "event_id": "685236",
+      "condition_id": "0x9042bfd05034da55ce09c338a7c34c67cf2e23aaac9bd74523689f58514e1f8f",
+      "window_close_ts": 1783709100000,
+      "buy_yes_ids": [
+        13
+      ],
+      "buy_no_ids": [
+        10
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783709100",
+      "market_id": "2863250",
+      "event_id": "685243",
+      "condition_id": "0x50888bb7fed969200514796fb0f9387e0c0e7d2f9a8a8e4680b6a09f58cb6cf5",
+      "window_close_ts": 1783709400000,
+      "buy_yes_ids": [
+        19
+      ],
+      "buy_no_ids": [
+        17
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783709100",
+      "market_id": "2863251",
+      "event_id": "685244",
+      "condition_id": "0xe1eddc69def069fee5c55ed35c93ae37eed7a592143ffe3b66ebcc578ce0601d",
+      "window_close_ts": 1783709400000,
+      "buy_yes_ids": [
+        18
+      ],
+      "buy_no_ids": [
+        15
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783709100",
+      "market_id": "2863254",
+      "event_id": "685246",
+      "condition_id": "0xc19d45faca048db4b5818873a680aec958c7bcc4326942f992f72026f3e0c835",
+      "window_close_ts": 1783709400000,
+      "buy_yes_ids": [
+        20
+      ],
+      "buy_no_ids": [
+        16
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783709400",
+      "market_id": "2863264",
+      "event_id": "685255",
+      "condition_id": "0x6e83308a73359f352a22365cf6d89e45951f8bac17b3916571c72f8cb0ee3334",
+      "window_close_ts": 1783709700000,
+      "buy_yes_ids": [
+        23
+      ],
+      "buy_no_ids": [
+        22
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783709400",
+      "market_id": "2863269",
+      "event_id": "685260",
+      "condition_id": "0x3fee8db8bd3d5d3343b7c2b3640c4f7852e1abdd6b95e3f96015c373bc3774e2",
+      "window_close_ts": 1783709700000,
+      "buy_yes_ids": [
+        21
+      ],
+      "buy_no_ids": [
+        25
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783709700",
+      "market_id": "2863513",
+      "event_id": "685310",
+      "condition_id": "0xc847abf7a9215b2d26f31b3f6ac25feed59386a67558d5e587f154892a7fe528",
+      "window_close_ts": 1783710000000,
+      "buy_yes_ids": [
+        27
+      ],
+      "buy_no_ids": [
+        30
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783709700",
+      "market_id": "2863515",
+      "event_id": "685312",
+      "condition_id": "0xf25d7a14cb9e621fc211fbcbc78d5df00a6a38e43b86f304a21f2e80678f9fab",
+      "window_close_ts": 1783710000000,
+      "buy_yes_ids": [
+        26
+      ],
+      "buy_no_ids": [
+        29
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783710000",
+      "market_id": "2863522",
+      "event_id": "685315",
+      "condition_id": "0x061800557d1537cec1d01431d4dde905fa2419793bf87b64c58e868bfc1b4dd5",
+      "window_close_ts": 1783710300000,
+      "buy_yes_ids": [
+        34
+      ],
+      "buy_no_ids": [
+        33
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783710000",
+      "market_id": "2863534",
+      "event_id": "685327",
+      "condition_id": "0x13ab4840eea0946453965319c89dd740d6cb6b5800167ae7d60b8619b1ffe16c",
+      "window_close_ts": 1783710300000,
+      "buy_yes_ids": [
+        35
+      ],
+      "buy_no_ids": [
+        32
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783710000",
+      "market_id": "2863535",
+      "event_id": "685328",
+      "condition_id": "0x08bc6e976078dcdcf6b44e263277f4151e05e739575fb1c47bc07367b0b44a1f",
+      "window_close_ts": 1783710300000,
+      "buy_yes_ids": [
+        36
+      ],
+      "buy_no_ids": [
+        31
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783710300",
+      "market_id": "2863548",
+      "event_id": "685335",
+      "condition_id": "0x1cb024e903aabb66fa37cc8497a08f3d462e4eee4eb0281324e0573eaf9bdcc7",
+      "window_close_ts": 1783710600000,
+      "buy_yes_ids": [
+        40
+      ],
+      "buy_no_ids": [
+        39
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783710300",
+      "market_id": "2863545",
+      "event_id": "685329",
+      "condition_id": "0x462402b2459c22483d53835b38234c54f35bead3d0510635d0128a58a6800799",
+      "window_close_ts": 1783710600000,
+      "buy_yes_ids": [
+        41
+      ],
+      "buy_no_ids": [
+        38
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783710300",
+      "market_id": "2863542",
+      "event_id": "685332",
+      "condition_id": "0x6f8818d4f6d8984282e981a5c3e5fc0660dc0fe9d724eb5c959deb9c7a601ee0",
+      "window_close_ts": 1783710600000,
+      "buy_yes_ids": [
+        42
+      ],
+      "buy_no_ids": [
+        37
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783710600",
+      "market_id": "2863560",
+      "event_id": "685341",
+      "condition_id": "0x0747b994e5a50d11a143d1e85e04229e4c1fe6de6e2da97f5bdd1e50ce0ff5ec",
+      "window_close_ts": 1783710900000,
+      "buy_yes_ids": [
+        43
+      ],
+      "buy_no_ids": [
+        47
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783710600",
+      "market_id": "2863555",
+      "event_id": "685339",
+      "condition_id": "0xde7418f2e5dc03062bde0b7b3d9a9e57632b5faa5ecda6e06cd97e5fe73d8c55",
+      "window_close_ts": 1783710900000,
+      "buy_yes_ids": [
+        45
+      ],
+      "buy_no_ids": [
+        48
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783710600",
+      "market_id": "2863558",
+      "event_id": "685340",
+      "condition_id": "0x3f78e9948407c3c031b58ae8cee5ee9f93434360e54346c94f851e24997f8842",
+      "window_close_ts": 1783710900000,
+      "buy_yes_ids": [
+        44
+      ],
+      "buy_no_ids": [
+        46
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783710900",
+      "market_id": "2863583",
+      "event_id": "685352",
+      "condition_id": "0x4fca909344af8ac647ba59a4a05d917efa93eb425c7185eb6a40a8c74acb7fb6",
+      "window_close_ts": 1783711200000,
+      "buy_yes_ids": [
+        49
+      ],
+      "buy_no_ids": [
+        52
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783710900",
+      "market_id": "2863585",
+      "event_id": "685354",
+      "condition_id": "0x9ab45d639ea56fd8955469c46646d72d2a1aedf0b51412e758f49bfc3b2f9028",
+      "window_close_ts": 1783711200000,
+      "buy_yes_ids": [
+        50
+      ],
+      "buy_no_ids": [
+        53
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783710900",
+      "market_id": "2863575",
+      "event_id": "685344",
+      "condition_id": "0xab356c27a21925ca4f2347d4ee72f8dbb22b25903cb99b2fefb3679d77035dc3",
+      "window_close_ts": 1783711200000,
+      "buy_yes_ids": [
+        51
+      ],
+      "buy_no_ids": [
+        54
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783711200",
+      "market_id": "2863591",
+      "event_id": "685359",
+      "condition_id": "0xe89d9beb49b88716c8e877a122d767a965e866720a6d18ba306479ad30751959",
+      "window_close_ts": 1783711500000,
+      "buy_yes_ids": [
+        60
+      ],
+      "buy_no_ids": [
+        56
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783711200",
+      "market_id": "2863595",
+      "event_id": "685363",
+      "condition_id": "0x50ebb28cb49b9382f14c33cdf37a7e9c8eb50590ddce3b2bc0b4fab60bb9a35e",
+      "window_close_ts": 1783711500000,
+      "buy_yes_ids": [
+        59
+      ],
+      "buy_no_ids": [
+        57
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783711200",
+      "market_id": "2863590",
+      "event_id": "685360",
+      "condition_id": "0xca8f7300f5215fe9027c8c39896fdbc421637949414fce3be9990ea9f8bb2f19",
+      "window_close_ts": 1783711500000,
+      "buy_yes_ids": [
+        58
+      ],
+      "buy_no_ids": [
+        55
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783711500",
+      "market_id": "2863608",
+      "event_id": "685368",
+      "condition_id": "0xe6ec1f8f09a84915622f33a2bb900ee4667a70b2d01dfe57b757361938700240",
+      "window_close_ts": 1783711800000,
+      "buy_yes_ids": [
+        61
+      ],
+      "buy_no_ids": [
+        62
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783711800",
+      "market_id": "2863622",
+      "event_id": "685381",
+      "condition_id": "0x42c15675959138c0dc056fb956e129131f11c8125a61d49c08985ec2d119be83",
+      "window_close_ts": 1783712100000,
+      "buy_yes_ids": [
+        69
+      ],
+      "buy_no_ids": [
+        66
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783711800",
+      "market_id": "2863624",
+      "event_id": "685383",
+      "condition_id": "0xc08bcbaba3180afba641e8e1ba9c60ab617ff713ae604f45fc64a2aea36ed488",
+      "window_close_ts": 1783712100000,
+      "buy_yes_ids": [
+        68
+      ],
+      "buy_no_ids": [
+        65
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783712100",
+      "market_id": "2863681",
+      "event_id": "685394",
+      "condition_id": "0x6e64318ee8e446f05fcfde93de61a5b35fdb746a6b423dcdf67af6c3ba05b3cb",
+      "window_close_ts": 1783712400000,
+      "buy_yes_ids": [
+        71
+      ],
+      "buy_no_ids": [
+        75
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783712100",
+      "market_id": "2863680",
+      "event_id": "685393",
+      "condition_id": "0x3941732148820a6db5f0b62b2bb33fb85e08597cd5a5aafba1e7b91243b711a0",
+      "window_close_ts": 1783712400000,
+      "buy_yes_ids": [
+        70
+      ],
+      "buy_no_ids": [
+        73
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783712100",
+      "market_id": "2863678",
+      "event_id": "685392",
+      "condition_id": "0x69b625e688bc3a73c1edfe4c13831b6c87192c5674c43795c4694d05451c4d74",
+      "window_close_ts": 1783712400000,
+      "buy_yes_ids": [
+        72
+      ],
+      "buy_no_ids": [
+        74
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783712400",
+      "market_id": "2863691",
+      "event_id": "685396",
+      "condition_id": "0x165974be9c86bf9e2f25be4d0ee8c2dd6c1fc8709d30abacb5cb40ece414d424",
+      "window_close_ts": 1783712700000,
+      "buy_yes_ids": [
+        81
+      ],
+      "buy_no_ids": [
+        76
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783712400",
+      "market_id": "2863689",
+      "event_id": "685398",
+      "condition_id": "0x354dd63be96ccf4ea219bad0e4bf148326a5c3c2719095c795277a2c262c008c",
+      "window_close_ts": 1783712700000,
+      "buy_yes_ids": [
+        80
+      ],
+      "buy_no_ids": [
+        77
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783712400",
+      "market_id": "2863693",
+      "event_id": "685400",
+      "condition_id": "0xb78800127bf6c7df4c43863b6c9cdd7e189be9552031054d6661ec0336cc1a1f",
+      "window_close_ts": 1783712700000,
+      "buy_yes_ids": [
+        79
+      ],
+      "buy_no_ids": [
+        78
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783712700",
+      "market_id": "2863746",
+      "event_id": "685416",
+      "condition_id": "0x8cde11bbdc2bdf12eefb3d3106afb3effb100a52843168739b17eb1358a989d5",
+      "window_close_ts": 1783713000000,
+      "buy_yes_ids": [
+        83
+      ],
+      "buy_no_ids": [
+        84
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783712700",
+      "market_id": "2863737",
+      "event_id": "685407",
+      "condition_id": "0x186458fd321b32d7e0952868df213f50784418bc3f7b6dcb8333972a12466b52",
+      "window_close_ts": 1783713000000,
+      "buy_yes_ids": [
+        82
+      ],
+      "buy_no_ids": [
+        85
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783713000",
+      "market_id": "2863757",
+      "event_id": "685425",
+      "condition_id": "0x86f20048cef181b5752d78c5c746e182be52c7b5a4417e2bfa908d87080ea407",
+      "window_close_ts": 1783713300000,
+      "buy_yes_ids": [
+        90
+      ],
+      "buy_no_ids": [
+        89
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783713000",
+      "market_id": "2863754",
+      "event_id": "685423",
+      "condition_id": "0xc863dbe39ed3e36216ca45935ed2f724dbc1a3bc9422f1afc81a88fe1abd1d5a",
+      "window_close_ts": 1783713300000,
+      "buy_yes_ids": [
+        91
+      ],
+      "buy_no_ids": [
+        88
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783713000",
+      "market_id": "2863753",
+      "event_id": "685420",
+      "condition_id": "0x89003f44c6b185fe1b2b26d3e50f28388568b5f89407ba37f88eefba1e990ca4",
+      "window_close_ts": 1783713300000,
+      "buy_yes_ids": [
+        92
+      ],
+      "buy_no_ids": [
+        87
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783713300",
+      "market_id": "2863766",
+      "event_id": "685433",
+      "condition_id": "0x27fcce20dbbc3c1e01dc006c5794e72d8b54652d85c7cea12789dfd50dba5c9d",
+      "window_close_ts": 1783713600000,
+      "buy_yes_ids": [
+        98
+      ],
+      "buy_no_ids": [
+        93
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783713300",
+      "market_id": "2863767",
+      "event_id": "685434",
+      "condition_id": "0x9029c7cfa2bd95f93fb1b9fb20ffcc89ff82f87ffef70d6104eafb859baf0751",
+      "window_close_ts": 1783713600000,
+      "buy_yes_ids": [
+        96
+      ],
+      "buy_no_ids": [
+        94
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783713300",
+      "market_id": "2863772",
+      "event_id": "685439",
+      "condition_id": "0xbf5b757e7aa5618d0858f47920369c151e336ffd99d0b71970e2cc8a0a5b2ff6",
+      "window_close_ts": 1783713600000,
+      "buy_yes_ids": [
+        97
+      ],
+      "buy_no_ids": [
+        95
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783713600",
+      "market_id": "2863773",
+      "event_id": "685442",
+      "condition_id": "0x9096e3fd5416ed3ae7495ed3d131ffe7c51c93a9df4d5c9c73f21fdebfc4d98f",
+      "window_close_ts": 1783713900000,
+      "buy_yes_ids": [
+        102
+      ],
+      "buy_no_ids": [
+        99
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783713900",
+      "market_id": "2863804",
+      "event_id": "685465",
+      "condition_id": "0x76b04b9acb5fa2645ca242ec2936e7088ad2b511a71d5f678a76e0d46444f921",
+      "window_close_ts": 1783714200000,
+      "buy_yes_ids": [
+        104
+      ],
+      "buy_no_ids": [
+        106
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783713900",
+      "market_id": "2863806",
+      "event_id": "685466",
+      "condition_id": "0x926ac02c23a203bdcf2d8f13dd79fddec72577f67b58f3281ac8222bbe4eacb5",
+      "window_close_ts": 1783714200000,
+      "buy_yes_ids": [
+        105
+      ],
+      "buy_no_ids": [
+        107
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783714200",
+      "market_id": "2863810",
+      "event_id": "685469",
+      "condition_id": "0x715e07df4567979d157403ca31b3182bbafa9b34ae82ea3e330dd7e8a7164e47",
+      "window_close_ts": 1783714500000,
+      "buy_yes_ids": [
+        109
+      ],
+      "buy_no_ids": [
+        111
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783714500",
+      "market_id": "2863828",
+      "event_id": "685484",
+      "condition_id": "0xccc06633a767c27869238d3427d00971e2a23936c2006a4744c4c2879f82092c",
+      "window_close_ts": 1783714800000,
+      "buy_yes_ids": [
+        115
+      ],
+      "buy_no_ids": [
+        117
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783714500",
+      "market_id": "2863827",
+      "event_id": "685482",
+      "condition_id": "0x237f90cf1e17c5610ccc033f839b5046d1fc180a58b68ee9a5ad0947089d7201",
+      "window_close_ts": 1783714800000,
+      "buy_yes_ids": [
+        114
+      ],
+      "buy_no_ids": [
+        113
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783714500",
+      "market_id": "2863822",
+      "event_id": "685479",
+      "condition_id": "0xa036dbca3e47fb4c03399fbbe084479bea4897f24cc017813df8697a8e013ad7",
+      "window_close_ts": 1783714800000,
+      "buy_yes_ids": [
+        116
+      ],
+      "buy_no_ids": [
+        112
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783714800",
+      "market_id": "2863841",
+      "event_id": "685495",
+      "condition_id": "0x22005dc32934fce45671c23f97f562bac8cc68f39cf1df4343cc1f29e151e294",
+      "window_close_ts": 1783715100000,
+      "buy_yes_ids": [
+        121
+      ],
+      "buy_no_ids": [
+        119
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783714800",
+      "market_id": "2863835",
+      "event_id": "685489",
+      "condition_id": "0xdb41d852d00645fba946e8d2bd908a99aebaa18b9f7168f7644a595437682eab",
+      "window_close_ts": 1783715100000,
+      "buy_yes_ids": [
+        122
+      ],
+      "buy_no_ids": [
+        120
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783714800",
+      "market_id": "2863838",
+      "event_id": "685492",
+      "condition_id": "0x7715f23a9c3b9f5294cff921932f8b80b29453cd31174aaa7e453ae098fb522d",
+      "window_close_ts": 1783715100000,
+      "buy_yes_ids": [
+        123
+      ],
+      "buy_no_ids": [
+        118
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783715100",
+      "market_id": "2863848",
+      "event_id": "685498",
+      "condition_id": "0x987582c9e856b4fb674c44cae759bd3b1f411a72a6677e9ea7b543c29d3b4550",
+      "window_close_ts": 1783715400000,
+      "buy_yes_ids": [
+        124
+      ],
+      "buy_no_ids": [
+        127
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783715100",
+      "market_id": "2863846",
+      "event_id": "685496",
+      "condition_id": "0x2516efd1ee5fa2db3307497d097e44c851747fae20e582858ac8626e96c9b838",
+      "window_close_ts": 1783715400000,
+      "buy_yes_ids": [
+        129
+      ],
+      "buy_no_ids": [
+        126
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783715100",
+      "market_id": "2863847",
+      "event_id": "685497",
+      "condition_id": "0xf7a31c33b1a78b118b7b142378ccfe493adb86637da42c53742a4a716ab76340",
+      "window_close_ts": 1783715400000,
+      "buy_yes_ids": [
+        128
+      ],
+      "buy_no_ids": [
+        125
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783715400",
+      "market_id": "2863855",
+      "event_id": "685504",
+      "condition_id": "0x068a08d245de42b8f7ba79da2a29b5b45c49288bf11b8e9327b0ca66f3d74dd8",
+      "window_close_ts": 1783715700000,
+      "buy_yes_ids": [
+        134
+      ],
+      "buy_no_ids": [
+        131
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783715400",
+      "market_id": "2863868",
+      "event_id": "685516",
+      "condition_id": "0xc4338889b4faec1ca47ec93cc9d57681ba7d7fae33df3d7b75ee99bc21de2460",
+      "window_close_ts": 1783715700000,
+      "buy_yes_ids": [
+        133
+      ],
+      "buy_no_ids": [
+        130
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783715400",
+      "market_id": "2863867",
+      "event_id": "685515",
+      "condition_id": "0x18715c4649da20bf9c543ff8c4e6e97a2d0610f581051e8a005f07c260c5c2a6",
+      "window_close_ts": 1783715700000,
+      "buy_yes_ids": [
+        135
+      ],
+      "buy_no_ids": [
+        132
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783715700",
+      "market_id": "2863937",
+      "event_id": "685523",
+      "condition_id": "0x27547343ee4ed333b566f1b14b7208be67fd8d4eb71d1daabc1b46ea20d7ad0f",
+      "window_close_ts": 1783716000000,
+      "buy_yes_ids": [
+        136
+      ],
+      "buy_no_ids": [
+        140
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783715700",
+      "market_id": "2863940",
+      "event_id": "685527",
+      "condition_id": "0x52593c0c6cdbf96a4dfcb891a63f89d1e69caff84cfdc76af3385eb45aa911b1",
+      "window_close_ts": 1783716000000,
+      "buy_yes_ids": [
+        137
+      ],
+      "buy_no_ids": [
+        139
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783715700",
+      "market_id": "2863936",
+      "event_id": "685524",
+      "condition_id": "0x635edca18da005cb1aa4836e6f28a638c877e0892391ca62179242f555098f9b",
+      "window_close_ts": 1783716000000,
+      "buy_yes_ids": [
+        138
+      ],
+      "buy_no_ids": [
+        141
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783716000",
+      "market_id": "2863953",
+      "event_id": "685533",
+      "condition_id": "0xc9a89d42f883828e21d742f67d470415ceaa0d5ccfd579cca5c0cba03b230aec",
+      "window_close_ts": 1783716300000,
+      "buy_yes_ids": [
+        145
+      ],
+      "buy_no_ids": [
+        143
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783716300",
+      "market_id": "2863990",
+      "event_id": "685551",
+      "condition_id": "0xd7782e17a8353e43997230f847dcfc6563cd74eaf20ef76d44b3817f9ac0d015",
+      "window_close_ts": 1783716600000,
+      "buy_yes_ids": [
+        150
+      ],
+      "buy_no_ids": [
+        147
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783716300",
+      "market_id": "2863980",
+      "event_id": "685538",
+      "condition_id": "0x96916a3b27da451ea9489e5fd7cad4b7baecbd5bda079124fec2fabc90f43639",
+      "window_close_ts": 1783716600000,
+      "buy_yes_ids": [
+        149
+      ],
+      "buy_no_ids": [
+        146
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783716600",
+      "market_id": "2863996",
+      "event_id": "685555",
+      "condition_id": "0x8e56660914cdebec9336e3fbf08df665c71e33b6a866de4efea76db173ed1ec6",
+      "window_close_ts": 1783716900000,
+      "buy_yes_ids": [
+        156
+      ],
+      "buy_no_ids": [
+        153
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783716600",
+      "market_id": "2863999",
+      "event_id": "685553",
+      "condition_id": "0x8494e0cd9f032bee58da4f3588b9c1c9312b3beab70b949bc99786a429cf018c",
+      "window_close_ts": 1783716900000,
+      "buy_yes_ids": [
+        154
+      ],
+      "buy_no_ids": [
+        152
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783716600",
+      "market_id": "2864002",
+      "event_id": "685558",
+      "condition_id": "0x9aed5c117e9a4a58db63a13667960de56907e77a6b1a92ffbd69b7f4554d02fc",
+      "window_close_ts": 1783716900000,
+      "buy_yes_ids": [
+        155
+      ],
+      "buy_no_ids": [
+        151
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783716900",
+      "market_id": "2864016",
+      "event_id": "685566",
+      "condition_id": "0x0142ee59926fa2eb820ac3d3816b452f34565229329c80a029faa49c77e97cbe",
+      "window_close_ts": 1783717200000,
+      "buy_yes_ids": [
+        161
+      ],
+      "buy_no_ids": [
+        157
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783716900",
+      "market_id": "2864021",
+      "event_id": "685571",
+      "condition_id": "0x5eda23acbc84f6b91d438a5f1f44e6b5ed8c57c0fb4a2977a349f6c3d3c23f3d",
+      "window_close_ts": 1783717200000,
+      "buy_yes_ids": [
+        160
+      ],
+      "buy_no_ids": [
+        159
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783717200",
+      "market_id": "2864053",
+      "event_id": "685576",
+      "condition_id": "0x202b7c1ee566907181842903bb76faa2ebff4daff08a33f27dcd65d45285805d",
+      "window_close_ts": 1783717500000,
+      "buy_yes_ids": [
+        164
+      ],
+      "buy_no_ids": [
+        167
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783717200",
+      "market_id": "2864066",
+      "event_id": "685587",
+      "condition_id": "0xcd5b088d4091cc4f9251fab905b32a7e0ad45a9f0c48fb4dcd834b439fd270de",
+      "window_close_ts": 1783717500000,
+      "buy_yes_ids": [
+        163
+      ],
+      "buy_no_ids": [
+        165
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783717200",
+      "market_id": "2864065",
+      "event_id": "685588",
+      "condition_id": "0x39a26615af6325cb76057de64e8265a4c22dc84b694efbde5edbae0f3648b2c1",
+      "window_close_ts": 1783717500000,
+      "buy_yes_ids": [
+        162
+      ],
+      "buy_no_ids": [
+        166
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783717500",
+      "market_id": "2864072",
+      "event_id": "685589",
+      "condition_id": "0x85c499947460ffbf42863299a9247aa3594048dc29a45395ba7cfb6631ec347a",
+      "window_close_ts": 1783717800000,
+      "buy_yes_ids": [
+        170
+      ],
+      "buy_no_ids": [
+        173
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783717500",
+      "market_id": "2864070",
+      "event_id": "685591",
+      "condition_id": "0x464b206411cc05abab7e65dc4b24f6c90ad72656428535769f67318ac4b1c1b2",
+      "window_close_ts": 1783717800000,
+      "buy_yes_ids": [
+        168
+      ],
+      "buy_no_ids": [
+        172
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783717500",
+      "market_id": "2864069",
+      "event_id": "685590",
+      "condition_id": "0x7d94ebecd5f67134dc1a02afe9652fa450e7514775cd57a09347a7d2f2fc6cc8",
+      "window_close_ts": 1783717800000,
+      "buy_yes_ids": [
+        169
+      ],
+      "buy_no_ids": [
+        171
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783717800",
+      "market_id": "2864084",
+      "event_id": "685601",
+      "condition_id": "0xeadef06522ae15c85ab7628d0cce90fbec157db75b20241bd8f87dcaa73fe139",
+      "window_close_ts": 1783718100000,
+      "buy_yes_ids": [
+        174
+      ],
+      "buy_no_ids": [
+        179
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783717800",
+      "market_id": "2864083",
+      "event_id": "685602",
+      "condition_id": "0x5a178304e272ff0ddfc60ffa2babe9bf09faf8139c7882b2a2c6092f02f48708",
+      "window_close_ts": 1783718100000,
+      "buy_yes_ids": [
+        178
+      ],
+      "buy_no_ids": [
+        175
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783717800",
+      "market_id": "2864078",
+      "event_id": "685597",
+      "condition_id": "0xd794ab19d5b52bc421c12eae188edef9d1c1f029ef51be715ca2df73792713e3",
+      "window_close_ts": 1783718100000,
+      "buy_yes_ids": [
+        177
+      ],
+      "buy_no_ids": [
+        176
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783718100",
+      "market_id": "2864087",
+      "event_id": "685604",
+      "condition_id": "0x1b4bab1319b30428a448659ab22d1b4323a1478baed13b72379a02d775e38806",
+      "window_close_ts": 1783718400000,
+      "buy_yes_ids": [
+        180
+      ],
+      "buy_no_ids": [
+        182
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783718100",
+      "market_id": "2864093",
+      "event_id": "685610",
+      "condition_id": "0x2e7b32a9f3c1a89f9cc2c99a99239e226737f5cdc1f13c8efd7f93ceabfebf64",
+      "window_close_ts": 1783718400000,
+      "buy_yes_ids": [
+        181
+      ],
+      "buy_no_ids": [
+        184
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783718400",
+      "market_id": "2864106",
+      "event_id": "685623",
+      "condition_id": "0x2482c416572294e19696a21dbdefb222ef2a5cf5645bcf548ff02e8ebbe7692d",
+      "window_close_ts": 1783718700000,
+      "buy_yes_ids": [
+        187
+      ],
+      "buy_no_ids": [
+        186
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783718400",
+      "market_id": "2864101",
+      "event_id": "685618",
+      "condition_id": "0x51456c47aa59092832bbce6006ee7f78cf352d99b21b3c317116ff30e4e527f3",
+      "window_close_ts": 1783718700000,
+      "buy_yes_ids": [
+        188
+      ],
+      "buy_no_ids": [
+        185
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783718700",
+      "market_id": "2864145",
+      "event_id": "685626",
+      "condition_id": "0xc68851abb36f14a6ef5200f0d4ece27c9b35bde84f72b797abc5df5fd61524d6",
+      "window_close_ts": 1783719000000,
+      "buy_yes_ids": [
+        194
+      ],
+      "buy_no_ids": [
+        192
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783718700",
+      "market_id": "2864147",
+      "event_id": "685631",
+      "condition_id": "0xbd3ee5cd283e26d524a59b5d47defcde3eb057f11bc02e9173b5969456624dfe",
+      "window_close_ts": 1783719000000,
+      "buy_yes_ids": [
+        190
+      ],
+      "buy_no_ids": [
+        193
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783719000",
+      "market_id": "2864159",
+      "event_id": "685642",
+      "condition_id": "0x1fce9c568fd2359aa773a0699a0f15639167f03ebaab8315ec6498f3bc93a0a3",
+      "window_close_ts": 1783719300000,
+      "buy_yes_ids": [
+        197
+      ],
+      "buy_no_ids": [
+        199
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783719000",
+      "market_id": "2864153",
+      "event_id": "685636",
+      "condition_id": "0xc57f3757fa4316b8d37a68d987736b2bf3985eef7d90bb8e3b1cb8fcf6bf54b7",
+      "window_close_ts": 1783719300000,
+      "buy_yes_ids": [
+        196
+      ],
+      "buy_no_ids": [
+        200
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783719000",
+      "market_id": "2864151",
+      "event_id": "685634",
+      "condition_id": "0xc11a6eae8e280e16ccc2cd73abbea6094d28c141af5168c63c999564a1632775",
+      "window_close_ts": 1783719300000,
+      "buy_yes_ids": [
+        195
+      ],
+      "buy_no_ids": [
+        198
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783719300",
+      "market_id": "2864207",
+      "event_id": "685655",
+      "condition_id": "0x1fb2e712c954defca8aef132b468eba81775aa01442489770ea58b6831d1e60b",
+      "window_close_ts": 1783719600000,
+      "buy_yes_ids": [
+        203
+      ],
+      "buy_no_ids": [
+        202
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783719600",
+      "market_id": "2864215",
+      "event_id": "685662",
+      "condition_id": "0x9e1091d12918441da98f503f8aa5fa5785c9dac4840546d7d59a9055ed1ad845",
+      "window_close_ts": 1783719900000,
+      "buy_yes_ids": [
+        208
+      ],
+      "buy_no_ids": [
+        205
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783719600",
+      "market_id": "2864209",
+      "event_id": "685660",
+      "condition_id": "0xfc7f6925461ec75f33c8f6fe732d753a4c56d7179fd226df93688adbf97234cf",
+      "window_close_ts": 1783719900000,
+      "buy_yes_ids": [
+        209
+      ],
+      "buy_no_ids": [
+        206
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783719600",
+      "market_id": "2864212",
+      "event_id": "685657",
+      "condition_id": "0x9a0cc25542fa562aee4f81f6604bf8dd31749045e076657a5576934f7e23fd3c",
+      "window_close_ts": 1783719900000,
+      "buy_yes_ids": [
+        210
+      ],
+      "buy_no_ids": [
+        207
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783719900",
+      "market_id": "2864265",
+      "event_id": "685671",
+      "condition_id": "0x0e56e6ced4de0200fc93ab56bf9a29f24f59594306b6c8dcc6db18efae25c1d2",
+      "window_close_ts": 1783720200000,
+      "buy_yes_ids": [
+        215
+      ],
+      "buy_no_ids": [
+        213
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783719900",
+      "market_id": "2864263",
+      "event_id": "685669",
+      "condition_id": "0x37098e2075934cb2fa2d67864d09ab23fa410f837e1fe7b2a78cc6f31a31e339",
+      "window_close_ts": 1783720200000,
+      "buy_yes_ids": [
+        211
+      ],
+      "buy_no_ids": [
+        214
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783720200",
+      "market_id": "2864280",
+      "event_id": "685686",
+      "condition_id": "0x5c567ece4bd0b6de1cdc46a29b415371f643faa14f8636a660a0935f696bcc51",
+      "window_close_ts": 1783720500000,
+      "buy_yes_ids": [
+        220
+      ],
+      "buy_no_ids": [
+        221
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783720200",
+      "market_id": "2864277",
+      "event_id": "685682",
+      "condition_id": "0xd190119dd787019e5fb48cd4b30f3ba3b790304673f85fa9055567dc8b5760ea",
+      "window_close_ts": 1783720500000,
+      "buy_yes_ids": [
+        217
+      ],
+      "buy_no_ids": [
+        219
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783720200",
+      "market_id": "2864275",
+      "event_id": "685681",
+      "condition_id": "0xbaf5dffbc062b51550bcd021ce309b72df4807d45927a393d11be3544d71baf4",
+      "window_close_ts": 1783720500000,
+      "buy_yes_ids": [
+        216
+      ],
+      "buy_no_ids": [
+        218
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783720500",
+      "market_id": "2864361",
+      "event_id": "685738",
+      "condition_id": "0x4f7afc5d7f8aca3106cd7b95c7be145928f821b1f9196b7ccff4c8304daa36c9",
+      "window_close_ts": 1783720800000,
+      "buy_yes_ids": [
+        226
+      ],
+      "buy_no_ids": [
+        224
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783720500",
+      "market_id": "2864362",
+      "event_id": "685739",
+      "condition_id": "0x8b03c0ae04b9b06fa9d86ad5180f9d4345164fae71c854a9f2003207d634e18e",
+      "window_close_ts": 1783720800000,
+      "buy_yes_ids": [
+        222
+      ],
+      "buy_no_ids": [
+        225
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783720800",
+      "market_id": "2864383",
+      "event_id": "685753",
+      "condition_id": "0xfaef819b1a79790d74f967450e0edff2889418d5afae5849c5903c42fd3d11c7",
+      "window_close_ts": 1783721100000,
+      "buy_yes_ids": [
+        230
+      ],
+      "buy_no_ids": [
+        228
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783720800",
+      "market_id": "2864382",
+      "event_id": "685754",
+      "condition_id": "0xf3246e2b071aa29c849a69b5c78f6cb4c7f1b41caf1a4be2a3ebc44403a5b1d9",
+      "window_close_ts": 1783721100000,
+      "buy_yes_ids": [
+        231
+      ],
+      "buy_no_ids": [
+        227
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783720800",
+      "market_id": "2864374",
+      "event_id": "685742",
+      "condition_id": "0xf0cb8da78f238b14c56c3d699584d486123c72f8ed1695e1a900c0de0d6ca659",
+      "window_close_ts": 1783721100000,
+      "buy_yes_ids": [
+        232
+      ],
+      "buy_no_ids": [
+        229
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783721100",
+      "market_id": "2864394",
+      "event_id": "685755",
+      "condition_id": "0x7736614d4c044b402b83f820a490ed94c53f362bfc405842f300c5c538ba1235",
+      "window_close_ts": 1783721400000,
+      "buy_yes_ids": [
+        237
+      ],
+      "buy_no_ids": [
+        233
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783721100",
+      "market_id": "2864397",
+      "event_id": "685760",
+      "condition_id": "0x090959af34309e55006dd256a8254936522a57e96819282c45603da95e8fbab8",
+      "window_close_ts": 1783721400000,
+      "buy_yes_ids": [
+        238
+      ],
+      "buy_no_ids": [
+        235
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783721100",
+      "market_id": "2864392",
+      "event_id": "685757",
+      "condition_id": "0x90022e8ce982a42a85bdd1bde6323a5217c23b480414abf41979eea24f913264",
+      "window_close_ts": 1783721400000,
+      "buy_yes_ids": [
+        236
+      ],
+      "buy_no_ids": [
+        234
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783721400",
+      "market_id": "2864403",
+      "event_id": "685765",
+      "condition_id": "0x8e1259ffde0a335f0b46d49ab988ef4e5facde02baf8ffa149dbd5dd28833c1b",
+      "window_close_ts": 1783721700000,
+      "buy_yes_ids": [
+        241
+      ],
+      "buy_no_ids": [
+        243
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783721400",
+      "market_id": "2864406",
+      "event_id": "685768",
+      "condition_id": "0x027a86f60b14a5f4f3712f780f613803e17cee8c85902b2554a1b3e3ab200a2b",
+      "window_close_ts": 1783721700000,
+      "buy_yes_ids": [
+        239
+      ],
+      "buy_no_ids": [
+        242
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783721400",
+      "market_id": "2864400",
+      "event_id": "685763",
+      "condition_id": "0x2bfe0902d4ce9f554b5ba6cb176bc8f6746d7cfd7a233ff453161b80441ca13e",
+      "window_close_ts": 1783721700000,
+      "buy_yes_ids": [
+        244
+      ],
+      "buy_no_ids": [
+        240
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783721700",
+      "market_id": "2864416",
+      "event_id": "685778",
+      "condition_id": "0xa794c18ad6a6e5c32569e4f5f39d5efcb884e3a003cab4cbedd0210bb057e7bf",
+      "window_close_ts": 1783722000000,
+      "buy_yes_ids": [
+        245
+      ],
+      "buy_no_ids": [
+        248
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783721700",
+      "market_id": "2864417",
+      "event_id": "685780",
+      "condition_id": "0xd5bc146818c5efd22a962756c886171c7cbcd5c3be8d37fa6eb1a6b03b3988bd",
+      "window_close_ts": 1783722000000,
+      "buy_yes_ids": [
+        246
+      ],
+      "buy_no_ids": [
+        247
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783722000",
+      "market_id": "2864423",
+      "event_id": "685784",
+      "condition_id": "0xa603f7303763e7c5a24ffa46fece9c7006714de538be7f66a33f33df5e055369",
+      "window_close_ts": 1783722300000,
+      "buy_yes_ids": [
+        253
+      ],
+      "buy_no_ids": [
+        251
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783722000",
+      "market_id": "2864421",
+      "event_id": "685785",
+      "condition_id": "0x3e681442aceb85dd56a537cf36bd5a1f140433edc3e89b68a3191e75c4288135",
+      "window_close_ts": 1783722300000,
+      "buy_yes_ids": [
+        252
+      ],
+      "buy_no_ids": [
+        249
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783722300",
+      "market_id": "2864455",
+      "event_id": "685797",
+      "condition_id": "0x491b867b4b8a589fbeaaa8b85f081fa216c1386fdf16f6630728a7bbe1ef7e01",
+      "window_close_ts": 1783722600000,
+      "buy_yes_ids": [
+        256
+      ],
+      "buy_no_ids": [
+        258
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783722300",
+      "market_id": "2864448",
+      "event_id": "685791",
+      "condition_id": "0x1fcac2bbf43761720832600bdc165e9b18b40e925783e28ee0029685a8536cec",
+      "window_close_ts": 1783722600000,
+      "buy_yes_ids": [
+        255
+      ],
+      "buy_no_ids": [
+        257
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783722600",
+      "market_id": "2864467",
+      "event_id": "685809",
+      "condition_id": "0x40bf86d9553b5e8275eb6bfca0422145a9025592deb4295139d7478b973d6631",
+      "window_close_ts": 1783722900000,
+      "buy_yes_ids": [
+        259
+      ],
+      "buy_no_ids": [
+        264
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783722600",
+      "market_id": "2864456",
+      "event_id": "685798",
+      "condition_id": "0x2533b97e714a1c9adea078b7a9a60c03af1f4ee26f33289568e1cba54b1b3226",
+      "window_close_ts": 1783722900000,
+      "buy_yes_ids": [
+        260
+      ],
+      "buy_no_ids": [
+        262
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783722600",
+      "market_id": "2864465",
+      "event_id": "685807",
+      "condition_id": "0xbcba88232ca5239aa1f9d22285813eef1a15e9cdda005da30950be367a92d241",
+      "window_close_ts": 1783722900000,
+      "buy_yes_ids": [
+        261
+      ],
+      "buy_no_ids": [
+        263
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783723200",
+      "market_id": "2864518",
+      "event_id": "685824",
+      "condition_id": "0x3978e76924fd460c65344324ec97d8f4ba4e642ddd9b262a41407d9f753fc0dc",
+      "window_close_ts": 1783723500000,
+      "buy_yes_ids": [
+        271
+      ],
+      "buy_no_ids": [
+        270
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783723200",
+      "market_id": "2864516",
+      "event_id": "685821",
+      "condition_id": "0x4aaa77905a37b7e997aeb943a2b4bc227ec9eef385b072a745f2e6e919f7e732",
+      "window_close_ts": 1783723500000,
+      "buy_yes_ids": [
+        267
+      ],
+      "buy_no_ids": [
+        269
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783723500",
+      "market_id": "2864531",
+      "event_id": "685831",
+      "condition_id": "0xf558551f58bc629f979293409096a7b5e5799cdac2b4fe1cdb4cfac941f03617",
+      "window_close_ts": 1783723800000,
+      "buy_yes_ids": [
+        274
+      ],
+      "buy_no_ids": [
+        273
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783723500",
+      "market_id": "2864530",
+      "event_id": "685832",
+      "condition_id": "0x675b3ccd686e1c1e6a1be4fec489019fb51632d8ccb51e6e96dda90002b31c74",
+      "window_close_ts": 1783723800000,
+      "buy_yes_ids": [
+        272
+      ],
+      "buy_no_ids": [
+        276
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783723800",
+      "market_id": "2864547",
+      "event_id": "685846",
+      "condition_id": "0x432fe43ea6abc8f183fb35a7547be2491d2a36b900c416262188f44584f375bb",
+      "window_close_ts": 1783724100000,
+      "buy_yes_ids": [
+        282
+      ],
+      "buy_no_ids": [
+        280
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783723800",
+      "market_id": "2864545",
+      "event_id": "685844",
+      "condition_id": "0x8a707e29b937046167f3e43aa65971409fa1409ae0dade742fb37e573843c897",
+      "window_close_ts": 1783724100000,
+      "buy_yes_ids": [
+        279
+      ],
+      "buy_no_ids": [
+        278
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783723800",
+      "market_id": "2864548",
+      "event_id": "685847",
+      "condition_id": "0xa84903a28504fd8c5addee6141e0947a0bb44cb440b50ad232f4b83d814711b0",
+      "window_close_ts": 1783724100000,
+      "buy_yes_ids": [
+        281
+      ],
+      "buy_no_ids": [
+        277
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783724100",
+      "market_id": "2864938",
+      "event_id": "685857",
+      "condition_id": "0x2d3510c20a84e9bf9cfc15c2f765b1c13368fd62e3fdab7d4af9e599cb2a08e7",
+      "window_close_ts": 1783724400000,
+      "buy_yes_ids": [
+        284
+      ],
+      "buy_no_ids": [
+        288
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783724100",
+      "market_id": "2864937",
+      "event_id": "685856",
+      "condition_id": "0xd8530ddbbda5eff0eb77ecbe00bff1685deb09316bcfc6ee184c9ced8e4284d1",
+      "window_close_ts": 1783724400000,
+      "buy_yes_ids": [
+        283
+      ],
+      "buy_no_ids": [
+        287
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783724100",
+      "market_id": "2864941",
+      "event_id": "685861",
+      "condition_id": "0x81856c4b14c8e6a177de632bd291bc46643fd2b291109faeadd678c6a0b7387c",
+      "window_close_ts": 1783724400000,
+      "buy_yes_ids": [
+        285
+      ],
+      "buy_no_ids": [
+        286
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783724400",
+      "market_id": "2865014",
+      "event_id": "685877",
+      "condition_id": "0x451fe7d3ee44fac90e06bf285a977592a92da5775a261be4000b35fe71f74e8b",
+      "window_close_ts": 1783724700000,
+      "buy_yes_ids": [
+        293
+      ],
+      "buy_no_ids": [
+        291
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783724400",
+      "market_id": "2865018",
+      "event_id": "685880",
+      "condition_id": "0xd43e648c062ec6bd57e9b1beb76e3507b7d779c53aa0ff181f9928067277e85e",
+      "window_close_ts": 1783724700000,
+      "buy_yes_ids": [
+        292
+      ],
+      "buy_no_ids": [
+        290
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783724700",
+      "market_id": "2865026",
+      "event_id": "685884",
+      "condition_id": "0x4736b98dcd9a7d11621102cab9f208966e4409f4beef461fd04571358abe01ce",
+      "window_close_ts": 1783725000000,
+      "buy_yes_ids": [
+        295
+      ],
+      "buy_no_ids": [
+        294
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783725000",
+      "market_id": "2865036",
+      "event_id": "685891",
+      "condition_id": "0x727d83e07797163228a7f2b050d854e7cc7941e4adbd050164bba245770484f1",
+      "window_close_ts": 1783725300000,
+      "buy_yes_ids": [
+        300
+      ],
+      "buy_no_ids": [
+        302
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783725000",
+      "market_id": "2865034",
+      "event_id": "685890",
+      "condition_id": "0xe53f2496ed07397a3ea104fd2c733f41f853e72d536feb2db582ecc179b3ff3f",
+      "window_close_ts": 1783725300000,
+      "buy_yes_ids": [
+        298
+      ],
+      "buy_no_ids": [
+        301
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783725300",
+      "market_id": "2865051",
+      "event_id": "685903",
+      "condition_id": "0x0158710bb63f84eada6007ba9cb4792775cd18ce13ebbee049593655a41be174",
+      "window_close_ts": 1783725600000,
+      "buy_yes_ids": [
+        303
+      ],
+      "buy_no_ids": [
+        307
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783725300",
+      "market_id": "2865046",
+      "event_id": "685897",
+      "condition_id": "0x069ecd6030bd07734d9236a8d482cd39f4b1afbf24e1b656feb5bae823af7081",
+      "window_close_ts": 1783725600000,
+      "buy_yes_ids": [
+        304
+      ],
+      "buy_no_ids": [
+        306
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783725300",
+      "market_id": "2865044",
+      "event_id": "685896",
+      "condition_id": "0x5430bc1ff667c6e738352f7bcf7b7fcf293cb53fc76515714deab6420ddaf5c6",
+      "window_close_ts": 1783725600000,
+      "buy_yes_ids": [
+        305
+      ],
+      "buy_no_ids": [
+        308
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783725600",
+      "market_id": "2865060",
+      "event_id": "685909",
+      "condition_id": "0xd6f295cbaa00942dc71b4c306eb972456c75484cd0c263d10df4f93f69e33be8",
+      "window_close_ts": 1783725900000,
+      "buy_yes_ids": [
+        314
+      ],
+      "buy_no_ids": [
+        310
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783725600",
+      "market_id": "2865064",
+      "event_id": "685915",
+      "condition_id": "0x9310d92169deeeff9f01a276076d31816828d239d30e8c23196eabbf38726ca7",
+      "window_close_ts": 1783725900000,
+      "buy_yes_ids": [
+        313
+      ],
+      "buy_no_ids": [
+        309
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783725600",
+      "market_id": "2865058",
+      "event_id": "685910",
+      "condition_id": "0xa4fd9b56ca0cebb4b84be70d51322a5a0d6cf5d2954b839bf82704ce1558bdaa",
+      "window_close_ts": 1783725900000,
+      "buy_yes_ids": [
+        312
+      ],
+      "buy_no_ids": [
+        311
+      ]
+    },
+    {
+      "asset": "BTC",
+      "slug": "btc-updown-5m-1783725900",
+      "market_id": "2865078",
+      "event_id": "685921",
+      "condition_id": "0x029b98fe92390bf322f1c2f6e39816d0e2bd2b54c76cefb5307a40881f934d35",
+      "window_close_ts": 1783726200000,
+      "buy_yes_ids": [
+        316
+      ],
+      "buy_no_ids": [
+        320
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783725900",
+      "market_id": "2865073",
+      "event_id": "685916",
+      "condition_id": "0xaeca355a5456fb73150aac460e9a032e0bd3ca30c0bacc3a4034da84e14a6b8f",
+      "window_close_ts": 1783726200000,
+      "buy_yes_ids": [
+        315
+      ],
+      "buy_no_ids": [
+        318
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783725900",
+      "market_id": "2865079",
+      "event_id": "685922",
+      "condition_id": "0x5c8d93f740940526b2cc865bf8160732851fa314b9afeaaae75c915c1f7ed24a",
+      "window_close_ts": 1783726200000,
+      "buy_yes_ids": [
+        317
+      ],
+      "buy_no_ids": [
+        319
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783726200",
+      "market_id": "2865091",
+      "event_id": "685934",
+      "condition_id": "0xf37da7244bf08aee71ff0d2cbc0d7a3c85aaf0a56e8759260a94057278922910",
+      "window_close_ts": 1783726500000,
+      "buy_yes_ids": [
+        324
+      ],
+      "buy_no_ids": [
+        321
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783726200",
+      "market_id": "2865094",
+      "event_id": "685936",
+      "condition_id": "0x5f5ee536123bad24701a3f9ba82e19df13234fe6bb673fba4d301a9fd8caaa06",
+      "window_close_ts": 1783726500000,
+      "buy_yes_ids": [
+        325
+      ],
+      "buy_no_ids": [
+        323
+      ]
+    },
+    {
+      "asset": "ETH",
+      "slug": "eth-updown-5m-1783726500",
+      "market_id": "2865142",
+      "event_id": "685944",
+      "condition_id": "0x7cc402c2183b2cef035f40b629efd2a63452f01c3367e9e44f2842a136e7d3af",
+      "window_close_ts": 1783726800000,
+      "buy_yes_ids": [
+        326
+      ],
+      "buy_no_ids": [
+        329
+      ]
+    },
+    {
+      "asset": "SOL",
+      "slug": "sol-updown-5m-1783726500",
+      "market_id": "2865141",
+      "event_id": "685941",
+      "condition_id": "0xdcd1bbd40417a79229e9bfde5da15f2b50e5404856a1e230d05909b41c8d64af",
+      "window_close_ts": 1783726800000,
+      "buy_yes_ids": [
+        327
+      ],
+      "buy_no_ids": [
+        328
+      ]
+    }
+  ],
+  "baseline_conflict_count": 147,
+  "current_trade_count_before": 329,
+  "unresolved_before": 63,
+  "unresolved_exact_backfill_eligible": 63,
+  "post_close_book_exits_before": 1,
+  "post_close_exact_repair_eligible": 1,
+  "evidence_failures": [],
+  "unresolved_audit": [
+    {
+      "trade_id": 2,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863175",
+      "event_id": "685218",
+      "slug": "sol-updown-5m-1783708200",
+      "condition_id": "0x41e2faa9f3819b12339533f90c06670eaeadd3de7a6eaf08d80fb771b8f96231",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783708519000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 7,
+      "asset": "SOL",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863222",
+      "event_id": "685223",
+      "slug": "sol-updown-5m-1783708500",
+      "condition_id": "0x10c45d514707b62683648d2c124bc3ee341408b1206b119a6b538a961768fcfe",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783708820000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 13,
+      "asset": "SOL",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863241",
+      "event_id": "685236",
+      "slug": "sol-updown-5m-1783708800",
+      "condition_id": "0x9042bfd05034da55ce09c338a7c34c67cf2e23aaac9bd74523689f58514e1f8f",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783709116000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 14,
+      "asset": "BTC",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863236",
+      "event_id": "685231",
+      "slug": "btc-updown-5m-1783708800",
+      "condition_id": "0x6ae76ca79384eed6df5e1fdf45726e431c6c3c8233df68f93f3ec01ca467e358",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783709120000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 18,
+      "asset": "ETH",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863251",
+      "event_id": "685244",
+      "slug": "eth-updown-5m-1783709100",
+      "condition_id": "0xe1eddc69def069fee5c55ed35c93ae37eed7a592143ffe3b66ebcc578ce0601d",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783709452000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 19,
+      "asset": "BTC",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863250",
+      "event_id": "685243",
+      "slug": "btc-updown-5m-1783709100",
+      "condition_id": "0x50888bb7fed969200514796fb0f9387e0c0e7d2f9a8a8e4680b6a09f58cb6cf5",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783709452000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 20,
+      "asset": "SOL",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863254",
+      "event_id": "685246",
+      "slug": "sol-updown-5m-1783709100",
+      "condition_id": "0xc19d45faca048db4b5818873a680aec958c7bcc4326942f992f72026f3e0c835",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783709485000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 23,
+      "asset": "ETH",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863264",
+      "event_id": "685255",
+      "slug": "eth-updown-5m-1783709400",
+      "condition_id": "0x6e83308a73359f352a22365cf6d89e45951f8bac17b3916571c72f8cb0ee3334",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783709716000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 29,
+      "asset": "ETH",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863515",
+      "event_id": "685312",
+      "slug": "eth-updown-5m-1783709700",
+      "condition_id": "0xf25d7a14cb9e621fc211fbcbc78d5df00a6a38e43b86f304a21f2e80678f9fab",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783710019000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 30,
+      "asset": "BTC",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863513",
+      "event_id": "685310",
+      "slug": "btc-updown-5m-1783709700",
+      "condition_id": "0xc847abf7a9215b2d26f31b3f6ac25feed59386a67558d5e587f154892a7fe528",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783710019000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 31,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863535",
+      "event_id": "685328",
+      "slug": "sol-updown-5m-1783710000",
+      "condition_id": "0x08bc6e976078dcdcf6b44e263277f4151e05e739575fb1c47bc07367b0b44a1f",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783710316000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 32,
+      "asset": "ETH",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863534",
+      "event_id": "685327",
+      "slug": "eth-updown-5m-1783710000",
+      "condition_id": "0x13ab4840eea0946453965319c89dd740d6cb6b5800167ae7d60b8619b1ffe16c",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783710316000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 38,
+      "asset": "ETH",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863545",
+      "event_id": "685329",
+      "slug": "eth-updown-5m-1783710300",
+      "condition_id": "0x462402b2459c22483d53835b38234c54f35bead3d0510635d0128a58a6800799",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783710619000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 39,
+      "asset": "BTC",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863548",
+      "event_id": "685335",
+      "slug": "btc-updown-5m-1783710300",
+      "condition_id": "0x1cb024e903aabb66fa37cc8497a08f3d462e4eee4eb0281324e0573eaf9bdcc7",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783710626000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 46,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863558",
+      "event_id": "685340",
+      "slug": "sol-updown-5m-1783710600",
+      "condition_id": "0x3f78e9948407c3c031b58ae8cee5ee9f93434360e54346c94f851e24997f8842",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783710919000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 47,
+      "asset": "BTC",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863560",
+      "event_id": "685341",
+      "slug": "btc-updown-5m-1783710600",
+      "condition_id": "0x0747b994e5a50d11a143d1e85e04229e4c1fe6de6e2da97f5bdd1e50ce0ff5ec",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783710919000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 48,
+      "asset": "ETH",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863555",
+      "event_id": "685339",
+      "slug": "eth-updown-5m-1783710600",
+      "condition_id": "0xde7418f2e5dc03062bde0b7b3d9a9e57632b5faa5ecda6e06cd97e5fe73d8c55",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783710926000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 49,
+      "asset": "BTC",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863583",
+      "event_id": "685352",
+      "slug": "btc-updown-5m-1783710900",
+      "condition_id": "0x4fca909344af8ac647ba59a4a05d917efa93eb425c7185eb6a40a8c74acb7fb6",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783711216000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 50,
+      "asset": "ETH",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863585",
+      "event_id": "685354",
+      "slug": "eth-updown-5m-1783710900",
+      "condition_id": "0x9ab45d639ea56fd8955469c46646d72d2a1aedf0b51412e758f49bfc3b2f9028",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783711216000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 55,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863590",
+      "event_id": "685360",
+      "slug": "sol-updown-5m-1783711200",
+      "condition_id": "0xca8f7300f5215fe9027c8c39896fdbc421637949414fce3be9990ea9f8bb2f19",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783711519000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 62,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863608",
+      "event_id": "685368",
+      "slug": "sol-updown-5m-1783711500",
+      "condition_id": "0xe6ec1f8f09a84915622f33a2bb900ee4667a70b2d01dfe57b757361938700240",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783711820000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 65,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863624",
+      "event_id": "685383",
+      "slug": "sol-updown-5m-1783711800",
+      "condition_id": "0xc08bcbaba3180afba641e8e1ba9c60ab617ff713ae604f45fc64a2aea36ed488",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783712135000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 66,
+      "asset": "BTC",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863622",
+      "event_id": "685381",
+      "slug": "btc-updown-5m-1783711800",
+      "condition_id": "0x42c15675959138c0dc056fb956e129131f11c8125a61d49c08985ec2d119be83",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783712120000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 73,
+      "asset": "ETH",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863680",
+      "event_id": "685393",
+      "slug": "eth-updown-5m-1783712100",
+      "condition_id": "0x3941732148820a6db5f0b62b2bb33fb85e08597cd5a5aafba1e7b91243b711a0",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783712420000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 74,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863678",
+      "event_id": "685392",
+      "slug": "sol-updown-5m-1783712100",
+      "condition_id": "0x69b625e688bc3a73c1edfe4c13831b6c87192c5674c43795c4694d05451c4d74",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783712420000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 75,
+      "asset": "BTC",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863681",
+      "event_id": "685394",
+      "slug": "btc-updown-5m-1783712100",
+      "condition_id": "0x6e64318ee8e446f05fcfde93de61a5b35fdb746a6b423dcdf67af6c3ba05b3cb",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783712420000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 81,
+      "asset": "BTC",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863691",
+      "event_id": "685396",
+      "slug": "btc-updown-5m-1783712400",
+      "condition_id": "0x165974be9c86bf9e2f25be4d0ee8c2dd6c1fc8709d30abacb5cb40ece414d424",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783712719000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 83,
+      "asset": "ETH",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863746",
+      "event_id": "685416",
+      "slug": "eth-updown-5m-1783712700",
+      "condition_id": "0x8cde11bbdc2bdf12eefb3d3106afb3effb100a52843168739b17eb1358a989d5",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783713019000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 96,
+      "asset": "ETH",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863767",
+      "event_id": "685434",
+      "slug": "eth-updown-5m-1783713300",
+      "condition_id": "0x9029c7cfa2bd95f93fb1b9fb20ffcc89ff82f87ffef70d6104eafb859baf0751",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783713622000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 98,
+      "asset": "BTC",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863766",
+      "event_id": "685433",
+      "slug": "btc-updown-5m-1783713300",
+      "condition_id": "0x27fcce20dbbc3c1e01dc006c5794e72d8b54652d85c7cea12789dfd50dba5c9d",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783713626000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 102,
+      "asset": "SOL",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863773",
+      "event_id": "685442",
+      "slug": "sol-updown-5m-1783713600",
+      "condition_id": "0x9096e3fd5416ed3ae7495ed3d131ffe7c51c93a9df4d5c9c73f21fdebfc4d98f",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783713916000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 106,
+      "asset": "ETH",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863804",
+      "event_id": "685465",
+      "slug": "eth-updown-5m-1783713900",
+      "condition_id": "0x76b04b9acb5fa2645ca242ec2936e7088ad2b511a71d5f678a76e0d46444f921",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783714220000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 107,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863806",
+      "event_id": "685466",
+      "slug": "sol-updown-5m-1783713900",
+      "condition_id": "0x926ac02c23a203bdcf2d8f13dd79fddec72577f67b58f3281ac8222bbe4eacb5",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783714220000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 124,
+      "asset": "BTC",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863848",
+      "event_id": "685498",
+      "slug": "btc-updown-5m-1783715100",
+      "condition_id": "0x987582c9e856b4fb674c44cae759bd3b1f411a72a6677e9ea7b543c29d3b4550",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783715416000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 130,
+      "asset": "ETH",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863868",
+      "event_id": "685516",
+      "slug": "eth-updown-5m-1783715400",
+      "condition_id": "0xc4338889b4faec1ca47ec93cc9d57681ba7d7fae33df3d7b75ee99bc21de2460",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783715719000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 131,
+      "asset": "BTC",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863855",
+      "event_id": "685504",
+      "slug": "btc-updown-5m-1783715400",
+      "condition_id": "0x068a08d245de42b8f7ba79da2a29b5b45c49288bf11b8e9327b0ca66f3d74dd8",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783715725000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 140,
+      "asset": "BTC",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863937",
+      "event_id": "685523",
+      "slug": "btc-updown-5m-1783715700",
+      "condition_id": "0x27547343ee4ed333b566f1b14b7208be67fd8d4eb71d1daabc1b46ea20d7ad0f",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783716019000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 141,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863936",
+      "event_id": "685524",
+      "slug": "sol-updown-5m-1783715700",
+      "condition_id": "0x635edca18da005cb1aa4836e6f28a638c877e0892391ca62179242f555098f9b",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783716019000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 145,
+      "asset": "SOL",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2863953",
+      "event_id": "685533",
+      "slug": "sol-updown-5m-1783716000",
+      "condition_id": "0xc9a89d42f883828e21d742f67d470415ceaa0d5ccfd579cca5c0cba03b230aec",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783716319000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 160,
+      "asset": "SOL",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864021",
+      "event_id": "685571",
+      "slug": "sol-updown-5m-1783716900",
+      "condition_id": "0x5eda23acbc84f6b91d438a5f1f44e6b5ed8c57c0fb4a2977a349f6c3d3c23f3d",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783717252000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 161,
+      "asset": "BTC",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864016",
+      "event_id": "685566",
+      "slug": "btc-updown-5m-1783716900",
+      "condition_id": "0x0142ee59926fa2eb820ac3d3816b452f34565229329c80a029faa49c77e97cbe",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783717252000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 165,
+      "asset": "ETH",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864066",
+      "event_id": "685587",
+      "slug": "eth-updown-5m-1783717200",
+      "condition_id": "0xcd5b088d4091cc4f9251fab905b32a7e0ad45a9f0c48fb4dcd834b439fd270de",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783717519000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 166,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864065",
+      "event_id": "685588",
+      "slug": "sol-updown-5m-1783717200",
+      "condition_id": "0x39a26615af6325cb76057de64e8265a4c22dc84b694efbde5edbae0f3648b2c1",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783717519000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 167,
+      "asset": "BTC",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864053",
+      "event_id": "685576",
+      "slug": "btc-updown-5m-1783717200",
+      "condition_id": "0x202b7c1ee566907181842903bb76faa2ebff4daff08a33f27dcd65d45285805d",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783717519000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 184,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864093",
+      "event_id": "685610",
+      "slug": "sol-updown-5m-1783718100",
+      "condition_id": "0x2e7b32a9f3c1a89f9cc2c99a99239e226737f5cdc1f13c8efd7f93ceabfebf64",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783718419000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 186,
+      "asset": "ETH",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864106",
+      "event_id": "685623",
+      "slug": "eth-updown-5m-1783718400",
+      "condition_id": "0x2482c416572294e19696a21dbdefb222ef2a5cf5645bcf548ff02e8ebbe7692d",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783718719000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 198,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864151",
+      "event_id": "685634",
+      "slug": "sol-updown-5m-1783719000",
+      "condition_id": "0xc11a6eae8e280e16ccc2cd73abbea6094d28c141af5168c63c999564a1632775",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783719319000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 200,
+      "asset": "ETH",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864153",
+      "event_id": "685636",
+      "slug": "eth-updown-5m-1783719000",
+      "condition_id": "0xc57f3757fa4316b8d37a68d987736b2bf3985eef7d90bb8e3b1cb8fcf6bf54b7",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783719319000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 209,
+      "asset": "ETH",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864209",
+      "event_id": "685660",
+      "slug": "eth-updown-5m-1783719600",
+      "condition_id": "0xfc7f6925461ec75f33c8f6fe732d753a4c56d7179fd226df93688adbf97234cf",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783719926000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 211,
+      "asset": "SOL",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864263",
+      "event_id": "685669",
+      "slug": "sol-updown-5m-1783719900",
+      "condition_id": "0x37098e2075934cb2fa2d67864d09ab23fa410f837e1fe7b2a78cc6f31a31e339",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783720219000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 215,
+      "asset": "BTC",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864265",
+      "event_id": "685671",
+      "slug": "btc-updown-5m-1783719900",
+      "condition_id": "0x0e56e6ced4de0200fc93ab56bf9a29f24f59594306b6c8dcc6db18efae25c1d2",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783720219000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 233,
+      "asset": "BTC",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864394",
+      "event_id": "685755",
+      "slug": "btc-updown-5m-1783721100",
+      "condition_id": "0x7736614d4c044b402b83f820a490ed94c53f362bfc405842f300c5c538ba1235",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783721420000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 245,
+      "asset": "ETH",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864416",
+      "event_id": "685778",
+      "slug": "eth-updown-5m-1783721700",
+      "condition_id": "0xa794c18ad6a6e5c32569e4f5f39d5efcb884e3a003cab4cbedd0210bb057e7bf",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783722019000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 252,
+      "asset": "ETH",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864421",
+      "event_id": "685785",
+      "slug": "eth-updown-5m-1783722000",
+      "condition_id": "0x3e681442aceb85dd56a537cf36bd5a1f140433edc3e89b68a3191e75c4288135",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783722325000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 258,
+      "asset": "BTC",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864455",
+      "event_id": "685797",
+      "slug": "btc-updown-5m-1783722300",
+      "condition_id": "0x491b867b4b8a589fbeaaa8b85f081fa216c1386fdf16f6630728a7bbe1ef7e01",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783722620000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 260,
+      "asset": "ETH",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864456",
+      "event_id": "685798",
+      "slug": "eth-updown-5m-1783722600",
+      "condition_id": "0x2533b97e714a1c9adea078b7a9a60c03af1f4ee26f33289568e1cba54b1b3226",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783722919000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 271,
+      "asset": "ETH",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864518",
+      "event_id": "685824",
+      "slug": "eth-updown-5m-1783723200",
+      "condition_id": "0x3978e76924fd460c65344324ec97d8f4ba4e642ddd9b262a41407d9f753fc0dc",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783723520000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 276,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2864530",
+      "event_id": "685832",
+      "slug": "sol-updown-5m-1783723500",
+      "condition_id": "0x675b3ccd686e1c1e6a1be4fec489019fb51632d8ccb51e6e96dda90002b31c74",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783723819000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 292,
+      "asset": "SOL",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2865018",
+      "event_id": "685880",
+      "slug": "sol-updown-5m-1783724400",
+      "condition_id": "0xd43e648c062ec6bd57e9b1beb76e3507b7d779c53aa0ff181f9928067277e85e",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783724716000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 293,
+      "asset": "BTC",
+      "side": "BUY_YES",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2865014",
+      "event_id": "685877",
+      "slug": "btc-updown-5m-1783724400",
+      "condition_id": "0x451fe7d3ee44fac90e06bf285a977592a92da5775a261be4000b35fe71f74e8b",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "NO",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783724720000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 301,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2865034",
+      "event_id": "685890",
+      "slug": "sol-updown-5m-1783725000",
+      "condition_id": "0xe53f2496ed07397a3ea104fd2c733f41f853e72d536feb2db582ecc179b3ff3f",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783725320000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 302,
+      "asset": "BTC",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2865036",
+      "event_id": "685891",
+      "slug": "btc-updown-5m-1783725000",
+      "condition_id": "0x727d83e07797163228a7f2b050d854e7cc7941e4adbd050164bba245770484f1",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783725320000,
+      "post_close_book_exit": false
+    },
+    {
+      "trade_id": 311,
+      "asset": "SOL",
+      "side": "BUY_NO",
+      "status_before": "UNRESOLVED_FINAL",
+      "market_id": "2865058",
+      "event_id": "685910",
+      "slug": "sol-updown-5m-1783725600",
+      "condition_id": "0xa4fd9b56ca0cebb4b84be70d51322a5a0d6cf5d2954b839bf82704ce1558bdaa",
+      "exact": true,
+      "reason": "resolved",
+      "outcome": "YES",
+      "fee_rate": 0.07,
+      "fee_source": "exact_fee_schedule",
+      "evidence_ts": 1783725952000,
+      "post_close_book_exit": false
+    }
+  ],
+  "applied": {
+    "official_backfills": 0,
+    "post_close_repaired": 0,
+    "legacy_book_fees": 0
+  },
+  "after_metrics": null
+}
