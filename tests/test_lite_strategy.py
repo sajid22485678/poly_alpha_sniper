@@ -217,6 +217,93 @@ def test_lead_lag_uses_only_ordered_point_in_time_observations():
     assert stale.status == "BOOK_PREDATES_MOVE"
 
 
+def test_unchanged_but_fresh_cex_tick_is_valid_no_new_tick():
+    strategy = LiteStrategy(LiteConfig())
+    previous = {
+        "cex_price": 100.0, "cex_ts_ms": NOW_MS-2_000,
+        "market_probability_yes": 0.50, "poly_book_ts": NOW_MS-1_900,
+    }
+    yes, no = _books()
+    decision = strategy.choose_direction(
+        _features(age=100, move_ts=NOW_MS-2_000), cex_price=100.0,
+        market=_market(), yes_book=yes, no_book=no, cex_age_ms=100,
+        previous_observation=previous, now_ms=NOW_MS)
+    assert decision.output != "NO_TRADE_DATA_INVALID"
+    assert decision.lead_lag_status == "NO_NEW_TICK"
+
+    evidence = strategy.detect_lead_lag(
+        cex_price=100.0, cex_move_ts=NOW_MS-2_000,
+        market_probability_yes=0.501, poly_book_ts=NOW_MS-500,
+        previous_observation=previous, now_ms=NOW_MS)
+    assert evidence.valid is True
+    assert evidence.status == "NO_NEW_TICK"
+    assert evidence.reason == "no_new_cex_tick_but_fresh"
+
+
+def test_consecutive_unchanged_provider_ticks_keep_the_move_watermark():
+    strategy = LiteStrategy(LiteConfig())
+    direction = replace(_direction(), poly_book_ts=NOW_MS-500)
+
+    first = strategy.observation(
+        direction, cex_price=100.0,
+        features={
+            "provider_ts_ms": NOW_MS-1_000,
+            "latest_move_ts_ms": NOW_MS-2_000,
+        })
+    second = strategy.observation(
+        direction, cex_price=100.0,
+        features={
+            "provider_ts_ms": NOW_MS-500,
+            "latest_move_ts_ms": NOW_MS-2_000,
+        })
+
+    assert first["cex_ts_ms"] == second["cex_ts_ms"] == NOW_MS-2_000
+    evidence = strategy.detect_lead_lag(
+        cex_price=100.0, cex_move_ts=NOW_MS-2_000,
+        market_probability_yes=0.501, poly_book_ts=NOW_MS-100,
+        previous_observation=second, now_ms=NOW_MS)
+    assert evidence.valid is True
+    assert evidence.status == "NO_NEW_TICK"
+
+
+@pytest.mark.parametrize(
+    ("move_ts", "poly_book_ts"),
+    [
+        pytest.param(NOW_MS-2_001, NOW_MS-500, id="regressed-cex"),
+        pytest.param(NOW_MS+1, NOW_MS-500, id="future-cex"),
+        pytest.param(NOW_MS-1_000, NOW_MS+1, id="future-book"),
+        pytest.param(NOW_MS-1_000, NOW_MS-1_901, id="regressed-book"),
+    ],
+)
+def test_future_or_regressed_lead_lag_timestamps_remain_invalid(
+        move_ts, poly_book_ts):
+    strategy = LiteStrategy(LiteConfig())
+    previous = {
+        "cex_price": 100.0, "cex_ts_ms": NOW_MS-2_000,
+        "market_probability_yes": 0.50, "poly_book_ts": NOW_MS-1_900,
+    }
+    evidence = strategy.detect_lead_lag(
+        cex_price=100.05, cex_move_ts=move_ts,
+        market_probability_yes=0.501, poly_book_ts=poly_book_ts,
+        previous_observation=previous, now_ms=NOW_MS)
+    assert evidence.valid is False
+    assert evidence.status == "OUT_OF_ORDER"
+    assert evidence.reason == "future_or_out_of_order_lag_data"
+
+
+def test_stale_cex_with_unchanged_move_timestamp_remains_invalid():
+    previous = {
+        "cex_price": 100.0, "cex_ts_ms": NOW_MS-9_000,
+        "market_probability_yes": 0.50, "poly_book_ts": NOW_MS-1_900,
+    }
+    features = _features(age=8_001, move_ts=NOW_MS-9_000)
+    decision = _direction(
+        features=features, age=8_001, previous=previous)
+    assert decision.output == "NO_TRADE_DATA_INVALID"
+    assert decision.side is None
+    assert decision.reason == "stale_or_invalid_cex"
+
+
 def test_maker_is_observational_touch_never_counts_as_fill():
     strategy = LiteStrategy(LiteConfig())
     direction = _direction()
@@ -331,6 +418,7 @@ def test_broker_persists_taker_edge_and_never_false_pullback_or_maker_fill():
     assert store.row["pullback_start_ts"] is None
     assert store.row["pullback_condition"] is None
     assert store.row["maker_fill_assumed"] is False
+    assert store.row["final_entry_reason"] == "maker_expired_cross_edge_valid"
     assert store.row["runtime_commit"] == "a"*40
     assert result["id"] == 7
 

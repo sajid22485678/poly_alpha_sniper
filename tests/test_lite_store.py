@@ -25,6 +25,28 @@ def _entry(*, window=600_000, side="BUY_YES", **overrides):
     return row
 
 
+def _market(window=600_000):
+    start = window - 300_000
+    return {
+        "asset": "BTC", "market_id": f"m-{window}", "event_id": f"e-{window}",
+        "slug": f"btc-updown-5m-{start//1000}", "condition_id": f"c-{window}",
+        "window_open_ts": start, "window_close_ts": window,
+    }
+
+
+def _direction(*, selected_edge=0.03, yes_price=0.47, no_price=0.54,
+               fair_yes=0.55, cex_adjustment=0.01, lead_lag_status="LEADING",
+               reason="initial_edge"):
+    return {
+        "output": "BUY_YES", "side": "BUY_YES", "reason": reason,
+        "executable_yes_price": yes_price, "executable_no_price": no_price,
+        "net_edge_yes": selected_edge, "net_edge_no": -0.10,
+        "selected_net_edge": selected_edge,
+        "fair_probability_yes": fair_yes, "fair_probability_no": 1.0-fair_yes,
+        "cex_adjustment": cex_adjustment, "lead_lag_status": lead_lag_status,
+    }
+
+
 def test_store_enforces_exact_five_shares_and_separate_fee(tmp_path):
     store = LiteStore(str(tmp_path / "lite.db"))
     try:
@@ -294,6 +316,13 @@ def test_additive_migration_extends_existing_window_lock_schema(tmp_path):
             idempotency_key TEXT NOT NULL, last_updated_ts INTEGER NOT NULL,
             PRIMARY KEY(asset,window_close_ts), UNIQUE(idempotency_key)
         );
+        INSERT INTO lite_window_locks(
+            asset,slug,market_id,event_id,condition_id,window_open_ts,
+            window_close_ts,side,status,lifecycle_status,direction_decision_ts,
+            direction_output,entry_state,idempotency_key,last_updated_ts)
+        VALUES('BTC','historical','m','e','c',300000,600000,'BUY_YES',
+               'SKIPPED','SKIPPED',350000,'BUY_YES','SKIPPED','historical-key',
+               354321);
         """)
     connection.close()
     store = LiteStore(str(path))
@@ -305,9 +334,55 @@ def test_additive_migration_extends_existing_window_lock_schema(tmp_path):
             row[1] for row in store._conn.execute(
                 "PRAGMA table_info(lite_trades)").fetchall()}
         assert {"fair_probability_yes", "net_edge_yes", "maker_start_ts",
-                "pullback_condition"} <= lock_columns
+                "pullback_condition", "initial_executable_yes_price",
+                "final_selected_net_edge"} <= lock_columns
         assert {"runtime_commit", "model_version", "exit_now_value",
-                "maker_fill_assumed"} <= trade_columns
+                "maker_fill_assumed", "initial_fair_probability_yes",
+                "final_lead_lag_status"} <= trade_columns
+        historical = store.get_window_lock("BTC", 600_000)
+        assert historical["direction_decision_ts"] == 350_000
+        assert historical["last_updated_ts"] == 354_321
+        assert historical["final_executable_yes_price"] is None
+        assert historical["final_selected_net_edge"] is None
+    finally:
+        store.close()
+
+
+def test_trade_migration_preserves_rows_and_leaves_historical_finals_null(tmp_path):
+    path = tmp_path / "old-trades.db"
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        """
+        CREATE TABLE lite_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset TEXT NOT NULL, market_id TEXT NOT NULL, event_id TEXT NOT NULL,
+            slug TEXT NOT NULL, condition_id TEXT NOT NULL,
+            side TEXT NOT NULL, entry_ts INTEGER NOT NULL,
+            window_open_ts INTEGER, window_close_ts INTEGER NOT NULL,
+            status TEXT NOT NULL, pnl REAL, gross_pnl REAL
+        );
+        INSERT INTO lite_trades(
+            asset,market_id,event_id,slug,condition_id,side,entry_ts,
+            window_open_ts,window_close_ts,status,pnl,gross_pnl)
+        VALUES('BTC','m','e','historical','c','BUY_YES',350000,
+               300000,600000,'CLOSED_WIN',1.25,1.25);
+        """)
+    connection.close()
+
+    store = LiteStore(str(path))
+    try:
+        historical = store.get_trade(1)
+        assert store.table_count("lite_trades") == 1
+        assert historical["entry_ts"] == 350_000
+        assert historical["window_open_ts"] == 300_000
+        assert historical["window_close_ts"] == 600_000
+        assert historical["final_executable_yes_price"] is None
+        assert historical["final_net_edge_yes"] is None
+        assert historical["final_selected_net_edge"] is None
+        assert historical["final_fair_probability_yes"] is None
+        assert historical["final_cex_adjustment"] is None
+        assert historical["final_lead_lag_status"] is None
+        assert store._conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     finally:
         store.close()
 
@@ -331,6 +406,111 @@ def test_fair_value_telemetry_round_trips_and_assumed_maker_fill_fails(tmp_path)
         with pytest.raises(ValueError, match="assumed maker fill"):
             store.insert_trade(_entry(
                 window=900_000, maker_fill_assumed=True))
+    finally:
+        store.close()
+
+
+def test_terminal_skip_persists_actual_wait_and_distinct_final_telemetry(tmp_path):
+    store = LiteStore(str(tmp_path / "terminal-skip.db"))
+    try:
+        initial = _direction()
+        reserved, _, _ = store.reserve_window_direction(
+            _market(), initial, now_ms=100_000)
+        assert reserved
+        store.update_window_lock(
+            "BTC", 600_000, status="MAKER_WAIT", maker_start_ts=100_000,
+            maker_deadline_ts=104_000, maker_wait_ms=0, wait_duration_ms=0)
+        final = _direction(
+            selected_edge=0.004, yes_price=0.49, no_price=0.52,
+            fair_yes=0.53, cex_adjustment=0.006,
+            lead_lag_status="NO_NEW_TICK", reason="edge_below_entry_threshold")
+
+        store.mark_window_skipped(
+            "BTC", 600_000, 104_500, "maker_edge_expired",
+            chase_prevented=True, final_direction=final)
+
+        lock = store.get_window_lock("BTC", 600_000)
+        assert lock["wait_duration_ms"] == 4_500
+        assert lock["maker_wait_ms"] == 4_500
+        assert lock["maker_fill_assumed"] == 0
+        assert lock["executable_yes_price"] == pytest.approx(0.47)
+        assert lock["selected_net_edge"] == pytest.approx(0.03)
+        assert lock["initial_executable_yes_price"] == pytest.approx(0.47)
+        assert lock["initial_selected_net_edge"] == pytest.approx(0.03)
+        assert lock["initial_entry_reason"] == "initial_edge"
+        assert lock["final_executable_yes_price"] == pytest.approx(0.49)
+        assert lock["final_executable_no_price"] == pytest.approx(0.52)
+        assert lock["final_net_edge_yes"] == pytest.approx(0.004)
+        assert lock["final_selected_net_edge"] == pytest.approx(0.004)
+        assert lock["final_fair_probability_yes"] == pytest.approx(0.53)
+        assert lock["final_cex_adjustment"] == pytest.approx(0.006)
+        assert lock["final_lead_lag_status"] == "NO_NEW_TICK"
+        assert lock["final_entry_reason"] == "maker_edge_expired"
+    finally:
+        store.close()
+
+
+def test_terminal_cross_copies_initials_and_persists_final_recomputation(tmp_path):
+    store = LiteStore(str(tmp_path / "terminal-cross.db"))
+    try:
+        initial = _direction()
+        reserved, _, _ = store.reserve_window_direction(
+            _market(), initial, now_ms=100_000)
+        assert reserved
+        store.update_window_lock(
+            "BTC", 600_000, status="MAKER_WAIT", maker_start_ts=100_000,
+            maker_deadline_ts=104_000)
+        final = _direction(
+            selected_edge=0.012, yes_price=0.48, no_price=0.53,
+            fair_yes=0.545, cex_adjustment=0.008,
+            lead_lag_status="NO_NEW_TICK", reason="final_cross")
+        trade_id = store.insert_trade(_entry(
+            entry_ts=104_500, maker_start_ts=100_000,
+            maker_deadline_ts=104_000, wait_duration_ms=0, maker_wait_ms=0,
+            final_entry_reason="maker_expired_cross_edge_valid", **{
+                field: final[field] for field in (
+                    "executable_yes_price", "executable_no_price", "net_edge_yes",
+                    "net_edge_no", "selected_net_edge", "fair_probability_yes",
+                    "fair_probability_no", "cex_adjustment", "lead_lag_status")
+            }))
+
+        trade = store.get_trade(trade_id)
+        lock = store.get_window_lock("BTC", 600_000)
+        assert trade["wait_duration_ms"] == trade["maker_wait_ms"] == 4_500
+        assert trade["maker_fill_assumed"] == 0
+        assert trade["initial_executable_yes_price"] == pytest.approx(0.47)
+        assert trade["initial_selected_net_edge"] == pytest.approx(0.03)
+        assert trade["final_executable_yes_price"] == pytest.approx(0.48)
+        assert trade["final_net_edge_yes"] == pytest.approx(0.012)
+        assert trade["final_selected_net_edge"] == pytest.approx(0.012)
+        assert trade["final_fair_probability_yes"] == pytest.approx(0.545)
+        assert trade["final_cex_adjustment"] == pytest.approx(0.008)
+        assert trade["final_lead_lag_status"] == "NO_NEW_TICK"
+        assert lock["wait_duration_ms"] == lock["maker_wait_ms"] == 4_500
+        assert lock["initial_selected_net_edge"] == pytest.approx(0.03)
+        assert lock["final_selected_net_edge"] == pytest.approx(0.012)
+        assert lock["final_entry_reason"] == "maker_expired_cross_edge_valid"
+    finally:
+        store.close()
+
+
+def test_expired_unentered_wait_is_reconciled_after_rollover(tmp_path):
+    store = LiteStore(str(tmp_path / "expired-wait.db"))
+    try:
+        reserved, _, _ = store.reserve_window_direction(
+            _market(), _direction(), now_ms=590_000)
+        assert reserved
+        store.update_window_lock(
+            "BTC", 600_000, status="MAKER_WAIT", maker_start_ts=590_000,
+            maker_deadline_ts=594_000, maker_wait_ms=0, wait_duration_ms=0)
+
+        store.finalize_window_locks(600_500)
+
+        lock = store.get_window_lock("BTC", 600_000)
+        assert lock["status"] == lock["lifecycle_status"] == "SKIPPED"
+        assert lock["final_entry_reason"] == "expired_market"
+        assert lock["maker_wait_ms"] == lock["wait_duration_ms"] == 10_500
+        assert lock["maker_fill_assumed"] == 0
     finally:
         store.close()
 

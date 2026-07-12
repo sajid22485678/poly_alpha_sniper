@@ -323,11 +323,31 @@ class LiteStrategy:
             return LeadLagEvidence(
                 status="NO_NEW_MOVE", poly_book_ts=int(poly_book_ts),
                 reason="cex_move_not_evidenced")
-        if (move_ts <= previous_cex_ts or int(poly_book_ts) < previous_poly_ts
-                or move_ts > int(now_ms) or int(poly_book_ts) > int(now_ms)):
+        if move_ts > int(now_ms):
             return LeadLagEvidence(
                 status="OUT_OF_ORDER", valid=False, cex_move_ts=move_ts,
                 poly_book_ts=int(poly_book_ts), reason="future_or_out_of_order_lag_data")
+        if int(poly_book_ts) > int(now_ms):
+            return LeadLagEvidence(
+                status="OUT_OF_ORDER", valid=False, cex_move_ts=move_ts,
+                poly_book_ts=int(poly_book_ts), reason="future_or_out_of_order_lag_data")
+        if int(poly_book_ts) < previous_poly_ts:
+            return LeadLagEvidence(
+                status="OUT_OF_ORDER", valid=False, cex_move_ts=move_ts,
+                poly_book_ts=int(poly_book_ts), reason="future_or_out_of_order_lag_data")
+        if move_ts < previous_cex_ts:
+            return LeadLagEvidence(
+                status="OUT_OF_ORDER", valid=False, cex_move_ts=move_ts,
+                poly_book_ts=int(poly_book_ts), reason="future_or_out_of_order_lag_data")
+        if move_ts == previous_cex_ts:
+            # Current provider/receipt freshness is validated by
+            # choose_direction before lead/lag classification.  An unchanged
+            # latest-move timestamp therefore means that the fresh feed has
+            # not published a new price change, not that its data regressed.
+            return LeadLagEvidence(
+                status="NO_NEW_TICK", valid=True, cex_move_ts=move_ts,
+                poly_book_ts=int(poly_book_ts),
+                reason="no_new_cex_tick_but_fresh")
         cex_move = (float(cex_price) - previous_price) / previous_price
         poly_response = float(market_probability_yes) - previous_probability
         if abs(cex_move) < float(self.cfg.lead_lag_min_cex_move):
@@ -554,7 +574,12 @@ class LiteStrategy:
     def observation(direction: DirectionDecision, *, cex_price: float,
                     features: dict) -> Optional[dict]:
         try:
-            cex_ts = int(features.get("provider_ts_ms"))
+            # Lead/lag ordering compares price-move timestamps.  Persist the
+            # latest evidenced move when one exists so fresh unchanged
+            # provider ticks do not advance the prior move watermark.
+            move_ts = features.get("latest_move_ts_ms")
+            cex_ts = int(move_ts if move_ts is not None
+                         else features.get("provider_ts_ms"))
             poly_ts = int(direction.poly_book_ts)
             price = float(cex_price)
             probability = float(direction.market_probability_yes)
@@ -714,7 +739,7 @@ class LiteStrategy:
                     if direction.side == "BUY_YES"
                     else str(_value(market, "no_token_id", "")))
         return LiteDecision(
-            accepted=True, reject_reason="opened", side=direction.side,
+            accepted=True, reject_reason=timing.reason, side=direction.side,
             token_id=token_id, shares=FIXED_SHARES,
             entry_price=float(timing.entry_price),
             entry_cost=FIXED_SHARES*float(timing.entry_price),

@@ -59,6 +59,14 @@ TRADE_COLUMNS = (
     "poly_book_ts", "lead_lag_ms", "poly_response", "execution_state",
     "maker_price", "maker_start_ts", "maker_deadline_ts", "maker_wait_ms",
     "maker_fill_assumed", "maker_fill_model", "lock_ts",
+    "initial_executable_yes_price", "initial_executable_no_price",
+    "initial_net_edge_yes", "initial_net_edge_no", "initial_selected_net_edge",
+    "initial_fair_probability_yes", "initial_fair_probability_no",
+    "initial_cex_adjustment", "initial_lead_lag_status", "initial_entry_reason",
+    "final_executable_yes_price", "final_executable_no_price",
+    "final_net_edge_yes", "final_net_edge_no", "final_selected_net_edge",
+    "final_fair_probability_yes", "final_fair_probability_no",
+    "final_cex_adjustment", "final_lead_lag_status",
     "pullback_start_ts", "pullback_condition", "wait_deadline_ts",
     "last_management_ts", "exit_now_value", "hold_expected_value",
     "exit_fair_probability", "thesis_status", "management_reason",
@@ -149,6 +157,25 @@ _MIGRATION_COLUMNS = {
     "maker_fill_assumed": "INTEGER NOT NULL DEFAULT 0",
     "maker_fill_model": "TEXT",
     "lock_ts": "INTEGER",
+    "initial_executable_yes_price": "REAL",
+    "initial_executable_no_price": "REAL",
+    "initial_net_edge_yes": "REAL",
+    "initial_net_edge_no": "REAL",
+    "initial_selected_net_edge": "REAL",
+    "initial_fair_probability_yes": "REAL",
+    "initial_fair_probability_no": "REAL",
+    "initial_cex_adjustment": "REAL",
+    "initial_lead_lag_status": "TEXT",
+    "initial_entry_reason": "TEXT",
+    "final_executable_yes_price": "REAL",
+    "final_executable_no_price": "REAL",
+    "final_net_edge_yes": "REAL",
+    "final_net_edge_no": "REAL",
+    "final_selected_net_edge": "REAL",
+    "final_fair_probability_yes": "REAL",
+    "final_fair_probability_no": "REAL",
+    "final_cex_adjustment": "REAL",
+    "final_lead_lag_status": "TEXT",
     "pullback_start_ts": "INTEGER",
     "pullback_condition": "TEXT",
     "wait_deadline_ts": "INTEGER",
@@ -189,6 +216,25 @@ _LOCK_MIGRATION_COLUMNS = {
     "maker_wait_ms": "INTEGER NOT NULL DEFAULT 0",
     "maker_fill_assumed": "INTEGER NOT NULL DEFAULT 0",
     "initial_net_edge": "REAL",
+    "initial_executable_yes_price": "REAL",
+    "initial_executable_no_price": "REAL",
+    "initial_net_edge_yes": "REAL",
+    "initial_net_edge_no": "REAL",
+    "initial_selected_net_edge": "REAL",
+    "initial_fair_probability_yes": "REAL",
+    "initial_fair_probability_no": "REAL",
+    "initial_cex_adjustment": "REAL",
+    "initial_lead_lag_status": "TEXT",
+    "initial_entry_reason": "TEXT",
+    "final_executable_yes_price": "REAL",
+    "final_executable_no_price": "REAL",
+    "final_net_edge_yes": "REAL",
+    "final_net_edge_no": "REAL",
+    "final_selected_net_edge": "REAL",
+    "final_fair_probability_yes": "REAL",
+    "final_fair_probability_no": "REAL",
+    "final_cex_adjustment": "REAL",
+    "final_lead_lag_status": "TEXT",
     "lock_ts": "INTEGER",
     "pullback_start_ts": "INTEGER",
     "pullback_condition": "TEXT",
@@ -207,6 +253,21 @@ def _value(obj: Any, name: str, default=None):
     if isinstance(obj, dict):
         return obj.get(name, default)
     return getattr(obj, name, default)
+
+
+_DECISION_TELEMETRY_FIELDS = (
+    "executable_yes_price", "executable_no_price",
+    "net_edge_yes", "net_edge_no", "selected_net_edge",
+    "fair_probability_yes", "fair_probability_no",
+    "cex_adjustment", "lead_lag_status",
+)
+
+
+def _decision_telemetry(direction: Any, prefix: str) -> dict[str, Any]:
+    return {
+        f"{prefix}_{field}": _value(direction, field)
+        for field in _DECISION_TELEMETRY_FIELDS
+    }
 
 
 class LiteStore:
@@ -293,6 +354,19 @@ class LiteStore:
                     maker_start_ts INTEGER, maker_deadline_ts INTEGER,
                     maker_wait_ms INTEGER, maker_fill_assumed INTEGER NOT NULL DEFAULT 0,
                     maker_fill_model TEXT, lock_ts INTEGER,
+                    initial_executable_yes_price REAL,
+                    initial_executable_no_price REAL,
+                    initial_net_edge_yes REAL, initial_net_edge_no REAL,
+                    initial_selected_net_edge REAL,
+                    initial_fair_probability_yes REAL,
+                    initial_fair_probability_no REAL,
+                    initial_cex_adjustment REAL, initial_lead_lag_status TEXT,
+                    initial_entry_reason TEXT,
+                    final_executable_yes_price REAL, final_executable_no_price REAL,
+                    final_net_edge_yes REAL, final_net_edge_no REAL,
+                    final_selected_net_edge REAL, final_fair_probability_yes REAL,
+                    final_fair_probability_no REAL, final_cex_adjustment REAL,
+                    final_lead_lag_status TEXT,
                     pullback_start_ts INTEGER, pullback_condition TEXT,
                     wait_deadline_ts INTEGER, last_management_ts INTEGER,
                     exit_now_value REAL, hold_expected_value REAL,
@@ -347,6 +421,19 @@ class LiteStore:
                     maker_deadline_ts INTEGER, maker_wait_ms INTEGER NOT NULL DEFAULT 0,
                     maker_fill_assumed INTEGER NOT NULL DEFAULT 0,
                     initial_net_edge REAL, lock_ts INTEGER,
+                    initial_executable_yes_price REAL,
+                    initial_executable_no_price REAL,
+                    initial_net_edge_yes REAL, initial_net_edge_no REAL,
+                    initial_selected_net_edge REAL,
+                    initial_fair_probability_yes REAL,
+                    initial_fair_probability_no REAL,
+                    initial_cex_adjustment REAL, initial_lead_lag_status TEXT,
+                    initial_entry_reason TEXT,
+                    final_executable_yes_price REAL, final_executable_no_price REAL,
+                    final_net_edge_yes REAL, final_net_edge_no REAL,
+                    final_selected_net_edge REAL, final_fair_probability_yes REAL,
+                    final_fair_probability_no REAL, final_cex_adjustment REAL,
+                    final_lead_lag_status TEXT,
                     pullback_start_ts INTEGER, pullback_condition TEXT,
                     wait_deadline_ts INTEGER,
                     PRIMARY KEY(asset,window_close_ts),
@@ -496,6 +583,8 @@ class LiteStore:
             "poly_response": _value(direction, "poly_response"),
             "entry_state": "DIRECTION_LOCKED", "execution_state": "EDGE_IDENTIFIED",
             "maker_wait_ms": 0, "maker_fill_assumed": 0,
+            **_decision_telemetry(direction, "initial"),
+            "initial_entry_reason": str(_value(direction, "reason", "")),
             "lock_ts": int(now_ms), "idempotency_key": key,
             "last_updated_ts": int(now_ms),
         }
@@ -535,7 +624,11 @@ class LiteStore:
             "lead_lag_status", "cex_move_ts", "poly_book_ts", "lead_lag_ms",
             "poly_response", "execution_state", "maker_price", "maker_start_ts",
             "maker_deadline_ts", "maker_wait_ms", "maker_fill_assumed",
-            "initial_net_edge", "lock_ts", "pullback_start_ts",
+            "final_executable_yes_price", "final_executable_no_price",
+            "final_net_edge_yes", "final_net_edge_no", "final_selected_net_edge",
+            "final_fair_probability_yes", "final_fair_probability_no",
+            "final_cex_adjustment", "final_lead_lag_status",
+            "lock_ts", "pullback_start_ts",
             "pullback_condition", "wait_deadline_ts", "return_5s",
             "acceleration", "window_return", "reliability", "cex_adjustment",
             "lead_lag_adjustment",
@@ -552,16 +645,31 @@ class LiteStore:
 
     def mark_window_skipped(self, asset: str, window_close_ts: int, now_ms: int,
                             reason: str, *, missed: bool = False,
-                            chase_prevented: bool = False) -> None:
-        self.update_window_lock(
-            asset, window_close_ts, status="SKIPPED", lifecycle_status="SKIPPED",
-            entry_state="SKIPPED", final_entry_reason=str(reason),
-            missed_opportunity=int(bool(missed)),
-            chase_prevented=int(bool(chase_prevented)), last_updated_ts=int(now_ms),
-        )
+                            chase_prevented: bool = False,
+                            final_direction: Any = None) -> None:
+        lock = self.get_window_lock(asset, window_close_ts)
+        fields = {
+            "status": "SKIPPED", "lifecycle_status": "SKIPPED",
+            "entry_state": "SKIPPED", "final_entry_reason": str(reason),
+            "missed_opportunity": int(bool(missed)),
+            "chase_prevented": int(bool(chase_prevented)),
+            "maker_fill_assumed": 0, "last_updated_ts": int(now_ms),
+        }
+        if final_direction is not None:
+            fields.update(_decision_telemetry(final_direction, "final"))
+        maker_start_ts = lock.get("maker_start_ts") if lock is not None else None
+        if maker_start_ts is not None:
+            actual_wait_ms = max(0, int(now_ms) - int(maker_start_ts))
+            fields["wait_duration_ms"] = actual_wait_ms
+            fields["maker_wait_ms"] = actual_wait_ms
+        self.update_window_lock(asset, window_close_ts, **fields)
 
     def insert_trade(self, row: dict[str, Any]) -> int:
         payload = {key: row.get(key) for key in TRADE_COLUMNS}
+        for field in _DECISION_TELEMETRY_FIELDS:
+            final_field = f"final_{field}"
+            if payload.get(final_field) is None:
+                payload[final_field] = row.get(field)
         price = float(payload["entry_price"])
         if not 0 < price < 1:
             raise ValueError("Lite entry price must be in (0, 1)")
@@ -626,6 +734,34 @@ class LiteStore:
                     "SELECT * FROM lite_window_locks WHERE asset=? AND window_close_ts=?",
                     (asset, close_ts),
                 ).fetchone()
+                existing_lock = dict(existing_row) if existing_row is not None else {}
+                for field in _DECISION_TELEMETRY_FIELDS:
+                    initial_field = f"initial_{field}"
+                    if payload.get(initial_field) is None:
+                        payload[initial_field] = (
+                            existing_lock.get(initial_field)
+                            if existing_lock.get(initial_field) is not None
+                            else existing_lock.get(field)
+                            if existing_lock.get(field) is not None
+                            else row.get(field)
+                        )
+                if payload.get("initial_entry_reason") is None:
+                    payload["initial_entry_reason"] = (
+                        existing_lock.get("initial_entry_reason")
+                        if existing_lock.get("initial_entry_reason") is not None
+                        else existing_lock.get("direction_reason")
+                        if existing_lock.get("direction_reason") is not None
+                        else row.get("direction_reason")
+                    )
+                maker_start_ts = payload.get("maker_start_ts")
+                if maker_start_ts is None:
+                    maker_start_ts = existing_lock.get("maker_start_ts")
+                    payload["maker_start_ts"] = maker_start_ts
+                if maker_start_ts is not None:
+                    actual_wait_ms = max(
+                        0, int(payload["entry_ts"]) - int(maker_start_ts))
+                    payload["wait_duration_ms"] = actual_wait_ms
+                    payload["maker_wait_ms"] = actual_wait_ms
                 if existing_row is None:
                     key = idempotent_intent_key(
                         asset=asset, window_close_ts=close_ts,
@@ -674,7 +810,26 @@ class LiteStore:
                      payload.get("maker_price"), payload.get("maker_start_ts"),
                      payload.get("maker_deadline_ts"), payload.get("maker_wait_ms") or 0,
                      int(payload["entry_ts"]),
-                     asset, close_ts),
+                      asset, close_ts),
+                )
+                initial_columns = [
+                    f"initial_{field}" for field in _DECISION_TELEMETRY_FIELDS
+                ] + ["initial_entry_reason"]
+                final_columns = [
+                    f"final_{field}" for field in _DECISION_TELEMETRY_FIELDS
+                ]
+                initial_updates = ",".join(
+                    f'"{column}"=COALESCE("{column}",?)'
+                    for column in initial_columns)
+                final_updates = ",".join(
+                    f'"{column}"=?' for column in final_columns)
+                self._conn.execute(
+                    f"""UPDATE lite_window_locks
+                        SET {initial_updates},{final_updates}
+                        WHERE asset=? AND window_close_ts=?""",
+                    tuple(payload.get(column) for column in initial_columns)
+                    + tuple(payload.get(column) for column in final_columns)
+                    + (asset, close_ts),
                 )
                 self._conn.commit()
                 return trade_id
@@ -970,6 +1125,18 @@ class LiteStore:
                     ) AND window_close_ts<=?
                     AND (status!='COMPLETE' OR lifecycle_status!='COMPLETE')""",
                 (int(now_ms), *TERMINAL_STATUSES, int(now_ms)))
+            self._conn.execute(
+                """UPDATE lite_window_locks SET status='SKIPPED',
+                   lifecycle_status='SKIPPED',entry_state='SKIPPED',
+                   execution_state='DATA_INVALID',final_entry_reason='expired_market',
+                   maker_wait_ms=CASE WHEN maker_start_ts IS NULL THEN maker_wait_ms
+                       ELSE MAX(0,?-maker_start_ts) END,
+                   wait_duration_ms=CASE WHEN maker_start_ts IS NULL THEN wait_duration_ms
+                       ELSE MAX(0,?-maker_start_ts) END,
+                   maker_fill_assumed=0,last_updated_ts=?
+                   WHERE trade_id IS NULL AND window_close_ts<=?
+                     AND status IN ('DIRECTION_LOCKED','MAKER_WAIT','WAIT_FOR_PULLBACK')""",
+                (int(now_ms), int(now_ms), int(now_ms), int(now_ms)))
 
     def last_trade_ts(self) -> Optional[int]:
         with self._lock:

@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -19,7 +20,10 @@ from .lite_broker import LiteBroker
 from .lite_cex import LiteCexFeed
 from .lite_config import FIXED_SHARES, load_lite_config
 from .lite_export import assert_lite_safety, write_lite_dashboard
-from .lite_market import LiteGammaClient, LiteMarket, LiteMarketFinder, current_window_slug
+from .lite_market import (
+    LiteGammaClient, LiteMarket, LiteMarketFinder,
+    current_window_slug, current_window_start_s,
+)
 from .lite_resolver import LiteResolver, book_exit_pnl, direct_book_exit
 from .lite_risk import assess_live_small_exposure, sweep_taker_fee
 from .lite_store import LiteStore, WindowLockConflict
@@ -403,6 +407,13 @@ class LiteBot:
         if market is None:
             slug = current_window_slug(asset, now_ms)
             self.current_markets[asset] = {"slug": slug, "status": market_reason}
+            window_close_ts = (current_window_start_s(now_ms) + 300) * 1000
+            lock = self.store.get_window_lock(asset, window_close_ts)
+            if lock and str(lock.get("status")) in (
+                    "DIRECTION_LOCKED", "MAKER_WAIT", "WAIT_FOR_PULLBACK"):
+                self.store.mark_window_skipped(
+                    asset, window_close_ts, now_ms,
+                    market_reason or "invalid_market_identity")
             self.store.record_reject(
                 now_ms, asset, slug, market_reason or "no_market", self.cfg.reject_bucket_s,
             )
@@ -450,18 +461,64 @@ class LiteBot:
             "lead_lag_status": direction.lead_lag_status,
         }
         lock = self.store.get_window_lock(asset, window_close_ts)
+        if (direction.side is None and lock
+                and str(lock.get("status")) in (
+                    "DIRECTION_LOCKED", "MAKER_WAIT", "WAIT_FOR_PULLBACK")
+                and direction.output in (
+                    "NO_TRADE_TRULY_NO_EDGE", "BRIEF_CONFIRMATION_WAIT")):
+            deadline = int(lock.get("maker_deadline_ts")
+                           or lock.get("deadline_ts") or evaluated_ms)
+            locked_side = str(lock.get("side") or "")
+            locked_edge = (
+                direction.net_edge_yes if locked_side == "BUY_YES" else
+                direction.net_edge_no if locked_side == "BUY_NO" else None)
+            if (evaluated_ms >= deadline and locked_edge is not None
+                    and float(locked_edge) >= float(self.cfg.min_cross_edge)):
+                # A tied fresh recomputation can intentionally have no newly
+                # selected side.  At the deadline the immutable window side
+                # remains authoritative; cross only if that side itself still
+                # clears the cross threshold and the later chase check passes.
+                direction = replace(
+                    direction, side=locked_side,
+                    selected_net_edge=float(locked_edge))
+                self.current_markets[asset]["direction"]["side"] = locked_side
+                self.current_markets[asset]["direction"][
+                    "selected_net_edge"] = float(locked_edge)
         if direction.side is None:
             if lock and str(lock.get("status")) in (
                     "DIRECTION_LOCKED", "MAKER_WAIT", "WAIT_FOR_PULLBACK"):
                 deadline = int(lock.get("maker_deadline_ts")
                                or lock.get("deadline_ts") or evaluated_ms)
-                edge_gone = direction.output in (
+                maker_start = int(lock.get("maker_start_ts")
+                                  or lock.get("direction_decision_ts")
+                                  or evaluated_ms)
+                waited = max(0, evaluated_ms - maker_start)
+                data_invalid = direction.output == "NO_TRADE_DATA_INVALID"
+                weak_edge = direction.output in (
                     "NO_TRADE_TRULY_NO_EDGE", "BRIEF_CONFIRMATION_WAIT")
-                if edge_gone or evaluated_ms >= deadline:
+                terminal = data_invalid or (weak_edge and evaluated_ms >= deadline)
+                self.store.update_window_lock(
+                    asset, window_close_ts,
+                    **({
+                        "status": "MAKER_WAIT",
+                        "lifecycle_status": "DIRECTION_LOCKED",
+                        "entry_state": "MAKER_WAIT",
+                    } if not terminal else {}),
+                    execution_state=(
+                        "DATA_INVALID" if data_invalid else
+                        "EDGE_GONE" if terminal else
+                        "MAKER_WAIT_EDGE_DECAY"
+                        if direction.output == "NO_TRADE_TRULY_NO_EDGE"
+                        else "MAKER_WAIT"),
+                    maker_wait_ms=waited, wait_duration_ms=waited,
+                    maker_fill_assumed=0, last_reevaluate_ts=evaluated_ms,
+                    last_updated_ts=evaluated_ms)
+                if terminal:
                     self.store.mark_window_skipped(
                         asset, window_close_ts, evaluated_ms,
-                        "edge_gone" if edge_gone else direction.reason,
-                        chase_prevented=True)
+                        direction.reason if data_invalid else "maker_edge_expired",
+                        missed=not data_invalid, chase_prevented=not data_invalid,
+                        final_direction=direction)
             self.store.record_decision(
                 evaluated_ms, asset, market.slug, direction.output,
                 self.cfg.reject_bucket_s)
@@ -488,6 +545,11 @@ class LiteBot:
         if len(committed_rows) >= int(self.cfg.max_open_positions) or sum(
                 str(row.get("asset", "")).upper() == asset.upper()
                 for row in committed_rows) >= int(self.cfg.max_open_per_asset):
+            if lock is not None and str(lock.get("status")) in (
+                    "DIRECTION_LOCKED", "MAKER_WAIT", "WAIT_FOR_PULLBACK"):
+                self.store.mark_window_skipped(
+                    asset, window_close_ts, evaluated_ms, "max_open_positions",
+                    final_direction=direction)
             self.store.record_reject(
                 evaluated_ms, asset, market.slug, "max_open_positions",
                 self.cfg.reject_bucket_s)
@@ -501,7 +563,8 @@ class LiteBot:
             return
         if lock is not None and str(lock.get("side")) != direction.side:
             self.store.mark_window_skipped(
-                asset, window_close_ts, evaluated_ms, "thesis_invalidated_no_reversal")
+                asset, window_close_ts, evaluated_ms, "thesis_invalidated_no_reversal",
+                final_direction=direction)
             self.store.record_reject(
                 evaluated_ms, asset, market.slug, "opposite_side_blocked",
                 self.cfg.reject_bucket_s)
@@ -531,7 +594,8 @@ class LiteBot:
         if not exposure.allowed:
             if lock is not None:
                 self.store.mark_window_skipped(
-                    asset, window_close_ts, evaluated_ms, exposure.reason)
+                    asset, window_close_ts, evaluated_ms, exposure.reason,
+                    final_direction=direction)
             self.store.record_reject(
                 evaluated_ms, asset, market.slug, exposure.reason,
                 self.cfg.reject_bucket_s)
@@ -584,7 +648,8 @@ class LiteBot:
                 self.store.mark_window_skipped(
                     asset, window_close_ts, evaluated_ms, timing.reason,
                     missed=timing.missed_opportunity,
-                    chase_prevented=timing.chase_prevented)
+                    chase_prevented=timing.chase_prevented,
+                    final_direction=direction)
             self.store.record_reject(
                 evaluated_ms, asset, market.slug, timing.reason,
                 self.cfg.reject_bucket_s)
@@ -598,6 +663,12 @@ class LiteBot:
                 cex_source=cex_source, cex_entry_price=cex_price,
                 current_commit=self.current_commit)
         except WindowLockConflict as exc:
+            refreshed_lock = self.store.get_window_lock(asset, window_close_ts)
+            if refreshed_lock and str(refreshed_lock.get("status")) in (
+                    "DIRECTION_LOCKED", "MAKER_WAIT", "WAIT_FOR_PULLBACK"):
+                self.store.mark_window_skipped(
+                    asset, window_close_ts, evaluated_ms, exc.reason,
+                    final_direction=direction)
             self.store.record_reject(
                 evaluated_ms, asset, market.slug, exc.reason,
                 self.cfg.reject_bucket_s)
