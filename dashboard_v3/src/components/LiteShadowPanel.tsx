@@ -147,6 +147,8 @@ export function LiteShadowPanel({
                 <div className="grid grid-cols-2 gap-3 mt-2">
                   <Stat label="DB Size" value={formatBytes(lite.db_diagnostics.size_bytes)} inset={false} />
                   <Stat label="Writes / Min" value={formatNumber(lite.db_diagnostics.writes_per_min, 1)} inset={false} />
+                  <Stat label="Evaluations / Hour" value={formatNumber(lite.candidate_evaluations_last_hour ?? 0, 0)} inset={false} />
+                  <Stat label="Events / Min" value={formatNumber(lite.db_diagnostics.bucket_events_per_min ?? 0, 0)} inset={false} />
                 </div>
               </div>
               <div className="v3-card-inset">
@@ -197,7 +199,11 @@ function AssetState({
       <Detail label="Market" value={market?.slug ?? "none"} />
       <Detail label="Time to Close" value={closeS == null ? "not available" : `${formatNumber(closeS, 0)}s`} />
       <Detail label="Direction" value={market?.direction?.output ?? "not decided"} />
+      <Detail label="Fair YES / NO" value={market?.direction?.fair_probability_yes == null ? "not available" : `${formatPct(market.direction.fair_probability_yes, 1)} / ${formatPct(market.direction.fair_probability_no ?? null, 1)}`} />
+      <Detail label="Net Edge YES / NO" value={market?.direction?.net_edge_yes == null ? "not available" : `${formatPct(market.direction.net_edge_yes, 2)} / ${formatPct(market.direction.net_edge_no ?? null, 2)}`} />
+      <Detail label="Lead / Lag" value={market?.direction?.lead_lag_status ?? "not observed"} />
       <Detail label="Entry State" value={market?.entry_decision?.action ?? "not decided"} />
+      <Detail label="Maker Fill Assumed" value={String(market?.entry_decision?.maker_fill_assumed ?? false)} />
     </div>
   );
 }
@@ -237,6 +243,9 @@ function TradeTable({ trades }: { trades: LiteTradeRow[] }) {
               </div>
               <div style={{ color: "var(--v3-muted-2)" }}>
                 {trade.resolution_source ?? "pending"} · {trade.resolution_verified ? "RESOLUTION VERIFIED" : "RESOLUTION UNVERIFIED"}
+              </div>
+              <div style={{ color: "var(--v3-muted-2)" }}>
+                {trade.model_version ?? "LEGACY MODEL"} · {trade.execution_state ?? "NO EDGE STATE"} · maker fill assumed {String(Boolean(trade.maker_fill_assumed))}
               </div>
             </td>
             <td className="py-2 text-right font-semibold v3-mono" style={{ color: pnlColor(trade.pnl) }}>

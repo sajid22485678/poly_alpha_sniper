@@ -35,13 +35,22 @@ class _Store:
             "historical_both_side_conflicts": 147,
             "asset_window_locks": {"active": 1, "by_status": {"ENTERED": 1}},
             "anti_dead_bot_last_hour": {"candidate": 10, "ENTER_NOW": 2},
+            "candidate_evaluations_last_hour": 10,
+            "valid_markets_last_hour": 9,
+            "positive_edge_events_last_hour": 3,
+            "no_edge_skips_last_hour": 6,
+            "maker_observations_last_hour": 2,
+            "cross_spread_entries_last_hour": 1,
             "committed_exposure_usd": 2.5,
             "last_error": None,
             "last_20_trades": [
                 {"id": 3, "status": "UNRESOLVED_FINAL", "pnl": None},
                 {"id": 2, "status": "CLOSED_WIN", "pnl": 1.25},
             ],
-            "db_diagnostics": {"size_bytes": 4096, "writes_per_min": 3},
+            "db_diagnostics": {
+                "size_bytes": 4096, "writes_per_min": 3,
+                "bucket_events_per_min": 22,
+            },
         }
 
     def risk_snapshot(self, now_ms):
@@ -65,6 +74,10 @@ def test_lite_dashboard_contains_required_safety_and_metrics():
     assert payload["live_small_preview"]["exposure_cap_usd"] == 9.75
     assert payload["live_readiness_verdict"] == "READY_FOR_MORE_SHADOW"
     assert payload["real_orders_possible"] is False
+    assert payload["strategy_candidate"]["model_version"] == (
+        "paired_book_fair_value_v1")
+    assert payload["strategy_candidate"]["maker_mode"] == (
+        "observational_no_fill_claim")
     assert payload["last_20_trades"][0]["pnl"] is None
     assert payload["cex_feed_state"]["BTC"]["status"] == "ok"
 
@@ -100,6 +113,9 @@ def test_lite_panel_renders_safety_operational_fields_and_null_pnl_honestly():
     assert "Verified PnL" in panel
     assert "Window Locks" in panel
     assert "Entry State" in panel
+    assert "Fair YES / NO" in panel
+    assert "Net Edge YES / NO" in panel
+    assert "Maker Fill Assumed" in panel
     assert "pnl" in panel.lower()
     assert "—" in panel or "\\u2014" in panel
 

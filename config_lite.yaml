@@ -10,14 +10,24 @@ lite_shadow:
   max_one_per_asset_window: true
   cex_max_age_ms: 8000
   book_max_age_ms: 8000
-  momentum_windows_s: [10, 30, 60]
+  momentum_windows_s: [5, 10, 30, 60]
   momentum_min_pct: 0.0002
-  direction_score_min: 0.60
-  direction_score_flat: 0.20
-  pullback_wait_s: 6
-  pullback_target_improvement: 0.01
+  fair_value_max_adjustment: 0.12
+  fair_value_signal_scale: 2.0
+  fair_value_uncertainty_buffer: 0.015
+  min_net_edge: 0.005
+  min_cross_edge: 0.010
+  execution_buffer_base: 0.002
+  execution_buffer_spread_fraction: 0.05
+  max_book_pair_skew_ms: 2000
+  maker_wait_s: 4.0
+  lead_lag_min_cex_move: 0.0002
+  lead_lag_max_ms: 8000
+  lead_lag_max_adjustment: 0.015
+  exit_hold_uncertainty: 0.02
+  exit_value_margin_usd: 0.02
+  thesis_invalidation_score: 0.60
   max_chase_worsening: 0.02
-  extension_score: 1.8
   max_spread: 0.20
   time_to_close_min_s: 20
   time_to_close_max_s: 280

@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -64,3 +65,25 @@ def test_conflict_rate_is_explicit_and_candidate_is_zero():
         "opposite_side_conflict_rate": 0.5,
     }
     assert after["opposite_side_conflicts"] == 0
+
+
+def test_fair_value_validation_artifact_is_honest_and_chronological():
+    root = Path(__file__).resolve().parent.parent
+    report = json.loads((
+        root / "reports" / "poly_alpha_lite_fair_value_validation_20260712.json"
+    ).read_text(encoding="utf-8"))
+    assert report["snapshot"]["sha256"] == (
+        "A86464B84C0DE17C008F6FADE8D70C0ACE6858098138CC9F8D6DA07FE3D17D05")
+    assert report["snapshot"]["integrity"] == "ok"
+    assert report["method"]["lookahead"] is False
+    assert report["method"]["new_candidate_replayable"] is False
+    assert report["forward_baseline"]["completed"] == 140
+    assert report["forward_baseline"]["net_pnl"] == -10.82465
+    assert set(report["chronological_segments"]) == {
+        "train", "validation", "holdout"}
+    assert report["new_candidate"]["historical_pnl_claim"] is None
+    assert report["new_candidate"]["profitability_status"] == (
+        "UNPROVEN_REQUIRES_FORWARD_SHADOW")
+    assert report["forward_acceptance_requirement"][
+        "verified_terminal_trades"] == 300
+    assert report["verdict"] == "READY_FOR_MORE_SHADOW"

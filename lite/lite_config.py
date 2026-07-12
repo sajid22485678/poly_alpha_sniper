@@ -35,18 +35,27 @@ class LiteConfig:
     max_one_per_asset_window: bool = True
     cex_max_age_ms: int = 8000
     book_max_age_ms: int = 8000
-    momentum_windows_s: list[int] = field(default_factory=lambda: [10, 30, 60])
+    momentum_windows_s: list[int] = field(default_factory=lambda: [5, 10, 30, 60])
     momentum_min_pct: float = 0.0002   # 0.02%
-    direction_score_min: float = 0.60
-    direction_score_flat: float = 0.20
-    pullback_wait_s: float = 6.0
-    pullback_target_improvement: float = 0.01
+    fair_value_max_adjustment: float = 0.12
+    fair_value_signal_scale: float = 2.0
+    fair_value_uncertainty_buffer: float = 0.015
+    min_net_edge: float = 0.005
+    min_cross_edge: float = 0.010
+    execution_buffer_base: float = 0.002
+    execution_buffer_spread_fraction: float = 0.05
+    max_book_pair_skew_ms: int = 2000
+    maker_wait_s: float = 4.0
+    lead_lag_min_cex_move: float = 0.0002
+    lead_lag_max_ms: int = 8000
+    lead_lag_max_adjustment: float = 0.015
+    exit_hold_uncertainty: float = 0.02
+    exit_value_margin_usd: float = 0.02
+    thesis_invalidation_score: float = 0.60
     max_chase_worsening: float = 0.02
-    extension_score: float = 1.8
     max_spread: float = 0.20
     time_to_close_min_s: float = 20.0
     time_to_close_max_s: float = 280.0
-    exit_before_close_s: float = 15.0
     anchor_optional: bool = True
     allow_no_anchor_trades: bool = True
     require_fired: bool = False
@@ -115,29 +124,50 @@ def _validate_lite_config(cfg: LiteConfig) -> None:
     integer("max_open_positions", maximum=6)
     integer("max_open_per_asset", maximum=3)
     integer("cex_max_age_ms", maximum=60_000)
-    integer("book_max_age_ms", maximum=60_000)
+    book_age = integer("book_max_age_ms", maximum=60_000)
+    pair_skew = integer("max_book_pair_skew_ms", minimum=0, maximum=60_000)
+    if pair_skew > book_age:
+        fail("max_book_pair_skew_ms")
+    lead_lag_max = integer("lead_lag_max_ms", minimum=1, maximum=60_000)
+    if lead_lag_max > int(cfg.cex_max_age_ms):
+        fail("lead_lag_max_ms")
     integer("resolver_max_retries", maximum=10_000)
     integer("resolver_batch_size", maximum=100)
     integer("max_consecutive_losses", maximum=100)
     integer("reject_bucket_s", maximum=3_600)
     number("momentum_min_pct", minimum=0.0, maximum=0.1, strict_min=True)
-    direction_min = number("direction_score_min", minimum=0.0, maximum=10.0,
-                           strict_min=True)
-    direction_flat = number("direction_score_flat", minimum=0.0, maximum=10.0)
-    if direction_flat >= direction_min:
-        fail("direction_score_flat")
-    number("pullback_wait_s", minimum=0.0, maximum=60.0, strict_min=True)
-    number("pullback_target_improvement", minimum=0.0, maximum=0.5,
+    fair_adjustment = number(
+        "fair_value_max_adjustment", minimum=0.0, maximum=0.2,
+        strict_min=True)
+    number("fair_value_signal_scale", minimum=0.0, maximum=10.0,
            strict_min=True)
+    uncertainty = number(
+        "fair_value_uncertainty_buffer", minimum=0.0, maximum=0.1)
+    if uncertainty >= fair_adjustment:
+        fail("fair_value_uncertainty_buffer")
+    min_net_edge = number("min_net_edge", minimum=0.0, maximum=0.2)
+    min_cross_edge = number("min_cross_edge", minimum=0.0, maximum=0.2)
+    if min_cross_edge < min_net_edge:
+        fail("min_cross_edge")
+    number("execution_buffer_base", minimum=0.0, maximum=0.1)
+    number("execution_buffer_spread_fraction", minimum=0.0, maximum=1.0)
+    number("maker_wait_s", minimum=0.0, maximum=60.0, strict_min=True)
+    number("lead_lag_min_cex_move", minimum=0.0, maximum=0.1,
+           strict_min=True)
+    lead_adjustment = number(
+        "lead_lag_max_adjustment", minimum=0.0, maximum=0.05)
+    if lead_adjustment > fair_adjustment:
+        fail("lead_lag_max_adjustment")
+    number("exit_hold_uncertainty", minimum=0.0, maximum=1.0)
+    number("exit_value_margin_usd", minimum=0.0, maximum=100.0)
+    number("thesis_invalidation_score", minimum=0.0, maximum=1.0)
     number("max_chase_worsening", minimum=0.0, maximum=0.5)
-    number("extension_score", minimum=0.0, maximum=20.0, strict_min=True)
     number("max_spread", minimum=0.0, maximum=1.0)
     close_min = number("time_to_close_min_s", minimum=0.0, maximum=299.0)
     close_max = number("time_to_close_max_s", minimum=0.0, maximum=300.0,
                        strict_min=True)
     if close_max <= close_min:
         fail("time_to_close_max_s")
-    number("exit_before_close_s", minimum=0.0, maximum=300.0, strict_min=True)
     retry_base = number("resolver_retry_seconds", minimum=0.0,
                         maximum=3_600.0, strict_min=True)
     retry_cap = number("resolver_retry_cap_seconds", minimum=0.0,
@@ -203,7 +233,7 @@ def load_lite_config(path: str | None = None) -> LiteConfig:
     cfg.live_kill_switch_engaged = True
     cfg.enabled = True
     cfg.assets = ["BTC", "ETH", "SOL"]
-    cfg.momentum_windows_s = [10, 30, 60]
+    cfg.momentum_windows_s = [5, 10, 30, 60]
     cfg.gamma_base_url = LITE_GAMMA_BASE_URL
     cfg.clob_base_url = LITE_CLOB_BASE_URL
     cfg.max_one_per_asset_window = True

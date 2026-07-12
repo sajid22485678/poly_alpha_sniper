@@ -53,6 +53,8 @@ class LiteBookQuote:
     book_hash: str = ""
     min_order_size: Optional[float] = None
     hash_reused: bool = False
+    tick_size: Optional[float] = None
+    neg_risk: Optional[bool] = None
 
     @property
     def spread(self) -> Optional[float]:
@@ -205,6 +207,18 @@ def normalize_book(data: dict, token_id: str, ts_ms: int,
         payload.get("min_order_size"))
     if not min_order_valid or min_order_size is None:
         return None
+    tick_size, tick_size_valid = _optional_positive_float(payload.get("tick_size"))
+    if not tick_size_valid or (tick_size is not None and tick_size >= 1.0):
+        return None
+    raw_neg_risk = payload.get("neg_risk")
+    if raw_neg_risk is None:
+        neg_risk = None
+    elif type(raw_neg_risk) is bool:
+        neg_risk = raw_neg_risk
+    elif str(raw_neg_risk).strip().lower() in ("true", "false"):
+        neg_risk = str(raw_neg_risk).strip().lower() == "true"
+    else:
+        return None
 
     bids = _levels(payload.get("bids"), bids=True)
     asks = _levels(payload.get("asks"), bids=False)
@@ -222,6 +236,8 @@ def normalize_book(data: dict, token_id: str, ts_ms: int,
         source_ts_ms=source_ms,
         book_hash=str(payload.get("hash") or ""),
         min_order_size=min_order_size,
+        tick_size=tick_size,
+        neg_risk=neg_risk,
     )
 
 

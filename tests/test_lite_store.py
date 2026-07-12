@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -52,6 +53,11 @@ def test_one_asset_window_blocks_opposite_side_and_same_side(tmp_path):
             "official_outcome", "YES", gross_pnl=2.9,
             resolution_verified=True)
         store.finalize_window_locks(700_000)
+        completed_lock = store.get_window_lock("BTC", 600_000)
+        assert completed_lock["status"] == "COMPLETE"
+        completed_updated_ts = completed_lock["last_updated_ts"]
+        store.finalize_window_locks(800_000)
+        assert store.get_window_lock("BTC", 600_000)["last_updated_ts"] == completed_updated_ts
         with pytest.raises(WindowLockConflict) as completed:
             store.insert_trade(_entry(side="BUY_YES"))
         assert completed.value.reason == "duplicate_same_side_blocked"
@@ -95,8 +101,39 @@ def test_reject_and_decision_rows_are_bucketed(tmp_path):
         assert store.table_count("lite_rejects") == 1
         assert store.table_count("lite_decision_buckets") == 1
         metrics = store.dashboard_metrics(29_000)
-        assert metrics["top_reject_reasons"]["truly_flat"] == 1
-        assert metrics["anti_dead_bot_last_hour"]["candidate"] == 1
+        assert metrics["top_reject_reasons"]["truly_flat"] == 28
+        assert metrics["anti_dead_bot_last_hour"]["candidate"] == 28
+        assert metrics["candidate_evaluations_last_hour"] == 28
+    finally:
+        store.close()
+
+
+def test_dashboard_active_locks_excludes_expired_windows(tmp_path):
+    store = LiteStore(str(tmp_path / "lite.db"))
+    try:
+        rows = [
+            ("BTC", "expired", 90_000, "expired-key"),
+            ("ETH", "future", 120_000, "future-key"),
+        ]
+        store._conn.executemany(
+            """INSERT INTO lite_window_locks(
+               asset,slug,market_id,event_id,condition_id,window_open_ts,
+               window_close_ts,side,status,lifecycle_status,
+               direction_decision_ts,idempotency_key,last_updated_ts)
+               VALUES(?,?,?, ?,?, ?,?,'BUY_YES','DIRECTION_LOCKED',
+                      'DIRECTION_LOCKED',?,?,?)""",
+            [
+                (asset, slug, f"m-{slug}", f"e-{slug}", f"c-{slug}",
+                 close_ts-300_000, close_ts, 10_000, key, 10_000)
+                for asset, slug, close_ts, key in rows
+            ],
+        )
+        store._conn.commit()
+
+        metrics = store.dashboard_metrics(100_000)
+
+        assert metrics["asset_window_locks"]["active"] == 1
+        assert metrics["asset_window_locks"]["by_status"]["DIRECTION_LOCKED"] == 2
     finally:
         store.close()
 
@@ -230,3 +267,111 @@ def test_no_runtime_artifact_is_inside_git_tracked_scope():
     ignore = (root / ".gitignore").read_text(encoding="utf-8")
     assert "runtime/" in ignore and "logs/" in ignore
     assert "/data/poly_alpha_lite.db*" in ignore
+
+
+def test_additive_migration_extends_existing_window_lock_schema(tmp_path):
+    path = tmp_path / "old-lock.db"
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        """
+        CREATE TABLE lite_window_locks (
+            asset TEXT NOT NULL, slug TEXT NOT NULL, market_id TEXT NOT NULL,
+            event_id TEXT NOT NULL, condition_id TEXT NOT NULL,
+            window_open_ts INTEGER NOT NULL, window_close_ts INTEGER NOT NULL,
+            side TEXT NOT NULL, status TEXT NOT NULL, lifecycle_status TEXT NOT NULL,
+            direction_decision_ts INTEGER NOT NULL, direction_output TEXT,
+            direction_score REAL, yes_score REAL, no_score REAL,
+            score_difference REAL, confidence REAL, direction_reason TEXT,
+            return_10s REAL, return_30s REAL, return_60s REAL,
+            tick_return REAL, volatility REAL, entry_state TEXT,
+            initial_ask REAL, target_price REAL, max_chase_price REAL,
+            deadline_ts INTEGER, last_reevaluate_ts INTEGER,
+            expected_improvement REAL, actual_improvement REAL,
+            wait_duration_ms INTEGER NOT NULL DEFAULT 0,
+            missed_opportunity INTEGER NOT NULL DEFAULT 0,
+            chase_prevented INTEGER NOT NULL DEFAULT 0,
+            final_entry_reason TEXT, trade_id INTEGER,
+            idempotency_key TEXT NOT NULL, last_updated_ts INTEGER NOT NULL,
+            PRIMARY KEY(asset,window_close_ts), UNIQUE(idempotency_key)
+        );
+        """)
+    connection.close()
+    store = LiteStore(str(path))
+    try:
+        lock_columns = {
+            row[1] for row in store._conn.execute(
+                "PRAGMA table_info(lite_window_locks)").fetchall()}
+        trade_columns = {
+            row[1] for row in store._conn.execute(
+                "PRAGMA table_info(lite_trades)").fetchall()}
+        assert {"fair_probability_yes", "net_edge_yes", "maker_start_ts",
+                "pullback_condition"} <= lock_columns
+        assert {"runtime_commit", "model_version", "exit_now_value",
+                "maker_fill_assumed"} <= trade_columns
+    finally:
+        store.close()
+
+
+def test_fair_value_telemetry_round_trips_and_assumed_maker_fill_fails(tmp_path):
+    store = LiteStore(str(tmp_path / "telemetry.db"))
+    try:
+        trade_id = store.insert_trade(_entry(
+            strategy_name="lite_fair_value_edge_v3",
+            runtime_commit="a"*40, model_version="paired_book_fair_value_v1",
+            market_probability_yes=0.50, fair_probability_yes=0.56,
+            fair_probability_no=0.44, executable_yes_price=0.48,
+            executable_no_price=0.53, net_edge_yes=0.02,
+            net_edge_no=-0.08, selected_net_edge=0.02,
+            execution_state="CROSS_SPREAD", maker_fill_assumed=False,
+            pullback_start_ts=None, pullback_condition=None))
+        row = store.get_trade(trade_id)
+        assert row["fair_probability_yes"] == pytest.approx(0.56)
+        assert row["net_edge_yes"] == pytest.approx(0.02)
+        assert row["maker_fill_assumed"] == 0
+        with pytest.raises(ValueError, match="assumed maker fill"):
+            store.insert_trade(_entry(
+                window=900_000, maker_fill_assumed=True))
+    finally:
+        store.close()
+
+
+def test_management_evidence_is_bounded_and_persisted(tmp_path):
+    store = LiteStore(str(tmp_path / "management.db"))
+    try:
+        trade_id = store.insert_trade(_entry())
+        store.update_trade_management(
+            trade_id, 500_000, exit_now_value=1.2,
+            hold_expected_value=2.4, exit_fair_probability=0.50,
+            thesis_status="CONTINUING", reason="hold_ev_superior")
+        row = store.get_trade(trade_id)
+        assert row["exit_now_value"] == pytest.approx(1.2)
+        assert row["hold_expected_value"] == pytest.approx(2.4)
+        assert row["management_reason"] == "hold_ev_superior"
+        with pytest.raises(ValueError, match="management evidence"):
+            store.update_trade_management(
+                trade_id, 501_000, exit_now_value=6.0,
+                hold_expected_value=2.0, exit_fair_probability=0.5,
+                thesis_status="CONTINUING", reason="invalid")
+    finally:
+        store.close()
+
+
+def test_verified_metrics_require_execution_and_resolution_evidence(tmp_path):
+    store = LiteStore(str(tmp_path / "verified.db"))
+    try:
+        verified = store.insert_trade(_entry(
+            window=600_000, execution_verified=True))
+        store.complete_trade(
+            verified, "CLOSED_WIN", 1.0, 610_000, 1.0,
+            "official_outcome", "exact", resolution_verified=True)
+        unverified_resolution = store.insert_trade(_entry(
+            window=900_000, execution_verified=True))
+        store.complete_trade(
+            unverified_resolution, "CLOSED_BOOK_EXIT", 0.5, 850_000, 1.0,
+            "book_exit", "legacy", resolution_verified=False)
+        metrics = store.dashboard_metrics(1_000_000)
+        assert metrics["completed_trades"] == 2
+        assert metrics["verified_metrics"]["count"] == 1
+        assert metrics["verified_realized_pnl"] == pytest.approx(1.0)
+    finally:
+        store.close()

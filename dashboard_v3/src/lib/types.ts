@@ -532,6 +532,20 @@ export interface LiteTradeRow {
   entry_worst_price?: number | null;
   exit_fill_levels?: string | null;
   exit_worst_price?: number | null;
+  runtime_commit?: string | null;
+  model_version?: string | null;
+  fair_probability_yes?: number | null;
+  fair_probability_no?: number | null;
+  net_edge_yes?: number | null;
+  net_edge_no?: number | null;
+  selected_net_edge?: number | null;
+  edge_bucket?: string | null;
+  execution_state?: string | null;
+  maker_fill_assumed?: boolean | number;
+  exit_now_value?: number | null;
+  hold_expected_value?: number | null;
+  thesis_status?: string | null;
+  management_reason?: string | null;
 }
 
 export interface LiteCexFeedAssetState {
@@ -541,6 +555,8 @@ export interface LiteCexFeedAssetState {
   latest_price?: number | null;
   age_ms?: number | null;
   source_age_ms?: number | null;
+  provider_age_ms?: number | null;
+  receipt_age_ms?: number | null;
   stale?: boolean;
   last_update_ts_ms?: number | null;
   [key: string]: unknown;
@@ -557,9 +573,17 @@ export interface LiteCurrentMarketState {
   direction?: {
     output?: string; side?: string | null; yes_score?: number; no_score?: number;
     score_difference?: number; confidence?: number; reason?: string;
+    market_probability_yes?: number; fair_probability_yes?: number;
+    fair_probability_no?: number; executable_yes_price?: number | null;
+    executable_no_price?: number | null; net_edge_yes?: number | null;
+    net_edge_no?: number | null; selected_net_edge?: number | null;
+    calibration_bucket?: string; edge_bucket?: string;
+    cex_adjustment?: number; lead_lag_adjustment?: number;
+    lead_lag_status?: string;
   } | null;
   entry_decision?: {
     action?: string; reason?: string; target_price?: number | null;
+    maker_price?: number | null; maker_fill_assumed?: boolean;
     max_chase_price?: number | null; deadline_ts?: number | null;
   } | null;
   [key: string]: unknown;
@@ -568,6 +592,7 @@ export interface LiteCurrentMarketState {
 export interface LiteDbDiagnostics {
   size_bytes: number;
   writes_per_min: number;
+  bucket_events_per_min?: number;
 }
 
 /** Fully isolated Lite shadow export. It is never merged into DashboardSnapshot,
@@ -608,6 +633,12 @@ export interface LiteDashboardSnapshot {
   historical_both_side_conflicts?: number;
   asset_window_locks?: { active: number; by_status: Record<string, number> };
   anti_dead_bot_last_hour?: Record<string, number>;
+  candidate_evaluations_last_hour?: number;
+  valid_markets_last_hour?: number;
+  positive_edge_events_last_hour?: number;
+  no_edge_skips_last_hour?: number;
+  maker_observations_last_hour?: number;
+  cross_spread_entries_last_hour?: number;
   performance_by_entry_mode?: Record<string, { trades: number; pnl: number }>;
   committed_exposure_usd?: number;
   last_error?: string | null;
@@ -621,6 +652,10 @@ export interface LiteDashboardSnapshot {
   };
   live_readiness_verdict?: string;
   live_readiness_blockers?: string[];
+  strategy_candidate?: {
+    model_version: string; fair_value_source: string; entry_gate: string;
+    maker_mode: string; exit_rule: string; profitability_status: string;
+  };
   real_orders_possible?: boolean;
   cex_feed_state: Record<string, LiteCexFeedAssetState | null>;
   current_market_by_asset: Record<string, LiteCurrentMarketState | null>;

@@ -48,6 +48,20 @@ TRADE_COLUMNS = (
     "exit_bid_depth_shares", "exit_spread", "exit_fill_levels",
     "exit_worst_price", "execution_verified",
     "accounting_version", "legacy_note",
+    "runtime_commit", "model_version", "return_5s", "acceleration",
+    "window_return", "reliability", "cex_adjustment",
+    "lead_lag_adjustment", "market_probability_yes",
+    "fair_probability_yes", "fair_probability_no", "calibration_bucket",
+    "executable_yes_price", "executable_no_price", "estimated_yes_fee",
+    "estimated_no_fee", "execution_buffer_yes", "execution_buffer_no",
+    "uncertainty_buffer", "net_edge_yes", "net_edge_no",
+    "selected_net_edge", "edge_bucket", "lead_lag_status", "cex_move_ts",
+    "poly_book_ts", "lead_lag_ms", "poly_response", "execution_state",
+    "maker_price", "maker_start_ts", "maker_deadline_ts", "maker_wait_ms",
+    "maker_fill_assumed", "maker_fill_model", "lock_ts",
+    "pullback_start_ts", "pullback_condition", "wait_deadline_ts",
+    "last_management_ts", "exit_now_value", "hold_expected_value",
+    "exit_fair_probability", "thesis_status", "management_reason",
 )
 
 _MIGRATION_COLUMNS = {
@@ -99,6 +113,86 @@ _MIGRATION_COLUMNS = {
     "execution_verified": "INTEGER NOT NULL DEFAULT 0",
     "accounting_version": "INTEGER NOT NULL DEFAULT 1",
     "legacy_note": "TEXT",
+    "runtime_commit": "TEXT",
+    "model_version": "TEXT",
+    "return_5s": "REAL",
+    "acceleration": "REAL",
+    "window_return": "REAL",
+    "reliability": "REAL",
+    "cex_adjustment": "REAL",
+    "lead_lag_adjustment": "REAL",
+    "market_probability_yes": "REAL",
+    "fair_probability_yes": "REAL",
+    "fair_probability_no": "REAL",
+    "calibration_bucket": "TEXT",
+    "executable_yes_price": "REAL",
+    "executable_no_price": "REAL",
+    "estimated_yes_fee": "REAL",
+    "estimated_no_fee": "REAL",
+    "execution_buffer_yes": "REAL",
+    "execution_buffer_no": "REAL",
+    "uncertainty_buffer": "REAL",
+    "net_edge_yes": "REAL",
+    "net_edge_no": "REAL",
+    "selected_net_edge": "REAL",
+    "edge_bucket": "TEXT",
+    "lead_lag_status": "TEXT",
+    "cex_move_ts": "INTEGER",
+    "poly_book_ts": "INTEGER",
+    "lead_lag_ms": "INTEGER",
+    "poly_response": "REAL",
+    "execution_state": "TEXT",
+    "maker_price": "REAL",
+    "maker_start_ts": "INTEGER",
+    "maker_deadline_ts": "INTEGER",
+    "maker_wait_ms": "INTEGER",
+    "maker_fill_assumed": "INTEGER NOT NULL DEFAULT 0",
+    "maker_fill_model": "TEXT",
+    "lock_ts": "INTEGER",
+    "pullback_start_ts": "INTEGER",
+    "pullback_condition": "TEXT",
+    "wait_deadline_ts": "INTEGER",
+    "last_management_ts": "INTEGER",
+    "exit_now_value": "REAL",
+    "hold_expected_value": "REAL",
+    "exit_fair_probability": "REAL",
+    "thesis_status": "TEXT",
+    "management_reason": "TEXT",
+}
+
+_LOCK_MIGRATION_COLUMNS = {
+    "return_5s": "REAL",
+    "acceleration": "REAL",
+    "window_return": "REAL",
+    "reliability": "REAL",
+    "cex_adjustment": "REAL",
+    "lead_lag_adjustment": "REAL",
+    "market_probability_yes": "REAL",
+    "fair_probability_yes": "REAL",
+    "fair_probability_no": "REAL",
+    "calibration_bucket": "TEXT",
+    "executable_yes_price": "REAL",
+    "executable_no_price": "REAL",
+    "net_edge_yes": "REAL",
+    "net_edge_no": "REAL",
+    "selected_net_edge": "REAL",
+    "edge_bucket": "TEXT",
+    "lead_lag_status": "TEXT",
+    "cex_move_ts": "INTEGER",
+    "poly_book_ts": "INTEGER",
+    "lead_lag_ms": "INTEGER",
+    "poly_response": "REAL",
+    "execution_state": "TEXT",
+    "maker_price": "REAL",
+    "maker_start_ts": "INTEGER",
+    "maker_deadline_ts": "INTEGER",
+    "maker_wait_ms": "INTEGER NOT NULL DEFAULT 0",
+    "maker_fill_assumed": "INTEGER NOT NULL DEFAULT 0",
+    "initial_net_edge": "REAL",
+    "lock_ts": "INTEGER",
+    "pullback_start_ts": "INTEGER",
+    "pullback_condition": "TEXT",
+    "wait_deadline_ts": "INTEGER",
 }
 
 
@@ -122,7 +216,9 @@ class LiteStore:
         self.path = Path(db_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._bucket_seen: set[tuple[str, int, str, str, str]] = set()
+        self._bucket_pending: dict[
+            tuple[str, int, str, str, str], int
+        ] = defaultdict(int)
         self.max_open_positions = (int(max_open_positions)
                                    if max_open_positions is not None else None)
         self.max_open_per_asset = (int(max_open_per_asset)
@@ -181,7 +277,27 @@ class LiteStore:
                     exit_fill_shares REAL, exit_bid_depth_shares REAL,
                     exit_spread REAL, exit_fill_levels TEXT,
                     exit_worst_price REAL, execution_verified INTEGER NOT NULL DEFAULT 0,
-                    accounting_version INTEGER NOT NULL DEFAULT 1, legacy_note TEXT
+                    accounting_version INTEGER NOT NULL DEFAULT 1, legacy_note TEXT,
+                    runtime_commit TEXT, model_version TEXT, return_5s REAL,
+                    acceleration REAL, window_return REAL, reliability REAL,
+                    cex_adjustment REAL, lead_lag_adjustment REAL,
+                    market_probability_yes REAL, fair_probability_yes REAL,
+                    fair_probability_no REAL, calibration_bucket TEXT,
+                    executable_yes_price REAL, executable_no_price REAL,
+                    estimated_yes_fee REAL, estimated_no_fee REAL,
+                    execution_buffer_yes REAL, execution_buffer_no REAL,
+                    uncertainty_buffer REAL, net_edge_yes REAL, net_edge_no REAL,
+                    selected_net_edge REAL, edge_bucket TEXT, lead_lag_status TEXT,
+                    cex_move_ts INTEGER, poly_book_ts INTEGER, lead_lag_ms INTEGER,
+                    poly_response REAL, execution_state TEXT, maker_price REAL,
+                    maker_start_ts INTEGER, maker_deadline_ts INTEGER,
+                    maker_wait_ms INTEGER, maker_fill_assumed INTEGER NOT NULL DEFAULT 0,
+                    maker_fill_model TEXT, lock_ts INTEGER,
+                    pullback_start_ts INTEGER, pullback_condition TEXT,
+                    wait_deadline_ts INTEGER, last_management_ts INTEGER,
+                    exit_now_value REAL, hold_expected_value REAL,
+                    exit_fair_probability REAL, thesis_status TEXT,
+                    management_reason TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_lite_trades_status
                     ON lite_trades(status, window_close_ts);
@@ -218,6 +334,21 @@ class LiteStore:
                     chase_prevented INTEGER NOT NULL DEFAULT 0,
                     final_entry_reason TEXT, trade_id INTEGER,
                     idempotency_key TEXT NOT NULL, last_updated_ts INTEGER NOT NULL,
+                    return_5s REAL, acceleration REAL, window_return REAL,
+                    reliability REAL, cex_adjustment REAL,
+                    lead_lag_adjustment REAL, market_probability_yes REAL,
+                    fair_probability_yes REAL,
+                    fair_probability_no REAL, calibration_bucket TEXT,
+                    executable_yes_price REAL, executable_no_price REAL,
+                    net_edge_yes REAL, net_edge_no REAL, selected_net_edge REAL,
+                    edge_bucket TEXT, lead_lag_status TEXT, cex_move_ts INTEGER,
+                    poly_book_ts INTEGER, lead_lag_ms INTEGER, poly_response REAL,
+                    execution_state TEXT, maker_price REAL, maker_start_ts INTEGER,
+                    maker_deadline_ts INTEGER, maker_wait_ms INTEGER NOT NULL DEFAULT 0,
+                    maker_fill_assumed INTEGER NOT NULL DEFAULT 0,
+                    initial_net_edge REAL, lock_ts INTEGER,
+                    pullback_start_ts INTEGER, pullback_condition TEXT,
+                    wait_deadline_ts INTEGER,
                     PRIMARY KEY(asset,window_close_ts),
                     UNIQUE(idempotency_key)
                 );
@@ -238,6 +369,14 @@ class LiteStore:
                 if name not in existing:
                     self._conn.execute(
                         f'ALTER TABLE lite_trades ADD COLUMN "{name}" {definition}')
+            existing_locks = {
+                str(row[1]) for row in self._conn.execute(
+                    "PRAGMA table_info(lite_window_locks)")
+            }
+            for name, definition in _LOCK_MIGRATION_COLUMNS.items():
+                if name not in existing_locks:
+                    self._conn.execute(
+                        f'ALTER TABLE lite_window_locks ADD COLUMN "{name}" {definition}')
             self._conn.execute(
                 """UPDATE lite_trades SET window_open_ts=window_close_ts-300000
                    WHERE window_open_ts IS NULL""")
@@ -314,17 +453,52 @@ class LiteStore:
         key = idempotent_intent_key(
             asset=asset, window_close_ts=close_ts,
             side=side, **identity)
-        values = (
-            asset, identity["slug"], identity["market_id"], identity["event_id"],
-            identity["condition_id"], open_ts, close_ts, side, "DIRECTION_LOCKED",
-            "DIRECTION_LOCKED", int(now_ms), str(_value(direction, "output", side)),
-            _value(direction, "direction_score"), _value(direction, "yes_score"),
-            _value(direction, "no_score"), _value(direction, "score_difference"),
-            _value(direction, "confidence"), str(_value(direction, "reason", "")),
-            _value(direction, "return_10s"), _value(direction, "return_30s"),
-            _value(direction, "return_60s"), _value(direction, "tick_return"),
-            _value(direction, "volatility"), "DIRECTION_LOCKED", key, int(now_ms),
-        )
+        lock_payload = {
+            "asset": asset, "slug": identity["slug"],
+            "market_id": identity["market_id"], "event_id": identity["event_id"],
+            "condition_id": identity["condition_id"], "window_open_ts": open_ts,
+            "window_close_ts": close_ts, "side": side,
+            "status": "DIRECTION_LOCKED", "lifecycle_status": "DIRECTION_LOCKED",
+            "direction_decision_ts": int(now_ms),
+            "direction_output": str(_value(direction, "output", side)),
+            "direction_score": _value(direction, "direction_score"),
+            "yes_score": _value(direction, "yes_score"),
+            "no_score": _value(direction, "no_score"),
+            "score_difference": _value(direction, "score_difference"),
+            "confidence": _value(direction, "confidence"),
+            "direction_reason": str(_value(direction, "reason", "")),
+            "return_5s": _value(direction, "return_5s"),
+            "return_10s": _value(direction, "return_10s"),
+            "return_30s": _value(direction, "return_30s"),
+            "return_60s": _value(direction, "return_60s"),
+            "tick_return": _value(direction, "tick_return"),
+            "volatility": _value(direction, "volatility"),
+            "acceleration": _value(direction, "acceleration"),
+            "window_return": _value(direction, "window_return"),
+            "reliability": _value(direction, "reliability"),
+            "cex_adjustment": _value(direction, "cex_adjustment"),
+            "lead_lag_adjustment": _value(direction, "lead_lag_adjustment"),
+            "market_probability_yes": _value(direction, "market_probability_yes"),
+            "fair_probability_yes": _value(direction, "fair_probability_yes"),
+            "fair_probability_no": _value(direction, "fair_probability_no"),
+            "calibration_bucket": _value(direction, "calibration_bucket"),
+            "executable_yes_price": _value(direction, "executable_yes_price"),
+            "executable_no_price": _value(direction, "executable_no_price"),
+            "net_edge_yes": _value(direction, "net_edge_yes"),
+            "net_edge_no": _value(direction, "net_edge_no"),
+            "selected_net_edge": _value(direction, "selected_net_edge"),
+            "initial_net_edge": _value(direction, "selected_net_edge"),
+            "edge_bucket": _value(direction, "edge_bucket"),
+            "lead_lag_status": _value(direction, "lead_lag_status"),
+            "cex_move_ts": _value(direction, "cex_move_ts"),
+            "poly_book_ts": _value(direction, "poly_book_ts"),
+            "lead_lag_ms": _value(direction, "lead_lag_ms"),
+            "poly_response": _value(direction, "poly_response"),
+            "entry_state": "DIRECTION_LOCKED", "execution_state": "EDGE_IDENTIFIED",
+            "maker_wait_ms": 0, "maker_fill_assumed": 0,
+            "lock_ts": int(now_ms), "idempotency_key": key,
+            "last_updated_ts": int(now_ms),
+        }
         with self._lock:
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
@@ -336,16 +510,11 @@ class LiteStore:
                     lock = dict(existing)
                     self._conn.rollback()
                     return False, self._conflict_reason(lock, side, identity), lock
+                columns = ",".join(lock_payload)
+                marks = ",".join("?" for _ in lock_payload)
                 self._conn.execute(
-                    """INSERT INTO lite_window_locks(
-                       asset,slug,market_id,event_id,condition_id,window_open_ts,
-                       window_close_ts,side,status,lifecycle_status,
-                       direction_decision_ts,direction_output,direction_score,
-                       yes_score,no_score,score_difference,confidence,direction_reason,
-                       return_10s,return_30s,return_60s,tick_return,volatility,
-                       entry_state,idempotency_key,last_updated_ts)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    values,
+                    f"INSERT INTO lite_window_locks ({columns}) VALUES ({marks})",
+                    tuple(lock_payload.values()),
                 )
                 self._conn.commit()
             except Exception:
@@ -359,7 +528,17 @@ class LiteStore:
             "target_price", "max_chase_price", "deadline_ts", "last_reevaluate_ts",
             "expected_improvement", "actual_improvement", "wait_duration_ms",
             "missed_opportunity", "chase_prevented", "final_entry_reason",
-            "last_updated_ts", "trade_id",
+            "last_updated_ts", "trade_id", "market_probability_yes",
+            "fair_probability_yes", "fair_probability_no", "calibration_bucket",
+            "executable_yes_price", "executable_no_price", "net_edge_yes",
+            "net_edge_no", "selected_net_edge", "edge_bucket",
+            "lead_lag_status", "cex_move_ts", "poly_book_ts", "lead_lag_ms",
+            "poly_response", "execution_state", "maker_price", "maker_start_ts",
+            "maker_deadline_ts", "maker_wait_ms", "maker_fill_assumed",
+            "initial_net_edge", "lock_ts", "pullback_start_ts",
+            "pullback_condition", "wait_deadline_ts", "return_5s",
+            "acceleration", "window_return", "reliability", "cex_adjustment",
+            "lead_lag_adjustment",
         }
         updates = {key: value for key, value in fields.items() if key in allowed}
         if not updates:
@@ -403,6 +582,10 @@ class LiteStore:
         payload["missed_opportunity"] = int(bool(payload.get("missed_opportunity")))
         payload["chase_prevented"] = int(bool(payload.get("chase_prevented")))
         payload["execution_verified"] = int(bool(payload.get("execution_verified")))
+        payload["maker_fill_assumed"] = int(bool(payload.get("maker_fill_assumed")))
+        if payload["maker_fill_assumed"]:
+            raise ValueError("Lite cannot persist an assumed maker fill")
+        payload["maker_wait_ms"] = int(payload.get("maker_wait_ms") or 0)
         payload["accounting_version"] = int(payload.get("accounting_version") or 2)
         asset = str(payload["asset"]).upper()
         payload["asset"] = asset
@@ -463,7 +646,7 @@ class LiteStore:
                 else:
                     existing = dict(existing_row)
                     if existing.get("trade_id") is not None or existing.get("status") not in (
-                            "DIRECTION_LOCKED", "WAIT_FOR_PULLBACK"):
+                            "DIRECTION_LOCKED", "WAIT_FOR_PULLBACK", "MAKER_WAIT"):
                         raise WindowLockConflict(
                             self._conflict_reason(existing, str(payload["side"]), identity),
                             existing)
@@ -479,13 +662,18 @@ class LiteStore:
                     """UPDATE lite_window_locks SET status='ENTERED',
                        lifecycle_status='OPEN',entry_state=?,trade_id=?,
                        actual_improvement=?,wait_duration_ms=?,missed_opportunity=?,
-                       chase_prevented=?,final_entry_reason=?,last_updated_ts=?
+                       chase_prevented=?,final_entry_reason=?,execution_state=?,
+                       maker_price=?,maker_start_ts=?,maker_deadline_ts=?,
+                       maker_wait_ms=?,maker_fill_assumed=0,last_updated_ts=?
                        WHERE asset=? AND window_close_ts=?""",
                     (str(payload.get("entry_mode") or "ENTER_NOW"), trade_id,
                      payload.get("actual_improvement"), payload.get("wait_duration_ms") or 0,
                      payload.get("missed_opportunity") or 0,
                      payload.get("chase_prevented") or 0,
-                     payload.get("final_entry_reason"), int(payload["entry_ts"]),
+                     payload.get("final_entry_reason"), payload.get("execution_state"),
+                     payload.get("maker_price"), payload.get("maker_start_ts"),
+                     payload.get("maker_deadline_ts"), payload.get("maker_wait_ms") or 0,
+                     int(payload["entry_ts"]),
                      asset, close_ts),
                 )
                 self._conn.commit()
@@ -512,21 +700,35 @@ class LiteStore:
         timestamp_bucket = int(ts_ms) // bucket_ms * bucket_ms
         cache_key = (table, timestamp_bucket, str(asset), str(slug or ""), str(value))
         with self._lock, self._conn:
-            if cache_key in self._bucket_seen:
-                return
+            self._bucket_pending[cache_key] += 1
+            # One batched upsert per rolled bucket preserves exact evaluation
+            # counts without restoring a write on every three-second scan.
+            stale = [key for key in self._bucket_pending
+                     if key[1] < timestamp_bucket]
+            self._flush_bucket_counts(stale)
+
+    def _flush_bucket_counts(
+            self, keys: Optional[Iterable[tuple[str, int, str, str, str]]] = None,
+    ) -> None:
+        selected = list(self._bucket_pending if keys is None else keys)
+        for key in selected:
+            count = int(self._bucket_pending.pop(key, 0))
+            if count <= 0:
+                continue
+            table, timestamp_bucket, asset, slug, value = key
+            if table == "lite_rejects":
+                field = "reject_reason"
+            elif table == "lite_decision_buckets":
+                field = "decision"
+            else:  # defensive: pending keys are created only above
+                raise ValueError("invalid pending Lite bucket")
             self._conn.execute(
                 f"""INSERT INTO {table}(timestamp_bucket,asset,slug,{field},count)
-                    VALUES(?,?,?,?,1)
-                    ON CONFLICT(timestamp_bucket,asset,slug,{field}) DO NOTHING""",
-                (timestamp_bucket, str(asset), str(slug or ""), str(value)),
+                    VALUES(?,?,?,?,?)
+                    ON CONFLICT(timestamp_bucket,asset,slug,{field})
+                    DO UPDATE SET count=count+excluded.count""",
+                (timestamp_bucket, asset, slug, value, count),
             )
-            self._bucket_seen.add(cache_key)
-            # Retain only this and the immediately prior bucket.  This bounds
-            # memory while preserving the no-repeat-write guarantee.
-            cutoff = timestamp_bucket - bucket_ms
-            self._bucket_seen = {
-                key for key in self._bucket_seen if key[1] >= cutoff
-            }
 
     def open_positions(self) -> list[dict]:
         return self._rows(
@@ -557,6 +759,36 @@ class LiteStore:
             row = self._conn.execute(
                 "SELECT * FROM lite_trades WHERE id=?", (int(trade_id),)).fetchone()
         return self._row_dict(row)
+
+    def update_trade_management(
+            self, trade_id: int, now_ms: int, *,
+            exit_now_value: Optional[float],
+            hold_expected_value: Optional[float],
+            exit_fair_probability: Optional[float],
+            thesis_status: str, reason: str,
+    ) -> None:
+        numeric = (exit_now_value, hold_expected_value, exit_fair_probability)
+        for index, value in enumerate(numeric):
+            if value is None:
+                continue
+            parsed = float(value)
+            maximum = 1.0 if index == 2 else FIXED_SHARES
+            if not math.isfinite(parsed) or not 0.0 <= parsed <= maximum:
+                raise ValueError("invalid Lite management evidence")
+        allowed_thesis = {
+            "CONTINUING", "INVALIDATED", "DATA_INVALID", "RESOLUTION_PENDING",
+        }
+        if str(thesis_status) not in allowed_thesis or not str(reason):
+            raise ValueError("invalid Lite management reason")
+        with self._lock, self._conn:
+            self._conn.execute(
+                """UPDATE lite_trades SET last_management_ts=?,exit_now_value=?,
+                   hold_expected_value=?,exit_fair_probability=?,thesis_status=?,
+                   management_reason=? WHERE id=? AND status IN ('OPEN','EXIT_PENDING')""",
+                (int(now_ms), exit_now_value, hold_expected_value,
+                 exit_fair_probability, str(thesis_status), str(reason),
+                 int(trade_id)),
+            )
 
     def mark_exit_pending(self, trade_id: int, now_ms: int, reason: str = "exit_due") -> None:
         with self._lock, self._conn:
@@ -735,7 +967,8 @@ class LiteStore:
                     lifecycle_status='COMPLETE',last_updated_ts=?
                     WHERE trade_id IN (
                         SELECT id FROM lite_trades WHERE status IN ({marks})
-                    ) AND window_close_ts<=?""",
+                    ) AND window_close_ts<=?
+                    AND (status!='COMPLETE' OR lifecycle_status!='COMPLETE')""",
                 (int(now_ms), *TERMINAL_STATUSES, int(now_ms)))
 
     def last_trade_ts(self) -> Optional[int]:
@@ -802,7 +1035,9 @@ class LiteStore:
         all_rows = self._rows("SELECT * FROM lite_trades ORDER BY exit_ts,id")
         terminal = [row for row in all_rows if row["status"] in TERMINAL_STATUSES
                     and row.get("pnl") is not None]
-        verified = [row for row in terminal if bool(row.get("execution_verified"))]
+        verified = [row for row in terminal
+                    if bool(row.get("execution_verified"))
+                    and bool(row.get("resolution_verified"))]
         perf = self._performance(terminal)
         verified_perf = self._performance(verified)
         statuses: dict[str, int] = defaultdict(int)
@@ -836,6 +1071,13 @@ class LiteStore:
             decisions = {str(row[0]): int(row[1]) for row in conn.execute(
                 """SELECT decision,SUM(count) FROM lite_decision_buckets
                    WHERE timestamp_bucket>=? GROUP BY decision""", (cutoff,)).fetchall()}
+            for (table, bucket, _asset, _slug, value), count in self._bucket_pending.items():
+                if bucket < cutoff:
+                    continue
+                if table == "lite_decision_buckets":
+                    decisions[value] = decisions.get(value, 0) + int(count)
+                elif table == "lite_rejects":
+                    rejects[value] = rejects.get(value, 0) + int(count)
             conflicts = int(conn.execute(
                 """SELECT COUNT(*) FROM (
                    SELECT asset,window_close_ts FROM lite_trades
@@ -844,7 +1086,8 @@ class LiteStore:
                 "SELECT status,COUNT(*) FROM lite_window_locks GROUP BY status").fetchall()}
             active_locks = int(conn.execute(
                 """SELECT COUNT(*) FROM lite_window_locks WHERE status IN
-                   ('DIRECTION_LOCKED','WAIT_FOR_PULLBACK','ENTERED')""").fetchone()[0])
+                   ('DIRECTION_LOCKED','WAIT_FOR_PULLBACK','MAKER_WAIT','ENTERED')
+                   AND window_close_ts>?""", (int(now_ms),)).fetchone()[0])
             last_error_row = conn.execute(
                 """SELECT last_error FROM lite_trades WHERE last_error IS NOT NULL
                    AND last_error!='' ORDER BY COALESCE(last_attempt_at,entry_ts) DESC LIMIT 1""").fetchone()
@@ -858,6 +1101,9 @@ class LiteStore:
                 conn.execute("SELECT SUM(count) FROM lite_decision_buckets WHERE timestamp_bucket>=?",
                              (int(now_ms)-60_000,)).fetchone(),
             ))
+            recent_bucket_events = recent_bucket_writes + sum(
+                int(count) for (_table, bucket, _asset, _slug, _value), count
+                in self._bucket_pending.items() if bucket >= int(now_ms)-60_000)
 
         db_size = sum(
             candidate.stat().st_size for suffix in ("", "-wal", "-shm")
@@ -898,13 +1144,20 @@ class LiteStore:
             "historical_both_side_conflicts": conflicts,
             "asset_window_locks": {"active": active_locks, "by_status": lock_counts},
             "anti_dead_bot_last_hour": decisions,
+            "candidate_evaluations_last_hour": decisions.get("candidate", 0),
+            "valid_markets_last_hour": decisions.get("valid_market", 0),
+            "positive_edge_events_last_hour": decisions.get("positive_edge", 0),
+            "no_edge_skips_last_hour": decisions.get("NO_TRADE_TRULY_NO_EDGE", 0),
+            "maker_observations_last_hour": decisions.get("MAKER_WAIT", 0),
+            "cross_spread_entries_last_hour": decisions.get("CROSS_SPREAD", 0),
             "top_reject_reasons": rejects,
             "committed_exposure_usd": round(self.committed_exposure(), 10),
             "last_error": str(last_error_row[0]) if last_error_row else None,
             "last_20_trades": recent if include_rows else [],
             "db_diagnostics": {
                 "size_bytes": db_size,
-                "writes_per_min": recent_trade_writes + recent_bucket_writes,
+                "writes_per_min": recent_trade_writes,
+                "bucket_events_per_min": recent_bucket_events,
             },
         }
 
@@ -915,10 +1168,14 @@ class LiteStore:
         }
         if table not in allowed:
             raise ValueError("unknown Lite table")
-        with self._lock:
+        with self._lock, self._conn:
+            pending = [key for key in self._bucket_pending if key[0] == table]
+            self._flush_bucket_counts(pending)
             row = self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         return int(row[0])
 
     def close(self) -> None:
         with self._lock:
+            self._flush_bucket_counts()
+            self._conn.commit()
             self._conn.close()

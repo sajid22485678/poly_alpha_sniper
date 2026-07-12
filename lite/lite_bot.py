@@ -255,6 +255,9 @@ class LiteBot:
         self.current_markets: dict[str, dict[str, Any]] = {}
         self.current_commit = _current_commit()
         self.last_error: Optional[str] = None
+        self._cycle_quotes: dict[str, Any] = {}
+        self._prior_observations: dict[str, dict[str, Any]] = {}
+        self._cycle_observations: dict[str, dict[str, Any]] = {}
 
     def _runtime_state(self) -> dict[str, Any]:
         return {
@@ -263,49 +266,100 @@ class LiteBot:
             "open_positions": len(self.store.open_positions()),
             "db_path": str(Path(self.cfg.db_path).resolve()),
             "current_commit": self.current_commit,
+            "strategy_model": "paired_book_fair_value_v1",
             "last_error": self.last_error,
         }
 
+    async def _get_books_cached(
+            self, token_ids: list[str],
+    ) -> dict[str, Any]:
+        tokens = [str(token) for token in token_ids if token]
+        missing = [token for token in tokens if token not in self._cycle_quotes]
+        if missing:
+            self._cycle_quotes.update(await self.books.get_books(missing))
+        return {token: self._cycle_quotes.get(token) for token in tokens}
+
+    def _remember_observation(self, asset: str, direction, *,
+                              cex_price: Optional[float], features: dict) -> None:
+        if cex_price is None:
+            return
+        observation = self.strategy.observation(
+            direction, cex_price=float(cex_price), features=features)
+        if observation is not None:
+            self._cycle_observations[str(asset).upper()] = observation
+
     async def _manage_open_positions(self, now_ms: int) -> None:
-        """Use only pre-close, five-share owned-token bid sweeps."""
+        """Compare a fresh executable exit with conservative hold value."""
         self.store.finalize_window_locks(now_ms)
-        due: list[dict] = []
-        for trade in self.store.open_positions():
+        async def manage_one(trade: dict) -> None:
             close_ts = int(trade.get("window_close_ts") or 0)
-            if now_ms >= close_ts:
+            if close_ts <= 0 or now_ms >= close_ts:
                 self.store.mark_pending(
                     int(trade["id"]), now_ms, "preclose_exit_unavailable")
-                continue
-            exit_due = now_ms >= close_ts - int(float(self.cfg.exit_before_close_s) * 1000)
-            if not exit_due:
-                continue
-            self.store.mark_exit_pending(int(trade["id"]), now_ms)
-            due.append(trade)
-
-        async def exit_one(trade: dict) -> None:
+                return
+            market = LiteMarket(
+                asset=str(trade["asset"]), slug=str(trade["slug"]),
+                market_id=str(trade["market_id"]),
+                event_id=str(trade.get("event_id") or ""),
+                condition_id=str(trade.get("condition_id") or ""),
+                yes_token_id=str(trade.get("yes_token_id") or ""),
+                no_token_id=str(trade.get("no_token_id") or ""),
+                window_start_s=int(trade.get("window_open_ts") or close_ts-300_000)//1000,
+                window_close_s=close_ts//1000,
+                anchor_available=bool(trade.get("anchor_available")),
+                price_to_beat=trade.get("price_to_beat"),
+            )
+            quotes = await self._get_books_cached(
+                [market.yes_token_id, market.no_token_id])
+            evidence_ms = _now_ms()
+            cex_price, cex_age_ms, _source = self.cex.latest(
+                market.asset, evidence_ms)
+            features = self.cex.feature_snapshot(
+                market.asset, list(self.cfg.momentum_windows_s), evidence_ms,
+                window_start_ms=market.window_start_s*1000)
+            direction = self.strategy.choose_direction(
+                features, cex_price=cex_price, market=market,
+                yes_book=quotes.get(market.yes_token_id),
+                no_book=quotes.get(market.no_token_id),
+                cex_age_ms=cex_age_ms,
+                previous_observation=self._prior_observations.get(market.asset),
+                now_ms=evidence_ms)
+            self._remember_observation(
+                market.asset, direction, cex_price=cex_price, features=features)
             side = str(trade.get("side") or "")
             token_id = (trade.get("yes_token_id") if side == "BUY_YES"
                         else trade.get("no_token_id") if side == "BUY_NO" else "")
-            quote = await self.books.get_book(str(token_id)) if (
+            quote = quotes.get(str(token_id)) if (
                 self.cfg.allow_book_exit and token_id) else None
-            evidence_ms = _now_ms()
             sweep, reason = direct_book_exit(
                 trade, quote, evidence_ms, int(self.cfg.book_max_age_ms),
                 float(self.cfg.max_spread))
-            if sweep is not None and quote is not None:
-                exit_price = float(sweep.vwap)
+            fee_rate = float(trade.get("fee_rate") or self.cfg.crypto_taker_fee_rate)
+            exit_fee = sweep_taker_fee(sweep, fee_rate) if sweep is not None else 0.0
+            management = self.strategy.decide_exit_or_hold(
+                trade, direction, sweep, exit_fee, evidence_ms,
+                book_reason=reason)
+            self.store.update_trade_management(
+                int(trade["id"]), evidence_ms,
+                exit_now_value=management.exit_now_value,
+                hold_expected_value=management.hold_expected_value,
+                exit_fair_probability=management.exit_fair_probability,
+                thesis_status=management.thesis_status,
+                reason=management.reason)
+            if management.action == "EXIT_NOW" and sweep is not None and quote is not None:
+                self.store.mark_exit_pending(
+                    int(trade["id"]), evidence_ms, management.reason)
+                exit_price = float(management.exit_price)
                 gross = book_exit_pnl(
                     float(trade["entry_price"]), FIXED_SHARES, exit_price)
                 entry_fee = float(trade.get("entry_fee") or 0.0)
-                fee_rate = float(trade.get("fee_rate") or self.cfg.crypto_taker_fee_rate)
-                exit_fee = sweep_taker_fee(sweep, fee_rate)
                 net = gross - entry_fee - exit_fee
                 self.store.complete_trade(
                     trade_id=int(trade["id"]), status="CLOSED_BOOK_EXIT",
                     exit_price=exit_price, exit_ts=evidence_ms, pnl=net,
                     gross_pnl=gross, exit_fee=exit_fee,
                     resolution_source="book_exit",
-                    resolution_reason="direct_token_five_share_bid_sweep",
+                    resolution_reason=management.reason,
                     resolution_verified=True,
                     exit_evidence={
                         "book_ts": quote.effective_ts_ms(),
@@ -321,10 +375,9 @@ class LiteBot:
                         "spread": quote.spread,
                     },
                 )
-            elif evidence_ms >= int(trade["window_close_ts"]):
-                self.store.mark_pending(int(trade["id"]), evidence_ms, reason)
 
-        await asyncio.gather(*(exit_one(trade) for trade in due))
+        await asyncio.gather(*(manage_one(trade)
+                               for trade in self.store.open_positions()))
 
     @staticmethod
     def _market_export(market: LiteMarket, now_ms: int) -> dict[str, Any]:
@@ -355,100 +408,179 @@ class LiteBot:
             )
             return
         self.current_markets[asset] = self._market_export(market, now_ms)
-
-        quotes = await self.books.get_books([market.yes_token_id, market.no_token_id])
+        self.store.record_decision(
+            now_ms, asset, market.slug, "valid_market", self.cfg.reject_bucket_s)
+        quotes = await self._get_books_cached(
+            [market.yes_token_id, market.no_token_id])
         evaluated_ms = _now_ms()
         cex_price, cex_age_ms, cex_source = self.cex.latest(asset, evaluated_ms)
         features = self.cex.feature_snapshot(
-            asset, list(self.cfg.momentum_windows_s), evaluated_ms)
+            asset, list(self.cfg.momentum_windows_s), evaluated_ms,
+            window_start_ms=market.window_start_s*1000)
         committed_rows = self.store.committed_positions()
         window_close_ts = market.window_close_s * 1000
         window_rows = self.store.positions_for_window(window_close_ts)
-        by_id = {int(row["id"]): row for row in [*committed_rows, *window_rows]}
         self.store.record_decision(
             evaluated_ms, asset, market.slug, "candidate", self.cfg.reject_bucket_s)
         direction = self.strategy.choose_direction(
             features, cex_price=cex_price, market=market,
             yes_book=quotes.get(market.yes_token_id),
-            no_book=quotes.get(market.no_token_id), cex_age_ms=cex_age_ms)
+            no_book=quotes.get(market.no_token_id), cex_age_ms=cex_age_ms,
+            previous_observation=self._prior_observations.get(asset),
+            now_ms=evaluated_ms)
+        self._remember_observation(
+            asset, direction, cex_price=cex_price, features=features)
         self.current_markets[asset]["direction"] = {
             "output": direction.output, "side": direction.side,
             "yes_score": direction.yes_score, "no_score": direction.no_score,
             "score_difference": direction.score_difference,
             "confidence": direction.confidence, "reason": direction.reason,
+            "market_probability_yes": direction.market_probability_yes,
+            "fair_probability_yes": direction.fair_probability_yes,
+            "fair_probability_no": direction.fair_probability_no,
+            "executable_yes_price": direction.executable_yes_price,
+            "executable_no_price": direction.executable_no_price,
+            "net_edge_yes": direction.net_edge_yes,
+            "net_edge_no": direction.net_edge_no,
+            "selected_net_edge": direction.selected_net_edge,
+            "calibration_bucket": direction.calibration_bucket,
+            "edge_bucket": direction.edge_bucket,
+            "cex_adjustment": direction.cex_adjustment,
+            "lead_lag_adjustment": direction.lead_lag_adjustment,
+            "lead_lag_status": direction.lead_lag_status,
         }
+        lock = self.store.get_window_lock(asset, window_close_ts)
         if direction.side is None:
+            if lock and str(lock.get("status")) in (
+                    "DIRECTION_LOCKED", "MAKER_WAIT", "WAIT_FOR_PULLBACK"):
+                deadline = int(lock.get("maker_deadline_ts")
+                               or lock.get("deadline_ts") or evaluated_ms)
+                edge_gone = direction.output in (
+                    "NO_TRADE_TRULY_NO_EDGE", "BRIEF_CONFIRMATION_WAIT")
+                if edge_gone or evaluated_ms >= deadline:
+                    self.store.mark_window_skipped(
+                        asset, window_close_ts, evaluated_ms,
+                        "edge_gone" if edge_gone else direction.reason,
+                        chase_prevented=True)
             self.store.record_decision(
                 evaluated_ms, asset, market.slug, direction.output,
                 self.cfg.reject_bucket_s)
             reject = {
                 "BRIEF_CONFIRMATION_WAIT": "brief_confirmation_wait",
-                "NO_TRADE_TRULY_FLAT": "truly_flat",
+                "NO_TRADE_TRULY_NO_EDGE": "no_net_edge",
                 "NO_TRADE_DATA_INVALID": "data_invalid",
             }[direction.output]
             self.store.record_reject(
-                evaluated_ms, asset, market.slug, reject, self.cfg.reject_bucket_s)
+                evaluated_ms, asset, market.slug,
+                f"{reject}:{direction.reason}", self.cfg.reject_bucket_s)
             return
 
-        lock = self.store.get_window_lock(asset, window_close_ts)
-        new_lock = lock is None
-        if lock is None:
-            reserved, reason, lock = self.store.reserve_window_direction(
-                market, direction, evaluated_ms)
-            if not reserved:
-                self.store.record_reject(
-                    evaluated_ms, asset, market.slug, reason, self.cfg.reject_bucket_s)
-                return
-        elif str(lock.get("status")) not in ("DIRECTION_LOCKED", "WAIT_FOR_PULLBACK"):
+        self.store.record_decision(
+            evaluated_ms, asset, market.slug, "positive_edge",
+            self.cfg.reject_bucket_s)
+        if window_rows:
+            reason = ("opposite_side_blocked" if any(
+                str(row.get("side")) != direction.side for row in window_rows)
+                else "duplicate_same_side_blocked")
+            self.store.record_reject(
+                evaluated_ms, asset, market.slug, reason, self.cfg.reject_bucket_s)
+            return
+        if len(committed_rows) >= int(self.cfg.max_open_positions) or sum(
+                str(row.get("asset", "")).upper() == asset.upper()
+                for row in committed_rows) >= int(self.cfg.max_open_per_asset):
+            self.store.record_reject(
+                evaluated_ms, asset, market.slug, "max_open_positions",
+                self.cfg.reject_bucket_s)
+            return
+        if lock is not None and str(lock.get("status")) not in (
+                "DIRECTION_LOCKED", "MAKER_WAIT"):
             reason = ("opposite_side_blocked" if str(lock.get("side")) != direction.side
                       else "duplicate_same_side_blocked")
             self.store.record_reject(
                 evaluated_ms, asset, market.slug, reason, self.cfg.reject_bucket_s)
             return
-        elif str(lock.get("side")) != direction.side:
+        if lock is not None and str(lock.get("side")) != direction.side:
             self.store.mark_window_skipped(
                 asset, window_close_ts, evaluated_ms, "thesis_invalidated_no_reversal")
             self.store.record_reject(
                 evaluated_ms, asset, market.slug, "opposite_side_blocked",
                 self.cfg.reject_bucket_s)
             return
-
         selected_book = (quotes.get(market.yes_token_id)
                          if direction.side == "BUY_YES"
                          else quotes.get(market.no_token_id))
+        selected_price = (direction.executable_yes_price
+                          if direction.side == "BUY_YES"
+                          else direction.executable_no_price)
+        if selected_price is None:
+            self.store.record_reject(
+                evaluated_ms, asset, market.slug, "no_executable_price",
+                self.cfg.reject_bucket_s)
+            return
+        risk = self.store.risk_snapshot(evaluated_ms)
+        exposure = assess_live_small_exposure(
+            entry_price=float(selected_price),
+            committed_exposure_usd=float(risk["committed_exposure_usd"]),
+            equity_usd=float(self.cfg.live_small_equity_usd),
+            available_balance_usd=(float(self.cfg.live_small_equity_usd)
+                                   - float(risk["committed_exposure_usd"])),
+            exposure_cap_pct=float(self.cfg.equity_exposure_cap_pct),
+            fee_rate=float(self.cfg.crypto_taker_fee_rate),
+            fee_buffer_usd=float(self.cfg.fee_buffer_usd),
+            kill_switch=False)
+        if not exposure.allowed:
+            if lock is not None:
+                self.store.mark_window_skipped(
+                    asset, window_close_ts, evaluated_ms, exposure.reason)
+            self.store.record_reject(
+                evaluated_ms, asset, market.slug, exposure.reason,
+                self.cfg.reject_bucket_s)
+            return
+
         timing = self.strategy.optimize_entry(
-            direction, selected_book, market, evaluated_ms,
-            lock=None if new_lock else lock)
+            direction, selected_book, market, evaluated_ms, lock=lock)
+        if timing.action in ("MAKER_WAIT", "CROSS_SPREAD") and lock is None:
+            reserved, reason, lock = self.store.reserve_window_direction(
+                market, direction, evaluated_ms)
+            if not reserved:
+                self.store.record_reject(
+                    evaluated_ms, asset, market.slug, reason,
+                    self.cfg.reject_bucket_s)
+                return
         self.current_markets[asset]["entry_decision"] = {
             "action": timing.action, "reason": timing.reason,
-            "target_price": timing.target_price,
+            "maker_price": timing.maker_price,
             "max_chase_price": timing.max_chase_price,
             "deadline_ts": timing.deadline_ts,
+            "maker_fill_assumed": False,
         }
-        if timing.action == "WAIT_FOR_PULLBACK":
-            initial_ask = None
-            if selected_book is not None:
-                sweep = selected_book.buy_sweep(FIXED_SHARES)
-                initial_ask = sweep.vwap if sweep is not None else None
+        if timing.action == "MAKER_WAIT":
+            initial_sweep = (selected_book.buy_sweep(FIXED_SHARES)
+                             if selected_book is not None else None)
+            initial_ask = initial_sweep.vwap if initial_sweep is not None else None
             self.store.update_window_lock(
-                asset, window_close_ts, status="WAIT_FOR_PULLBACK",
-                lifecycle_status="DIRECTION_LOCKED", entry_state="WAIT_FOR_PULLBACK",
+                asset, window_close_ts, status="MAKER_WAIT",
+                lifecycle_status="DIRECTION_LOCKED", entry_state="MAKER_WAIT",
+                execution_state="MAKER_WAIT",
                 initial_ask=lock.get("initial_ask") or initial_ask,
-                target_price=timing.target_price,
+                target_price=timing.maker_price,
                 max_chase_price=timing.max_chase_price,
                 deadline_ts=timing.deadline_ts,
+                maker_price=timing.maker_price,
+                maker_start_ts=timing.maker_start_ts,
+                maker_deadline_ts=timing.deadline_ts,
+                maker_wait_ms=timing.wait_duration_ms,
+                maker_fill_assumed=0,
                 last_reevaluate_ts=evaluated_ms,
                 expected_improvement=timing.expected_improvement,
                 wait_duration_ms=timing.wait_duration_ms,
                 last_updated_ts=evaluated_ms)
             self.store.record_decision(
-                evaluated_ms, asset, market.slug, "WAIT_FOR_PULLBACK",
+                evaluated_ms, asset, market.slug, "MAKER_WAIT",
                 self.cfg.reject_bucket_s)
             return
-        if timing.action != "ENTER_NOW":
-            terminal_skip = timing.reason in (
-                "thesis_invalidated", "max_chase_exceeded", "price_window")
-            if terminal_skip:
+        if timing.action != "CROSS_SPREAD":
+            if lock is not None:
                 self.store.mark_window_skipped(
                     asset, window_close_ts, evaluated_ms, timing.reason,
                     missed=timing.missed_opportunity,
@@ -457,61 +589,28 @@ class LiteBot:
                 evaluated_ms, asset, market.slug, timing.reason,
                 self.cfg.reject_bucket_s)
             return
-
-        decision = self.strategy.evaluate(
-            market=market,
-            yes_book=quotes.get(market.yes_token_id),
-            no_book=quotes.get(market.no_token_id),
-            cex_price=cex_price,
-            cex_age_ms=cex_age_ms,
-            cex_source=cex_source,
-            momentum_values=features,
-            now_ms=evaluated_ms,
-            open_positions=list(by_id.values()),
-            window_lock=None if new_lock else lock,
-        )
-        if not decision.accepted:
-            self.store.record_reject(
-                evaluated_ms, asset, market.slug, decision.reject_reason,
-                self.cfg.reject_bucket_s,
-            )
-            return
-        risk = self.store.risk_snapshot(evaluated_ms)
-        exposure = assess_live_small_exposure(
-            entry_price=float(decision.entry_price),
-            committed_exposure_usd=float(risk["committed_exposure_usd"]),
-            equity_usd=float(self.cfg.live_small_equity_usd),
-            available_balance_usd=(float(self.cfg.live_small_equity_usd)
-                                   - float(risk["committed_exposure_usd"])),
-            exposure_cap_pct=float(self.cfg.equity_exposure_cap_pct),
-            fee_rate=float(self.cfg.crypto_taker_fee_rate),
-            fee_buffer_usd=float(self.cfg.fee_buffer_usd),
-            # Shadow collects live-small exposure behavior without being shut
-            # down by historical legacy PnL. Daily/streak guards remain a
-            # mandatory live activation check and are exported separately.
-            kill_switch=False)
-        if not exposure.allowed:
-            self.store.record_reject(
-                evaluated_ms, asset, market.slug, exposure.reason,
-                self.cfg.reject_bucket_s)
-            return
+        assert selected_book is not None
+        decision = self.strategy.build_entry_decision(
+            market, direction, timing, selected_book, evaluated_ms)
         try:
             row = self.broker.open_trade(
                 market, decision, evaluated_ms,
-                cex_source=cex_source, cex_entry_price=cex_price)
+                cex_source=cex_source, cex_entry_price=cex_price,
+                current_commit=self.current_commit)
         except WindowLockConflict as exc:
             self.store.record_reject(
                 evaluated_ms, asset, market.slug, exc.reason,
                 self.cfg.reject_bucket_s)
             return
         self.store.record_decision(
-            evaluated_ms, asset, market.slug,
-            "WAIT_FOR_PULLBACK_ENTERED" if decision.wait_duration_ms else "ENTER_NOW",
+            evaluated_ms, asset, market.slug, "CROSS_SPREAD",
             self.cfg.reject_bucket_s)
         self.last_trade_ts_ms = int(row["entry_ts"])
 
     async def scan_once(self) -> None:
         now_ms = _now_ms()
+        self._cycle_quotes = {}
+        self._cycle_observations = {}
         await self.cex.poll_once()
         await asyncio.gather(
             self._manage_open_positions(_now_ms()),
@@ -528,6 +627,7 @@ class LiteBot:
                     f"scan_exception:{type(exc).__name__}", self.cfg.reject_bucket_s,
                 )
         await asyncio.gather(*(scan_asset_safe(asset) for asset in self.cfg.assets))
+        self._prior_observations.update(self._cycle_observations)
         self.last_scan_ts_ms = _now_ms()
         state = self.runtime.publish(self._runtime_state())
         try:

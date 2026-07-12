@@ -71,6 +71,17 @@ def test_normalize_preserves_provenance_receipt_and_all_valid_levels():
     assert quote.total_ask_shares == 9.0
 
 
+def test_normalize_preserves_optional_tick_and_negative_risk_metadata():
+    quote = normalize_book(
+        _payload(tick_size="0.01", neg_risk=False),
+        "token-yes", ts_ms=10_000)
+    assert quote is not None
+    assert quote.tick_size == pytest.approx(0.01)
+    assert quote.neg_risk is False
+    assert normalize_book(
+        _payload(tick_size="nan"), "token-yes", ts_ms=10_000) is None
+
+
 @pytest.mark.parametrize("returned", ["wrong-token", "", None])
 def test_normalize_rejects_mismatched_or_missing_returned_asset(returned):
     assert normalize_book(

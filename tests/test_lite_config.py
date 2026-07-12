@@ -101,6 +101,10 @@ def test_invalid_yaml_fails_closed_instead_of_silent_fallback(tmp_path):
         "lite_shadow:\n  momentum_min_pct: .nan\n",
         "lite_shadow:\n  max_open_positions: '6'\n",
         "lite_shadow:\n  max_spread: 2\n",
+        "lite_shadow:\n  fair_value_max_adjustment: .nan\n",
+        "lite_shadow:\n  min_net_edge: 0.02\n  min_cross_edge: 0.01\n",
+        "lite_shadow:\n  maker_wait_s: 0\n",
+        "lite_shadow:\n  lead_lag_max_ms: false\n",
     ],
 )
 def test_unknown_nonfinite_wrong_type_and_out_of_range_config_fail_closed(tmp_path, body):
@@ -108,6 +112,15 @@ def test_unknown_nonfinite_wrong_type_and_out_of_range_config_fail_closed(tmp_pa
     path.write_text(body, encoding="utf-8")
     with pytest.raises(RuntimeError, match="invalid Lite config"):
         load_lite_config(str(path))
+
+
+def test_fair_value_edge_defaults_are_bounded_and_maker_is_observational():
+    cfg = LiteConfig()
+    assert 0 < cfg.fair_value_max_adjustment <= 0.2
+    assert 0 <= cfg.fair_value_uncertainty_buffer < cfg.fair_value_max_adjustment
+    assert 0 < cfg.min_net_edge <= cfg.min_cross_edge
+    assert 0 < cfg.maker_wait_s <= 10
+    assert cfg.lead_lag_max_adjustment <= cfg.fair_value_max_adjustment
 
 
 def test_public_data_endpoints_and_required_assets_are_hard_locked(tmp_path):
@@ -121,7 +134,7 @@ def test_public_data_endpoints_and_required_assets_are_hard_locked(tmp_path):
 """, encoding="utf-8")
     cfg = load_lite_config(str(path))
     assert cfg.assets == ["BTC", "ETH", "SOL"]
-    assert cfg.momentum_windows_s == [10, 30, 60]
+    assert cfg.momentum_windows_s == [5, 10, 30, 60]
     assert cfg.gamma_base_url == LITE_GAMMA_BASE_URL
     assert cfg.clob_base_url == LITE_CLOB_BASE_URL
 

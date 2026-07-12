@@ -1,0 +1,296 @@
+{
+  "artifact_version": 1,
+  "by_asset": {
+    "BTC": {
+      "average_loss": -2.1954261905,
+      "average_win": 1.2972223333,
+      "completed": 51,
+      "expectancy": -0.1409270588,
+      "gross_loss": 46.10395,
+      "gross_profit": 38.91667,
+      "longest_loss_streak": 4,
+      "max_drawdown_timestamp_batched": 16.14588,
+      "net_pnl": -7.18728,
+      "payoff_ratio": 0.5908749467,
+      "profit_factor": 0.8441070667,
+      "win_rate": 0.5882352941
+    },
+    "ETH": {
+      "average_loss": -2.5234223529,
+      "average_win": 1.614846,
+      "completed": 42,
+      "expectancy": -0.060167381,
+      "gross_loss": 42.89818,
+      "gross_profit": 40.37115,
+      "longest_loss_streak": 4,
+      "max_drawdown_timestamp_batched": 15.66453,
+      "net_pnl": -2.52703,
+      "payoff_ratio": 0.6399428134,
+      "profit_factor": 0.9410923727,
+      "win_rate": 0.5952380952
+    },
+    "SOL": {
+      "average_loss": -2.8461077778,
+      "average_win": 1.728262069,
+      "completed": 47,
+      "expectancy": -0.0236242553,
+      "gross_loss": 51.22994,
+      "gross_profit": 50.1196,
+      "longest_loss_streak": 2,
+      "max_drawdown_timestamp_batched": 22.62721,
+      "net_pnl": -1.11034,
+      "payoff_ratio": 0.6072370423,
+      "profit_factor": 0.9783263459,
+      "win_rate": 0.6170212766
+    }
+  },
+  "by_entry_mode_label": {
+    "ENTER_NOW": {
+      "average_loss": -2.47607125,
+      "average_win": 1.5876814815,
+      "completed": 43,
+      "expectancy": 0.0755874419,
+      "gross_loss": 39.61714,
+      "gross_profit": 42.8674,
+      "longest_loss_streak": 3,
+      "max_drawdown_timestamp_batched": 9.33037,
+      "net_pnl": 3.25026,
+      "payoff_ratio": 0.6412099335,
+      "profit_factor": 1.0820417627,
+      "win_rate": 0.6279069767
+    },
+    "WAIT_FOR_PULLBACK": {
+      "average_loss": -2.51537325,
+      "average_win": 1.5182459649,
+      "completed": 97,
+      "expectancy": -0.1451021649,
+      "gross_loss": 100.61493,
+      "gross_profit": 86.54002,
+      "longest_loss_streak": 4,
+      "max_drawdown_timestamp_batched": 36.25347,
+      "net_pnl": -14.07491,
+      "payoff_ratio": 0.60358675,
+      "profit_factor": 0.8601111187,
+      "win_rate": 0.587628866
+    }
+  },
+  "by_side": {
+    "BUY_NO": {
+      "average_loss": -2.5545245455,
+      "average_win": 1.5853986667,
+      "completed": 78,
+      "expectancy": -0.1661073077,
+      "gross_loss": 84.29931,
+      "gross_profit": 71.34294,
+      "longest_loss_streak": 5,
+      "max_drawdown_timestamp_batched": 38.80553,
+      "net_pnl": -12.95637,
+      "payoff_ratio": 0.620623775,
+      "profit_factor": 0.8463051477,
+      "win_rate": 0.5769230769
+    },
+    "BUY_YES": {
+      "average_loss": -2.4318591304,
+      "average_win": 1.4888328205,
+      "completed": 62,
+      "expectancy": 0.0343825806,
+      "gross_loss": 55.93276,
+      "gross_profit": 58.06448,
+      "longest_loss_streak": 3,
+      "max_drawdown_timestamp_batched": 21.7048,
+      "net_pnl": 2.13172,
+      "payoff_ratio": 0.6122200097,
+      "profit_factor": 1.0381121904,
+      "win_rate": 0.6290322581
+    }
+  },
+  "chronological_segments": {
+    "holdout": {
+      "average_loss": -2.0999825,
+      "average_win": 1.7930665,
+      "completed": 28,
+      "expectancy": 0.6807667857,
+      "gross_loss": 16.79986,
+      "gross_profit": 35.86133,
+      "longest_loss_streak": 3,
+      "max_drawdown_timestamp_batched": 8.41628,
+      "net_pnl": 19.06147,
+      "payoff_ratio": 0.8538483059,
+      "profit_factor": 2.1346207647,
+      "win_rate": 0.7142857143
+    },
+    "train": {
+      "average_loss": -2.6593872973,
+      "average_win": 1.424846383,
+      "completed": 84,
+      "expectancy": -0.3741613095,
+      "gross_loss": 98.39733,
+      "gross_profit": 66.96778,
+      "longest_loss_streak": 4,
+      "max_drawdown_timestamp_batched": 33.29628,
+      "net_pnl": -31.42955,
+      "payoff_ratio": 0.5357799462,
+      "profit_factor": 0.680585337,
+      "win_rate": 0.5595238095
+    },
+    "validation": {
+      "average_loss": -2.2758981818,
+      "average_win": 1.56343,
+      "completed": 28,
+      "expectancy": 0.0551225,
+      "gross_loss": 25.03488,
+      "gross_profit": 26.57831,
+      "longest_loss_streak": 4,
+      "max_drawdown_timestamp_batched": 11.11723,
+      "net_pnl": 1.54343,
+      "payoff_ratio": 0.6869507663,
+      "profit_factor": 1.0616511843,
+      "win_rate": 0.6071428571
+    }
+  },
+  "forward_acceptance_requirement": {
+    "chronological_split": "60/20/20 with at least 60 holdout trades",
+    "holdout_expectancy_gt": 0,
+    "holdout_profit_factor_gt": 1,
+    "max_drawdown_lte": 26.4156225,
+    "minimum_calendar_days": 7,
+    "minimum_entry_frequency_per_hour_unless_positive_evidence_justifies_less": 11.0941210426,
+    "minimum_per_asset": 75,
+    "minimum_per_side": 100,
+    "required_invariants": [
+      "zero both-side conflicts",
+      "zero duplicate entries",
+      "zero assumed maker fills",
+      "unresolved_final=0",
+      "execution_verified=1",
+      "resolution_verified=1"
+    ],
+    "validation_expectancy_gt": 0,
+    "validation_profit_factor_gt": 1,
+    "verified_terminal_trades": 300
+  },
+  "forward_baseline": {
+    "average_loss": -2.5041441071,
+    "average_win": 1.5405645238,
+    "completed": 140,
+    "completed_per_hour": 14.687252444,
+    "entries_per_hour": 14.7921613901,
+    "expectancy": -0.0773189286,
+    "fees": 13.86305,
+    "gross_loss": 140.23207,
+    "gross_pre_fee_pnl": 3.0384,
+    "gross_profit": 129.40742,
+    "longest_loss_streak": 4,
+    "max_drawdown_timestamp_batched": 35.22083,
+    "net_pnl": -10.82465,
+    "observation_hours": 9.5320755556,
+    "open_entries": 1,
+    "payoff_ratio": 0.6152060177,
+    "profit_factor": 0.9228090265,
+    "verified_entries": 141,
+    "win_rate": 0.6
+  },
+  "loss_attribution": {
+    "book_exit": {
+      "average_loss": -2.3170736842,
+      "average_win": 1.3622358333,
+      "completed": 86,
+      "expectancy": -0.2635055814,
+      "gross_loss": 88.0488,
+      "gross_profit": 65.38732,
+      "longest_loss_streak": 3,
+      "max_drawdown_timestamp_batched": 32.73175,
+      "net_pnl": -22.66148,
+      "payoff_ratio": 0.5879121767,
+      "profit_factor": 0.7426259075,
+      "win_rate": 0.5581395349
+    },
+    "false_delayed_lock_labeled_pullback": {
+      "average_loss": -2.4995297436,
+      "average_win": 1.5243157407,
+      "completed": 93,
+      "expectancy": -0.1631033333,
+      "gross_loss": 97.48166,
+      "gross_profit": 82.31305,
+      "longest_loss_streak": 4,
+      "max_drawdown_timestamp_batched": 40.48044,
+      "net_pnl": -15.16861,
+      "payoff_ratio": 0.609841009,
+      "profit_factor": 0.8443952432,
+      "win_rate": 0.5806451613
+    },
+    "fees_erased_gross_edge": true,
+    "official_outcome": {
+      "average_loss": -2.8990705556,
+      "average_win": 1.7783361111,
+      "completed": 54,
+      "expectancy": 0.2192005556,
+      "gross_loss": 52.18327,
+      "gross_profit": 64.0201,
+      "longest_loss_streak": 5,
+      "max_drawdown_timestamp_batched": 18.23788,
+      "net_pnl": 11.83683,
+      "payoff_ratio": 0.6134159473,
+      "profit_factor": 1.2268318946,
+      "win_rate": 0.6666666667
+    },
+    "true_pullback_target": {
+      "average_loss": -3.13327,
+      "average_win": 1.40899,
+      "completed": 4,
+      "expectancy": 0.273425,
+      "gross_loss": 3.13327,
+      "gross_profit": 4.22697,
+      "longest_loss_streak": 1,
+      "max_drawdown_timestamp_batched": 3.13327,
+      "net_pnl": 1.0937,
+      "payoff_ratio": 0.449686749,
+      "profit_factor": 1.349060247,
+      "win_rate": 0.75
+    }
+  },
+  "method": {
+    "chronological_split": "60/20/20 by entry timestamp and id",
+    "cohort_boundary_ms": 1783798375000,
+    "cohort_requirements": [
+      "execution_verified=1",
+      "resolution_verified=1",
+      "accounting_version=2",
+      "terminal status",
+      "pnl is not null"
+    ],
+    "cohort_strategy": "lite_direction_sniper_v2",
+    "lookahead": false,
+    "new_candidate_replay_blockers": [
+      "simultaneous executable YES and NO books were not stored",
+      "continuous CEX and book response paths were not stored",
+      "provider move and lead-lag timestamps were not stored",
+      "maker queue, trade-through, and executed volume were not stored",
+      "official outcomes after historical book exits were not retained"
+    ],
+    "new_candidate_replayable": false,
+    "observation_end_ms": 1783832723000,
+    "read_only": true
+  },
+  "new_candidate": {
+    "code_evidence_only": [
+      "paired-book probability coherence",
+      "bounded point-in-time CEX adjustment",
+      "per-level five-share fee-net edge",
+      "maker observation without fill assumption",
+      "deterministic exit-now versus hold value"
+    ],
+    "configuration_count": 1,
+    "historical_pnl_claim": null,
+    "profitability_status": "UNPROVEN_REQUIRES_FORWARD_SHADOW",
+    "rows_in_snapshot": 0,
+    "strategy_name": "lite_fair_value_edge_v3"
+  },
+  "snapshot": {
+    "integrity": "ok",
+    "path": "D:\\claude\\poly_alpha_sniper\\runtime\\lite_audit\\poly_alpha_lite_before_fair_value_20260712_120523_WIB.db",
+    "rows": 470,
+    "sha256": "A86464B84C0DE17C008F6FADE8D70C0ACE6858098138CC9F8D6DA07FE3D17D05"
+  },
+  "verdict": "READY_FOR_MORE_SHADOW"
+}
