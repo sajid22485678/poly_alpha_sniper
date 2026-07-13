@@ -195,7 +195,14 @@ def test_callbacks_admit_only_accepted_evidence_and_coalesce_latest_trigger(
     engine.pending.clear()
 
     first = _observation(current, event_id="tick-first")
-    asyncio.run(engine._on_cex_observation(first, _accepted(first)))
+
+    async def deliver_cex():
+        # The CEX callback only enqueues; the bounded worker applies
+        # persistence, feature state, and scheduling off the receive path.
+        await engine._on_cex_observation(first, _accepted(first))
+        await engine._drain_cex_ingest_once()
+
+    asyncio.run(deliver_cex())
     assert engine.cex_features.latest("BTC") == first
     assert engine.pending[identity.window_key].event == first
 
@@ -206,6 +213,8 @@ def test_callbacks_admit_only_accepted_evidence_and_coalesce_latest_trigger(
         "test_rejected",
     )
     asyncio.run(engine._on_cex_observation(rejected, rejected_decision))
+    # Rejected CEX evidence never enters the bounded queue or advances state.
+    assert engine._cex_ingest_queue.empty()
     assert engine.cex_features.latest("BTC") == first
     assert engine.pending[identity.window_key].event == first
 
@@ -244,9 +253,12 @@ def test_callbacks_admit_only_accepted_evidence_and_coalesce_latest_trigger(
     assert state.books["YES"].token_id == identity.yes_token_id
     assert engine.pending[identity.window_key].event == event
     assert engine.counters["coalesced_triggers"] == 1
+    # Accepted CEX evidence is persisted as an individual row; rejected/stale
+    # CEX evidence is aggregated into event_buckets off the receive path
+    # (symmetric with the Polymarket ingestion path) rather than row-persisted.
     assert engine.store.query_one(
         "SELECT COUNT(*) AS n FROM cex_observations"
-    )["n"] == 2  # accepted and rejected evidence are both auditable
+    )["n"] == 1
     assert engine.store.query_one(
         "SELECT COUNT(*) AS n FROM source_events"
     )["n"] >= 1
@@ -453,7 +465,13 @@ def test_recent_cex_tick_cannot_authorize_entry_after_provider_disconnect(
         "NO": _book(identity, "NO", current),
     }
     observation = _observation(current)
-    asyncio.run(engine._on_cex_observation(observation, _accepted(observation)))
+
+    async def deliver_cex():
+        await engine._on_cex_observation(observation, _accepted(observation))
+        await engine._drain_cex_ingest_once()
+
+    asyncio.run(deliver_cex())
+    assert engine.cex_features.latest("BTC") is not None
     engine.pending.clear()
     monkeypatch.setattr(engine.ensemble, "evaluate", lambda _context: _strong_yes_ensemble())
     monkeypatch.setattr(engine, "_manage_open_position", AsyncMock())

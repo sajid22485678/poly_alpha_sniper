@@ -100,6 +100,9 @@ class FrequencyV4Config:
     raw_event_max_rows: int = 250_000
     sqlite_busy_timeout_ms: int = 10_000
     writer_queue_max: int = 10_000
+    cex_writer_queue_max: int = 10_000
+    loop_lag_threshold_ms: int = 250
+    shutdown_drain_timeout_s: float = 5.0
 
     @property
     def exposure_cap_usd(self) -> float:
@@ -223,6 +226,8 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "raw_event_max_rows": (1_000, 10_000_000),
         "sqlite_busy_timeout_ms": (100, 120_000),
         "writer_queue_max": (100, 1_000_000),
+        "cex_writer_queue_max": (100, 1_000_000),
+        "loop_lag_threshold_ms": (10, 60_000),
     }
     for name, (minimum, maximum) in integers.items():
         _strict_integer(getattr(cfg, name), name, minimum=minimum, maximum=maximum)
@@ -252,6 +257,7 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "max_model_adjustment": (0.0, 0.49, True),
         "rest_timeout_s": (0.0, 60.0, True),
         "fee_buffer_usd": (0.0, 100.0, False),
+        "shutdown_drain_timeout_s": (0.0, 60.0, True),
     }
     for name, (minimum, maximum, strict_minimum) in numbers.items():
         _strict_number(getattr(cfg, name), name, minimum=minimum,

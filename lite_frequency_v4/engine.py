@@ -8,6 +8,7 @@ shares.
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
@@ -158,6 +159,29 @@ class FrequencyV4Engine:
         self._polymarket_ingest_queue: asyncio.Queue[
             tuple[SourceEvent, EventDecision]
         ] = asyncio.Queue(maxsize=cfg.writer_queue_max)
+        # The CEX/OKX ingestion path is decoupled from its WebSocket receive
+        # loop by the same bounded-queue + separate-consumer pattern used for
+        # Polymarket, so a synchronous SQLite write can never stall the shared
+        # event loop (and thus never stall reconnect/heartbeat on either
+        # source).  The enqueued monotonic timestamp powers consumer latency.
+        self._cex_ingest_queue: asyncio.Queue[
+            tuple[CexObservation, EventDecision, int]
+        ] = asyncio.Queue(maxsize=cfg.cex_writer_queue_max)
+        self._polymarket_queue_high_water = 0
+        self._cex_queue_high_water = 0
+        self._cex_ingest_latency_ms = 0.0
+        self._cex_ingest_latency_max_ms = 0.0
+        self._cex_last_enqueue_mono_ns = 0
+        self._cex_last_overflow_mono_ns = 0
+        self._latest_source_health: dict[str, dict[str, Any]] = {}
+        self._loop_lag_ms = 0.0
+        self._loop_lag_max_ms = 0.0
+        self._loop_lag_p95_ms = 0.0
+        self._loop_lag_breaches = 0
+        self._loop_lag_samples: deque[float] = deque(maxlen=256)
+        self._shutdown_drain_timed_out = False
+        self._polymarket_queue_discarded = 0
+        self._cex_queue_discarded = 0
         self._event_count_buffer: dict[
             tuple[int, str, str, str, str, str], list[int]
         ] = {}
@@ -201,6 +225,9 @@ class FrequencyV4Engine:
             "rest_recovery_failures": 0,
             "resolution_attempts": 0,
             "polymarket_ingest_overflow": 0,
+            "cex_ingest_overflow": 0,
+            "cex_ingest_admitted": 0,
+            "cex_ingest_rejected": 0,
         }
 
     @property
@@ -232,7 +259,23 @@ class FrequencyV4Engine:
             "rest_recovery_status": self._last_rest_status,
             "polymarket_ingest_queue_depth": self._polymarket_ingest_queue.qsize(),
             "polymarket_ingest_queue_capacity": self.cfg.writer_queue_max,
+            "polymarket_ingest_queue_high_water": self._polymarket_queue_high_water,
+            "cex_ingest_queue_depth": self._cex_ingest_queue.qsize(),
+            "cex_ingest_queue_capacity": self.cfg.cex_writer_queue_max,
+            "cex_ingest_queue_high_water": self._cex_queue_high_water,
+            "cex_ingest_latency_ms": round(self._cex_ingest_latency_ms, 3),
+            "cex_ingest_latency_max_ms": round(self._cex_ingest_latency_max_ms, 3),
+            "cex_ingest_oldest_age_ms": self._cex_oldest_pending_age_ms(),
+            "cex_data_health": self._cex_data_health(now_ms()),
+            "loop_lag_ms": round(self._loop_lag_ms, 3),
+            "loop_lag_max_ms": round(self._loop_lag_max_ms, 3),
+            "loop_lag_p95_ms": round(self._loop_lag_p95_ms, 3),
+            "loop_lag_threshold_ms": self.cfg.loop_lag_threshold_ms,
+            "loop_lag_breaches": self._loop_lag_breaches,
             "buffered_event_counter_buckets": len(self._event_count_buffer),
+            "shutdown_drain_timed_out": self._shutdown_drain_timed_out,
+            "polymarket_ingest_queue_discarded": self._polymarket_queue_discarded,
+            "cex_ingest_queue_discarded": self._cex_queue_discarded,
             "polymarket_ws": self.poly_ws.health(),
             "okx_ws": self.okx.health,
             "counters": dict(self.counters),
@@ -240,6 +283,56 @@ class FrequencyV4Engine:
             "last_error": self._last_error,
             "integrity": self._last_integrity,
         }
+
+    def _cex_oldest_pending_age_ms(self) -> float:
+        """Age of the oldest CEX evidence still waiting to be persisted."""
+
+        if self._cex_ingest_queue.empty() or not self._cex_last_enqueue_mono_ns:
+            return 0.0
+        # A non-empty queue means the consumer is behind the producer; the last
+        # observed enqueue-to-dequeue latency is the honest lower bound on how
+        # long the front-of-queue item has already waited.
+        return round(self._cex_ingest_latency_ms, 3)
+
+    def _cex_data_health(self, current: int) -> str:
+        """Freshness-aware CEX health that a bare socket flag cannot fake.
+
+        A connected OKX socket that has stopped delivering fresh evidence must
+        never be reported healthy; the enumerated states make the difference
+        between "connected" and "usable evidence present" observable.
+        """
+
+        if not self._okx_connected:
+            return "DISCONNECTED"
+        if (self._cex_last_overflow_mono_ns
+                and time.monotonic_ns() - self._cex_last_overflow_mono_ns
+                < 5_000_000_000):
+            return "OVERFLOW"
+        capacity = max(1, self.cfg.cex_writer_queue_max)
+        if self._cex_ingest_queue.qsize() >= capacity // 2:
+            return "BACKLOGGED"
+        active_assets = {
+            state.identity.asset for state in self.markets.values()
+            if state.identity.window_open_ms <= int(current)
+            < state.identity.window_close_ms
+        }
+        if not active_assets:
+            # No executable window right now: connected and receiving frames but
+            # nothing to prove freshness against.
+            latest_any = any(
+                self.cex_features.latest(asset) is not None
+                for asset in self.okx.assets)
+            return "RECEIVING" if latest_any else "CONNECTED"
+        fresh_assets = {
+            asset for asset in active_assets
+            if (latest := self.cex_features.latest(asset)) is not None
+            and 0 <= int(current) - latest.provider_ts_ms <= self.cfg.cex_max_age_ms
+        }
+        if not fresh_assets:
+            return "STALE"
+        if fresh_assets != active_assets:
+            return "DEGRADED"
+        return "FRESH"
 
     def _record_session(self) -> None:
         self.store.record_runtime_session({
@@ -402,8 +495,15 @@ class FrequencyV4Engine:
         return observation_id
 
     async def _on_source_health(self, health: dict[str, Any]) -> None:
+        """In-memory reconnect-safety only; persistence runs off the callback.
+
+        Invoked directly from a source WebSocket task, so it must never perform
+        a synchronous SQLite write.  Connection-scoped evidence is invalidated
+        here and the latest snapshot is cached for the heartbeat/export task to
+        persist, keeping the receive/heartbeat path free of blocking I/O.
+        """
+
         source = str(health.get("source") or "unknown")
-        current = now_ms()
         if source == "polymarket":
             epoch = int(health.get("connection_epoch") or 0)
             connected = bool(health.get("connected"))
@@ -422,10 +522,23 @@ class FrequencyV4Engine:
                 self.cex_features.clear()
                 self._okx_epoch = max(self._okx_epoch, epoch)
             self._okx_connected = connected
-        prior = self._last_health_persist_ms.get(source, 0)
-        if current - prior < 2_000:
-            return
-        self._last_health_persist_ms[source] = current
+        self._latest_source_health[source] = dict(health)
+
+    def _persist_pending_source_health(self, current: int) -> None:
+        """Persist cached source-health snapshots off the WebSocket path."""
+
+        for source in ("polymarket", "okx"):
+            health = self._latest_source_health.get(source)
+            if health is None:
+                continue
+            prior = self._last_health_persist_ms.get(source, 0)
+            if current - prior < 2_000:
+                continue
+            self._last_health_persist_ms[source] = current
+            self._record_source_health(source, health, current)
+
+    def _record_source_health(self, source: str, health: dict[str, Any],
+                              current: int) -> None:
         counts = health.get("disposition_counts") or {}
         last_provider = int(health.get("last_data_provider_ts_ms") or 0)
         last_receipt = int(health.get("last_data_receipt_ts_ms") or 0)
@@ -475,19 +588,57 @@ class FrequencyV4Engine:
 
     async def _on_cex_observation(self, observation: Optional[CexObservation],
                                   decision: EventDecision) -> None:
+        """Non-blocking adapter callback; CEX persistence lives in a bounded worker."""
+
         self.counters["raw_events"] += 1
         if observation is None:
             self.counters["rejected_events"] += 1
             return
         self._last_event_ms = max(self._last_event_ms, observation.receipt_ts_ms)
-        if decision.accepted:
-            self.counters["accepted_events"] += 1
-            self.cex_features.append(observation)
-        else:
-            self.counters["rejected_events"] += 1
-        self._persist_cex_observation(observation, decision, force=False)
         if not decision.accepted:
+            self.counters["rejected_events"] += 1
+            self.counters["cex_ingest_rejected"] += 1
+            # Rejected/stale CEX evidence is auditable in aggregate without a
+            # synchronous DB write on the WebSocket receive path.
+            self._buffer_event_count(observation, decision)
             return
+        self.counters["accepted_events"] += 1
+        try:
+            self._cex_ingest_queue.put_nowait(
+                (observation, decision, time.monotonic_ns()))
+        except asyncio.QueueFull:
+            self.counters["cex_ingest_overflow"] += 1
+            self._cex_last_overflow_mono_ns = time.monotonic_ns()
+            self._last_error = "cex_ingest_queue_overflow_fail_closed"
+            self._buffer_event_count(
+                observation, decision, classification="INGEST_QUEUE_OVERFLOW")
+            # Fail closed: drop this asset's executable feature history so a
+            # later evaluation cannot act on possibly-inconsistent evidence
+            # until fresh admitted ticks rebuild it.
+            self.cex_features.invalidate(observation.asset)
+        else:
+            self._cex_last_enqueue_mono_ns = time.monotonic_ns()
+            self._cex_queue_high_water = max(
+                self._cex_queue_high_water, self._cex_ingest_queue.qsize())
+
+    def _note_cex_latency(self, enqueued_mono: int) -> None:
+        latency_ms = max(
+            0.0, (time.monotonic_ns() - int(enqueued_mono)) / 1_000_000.0)
+        self._cex_ingest_latency_ms = latency_ms
+        self._cex_ingest_latency_max_ms = max(
+            self._cex_ingest_latency_max_ms, latency_ms)
+
+    async def _process_cex_observation(self, observation: CexObservation,
+                                       decision: EventDecision) -> None:
+        self._persist_cex_observation(observation, decision, force=False)
+        self.counters["cex_ingest_admitted"] += 1
+        if observation.connection_epoch < self._okx_epoch:
+            # A reconnect superseded this observation while it waited in the
+            # queue; it is audited above but must never re-enter the executable
+            # feature buffer that the reconnect already cleared.
+            return
+        # Feature state advances only after successful admission/persistence.
+        self.cex_features.append(observation)
         trigger = EvaluationTrigger(
             source="okx", receipt_ts_ms=observation.receipt_ts_ms,
             receipt_monotonic_ns=observation.receipt_monotonic_ns,
@@ -498,6 +649,34 @@ class FrequencyV4Engine:
             if market.asset == observation.asset and (
                     market.window_open_ms <= observation.receipt_ts_ms < market.window_close_ms):
                 self._schedule(key, trigger)
+
+    async def _drain_cex_ingest_once(self) -> None:
+        observation, decision, enqueued_mono = await self._cex_ingest_queue.get()
+        self._note_cex_latency(enqueued_mono)
+        try:
+            await self._process_cex_observation(observation, decision)
+        finally:
+            self._cex_ingest_queue.task_done()
+
+    async def _cex_ingest_loop(self) -> None:
+        while True:
+            try:
+                observation, decision, enqueued_mono = await asyncio.wait_for(
+                    self._cex_ingest_queue.get(), timeout=0.25)
+            except asyncio.TimeoutError:
+                # Keep draining queued evidence during shutdown; only exit once
+                # the queue is fully empty so nothing is dropped silently.
+                if self._stopping.is_set():
+                    return
+                continue
+            self._note_cex_latency(enqueued_mono)
+            try:
+                await self._process_cex_observation(observation, decision)
+            except Exception as exc:
+                self._last_error = f"cex_ingest:{type(exc).__name__}:{exc}"[:240]
+                self._reject(None, "DATA_INVALID", f"cex_ingest_{type(exc).__name__}")
+            finally:
+                self._cex_ingest_queue.task_done()
 
     async def _on_polymarket_event(self, event: SourceEvent,
                                    decision: EventDecision) -> None:
@@ -527,6 +706,10 @@ class FrequencyV4Engine:
             if state is not None:
                 side = "YES" if event.token_id == state.identity.yes_token_id else "NO"
                 state.books.pop(side, None)
+        else:
+            self._polymarket_queue_high_water = max(
+                self._polymarket_queue_high_water,
+                self._polymarket_ingest_queue.qsize())
 
     async def _process_polymarket_event(self, event: SourceEvent,
                                         decision: EventDecision) -> None:
@@ -559,11 +742,15 @@ class FrequencyV4Engine:
             self._polymarket_ingest_queue.task_done()
 
     async def _polymarket_ingest_loop(self) -> None:
-        while not self._stopping.is_set():
+        while True:
             try:
                 event, decision = await asyncio.wait_for(
                     self._polymarket_ingest_queue.get(), timeout=0.25)
             except asyncio.TimeoutError:
+                # Keep draining queued events during shutdown; only exit once
+                # the queue is fully empty so nothing is dropped silently.
+                if self._stopping.is_set():
+                    return
                 continue
             try:
                 await self._process_polymarket_event(event, decision)
@@ -1849,9 +2036,12 @@ class FrequencyV4Engine:
         last_db_sample_ms = now_ms()
         db_writes_per_min = 0
         while not self._stopping.is_set():
-            loop_lag_ms = max(0.0, (time.monotonic() - expected_mono) * 1_000.0)
+            loop_lag_ms = max(
+                0.0, (time.monotonic() - expected_mono) * 1_000.0,
+                self._loop_lag_ms)
             current = now_ms()
             self._flush_event_counts()
+            self._persist_pending_source_health(current)
             if current - last_integrity_ms >= 30_000:
                 self._last_integrity = self.store.integrity_check()
                 last_integrity_ms = current
@@ -1925,6 +2115,36 @@ class FrequencyV4Engine:
             except asyncio.TimeoutError:
                 pass
 
+    async def _loop_lag_monitor(self) -> None:
+        """Sample event-loop scheduling drift to expose blocking regressions.
+
+        A short fixed sleep should return almost exactly on time; the excess is
+        time the single event loop spent unable to schedule this coroutine —
+        i.e. blocked in synchronous work somewhere.  This is the direct signal
+        that the ingestion decoupling is doing its job.
+        """
+
+        interval = 0.1
+        threshold = float(self.cfg.loop_lag_threshold_ms)
+        expected = time.monotonic() + interval
+        while not self._stopping.is_set():
+            try:
+                await asyncio.wait_for(self._stopping.wait(), timeout=interval)
+                return
+            except asyncio.TimeoutError:
+                pass
+            now = time.monotonic()
+            lag_ms = max(0.0, (now - expected) * 1_000.0)
+            expected = now + interval
+            self._loop_lag_ms = lag_ms
+            self._loop_lag_max_ms = max(self._loop_lag_max_ms, lag_ms)
+            if lag_ms > threshold:
+                self._loop_lag_breaches += 1
+            self._loop_lag_samples.append(lag_ms)
+            ordered = sorted(self._loop_lag_samples)
+            index = min(len(ordered) - 1, int(0.95 * len(ordered)))
+            self._loop_lag_p95_ms = ordered[index]
+
     async def start(self) -> None:
         if self._started:
             raise RuntimeError("Frequency V4 engine already started")
@@ -1937,11 +2157,14 @@ class FrequencyV4Engine:
         self._tasks = [
             asyncio.create_task(
                 self._polymarket_ingest_loop(), name="v4-polymarket-ingest"),
+            asyncio.create_task(
+                self._cex_ingest_loop(), name="v4-cex-ingest"),
             asyncio.create_task(self._evaluation_loop(), name="v4-evaluation"),
             asyncio.create_task(self._discovery_loop(), name="v4-discovery"),
             asyncio.create_task(
                 self._active_subscription_loop(), name="v4-active-subscriptions"),
             asyncio.create_task(self._heartbeat_export_loop(), name="v4-heartbeat-export"),
+            asyncio.create_task(self._loop_lag_monitor(), name="v4-loop-lag"),
             asyncio.create_task(self._resolution_loop(), name="v4-resolution"),
             asyncio.create_task(self._retention_loop(), name="v4-retention"),
             asyncio.create_task(self.okx.hydrate_all(), name="v4-okx-rest-hydration"),
@@ -1965,9 +2188,47 @@ class FrequencyV4Engine:
                 pass
 
     async def stop(self, reason: str = "graceful_stop") -> None:
+        # 1. Stop accepting new executable evidence and mark shutting down.
         self._stopping.set()
+        try:
+            self.runtime.publish(self._runtime_state("STOPPING"))
+        except Exception as exc:  # noqa: BLE001 - shutdown telemetry is best-effort
+            self._last_error = f"stopping_publish:{type(exc).__name__}"[:240]
+        # 2. Close both sources so their WebSocket receive loops end; after this
+        #    no further observation/event can be enqueued.
         await self.poly_ws.stop()
         await self.okx.stop()
+        # 3. Give both ingestion consumers a bounded window to drain what is
+        #    already queued.  The consumer loops keep dequeuing while stopping
+        #    and exit only once their queue is empty, so join() returns as soon
+        #    as every queued item has been persisted.
+        drain_timeout = float(self.cfg.shutdown_drain_timeout_s)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    self._polymarket_ingest_queue.join(),
+                    self._cex_ingest_queue.join(),
+                ),
+                timeout=drain_timeout,
+            )
+            self._shutdown_drain_timed_out = False
+        except asyncio.TimeoutError:
+            self._shutdown_drain_timed_out = True
+        # 4. Account for anything still queued after the bounded window rather
+        #    than pretending it was persisted.  These are un-persisted raw
+        #    market-data observations/events only; trade evidence (entries,
+        #    positions, exits, resolutions) is written synchronously at decision
+        #    time and never flows through these queues.
+        self._polymarket_queue_discarded = self._polymarket_ingest_queue.qsize()
+        self._cex_queue_discarded = self._cex_ingest_queue.qsize()
+        if self._shutdown_drain_timed_out and (
+                self._polymarket_queue_discarded or self._cex_queue_discarded):
+            self._last_error = (
+                "shutdown_drain_timeout_discarded_"
+                f"poly{self._polymarket_queue_discarded}_"
+                f"cex{self._cex_queue_discarded}"
+            )
+        # 5. Cancel consumers (now idle or timed out) and every other task.
         for task in self._tasks:
             if not task.done():
                 task.cancel()

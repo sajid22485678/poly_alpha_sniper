@@ -75,6 +75,19 @@ class CexFeatureBuffer:
         self._rows.clear()
         self._latest_move_ts.clear()
 
+    def invalidate(self, asset: str) -> None:
+        """Drop one asset's executable evidence (e.g. on ingest overflow).
+
+        Fail-closed counterpart to :meth:`clear` used when a single asset's
+        ingestion path is compromised: the buffer must not keep serving a
+        possibly-inconsistent point-in-time history for that asset until fresh
+        admitted evidence rebuilds it.
+        """
+
+        normalized = str(asset).upper()
+        self._rows.pop(normalized, None)
+        self._latest_move_ts.pop(normalized, None)
+
     @staticmethod
     def _at_or_before(rows: Iterable[CexObservation], target_ms: int,
                       tolerance_ms: int) -> Optional[CexObservation]:

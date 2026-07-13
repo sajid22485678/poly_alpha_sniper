@@ -59,3 +59,6 @@ lite_frequency_v4_shadow:
   raw_event_max_rows: 250000
   sqlite_busy_timeout_ms: 10000
   writer_queue_max: 10000
+  cex_writer_queue_max: 10000
+  loop_lag_threshold_ms: 250
+  shutdown_drain_timeout_s: 5.0

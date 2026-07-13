@@ -21,7 +21,7 @@ async def _main() -> int:
     stop_reason = "graceful_stop"
     runtime.acquire()
     try:
-        store = V4Store(cfg.db_path)
+        store = V4Store(cfg.db_path, busy_timeout_ms=cfg.sqlite_busy_timeout_ms)
         engine = FrequencyV4Engine(cfg, runtime, store)
         loop = asyncio.get_running_loop()
 

@@ -758,17 +758,26 @@ EXPECTED_TABLES = frozenset(
 class V4Store:
     """Thread-safe V4 SQLite store with explicit atomic transactions."""
 
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path, *, busy_timeout_ms: int = 10_000):
+        if isinstance(busy_timeout_ms, bool) or not isinstance(busy_timeout_ms, int):
+            raise ValueError("busy_timeout_ms must be an integer")
+        if busy_timeout_ms < 100 or busy_timeout_ms > 120_000:
+            raise ValueError("busy_timeout_ms must be within [100, 120000] ms")
+        self.busy_timeout_ms = int(busy_timeout_ms)
         self.path = Path(db_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._closed = False
+        # The SQLite C-level busy timeout and the Python connect timeout are
+        # derived from one configured value so a slow/contended writer waits a
+        # bounded, operator-controlled interval rather than a hardcoded literal.
         self._conn = sqlite3.connect(
-            str(self.path), timeout=10, check_same_thread=False, isolation_level=None
+            str(self.path), timeout=self.busy_timeout_ms / 1000.0,
+            check_same_thread=False, isolation_level=None,
         )
         self._conn.row_factory = sqlite3.Row
         with self._lock:
-            self._conn.execute("PRAGMA busy_timeout=10000")
+            self._conn.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.execute("PRAGMA wal_autocheckpoint=1000")
