@@ -185,6 +185,7 @@ def _latest_candidates(store: Any, limit: int = 12) -> list[dict[str, Any]]:
 def build_frequency_v4_dashboard(
     store: Any, *, now_ms: int, config: Any = None,
     runtime_state: Any = None, session_id: Optional[str] = None,
+    integrity: Any = None,
 ) -> dict[str, Any]:
     safety = assert_v4_safety(config)
     runtime = _mapping(runtime_state)
@@ -196,7 +197,9 @@ def build_frequency_v4_dashboard(
         store, int(now_ms), session_id=effective_session_id,
         starting_equity_usd=starting_equity,
     )
-    integrity = store.integrity_check()
+    # A caller that already verifies integrity off-loop passes the cached result
+    # so the export never re-scans the whole database on the hot reporting path.
+    integrity = store.integrity_check() if integrity is None else dict(integrity)
     open_positions = store.open_positions()
     exposure = sum(float(row.get("committed_exposure_usd") or 0) for row in open_positions)
     latest_health = _latest_runtime_health(store, effective_session_id)
@@ -349,7 +352,7 @@ def _atomic_write(path: Path, content: str) -> None:
 def write_frequency_v4_dashboard(
     store: Any, output_path: str | Path, *, now_ms: int,
     config: Any = None, runtime_state: Any = None,
-    session_id: Optional[str] = None,
+    session_id: Optional[str] = None, integrity: Any = None,
 ) -> dict[str, Any]:
     path = Path(output_path)
     if path.exists() and path.is_dir():
@@ -359,6 +362,7 @@ def write_frequency_v4_dashboard(
     payload = build_frequency_v4_dashboard(
         store, now_ms=int(now_ms), config=config,
         runtime_state=runtime_state, session_id=session_id,
+        integrity=integrity,
     )
     encoded = json.dumps(
         payload, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False

@@ -736,7 +736,9 @@ CREATE INDEX ix_funnel_positive ON window_funnel(positive_edge,actual_entry,upda
 CREATE INDEX ix_source_events_retention ON source_events(retention_class,pin_count,receipt_ts_ms);
 CREATE INDEX ix_event_buckets_time ON event_buckets(bucket_start_ts_ms,source,asset);
 CREATE INDEX ix_books_identity_time ON book_snapshots(market_identity_id,token_id,receipt_ts_ms);
+CREATE INDEX ix_books_retention ON book_snapshots(retention_class,pin_count,receipt_ts_ms);
 CREATE INDEX ix_cex_asset_time ON cex_observations(asset,provider,receipt_ts_ms);
+CREATE INDEX ix_cex_retention ON cex_observations(retention_class,pin_count,receipt_ts_ms);
 CREATE INDEX ix_candidates_window_time ON candidates(window_id,evaluation_ts_ms);
 CREATE INDEX ix_decisions_action_time ON decisions(action,decision_ts_ms);
 CREATE INDEX ix_entries_time ON entries(entry_ts_ms,status);
@@ -787,6 +789,23 @@ class V4Store:
                 self._conn.close()
                 raise V4SchemaError(f"WAL unavailable for v4 database: {journal}")
             self._initialize_fresh_schema()
+            self._ensure_performance_indexes()
+
+    # Additive, idempotent performance indexes.  These carry no schema-contract
+    # change (no new columns/tables), so they are created with IF NOT EXISTS on
+    # every open rather than gated behind a schema-version bump — a database
+    # created before these indexes existed is upgraded in place on next launch.
+    _PERFORMANCE_INDEXES = (
+        "CREATE INDEX IF NOT EXISTS ix_cex_retention "
+        "ON cex_observations(retention_class,pin_count,receipt_ts_ms)",
+        "CREATE INDEX IF NOT EXISTS ix_books_retention "
+        "ON book_snapshots(retention_class,pin_count,receipt_ts_ms)",
+    )
+
+    def _ensure_performance_indexes(self) -> None:
+        with self._lock:
+            for statement in self._PERFORMANCE_INDEXES:
+                self._conn.execute(statement)
 
     @property
     def connection(self) -> sqlite3.Connection:

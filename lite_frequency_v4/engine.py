@@ -2221,6 +2221,7 @@ class FrequencyV4Engine:
                 self._readonly_store, self.export_path,
                 now_ms=current, config=self.cfg,
                 runtime_state=state, session_id=self.session_id,
+                integrity=self._last_integrity or None,
             )
             self._last_export_ms = current
             self._last_export_ok = True
@@ -2255,34 +2256,57 @@ class FrequencyV4Engine:
             except asyncio.TimeoutError:
                 pass
 
+    def _has_deletable_raw(self, cutoff: int) -> bool:
+        """Fast, index-backed check for any unpinned raw row past the cutoff.
+
+        Backed by ix_{source_events,book_snapshots,cex_retention} so the steady
+        state (nothing old enough to delete) costs an index seek, not a scan.
+        """
+        for table in ("source_events", "book_snapshots", "cex_observations"):
+            if self.store.query_one(
+                    f"SELECT 1 AS x FROM {table} WHERE retention_class='RAW' "
+                    "AND pin_count=0 AND receipt_ts_ms<? LIMIT 1",
+                    (int(cutoff),)) is not None:
+                return True
+        return False
+
     def _maintenance_pass_blocking(self) -> dict[str, int]:
         """Chunked retention/compaction, run in a worker thread.
 
         Uses the shared writer connection via the store lock in small chunks so
         each lock hold is brief and the event-loop write path is not starved; a
-        short sleep between chunks hands the lock to any waiting writer.  A full
-        integrity scan is not paid per chunk (the reporting loop verifies
-        integrity separately).  All trade/candidate-referenced evidence is
-        protected by the store's existing retention filters.
+        short sleep between chunks hands the lock to any waiting writer.  A cheap
+        index-backed pre-check skips the compaction scan entirely when nothing is
+        old enough to delete, and a full integrity scan is never paid per chunk.
+        All trade/candidate-referenced evidence is protected by the store's
+        existing retention filters.
         """
         chunk = int(self.cfg.maintenance_chunk_rows)
         budget = int(self.cfg.maintenance_max_rows_per_pass)
         deadline = time.monotonic() + float(self.cfg.maintenance_max_seconds_per_pass)
         retention_ms = self.cfg.raw_event_retention_hours * 3_600_000
+        cutoff = max(0, now_ms() - retention_ms)
         total = 0
-        while total < budget and time.monotonic() < deadline:
-            result = self.store.compact_raw_evidence(
-                now_ms(), retention_ms=retention_ms,
-                batch_size=chunk, run_integrity=False)
-            deleted = (int(result.get("source_events", 0))
-                       + int(result.get("book_snapshots", 0))
-                       + int(result.get("cex_observations", 0)))
-            total += deleted
-            if deleted == 0:
-                break
-            time.sleep(0.002)
+        if self._has_deletable_raw(cutoff):
+            while total < budget and time.monotonic() < deadline:
+                result = self.store.compact_raw_evidence(
+                    now_ms(), retention_ms=retention_ms,
+                    batch_size=chunk, run_integrity=False)
+                deleted = (int(result.get("source_events", 0))
+                           + int(result.get("book_snapshots", 0))
+                           + int(result.get("cex_observations", 0)))
+                total += deleted
+                if deleted == 0:
+                    break
+                time.sleep(0.002)
         self.store.enforce_raw_row_cap(self.cfg.raw_event_max_rows)
-        self.store.compact_event_buckets(now_ms(), detail_retention_ms=6 * 3_600_000)
+        # Roll up one-second buckets only once some have actually aged out.
+        bucket_cutoff = max(0, now_ms() - 6 * 3_600_000)
+        if self.store.query_one(
+                "SELECT 1 AS x FROM event_buckets WHERE bucket_ms=1000 "
+                "AND bucket_start_ts_ms<? LIMIT 1", (bucket_cutoff,)) is not None:
+            self.store.compact_event_buckets(
+                now_ms(), detail_retention_ms=6 * 3_600_000)
         return {"rows": total}
 
     async def _run_maintenance_pass(self) -> None:

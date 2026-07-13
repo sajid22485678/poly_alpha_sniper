@@ -919,6 +919,7 @@ def test_shutdown_waits_for_reporting_and_closes_readonly_store(engine_harness, 
 # 12. Retention SQL executes off the event loop (a worker thread), never on it.
 def test_maintenance_runs_off_the_event_loop(engine_harness, monkeypatch):
     engine = engine_harness.engine
+    monkeypatch.setattr(engine, "_has_deletable_raw", lambda _cutoff: True)
     main_thread = threading.get_ident()
     seen_threads = []
     original = engine.store.compact_raw_evidence
@@ -936,6 +937,7 @@ def test_maintenance_runs_off_the_event_loop(engine_harness, monkeypatch):
 # 13. Maintenance deletes in configured chunks with integrity skipped per chunk.
 def test_maintenance_is_chunked_and_bounded(engine_harness, monkeypatch):
     engine = engine_harness.engine
+    monkeypatch.setattr(engine, "_has_deletable_raw", lambda _cutoff: True)
     engine.cfg.maintenance_chunk_rows = 100
     engine.cfg.maintenance_max_rows_per_pass = 300
     calls = []
@@ -958,6 +960,7 @@ def test_maintenance_is_chunked_and_bounded(engine_harness, monkeypatch):
 # 14. Maintenance respects the wall-clock budget even with rows remaining.
 def test_maintenance_respects_time_budget(engine_harness, monkeypatch):
     engine = engine_harness.engine
+    monkeypatch.setattr(engine, "_has_deletable_raw", lambda _cutoff: True)
     engine.cfg.maintenance_chunk_rows = 10
     engine.cfg.maintenance_max_rows_per_pass = 10_000_000
     engine.cfg.maintenance_max_seconds_per_pass = 0.2
@@ -980,9 +983,10 @@ def test_maintenance_respects_time_budget(engine_harness, monkeypatch):
 # 16. Maintenance contention does not block the WebSocket receive callbacks.
 def test_maintenance_does_not_block_ws_callbacks(engine_harness, monkeypatch):
     engine = engine_harness.engine
+    monkeypatch.setattr(engine, "_has_deletable_raw", lambda _cutoff: True)
 
     def slow_compact(_now, *, retention_ms, batch_size, run_integrity):
-        time.sleep(0.04)
+        time.sleep(0.3)  # a single slow scan holding the store lock in a thread
         return {"source_events": 0, "book_snapshots": 0, "cex_observations": 0}
 
     monkeypatch.setattr(engine.store, "compact_raw_evidence", slow_compact)
@@ -1004,9 +1008,58 @@ def test_maintenance_does_not_block_ws_callbacks(engine_harness, monkeypatch):
     assert engine.counters["accepted_events"] == 20
 
 
+# The retention indexes that make maintenance fast exist on open and migrate
+# into a database created before they were added.
+def _index_names(store):
+    return {row["name"] for row in store.query(
+        "SELECT name FROM sqlite_master WHERE type='index'")}
+
+
+def test_retention_indexes_are_created_on_open(tmp_path):
+    store = V4Store(tmp_path / "idx.db")
+    try:
+        names = _index_names(store)
+        assert "ix_cex_retention" in names
+        assert "ix_books_retention" in names
+    finally:
+        store.close()
+
+
+def test_retention_indexes_migrate_into_existing_db(tmp_path):
+    path = tmp_path / "migrate.db"
+    first = V4Store(path)
+    first.connection.execute("DROP INDEX ix_cex_retention")
+    assert "ix_cex_retention" not in _index_names(first)
+    first.close()
+    # Reopening an existing database recreates the additive index in place.
+    second = V4Store(path)
+    try:
+        assert "ix_cex_retention" in _index_names(second)
+    finally:
+        second.close()
+
+
+def test_maintenance_skips_compaction_when_nothing_old(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    called = {"n": 0}
+    original = engine.store.compact_raw_evidence
+
+    def spy(*a, **k):
+        called["n"] += 1
+        return original(*a, **k)
+
+    monkeypatch.setattr(engine.store, "compact_raw_evidence", spy)
+    # The harness database holds only recent rows, so nothing is old enough to
+    # delete and the expensive compaction scan is skipped entirely.
+    assert engine._has_deletable_raw(now_ms() - 10) is False
+    engine._maintenance_pass_blocking()
+    assert called["n"] == 0
+
+
 # 17. A maintenance failure does not crash the engine.
 def test_maintenance_failure_does_not_crash(engine_harness, monkeypatch):
     engine = engine_harness.engine
+    monkeypatch.setattr(engine, "_has_deletable_raw", lambda _cutoff: True)
 
     def boom(*_a, **_k):
         raise RuntimeError("maintenance boom")
