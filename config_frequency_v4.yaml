@@ -1,0 +1,61 @@
+# Poly Alpha Lite Frequency V4 research configuration.
+# Safety, identity, paths, endpoints, exact sizing, and the $13 preview are
+# reasserted in code and cannot be overridden by this file.
+lite_frequency_v4_shadow:
+  strategy_id: lite_frequency_v4
+  mode: lite_frequency_v4_shadow
+  enabled: true
+  dry_run: true
+  live_enabled: false
+  real_orders_possible: false
+  live_adapter_present: false
+  kill_switch_engaged: true
+  fixed_shares: 5
+
+  required_assets: [BTC, ETH, SOL]
+  discover_additional_assets: true
+  exact_window_seconds: 300
+  discovery_interval_s: 20
+  discovery_lookahead_s: 1800
+  broad_discovery_limit: 500
+  minimum_remaining_s: 10
+
+  cex_max_age_ms: 2000
+  book_max_age_ms: 2000
+  max_book_pair_skew_ms: 1500
+  max_spread: 0.20
+  reconnect_base_ms: 250
+  reconnect_cap_ms: 15000
+  heartbeat_timeout_ms: 15000
+
+  strong_cross_edge: 0.020
+  medium_maker_edge: 0.010
+  weak_observe_edge: 0.005
+  maker_observation_min_ms: 500
+  maker_observation_default_ms: 1000
+  maker_observation_max_ms: 1500
+  max_chase_worsening: 0.020
+
+  execution_buffer_base: 0.002
+  latency_buffer_base: 0.001
+  uncertainty_buffer_base: 0.010
+  fair_probability_floor: 0.001
+  fair_probability_ceiling: 0.999
+  max_model_adjustment: 0.15
+
+  rest_timeout_s: 5
+  rest_recovery_min_ms: 250
+  rest_recovery_max_ms: 750
+  rest_recovery_attempts: 3
+
+  max_open_positions: 6
+  max_open_per_asset: 1
+  research_equity_usd: 13
+  exposure_cap_pct: 0.75
+  fee_buffer_usd: 0.02
+  crypto_taker_fee_rate: 0.07
+
+  raw_event_retention_hours: 24
+  raw_event_max_rows: 250000
+  sqlite_busy_timeout_ms: 10000
+  writer_queue_max: 10000

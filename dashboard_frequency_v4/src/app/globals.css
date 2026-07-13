@@ -1,0 +1,22 @@
+:root { color-scheme: dark; --bg: #07100d; --panel: #0d1915; --line: #203b31; --text: #e7f4ec; --muted: #8fa99c; --green: #54e39a; --amber: #f5c568; --red: #ff7d7d; }
+* { box-sizing: border-box; }
+body { margin: 0; background: radial-gradient(circle at 80% -10%, #153c2d 0, transparent 38%), var(--bg); color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+main { width: min(1500px, 96vw); margin: 0 auto; padding: 30px 0 60px; }
+header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
+h1 { font-family: Inter, system-ui, sans-serif; font-size: clamp(2.3rem, 6vw, 5.4rem); line-height: .9; letter-spacing: -.06em; margin: 4px 0 14px; }
+h2 { font: 700 1rem/1.2 Inter, system-ui, sans-serif; margin: 0 0 16px; letter-spacing: .02em; }
+.eyebrow { color: var(--green); font-weight: 800; letter-spacing: .14em; font-size: .75rem; }
+.subtitle, .muted, small { color: var(--muted); }
+.safety { border: 1px solid; padding: 12px 15px; border-radius: 999px; font-size: .76rem; font-weight: 800; white-space: nowrap; }
+.safe { color: var(--green); background: #0b2b1e; }.unsafe, .danger { color: var(--red); background: #351717 !important; border-color: #6e2929 !important; }
+.grid { display: grid; gap: 12px; }.hero-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 12px; }.metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.card, .panel { background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: 0 14px 40px #0003; }
+.card span { color: var(--muted); display: block; text-transform: uppercase; font-size: .68rem; letter-spacing: .08em; }.card strong { display: block; margin-top: 9px; font: 750 1.25rem/1 Inter, system-ui, sans-serif; overflow-wrap: anywhere; }.card.good strong { color: var(--green); }.card.bad strong { color: var(--red); }.card.warn strong { color: var(--amber); }
+.panel { margin-bottom: 12px; overflow: hidden; }.panel dl { margin: 0; }.panel dl div { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(100px, 1.2fr); gap: 10px; padding: 7px 0; border-top: 1px solid #1b3028; }.panel dt { color: var(--muted); text-transform: capitalize; }.panel dd { margin: 0; text-align: right; overflow-wrap: anywhere; }.panel code { font-size: .7rem; color: #b9d9c8; }.panel pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 500px; overflow: auto; color: #b9d9c8; font-size: .74rem; }
+.source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }.source { background: #08130f; border: 1px solid #1b3329; padding: 12px; border-radius: 8px; }.source strong, .source span, .source small { display: block; }.source span { color: var(--green); margin: 6px 0; }.source small { font-size: .68rem; }
+.source-bad { border-color: #6e2929; }.source-bad span, .error-text { color: var(--red) !important; }
+.span-all { grid-column: 1 / -1; }.table-wrap { overflow-x: auto; } table { border-collapse: collapse; min-width: 850px; width: 100%; } th, td { border-top: 1px solid #1b3028; padding: 8px 10px; text-align: right; white-space: nowrap; } th:first-child, td:first-child { text-align: left; } th { color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
+.evidence-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+footer { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); border-top: 1px solid var(--line); margin-top: 24px; padding-top: 16px; font-size: .7rem; flex-wrap: wrap; }
+@media (max-width: 1050px) { .hero-grid { grid-template-columns: repeat(2, 1fr); }.metrics-grid, .evidence-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 680px) { main { width: 94vw; padding-top: 18px; } header { display: block; }.safety { display: inline-block; margin-top: 10px; }.hero-grid, .metrics-grid, .evidence-grid { grid-template-columns: 1fr; }.panel dl div { grid-template-columns: 1fr; }.panel dd { text-align: left; } }

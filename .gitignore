@@ -9,4 +9,8 @@ backups/
 runtime/
 data/*.csv
 /data/poly_alpha_lite.db*
+/data/poly_alpha_frequency_v4.db*
 .pytest_cache/
+/dashboard_frequency_v4/.next/
+/dashboard_frequency_v4/node_modules/
+/dashboard_frequency_v4/*.tsbuildinfo
