@@ -52,6 +52,18 @@ from .store import (
 )
 
 
+# Cadence for the heavy, whole-database synchronous maintenance operations.
+# A large database makes a full dashboard export or PRAGMA integrity_check cost
+# seconds, and they run on the shared event loop; running them every ~2s (the
+# cheap state/heartbeat cadence) monopolises the loop and starves the WebSocket
+# heartbeat/reconnect path, causing PONG-timeout reconnect storms.  They are
+# therefore spaced far apart so a single multi-second scan stays well inside the
+# 10s Polymarket PONG window with the loop responsive in between.  The durable
+# fix is to run them off-loop against a dedicated read-only connection.
+DASHBOARD_EXPORT_INTERVAL_MS = 15_000
+INTEGRITY_CHECK_INTERVAL_MS = 300_000
+
+
 def _sha256_json(value: Any) -> str:
     encoded = json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
@@ -1173,18 +1185,26 @@ class FrequencyV4Engine:
         if state is not None:
             state.last_reject_ts_ms = current
             state.last_no_book_reason = f"{taxonomy}:{reason}"
-        return self.store.record_reject({
-            "session_id": self.session_id,
-            "window_id": state.window_id if state else None,
-            "candidate_id": candidate_id,
-            "source_event_id": source_event_id,
-            "reject_ts_ms": current,
-            "taxonomy": taxonomy,
-            "reason": str(reason),
-            "recoverable": int(recoverable),
-            "retry_count": int(retry_count),
-            "detail_json": detail or {},
-        })
+        try:
+            return self.store.record_reject({
+                "session_id": self.session_id,
+                "window_id": state.window_id if state else None,
+                "candidate_id": candidate_id,
+                "source_event_id": source_event_id,
+                "reject_ts_ms": current,
+                "taxonomy": taxonomy,
+                "reason": str(reason),
+                "recoverable": int(recoverable),
+                "retry_count": int(retry_count),
+                "detail_json": detail or {},
+            })
+        except Exception as exc:  # noqa: BLE001 - reject telemetry must never crash the engine
+            # A transient persistence failure while recording a reject is
+            # itself only telemetry; it must never propagate out of a caller's
+            # except handler and take down a critical task (e.g. the active
+            # subscription scheduler).
+            self._last_error = f"reject_persist:{type(exc).__name__}:{exc}"[:240]
+            return 0
 
     async def _evaluation_loop(self) -> None:
         while not self._stopping.is_set():
@@ -2031,6 +2051,7 @@ class FrequencyV4Engine:
     async def _heartbeat_export_loop(self) -> None:
         last_health_ms = 0
         last_integrity_ms = 0
+        last_dashboard_ms = 0
         expected_mono = time.monotonic()
         last_db_changes = int(self.store.connection.total_changes)
         last_db_sample_ms = now_ms()
@@ -2042,7 +2063,7 @@ class FrequencyV4Engine:
             current = now_ms()
             self._flush_event_counts()
             self._persist_pending_source_health(current)
-            if current - last_integrity_ms >= 30_000:
+            if current - last_integrity_ms >= INTEGRITY_CHECK_INTERVAL_MS:
                 self._last_integrity = self.store.integrity_check()
                 last_integrity_ms = current
             active_assets = {
@@ -2082,15 +2103,17 @@ class FrequencyV4Engine:
                     "last_error": self._last_error or None,
                 })
                 last_health_ms = current
-            try:
-                write_frequency_v4_dashboard(
-                    self.store, self.export_path, now_ms=current,
-                    config=self.cfg, runtime_state=runtime_state,
-                    session_id=self.session_id,
-                )
-                self._last_export_ms = current
-            except Exception as exc:
-                self._last_error = f"export:{type(exc).__name__}:{exc}"[:240]
+            if current - last_dashboard_ms >= DASHBOARD_EXPORT_INTERVAL_MS:
+                last_dashboard_ms = current
+                try:
+                    write_frequency_v4_dashboard(
+                        self.store, self.export_path, now_ms=current,
+                        config=self.cfg, runtime_state=runtime_state,
+                        session_id=self.session_id,
+                    )
+                    self._last_export_ms = current
+                except Exception as exc:
+                    self._last_error = f"export:{type(exc).__name__}:{exc}"[:240]
             expected_mono = time.monotonic() + 2.0
             try:
                 await asyncio.wait_for(self._stopping.wait(), timeout=2.0)

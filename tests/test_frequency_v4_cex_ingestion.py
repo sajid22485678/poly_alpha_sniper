@@ -596,6 +596,55 @@ def test_one_side_per_asset_window_remains_locked():
         validate_frequency_v4_config(cfg)
 
 
+# 21. The heavy whole-database dashboard export is rate-limited off the ~2s
+#     state/heartbeat cadence so it cannot monopolise the shared event loop.
+def test_dashboard_export_is_rate_limited_off_heartbeat_cadence(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    frozen = now_ms()
+    # Freeze the clock so every heartbeat iteration falls inside one export
+    # window; the export must therefore run at most once across them.
+    monkeypatch.setattr(engine_module, "now_ms", lambda: frozen)
+    exports = {"n": 0}
+
+    def fake_export(*_a, **_k):
+        exports["n"] += 1
+        return {}
+
+    monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", fake_export)
+    monkeypatch.setattr(
+        engine.store, "integrity_check",
+        lambda: {"integrity": "ok", "foreign_key_violations": []})
+    iterations = {"n": 0}
+    original_publish = engine.runtime.publish
+
+    def publish_hook(state):
+        iterations["n"] += 1
+        if iterations["n"] >= 2:
+            engine._stopping.set()
+        return original_publish(state)
+
+    monkeypatch.setattr(engine.runtime, "publish", publish_hook)
+    asyncio.run(engine._heartbeat_export_loop())
+    assert iterations["n"] >= 2
+    assert exports["n"] == 1
+
+
+# 22. A persistence failure while recording a reject must never propagate and
+#     crash a critical task (the observed crash site was the subscription loop).
+def test_reject_persistence_failure_never_propagates(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+
+    def boom(*_a, **_k):
+        raise RuntimeError("db exploded")
+
+    monkeypatch.setattr(engine.store, "record_reject", boom)
+    result = engine._reject(
+        None, "SCHEDULER", "active_subscription_ConnectionClosedError",
+        recoverable=True)
+    assert result == 0
+    assert "reject_persist" in engine._last_error
+
+
 # 20. The ingestion refactor introduces no live-order surface.
 def test_no_live_order_surface_introduced(engine_harness):
     engine = engine_harness.engine
