@@ -1021,6 +1021,11 @@ def test_retention_indexes_are_created_on_open(tmp_path):
         names = _index_names(store)
         assert "ix_cex_retention" in names
         assert "ix_books_retention" in names
+        # Foreign-key child indexes that keep raw-row deletes from full-scanning
+        # the referencing tables for the ON DELETE RESTRICT check.
+        assert "ix_candidate_cex_evidence_obs" in names
+        assert "ix_candidate_book_evidence_snap" in names
+        assert "ix_candidates_trigger_source" in names
     finally:
         store.close()
 

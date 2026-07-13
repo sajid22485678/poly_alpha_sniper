@@ -740,6 +740,9 @@ CREATE INDEX ix_books_retention ON book_snapshots(retention_class,pin_count,rece
 CREATE INDEX ix_cex_asset_time ON cex_observations(asset,provider,receipt_ts_ms);
 CREATE INDEX ix_cex_retention ON cex_observations(retention_class,pin_count,receipt_ts_ms);
 CREATE INDEX ix_candidates_window_time ON candidates(window_id,evaluation_ts_ms);
+CREATE INDEX ix_candidates_trigger_source ON candidates(trigger_source_event_id);
+CREATE INDEX ix_candidate_cex_evidence_obs ON candidate_cex_evidence(cex_observation_id);
+CREATE INDEX ix_candidate_book_evidence_snap ON candidate_book_evidence(book_snapshot_id);
 CREATE INDEX ix_decisions_action_time ON decisions(action,decision_ts_ms);
 CREATE INDEX ix_entries_time ON entries(entry_ts_ms,status);
 CREATE INDEX ix_positions_status ON positions(status,asset);
@@ -800,6 +803,15 @@ class V4Store:
         "ON cex_observations(retention_class,pin_count,receipt_ts_ms)",
         "CREATE INDEX IF NOT EXISTS ix_books_retention "
         "ON book_snapshots(retention_class,pin_count,receipt_ts_ms)",
+        # Index the foreign-key child columns so deleting a raw parent row does
+        # not full-scan the referencing tables for the ON DELETE RESTRICT check
+        # (the dominant cost of a retention/row-cap delete on a large database).
+        "CREATE INDEX IF NOT EXISTS ix_candidate_cex_evidence_obs "
+        "ON candidate_cex_evidence(cex_observation_id)",
+        "CREATE INDEX IF NOT EXISTS ix_candidate_book_evidence_snap "
+        "ON candidate_book_evidence(book_snapshot_id)",
+        "CREATE INDEX IF NOT EXISTS ix_candidates_trigger_source "
+        "ON candidates(trigger_source_event_id)",
     )
 
     def _ensure_performance_indexes(self) -> None:
