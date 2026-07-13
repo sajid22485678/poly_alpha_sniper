@@ -61,4 +61,8 @@ lite_frequency_v4_shadow:
   writer_queue_max: 10000
   cex_writer_queue_max: 10000
   loop_lag_threshold_ms: 250
+  loop_lag_safety_ms: 2000
   shutdown_drain_timeout_s: 5.0
+  maintenance_chunk_rows: 250
+  maintenance_max_rows_per_pass: 4000
+  maintenance_max_seconds_per_pass: 1.0

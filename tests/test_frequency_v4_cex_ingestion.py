@@ -10,6 +10,8 @@ queue, a non-blocking ``put_nowait`` callback, and a dedicated consumer task.
 from __future__ import annotations
 
 import asyncio
+import sqlite3
+import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -42,7 +44,7 @@ from poly_alpha_sniper.lite_frequency_v4.runtime import (
     immutable_safety_state,
     now_ms,
 )
-from poly_alpha_sniper.lite_frequency_v4.store import V4Store
+from poly_alpha_sniper.lite_frequency_v4.store import V4ReadOnlyStore, V4Store
 
 
 @pytest.fixture
@@ -596,24 +598,23 @@ def test_one_side_per_asset_window_remains_locked():
         validate_frequency_v4_config(cfg)
 
 
-# 21. The heavy whole-database dashboard export is rate-limited off the ~2s
-#     state/heartbeat cadence so it cannot monopolise the shared event loop.
-def test_dashboard_export_is_rate_limited_off_heartbeat_cadence(engine_harness, monkeypatch):
+# 21. The cheap ~2s heartbeat/state publish must NOT run the heavy whole-
+#     database dashboard export or integrity scan; those are off-loop now.
+def test_heartbeat_loop_does_not_run_whole_db_scans(engine_harness, monkeypatch):
     engine = engine_harness.engine
     frozen = now_ms()
-    # Freeze the clock so every heartbeat iteration falls inside one export
-    # window; the export must therefore run at most once across them.
     monkeypatch.setattr(engine_module, "now_ms", lambda: frozen)
     exports = {"n": 0}
-
-    def fake_export(*_a, **_k):
-        exports["n"] += 1
-        return {}
-
-    monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", fake_export)
+    integrities = {"n": 0}
     monkeypatch.setattr(
-        engine.store, "integrity_check",
-        lambda: {"integrity": "ok", "foreign_key_violations": []})
+        engine_module, "write_frequency_v4_dashboard",
+        lambda *_a, **_k: exports.__setitem__("n", exports["n"] + 1))
+
+    def counting_integrity():
+        integrities["n"] += 1
+        return {"integrity": "ok", "foreign_key_violations": []}
+
+    monkeypatch.setattr(engine.store, "integrity_check", counting_integrity)
     iterations = {"n": 0}
     original_publish = engine.runtime.publish
 
@@ -626,7 +627,10 @@ def test_dashboard_export_is_rate_limited_off_heartbeat_cadence(engine_harness, 
     monkeypatch.setattr(engine.runtime, "publish", publish_hook)
     asyncio.run(engine._heartbeat_export_loop())
     assert iterations["n"] >= 2
-    assert exports["n"] == 1
+    # Neither the whole-database export nor the integrity scan runs on the
+    # cheap heartbeat cadence any more.
+    assert exports["n"] == 0
+    assert integrities["n"] == 0
 
 
 # 22. A persistence failure while recording a reject must never propagate and
@@ -660,3 +664,415 @@ def test_no_live_order_surface_introduced(engine_harness):
     for name in ("_cex_ingest_loop", "_process_cex_observation",
                  "_on_cex_observation", "_drain_cex_ingest_once"):
         assert callable(getattr(engine, name))
+
+
+# ---------------------------------------------------------------------------
+# Off-loop reporting / integrity / maintenance (durable event-loop fix).
+# ---------------------------------------------------------------------------
+
+
+def _fresh_db(tmp_path, name: str = "seed.db"):
+    """Create a valid, closed V4 database file for a read-only reader."""
+    path = tmp_path / name
+    V4Store(path).close()
+    return path
+
+
+# 1. The read-only store opens mode=ro with query_only enforced.
+def test_readonly_store_is_mode_ro_and_query_only(tmp_path):
+    ro = V4ReadOnlyStore(_fresh_db(tmp_path))
+    try:
+        assert int(ro.connection.execute("PRAGMA query_only").fetchone()[0]) == 1
+        rows = ro.query("SELECT COUNT(*) AS n FROM runtime_sessions")
+        assert rows[0]["n"] >= 0
+        assert ro.integrity_check()["integrity"] == "ok"
+    finally:
+        ro.close()
+
+
+# 2. The read-only store cannot mutate the database.
+def test_readonly_store_cannot_mutate(tmp_path):
+    ro = V4ReadOnlyStore(_fresh_db(tmp_path))
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            ro.connection.execute("CREATE TABLE illegal_writes(a INTEGER)")
+        with pytest.raises(sqlite3.OperationalError):
+            ro.connection.execute(
+                "INSERT INTO runtime_sessions(session_id) VALUES('x')")
+    finally:
+        ro.close()
+
+
+# 3. The dashboard export uses the read-only store, not the writer connection.
+def test_export_uses_readonly_store_not_writer(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
+    captured = {}
+
+    def fake_export(store, _path, **_k):
+        captured["store"] = store
+        return {}
+
+    monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", fake_export)
+    try:
+        asyncio.run(engine._run_dashboard_export())
+        assert captured["store"] is engine._readonly_store
+        assert captured["store"] is not engine.store
+    finally:
+        engine._readonly_store.close()
+
+
+# 4. A slow dashboard export runs off-loop and does not block the event loop.
+def test_slow_export_does_not_block_event_loop(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
+
+    def slow_export(*_a, **_k):
+        time.sleep(0.4)
+        return {}
+
+    monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", slow_export)
+    ticks = {"n": 0}
+
+    async def ticker():
+        for _ in range(20):
+            await asyncio.sleep(0.02)
+            ticks["n"] += 1
+
+    async def scenario():
+        await asyncio.gather(engine._run_dashboard_export(), ticker())
+
+    try:
+        asyncio.run(scenario())
+        assert ticks["n"] >= 15
+    finally:
+        engine._readonly_store.close()
+
+
+# 5. A slow integrity check runs off-loop and does not block heartbeat coroutines.
+def test_slow_integrity_does_not_block_heartbeat(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
+
+    def slow_integrity():
+        time.sleep(0.4)
+        return {"integrity": "ok", "foreign_key_violations": []}
+
+    monkeypatch.setattr(engine._readonly_store, "integrity_check", slow_integrity)
+    ticks = {"n": 0}
+
+    async def heartbeat():
+        for _ in range(20):
+            await asyncio.sleep(0.02)
+            ticks["n"] += 1
+
+    async def scenario():
+        await asyncio.gather(engine._run_integrity_check(), heartbeat())
+
+    try:
+        asyncio.run(scenario())
+        assert ticks["n"] >= 15
+    finally:
+        engine._readonly_store.close()
+
+
+# 6 & 8. Export is single-flight: concurrent/duplicate runs are coalesced.
+def test_export_is_single_flight(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
+    concurrent = {"max": 0, "cur": 0}
+
+    def export(*_a, **_k):
+        concurrent["cur"] += 1
+        concurrent["max"] = max(concurrent["max"], concurrent["cur"])
+        time.sleep(0.15)
+        concurrent["cur"] -= 1
+        return {}
+
+    monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", export)
+
+    async def scenario():
+        await asyncio.gather(
+            engine._run_dashboard_export(),
+            engine._run_dashboard_export(),
+            engine._run_dashboard_export(),
+        )
+
+    try:
+        asyncio.run(scenario())
+        assert concurrent["max"] == 1
+        assert engine._export_runs == 1
+    finally:
+        engine._readonly_store.close()
+
+
+def test_duplicate_export_is_coalesced_while_inflight(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
+    calls = {"n": 0}
+    monkeypatch.setattr(
+        engine_module, "write_frequency_v4_dashboard",
+        lambda *_a, **_k: calls.__setitem__("n", calls["n"] + 1))
+    engine._export_inflight = True
+    try:
+        asyncio.run(engine._run_dashboard_export())
+        assert calls["n"] == 0
+    finally:
+        engine._export_inflight = False
+        engine._readonly_store.close()
+
+
+# 7. Integrity is single-flight.
+def test_integrity_is_single_flight(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
+    concurrent = {"max": 0, "cur": 0}
+
+    def integrity():
+        concurrent["cur"] += 1
+        concurrent["max"] = max(concurrent["max"], concurrent["cur"])
+        time.sleep(0.15)
+        concurrent["cur"] -= 1
+        return {"integrity": "ok", "foreign_key_violations": []}
+
+    monkeypatch.setattr(engine._readonly_store, "integrity_check", integrity)
+
+    async def scenario():
+        await asyncio.gather(
+            engine._run_integrity_check(),
+            engine._run_integrity_check(),
+            engine._run_integrity_check(),
+        )
+
+    try:
+        asyncio.run(scenario())
+        assert concurrent["max"] == 1
+        assert engine._integrity_runs == 1
+    finally:
+        engine._readonly_store.close()
+
+
+# 9. An export failure does not crash the caller (a critical loop).
+def test_export_failure_does_not_crash(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("export boom")
+
+    monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", boom)
+    try:
+        asyncio.run(engine._run_dashboard_export())  # must not raise
+        assert engine._last_export_ok is False
+        assert "export:" in engine._last_error
+    finally:
+        engine._readonly_store.close()
+
+
+# 10. A failed integrity result degrades health and fails closed.
+def test_integrity_failure_degrades_health_and_fails_closed(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
+    monkeypatch.setattr(
+        engine._readonly_store, "integrity_check",
+        lambda: {"integrity": "malformed database", "foreign_key_violations": []})
+    try:
+        asyncio.run(engine._run_integrity_check())
+        assert engine._last_integrity_ok is False
+        assert engine._execution_blocked_reason() == "sqlite_integrity_degraded"
+        assert engine._runtime_state_name(now_ms()) == "DEGRADED_INTEGRITY"
+    finally:
+        engine._readonly_store.close()
+
+
+# 11. Shutdown waits for an active reporting job and closes the read-only store.
+def test_shutdown_waits_for_reporting_and_closes_readonly_store(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine.poly_ws.stop = AsyncMock()
+    engine.okx.stop = AsyncMock()
+    engine.gamma.close = AsyncMock()
+    engine.clob.close = AsyncMock()
+    monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", lambda *a, **k: {})
+    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
+    finished = {"reporting": False}
+
+    async def slow_reporting():
+        try:
+            await asyncio.sleep(0.3)
+        finally:
+            finished["reporting"] = True
+
+    async def scenario():
+        engine._tasks = [
+            asyncio.create_task(slow_reporting(), name="v4-reporting"),
+            asyncio.create_task(
+                engine._polymarket_ingest_loop(), name="v4-polymarket-ingest"),
+            asyncio.create_task(engine._cex_ingest_loop(), name="v4-cex-ingest"),
+        ]
+        await engine.stop("test_stop")
+
+    asyncio.run(scenario())
+    assert finished["reporting"] is True
+    assert engine._readonly_store._closed is True
+
+
+# 12. Retention SQL executes off the event loop (a worker thread), never on it.
+def test_maintenance_runs_off_the_event_loop(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    main_thread = threading.get_ident()
+    seen_threads = []
+    original = engine.store.compact_raw_evidence
+
+    def spy(*a, **k):
+        seen_threads.append(threading.get_ident())
+        return original(*a, **k)
+
+    monkeypatch.setattr(engine.store, "compact_raw_evidence", spy)
+    asyncio.run(engine._run_maintenance_pass())
+    assert seen_threads
+    assert all(tid != main_thread for tid in seen_threads)
+
+
+# 13. Maintenance deletes in configured chunks with integrity skipped per chunk.
+def test_maintenance_is_chunked_and_bounded(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine.cfg.maintenance_chunk_rows = 100
+    engine.cfg.maintenance_max_rows_per_pass = 300
+    calls = []
+
+    def fake_compact(_now, *, retention_ms, batch_size, run_integrity):
+        calls.append((batch_size, run_integrity))
+        return {"source_events": batch_size, "book_snapshots": 0,
+                "cex_observations": 0}
+
+    monkeypatch.setattr(engine.store, "compact_raw_evidence", fake_compact)
+    monkeypatch.setattr(engine.store, "enforce_raw_row_cap", lambda *a, **k: {})
+    monkeypatch.setattr(engine.store, "compact_event_buckets", lambda *a, **k: 0)
+    result = engine._maintenance_pass_blocking()
+    assert calls
+    assert all(bs == 100 and ri is False for bs, ri in calls)
+    assert result["rows"] <= 400
+    assert len(calls) <= 4
+
+
+# 14. Maintenance respects the wall-clock budget even with rows remaining.
+def test_maintenance_respects_time_budget(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine.cfg.maintenance_chunk_rows = 10
+    engine.cfg.maintenance_max_rows_per_pass = 10_000_000
+    engine.cfg.maintenance_max_seconds_per_pass = 0.2
+
+    def slow_compact(_now, *, retention_ms, batch_size, run_integrity):
+        time.sleep(0.05)
+        return {"source_events": batch_size, "book_snapshots": 0,
+                "cex_observations": 0}
+
+    monkeypatch.setattr(engine.store, "compact_raw_evidence", slow_compact)
+    monkeypatch.setattr(engine.store, "enforce_raw_row_cap", lambda *a, **k: {})
+    monkeypatch.setattr(engine.store, "compact_event_buckets", lambda *a, **k: 0)
+    start = time.monotonic()
+    result = engine._maintenance_pass_blocking()
+    elapsed = time.monotonic() - start
+    assert elapsed < 1.0
+    assert result["rows"] <= 10 * 12
+
+
+# 16. Maintenance contention does not block the WebSocket receive callbacks.
+def test_maintenance_does_not_block_ws_callbacks(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+
+    def slow_compact(_now, *, retention_ms, batch_size, run_integrity):
+        time.sleep(0.04)
+        return {"source_events": 0, "book_snapshots": 0, "cex_observations": 0}
+
+    monkeypatch.setattr(engine.store, "compact_raw_evidence", slow_compact)
+    monkeypatch.setattr(engine.store, "enforce_raw_row_cap", lambda *a, **k: {})
+    monkeypatch.setattr(engine.store, "compact_event_buckets", lambda *a, **k: 0)
+
+    async def scenario():
+        maintenance = asyncio.create_task(engine._run_maintenance_pass())
+        start = time.monotonic()
+        for i in range(20):
+            obs = _observation(now_ms() + i, event_id=f"maint-{i}")
+            await engine._on_cex_observation(obs, _accepted(obs))
+        elapsed = time.monotonic() - start
+        await maintenance
+        return elapsed
+
+    elapsed = asyncio.run(scenario())
+    assert elapsed < 0.2
+    assert engine.counters["accepted_events"] == 20
+
+
+# 17. A maintenance failure does not crash the engine.
+def test_maintenance_failure_does_not_crash(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+
+    def boom(*_a, **_k):
+        raise RuntimeError("maintenance boom")
+
+    monkeypatch.setattr(engine.store, "compact_raw_evidence", boom)
+    asyncio.run(engine._run_maintenance_pass())  # must not raise
+    assert "maintenance:" in engine._last_error
+
+
+# 18. Severe event-loop lag fails closed for new executable candidates.
+def test_loop_lag_fails_closed_candidate_execution(engine_harness, monkeypatch):
+    engine, store = engine_harness.engine, engine_harness.store
+    current = now_ms()
+    identity = _identity(current)
+    state = engine._persist_market(identity, current)
+    asyncio.run(_mark_source_ready(engine))
+    state.books = {
+        "YES": _book(identity, "YES", current),
+        "NO": _book(identity, "NO", current),
+    }
+    engine.cex_features.append(_observation(current))
+    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _c: _strong_yes_ensemble())
+    monkeypatch.setattr(engine, "_manage_open_position", AsyncMock())
+    engine._loop_lag_ms = engine.cfg.loop_lag_safety_ms + 500
+    assert engine._execution_blocked_reason() == "event_loop_lag_degraded"
+    asyncio.run(engine._evaluate(state, EvaluationTrigger(
+        source="lag-test", receipt_ts_ms=current,
+        receipt_monotonic_ns=time.monotonic_ns())))
+    assert store.query_one("SELECT COUNT(*) AS n FROM entries")["n"] == 0
+    decision = store.query_one(
+        "SELECT reason FROM decisions ORDER BY decision_id DESC LIMIT 1")
+    assert "event_loop_lag" in decision["reason"]
+
+
+# 19 & 20. Heartbeat and OKX admission stay responsive during slow reporting.
+def test_ws_callbacks_stay_responsive_during_slow_reporting(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
+
+    def slow_export(*_a, **_k):
+        time.sleep(0.3)
+        return {}
+
+    monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", slow_export)
+    ticks = {"n": 0}
+
+    async def heartbeat():
+        for _ in range(20):
+            await asyncio.sleep(0.02)
+            ticks["n"] += 1
+
+    async def scenario():
+        report = asyncio.create_task(engine._run_dashboard_export())
+        beat = asyncio.create_task(heartbeat())
+        start = time.monotonic()
+        for i in range(20):
+            obs = _observation(now_ms() + i, event_id=f"rep-{i}")
+            await engine._on_cex_observation(obs, _accepted(obs))
+        elapsed = time.monotonic() - start
+        await asyncio.gather(report, beat)
+        return elapsed
+
+    try:
+        elapsed = asyncio.run(scenario())
+        assert elapsed < 0.15                       # OKX admission not blocked
+        assert engine.counters["accepted_events"] == 20
+        assert ticks["n"] >= 15                     # heartbeat kept ticking
+    finally:
+        engine._readonly_store.close()

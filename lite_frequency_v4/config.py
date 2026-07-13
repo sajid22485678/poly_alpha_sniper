@@ -102,7 +102,11 @@ class FrequencyV4Config:
     writer_queue_max: int = 10_000
     cex_writer_queue_max: int = 10_000
     loop_lag_threshold_ms: int = 250
+    loop_lag_safety_ms: int = 2_000
     shutdown_drain_timeout_s: float = 5.0
+    maintenance_chunk_rows: int = 250
+    maintenance_max_rows_per_pass: int = 4_000
+    maintenance_max_seconds_per_pass: float = 1.0
 
     @property
     def exposure_cap_usd(self) -> float:
@@ -228,9 +232,16 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "writer_queue_max": (100, 1_000_000),
         "cex_writer_queue_max": (100, 1_000_000),
         "loop_lag_threshold_ms": (10, 60_000),
+        "loop_lag_safety_ms": (50, 120_000),
+        "maintenance_chunk_rows": (1, 100_000),
+        "maintenance_max_rows_per_pass": (1, 5_000_000),
     }
     for name, (minimum, maximum) in integers.items():
         _strict_integer(getattr(cfg, name), name, minimum=minimum, maximum=maximum)
+    if cfg.loop_lag_safety_ms < cfg.loop_lag_threshold_ms:
+        raise RuntimeError("invalid Frequency V4 config field: loop_lag_safety_ms")
+    if cfg.maintenance_max_rows_per_pass < cfg.maintenance_chunk_rows:
+        raise RuntimeError("invalid Frequency V4 config field: maintenance_max_rows_per_pass")
     if cfg.max_book_pair_skew_ms > cfg.book_max_age_ms:
         raise RuntimeError("invalid Frequency V4 config field: max_book_pair_skew_ms")
     if cfg.reconnect_cap_ms < cfg.reconnect_base_ms:
@@ -258,6 +269,7 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "rest_timeout_s": (0.0, 60.0, True),
         "fee_buffer_usd": (0.0, 100.0, False),
         "shutdown_drain_timeout_s": (0.0, 60.0, True),
+        "maintenance_max_seconds_per_pass": (0.0, 30.0, True),
     }
     for name, (minimum, maximum, strict_minimum) in numbers.items():
         _strict_number(getattr(cfg, name), name, minimum=minimum,

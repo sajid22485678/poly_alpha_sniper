@@ -1804,9 +1804,15 @@ class V4Store:
 
     def compact_raw_evidence(
         self, now_ms: int, *, retention_ms: int = 6 * 60 * 60 * 1000,
-        batch_size: int = 5000,
+        batch_size: int = 5000, run_integrity: bool = True,
     ) -> dict[str, Any]:
-        """Delete only old unpinned raw rows, in a bounded atomic batch."""
+        """Delete only old unpinned raw rows, in a bounded atomic batch.
+
+        ``run_integrity`` may be set False by a chunked off-loop maintenance
+        worker that verifies integrity once per cycle rather than paying a full
+        ``PRAGMA integrity_check`` (seconds on a large database) for every small
+        delete chunk.
+        """
         if retention_ms < 60_000:
             raise ValueError("raw retention must be at least one minute")
         if not 1 <= int(batch_size) <= 50_000:
@@ -1849,6 +1855,9 @@ class V4Store:
                 (int(now_ms), deleted["source_events"], deleted["book_snapshots"],
                  deleted["cex_observations"], pinned, run_id),
             )
+        if not run_integrity:
+            return {"retention_run_id": run_id, "cutoff_ts_ms": cutoff,
+                    "pinned_rows_skipped": pinned, **deleted}
         integrity = self.integrity_check()
         with self.transaction() as conn:
             conn.execute(
@@ -1955,3 +1964,45 @@ class V4Store:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
+
+
+class V4ReadOnlyStore(V4Store):
+    """Read-only view over an existing V4 database on its own connection.
+
+    WAL mode lets this reader run concurrently with the writer without
+    contending on the writer's lock, so heavy dashboard/integrity reads can be
+    offloaded to a worker thread and never stall the event loop.  Only the
+    inherited *read* methods (query/query_one/integrity_check/open_positions/
+    latest_source_health/database_size_bytes) are used; the connection is opened
+    ``mode=ro`` with ``PRAGMA query_only`` so any inherited write method raises
+    instead of mutating the database.
+    """
+
+    def __init__(self, db_path: str | Path, *, busy_timeout_ms: int = 5_000):
+        if isinstance(busy_timeout_ms, bool) or not isinstance(busy_timeout_ms, int):
+            raise ValueError("busy_timeout_ms must be an integer")
+        if busy_timeout_ms < 100 or busy_timeout_ms > 120_000:
+            raise ValueError("busy_timeout_ms must be within [100, 120000] ms")
+        self.busy_timeout_ms = int(busy_timeout_ms)
+        self.path = Path(db_path)
+        if not self.path.exists():
+            raise V4SchemaError(f"read-only store requires an existing database: {self.path}")
+        self._lock = threading.RLock()
+        self._closed = False
+        self._conn = sqlite3.connect(
+            f"file:{self.path.as_posix()}?mode=ro", uri=True,
+            timeout=self.busy_timeout_ms / 1000.0,
+            check_same_thread=False, isolation_level=None,
+        )
+        self._conn.row_factory = sqlite3.Row
+        with self._lock:
+            self._conn.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
+            self._conn.execute("PRAGMA query_only=ON")
+
+    def close(self) -> None:
+        # A read-only connection must not attempt a WAL checkpoint (a write).
+        with self._lock:
+            if self._closed:
+                return
+            self._conn.close()
+            self._closed = True

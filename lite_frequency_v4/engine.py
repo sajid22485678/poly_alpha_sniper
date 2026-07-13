@@ -47,6 +47,7 @@ from .risk import assess_shadow_exposure, entry_idempotency_key
 from .runtime import V4RuntimeFiles, immutable_safety_state, now_ms
 from .store import (
     ExposureLimitExceeded,
+    V4ReadOnlyStore,
     V4Store,
     WindowReservationConflict,
 )
@@ -190,7 +191,27 @@ class FrequencyV4Engine:
         self._loop_lag_max_ms = 0.0
         self._loop_lag_p95_ms = 0.0
         self._loop_lag_breaches = 0
+        self._loop_lag_last_breach_ms = 0
+        self._loop_lag_safety_breach_mono_ns = 0
         self._loop_lag_samples: deque[float] = deque(maxlen=256)
+        # Heavy whole-database reporting/maintenance runs off the event loop in
+        # bounded single-flight workers against a dedicated read-only (reads) or
+        # chunked (writes) path, so a multi-second scan can never stall the
+        # WebSocket heartbeat/reconnect path.
+        self._readonly_store: Optional[V4ReadOnlyStore] = None
+        self._export_inflight = False
+        self._integrity_inflight = False
+        self._maintenance_inflight = False
+        self._last_export_duration_ms = 0.0
+        self._last_export_ok = True
+        self._export_runs = 0
+        self._last_integrity_duration_ms = 0.0
+        self._last_integrity_ok = True
+        self._integrity_runs = 0
+        self._last_maintenance_duration_ms = 0.0
+        self._last_maintenance_rows = 0
+        self._maintenance_runs = 0
+        self._last_published_state: dict[str, Any] = {}
         self._shutdown_drain_timed_out = False
         self._polymarket_queue_discarded = 0
         self._cex_queue_discarded = 0
@@ -283,7 +304,19 @@ class FrequencyV4Engine:
             "loop_lag_max_ms": round(self._loop_lag_max_ms, 3),
             "loop_lag_p95_ms": round(self._loop_lag_p95_ms, 3),
             "loop_lag_threshold_ms": self.cfg.loop_lag_threshold_ms,
+            "loop_lag_safety_ms": self.cfg.loop_lag_safety_ms,
             "loop_lag_breaches": self._loop_lag_breaches,
+            "loop_lag_last_breach_ts_ms": self._loop_lag_last_breach_ms,
+            "execution_blocked_reason": self._execution_blocked_reason(),
+            "dashboard_export_ms": round(self._last_export_duration_ms, 1),
+            "dashboard_export_runs": self._export_runs,
+            "dashboard_export_ok": self._last_export_ok,
+            "integrity_check_ms": round(self._last_integrity_duration_ms, 1),
+            "integrity_check_runs": self._integrity_runs,
+            "integrity_ok": self._last_integrity_ok,
+            "maintenance_ms": round(self._last_maintenance_duration_ms, 1),
+            "maintenance_runs": self._maintenance_runs,
+            "maintenance_rows_last": self._last_maintenance_rows,
             "buffered_event_counter_buckets": len(self._event_count_buffer),
             "shutdown_drain_timed_out": self._shutdown_drain_timed_out,
             "polymarket_ingest_queue_discarded": self._polymarket_queue_discarded,
@@ -1324,7 +1357,16 @@ class FrequencyV4Engine:
         state.last_fair = calculation
 
         hard_failure = ""
-        if not self._okx_connected:
+        blocked = self._execution_blocked_reason()
+        if blocked:
+            # Fail closed: a degraded event loop or failed integrity scan means
+            # evidence and time-sensitive routing cannot be trusted.
+            hard_failure = blocked
+            self.store.update_window_funnel(
+                state.window_id, current, final_blocker=hard_failure,
+                data_invalid_reason=hard_failure,
+            )
+        elif not self._okx_connected:
             hard_failure = "all_fresh_cex_sources_unavailable"
             self.store.update_window_funnel(
                 state.window_id, current, final_blocker=hard_failure,
@@ -2048,10 +2090,60 @@ class FrequencyV4Engine:
             except asyncio.TimeoutError:
                 pass
 
+    def _execution_blocked_reason(self) -> str:
+        """Fail-closed guard for new executable candidates.
+
+        Blocks execution when the runtime cannot be trusted: a failed integrity
+        scan (possible corruption) or event-loop starvation (evidence may be
+        stale and time-sensitive routing unsafe).  Telemetry and recovery keep
+        running; only executable candidate creation is suppressed.
+        """
+
+        if not self._last_integrity_ok:
+            return "sqlite_integrity_degraded"
+        if self._loop_lag_ms > self.cfg.loop_lag_safety_ms:
+            return "event_loop_lag_degraded"
+        if (self._loop_lag_safety_breach_mono_ns
+                and time.monotonic_ns() - self._loop_lag_safety_breach_mono_ns
+                < 5_000_000_000):
+            return "event_loop_lag_degraded"
+        return ""
+
+    def _runtime_state_name(self, current: int) -> str:
+        """Truthful runtime state, fail-closed first.
+
+        Integrity or event-loop degradation outrank socket/freshness status so a
+        connected-but-unsafe runtime can never read healthy.
+        """
+
+        blocked = self._execution_blocked_reason()
+        if blocked == "sqlite_integrity_degraded":
+            return "DEGRADED_INTEGRITY"
+        if blocked == "event_loop_lag_degraded":
+            return "DEGRADED_EVENT_LOOP_LAG"
+        active_assets = {
+            state.identity.asset for state in self.markets.values()
+            if state.identity.window_open_ms <= current < state.identity.window_close_ms
+        }
+        fresh_assets = {
+            asset for asset in active_assets
+            if (latest := self.cex_features.latest(asset)) is not None
+            and 0 <= current - latest.provider_ts_ms <= self.cfg.cex_max_age_ms
+        }
+        if not self._okx_connected or not fresh_assets:
+            return "DEGRADED_NO_FRESH_CEX"
+        if fresh_assets != active_assets:
+            return "DEGRADED_PARTIAL_CEX"
+        if not self._poly_connected:
+            return "DEGRADED_POLYMARKET_DISCONNECTED"
+        return "RUNNING"
+
     async def _heartbeat_export_loop(self) -> None:
+        # Deliberately cheap: only the small state.json/heartbeat publish and
+        # runtime-health insert run here every ~2s.  All whole-database scans
+        # (dashboard export, integrity) and maintenance run off-loop in their
+        # own workers so this cadence stays responsive.
         last_health_ms = 0
-        last_integrity_ms = 0
-        last_dashboard_ms = 0
         expected_mono = time.monotonic()
         last_db_changes = int(self.store.connection.total_changes)
         last_db_sample_ms = now_ms()
@@ -2063,26 +2155,9 @@ class FrequencyV4Engine:
             current = now_ms()
             self._flush_event_counts()
             self._persist_pending_source_health(current)
-            if current - last_integrity_ms >= INTEGRITY_CHECK_INTERVAL_MS:
-                self._last_integrity = self.store.integrity_check()
-                last_integrity_ms = current
-            active_assets = {
-                state.identity.asset for state in self.markets.values()
-                if state.identity.window_open_ms <= current < state.identity.window_close_ms
-            }
-            fresh_assets = {
-                asset for asset in active_assets
-                if (latest := self.cex_features.latest(asset)) is not None
-                and 0 <= current - latest.provider_ts_ms <= self.cfg.cex_max_age_ms
-            }
-            state_name = "RUNNING"
-            if not self._okx_connected or not fresh_assets:
-                state_name = "DEGRADED_NO_FRESH_CEX"
-            elif fresh_assets != active_assets:
-                state_name = "DEGRADED_PARTIAL_CEX"
-            elif not self._poly_connected:
-                state_name = "DEGRADED_POLYMARKET_DISCONNECTED"
+            state_name = self._runtime_state_name(current)
             runtime_state = self.runtime.publish(self._runtime_state(state_name))
+            self._last_published_state = runtime_state
             if current - last_health_ms >= 5_000:
                 total_changes = int(self.store.connection.total_changes)
                 elapsed_ms = max(1, current - last_db_sample_ms)
@@ -2103,38 +2178,134 @@ class FrequencyV4Engine:
                     "last_error": self._last_error or None,
                 })
                 last_health_ms = current
-            if current - last_dashboard_ms >= DASHBOARD_EXPORT_INTERVAL_MS:
-                last_dashboard_ms = current
-                try:
-                    write_frequency_v4_dashboard(
-                        self.store, self.export_path, now_ms=current,
-                        config=self.cfg, runtime_state=runtime_state,
-                        session_id=self.session_id,
-                    )
-                    self._last_export_ms = current
-                except Exception as exc:
-                    self._last_error = f"export:{type(exc).__name__}:{exc}"[:240]
             expected_mono = time.monotonic() + 2.0
             try:
                 await asyncio.wait_for(self._stopping.wait(), timeout=2.0)
             except asyncio.TimeoutError:
                 pass
 
-    async def _retention_loop(self) -> None:
+    async def _run_integrity_check(self) -> None:
+        """Off-loop integrity scan on the read-only connection (single-flight)."""
+        if self._readonly_store is None or self._integrity_inflight:
+            return
+        self._integrity_inflight = True
+        started = time.monotonic()
+        try:
+            result = await asyncio.to_thread(self._readonly_store.integrity_check)
+            self._last_integrity = result
+            # A reported problem (corruption / FK violation) fails closed; a
+            # transient scan exception is logged but does not halt trading.
+            self._last_integrity_ok = bool(
+                result.get("integrity") == "ok"
+                and not result.get("foreign_key_violations"))
+            if not self._last_integrity_ok:
+                self._last_error = f"integrity_degraded:{result.get('integrity')}"[:240]
+        except Exception as exc:  # noqa: BLE001 - reporting worker must not crash
+            self._last_error = f"integrity:{type(exc).__name__}:{exc}"[:240]
+        finally:
+            self._last_integrity_duration_ms = (time.monotonic() - started) * 1_000.0
+            self._integrity_runs += 1
+            self._integrity_inflight = False
+
+    async def _run_dashboard_export(self) -> None:
+        """Off-loop whole-database dashboard export (single-flight, atomic write)."""
+        if self._readonly_store is None or self._export_inflight:
+            return
+        self._export_inflight = True
+        started = time.monotonic()
+        current = now_ms()
+        state = self._last_published_state or self._runtime_state("RUNNING")
+        try:
+            await asyncio.to_thread(
+                write_frequency_v4_dashboard,
+                self._readonly_store, self.export_path,
+                now_ms=current, config=self.cfg,
+                runtime_state=state, session_id=self.session_id,
+            )
+            self._last_export_ms = current
+            self._last_export_ok = True
+        except Exception as exc:  # noqa: BLE001 - reporting worker must not crash
+            self._last_export_ok = False
+            self._last_error = f"export:{type(exc).__name__}:{exc}"[:240]
+        finally:
+            self._last_export_duration_ms = (time.monotonic() - started) * 1_000.0
+            self._export_runs += 1
+            self._export_inflight = False
+
+    async def _reporting_loop(self) -> None:
+        """Run integrity then export off-loop, sequentially (never overlapping).
+
+        Each heavy read-only scan executes in a worker thread against the
+        dedicated read-only connection; awaiting the thread yields the event
+        loop, so the WebSocket heartbeat/reconnect path stays responsive while a
+        multi-second scan runs.
+        """
+        last_export_ms = 0
+        last_integrity_ms = 0
         while not self._stopping.is_set():
+            current = now_ms()
+            if current - last_integrity_ms >= INTEGRITY_CHECK_INTERVAL_MS:
+                last_integrity_ms = current
+                await self._run_integrity_check()
+            if current - last_export_ms >= DASHBOARD_EXPORT_INTERVAL_MS:
+                last_export_ms = current
+                await self._run_dashboard_export()
             try:
-                self.store.compact_raw_evidence(
-                    now_ms(),
-                    retention_ms=self.cfg.raw_event_retention_hours * 3_600_000,
-                    batch_size=5_000,
-                )
-                self.store.enforce_raw_row_cap(self.cfg.raw_event_max_rows)
-                self.store.compact_event_buckets(
-                    now_ms(), detail_retention_ms=6 * 3_600_000)
-            except Exception as exc:
-                self._last_error = f"retention:{type(exc).__name__}:{exc}"[:240]
+                await asyncio.wait_for(self._stopping.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+
+    def _maintenance_pass_blocking(self) -> dict[str, int]:
+        """Chunked retention/compaction, run in a worker thread.
+
+        Uses the shared writer connection via the store lock in small chunks so
+        each lock hold is brief and the event-loop write path is not starved; a
+        short sleep between chunks hands the lock to any waiting writer.  A full
+        integrity scan is not paid per chunk (the reporting loop verifies
+        integrity separately).  All trade/candidate-referenced evidence is
+        protected by the store's existing retention filters.
+        """
+        chunk = int(self.cfg.maintenance_chunk_rows)
+        budget = int(self.cfg.maintenance_max_rows_per_pass)
+        deadline = time.monotonic() + float(self.cfg.maintenance_max_seconds_per_pass)
+        retention_ms = self.cfg.raw_event_retention_hours * 3_600_000
+        total = 0
+        while total < budget and time.monotonic() < deadline:
+            result = self.store.compact_raw_evidence(
+                now_ms(), retention_ms=retention_ms,
+                batch_size=chunk, run_integrity=False)
+            deleted = (int(result.get("source_events", 0))
+                       + int(result.get("book_snapshots", 0))
+                       + int(result.get("cex_observations", 0)))
+            total += deleted
+            if deleted == 0:
+                break
+            time.sleep(0.002)
+        self.store.enforce_raw_row_cap(self.cfg.raw_event_max_rows)
+        self.store.compact_event_buckets(now_ms(), detail_retention_ms=6 * 3_600_000)
+        return {"rows": total}
+
+    async def _run_maintenance_pass(self) -> None:
+        """Off-loop bounded maintenance pass (single-flight)."""
+        if self._maintenance_inflight:
+            return
+        self._maintenance_inflight = True
+        started = time.monotonic()
+        try:
+            result = await asyncio.to_thread(self._maintenance_pass_blocking)
+            self._last_maintenance_rows = int(result.get("rows", 0))
+        except Exception as exc:  # noqa: BLE001 - maintenance must not crash market-data tasks
+            self._last_error = f"maintenance:{type(exc).__name__}:{exc}"[:240]
+        finally:
+            self._last_maintenance_duration_ms = (time.monotonic() - started) * 1_000.0
+            self._maintenance_runs += 1
+            self._maintenance_inflight = False
+
+    async def _maintenance_loop(self) -> None:
+        while not self._stopping.is_set():
+            await self._run_maintenance_pass()
             try:
-                await asyncio.wait_for(self._stopping.wait(), timeout=300.0)
+                await asyncio.wait_for(self._stopping.wait(), timeout=60.0)
             except asyncio.TimeoutError:
                 pass
 
@@ -2163,6 +2334,12 @@ class FrequencyV4Engine:
             self._loop_lag_max_ms = max(self._loop_lag_max_ms, lag_ms)
             if lag_ms > threshold:
                 self._loop_lag_breaches += 1
+                self._loop_lag_last_breach_ms = now_ms()
+            if lag_ms > self.cfg.loop_lag_safety_ms:
+                # Fail-closed backstop: recent severe starvation blocks new
+                # executable candidates until it clears (see
+                # _execution_blocked_reason).
+                self._loop_lag_safety_breach_mono_ns = time.monotonic_ns()
             self._loop_lag_samples.append(lag_ms)
             ordered = sorted(self._loop_lag_samples)
             index = min(len(ordered) - 1, int(0.95 * len(ordered)))
@@ -2174,6 +2351,10 @@ class FrequencyV4Engine:
         self._started = True
         self._record_session()
         self.runtime.publish(self._runtime_state("STARTING"))
+        # Dedicated read-only connection for off-loop reporting; the writer
+        # store has already created the database and enabled WAL by now.
+        self._readonly_store = V4ReadOnlyStore(
+            self.cfg.db_path, busy_timeout_ms=self.cfg.sqlite_busy_timeout_ms)
         await self.discover_once()
         await self.poly_ws.start()
         await self.okx.start()
@@ -2187,9 +2368,10 @@ class FrequencyV4Engine:
             asyncio.create_task(
                 self._active_subscription_loop(), name="v4-active-subscriptions"),
             asyncio.create_task(self._heartbeat_export_loop(), name="v4-heartbeat-export"),
+            asyncio.create_task(self._reporting_loop(), name="v4-reporting"),
             asyncio.create_task(self._loop_lag_monitor(), name="v4-loop-lag"),
             asyncio.create_task(self._resolution_loop(), name="v4-resolution"),
-            asyncio.create_task(self._retention_loop(), name="v4-retention"),
+            asyncio.create_task(self._maintenance_loop(), name="v4-maintenance"),
             asyncio.create_task(self.okx.hydrate_all(), name="v4-okx-rest-hydration"),
         ]
 
@@ -2251,7 +2433,22 @@ class FrequencyV4Engine:
                 f"poly{self._polymarket_queue_discarded}_"
                 f"cex{self._cex_queue_discarded}"
             )
-        # 5. Cancel consumers (now idle or timed out) and every other task.
+        # 5. Let the off-loop reporting/maintenance workers finish their current
+        #    job and exit cleanly (they observe _stopping between jobs) before we
+        #    cancel anything, so the read-only connection is never closed while a
+        #    worker thread is still reading it.
+        reporting = [t for t in self._tasks
+                     if t.get_name() in {"v4-reporting", "v4-maintenance"}
+                     and not t.done()]
+        if reporting:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*reporting, return_exceptions=True),
+                    timeout=max(drain_timeout, 8.0),
+                )
+            except asyncio.TimeoutError:
+                self._last_error = "shutdown_reporting_drain_timeout"
+        # 6. Cancel consumers (now idle or timed out) and every other task.
         for task in self._tasks:
             if not task.done():
                 task.cancel()
@@ -2262,6 +2459,11 @@ class FrequencyV4Engine:
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
         self._background_tasks.clear()
+        if self._readonly_store is not None:
+            try:
+                self._readonly_store.close()
+            except Exception:  # noqa: BLE001 - best-effort on shutdown
+                pass
         try:
             self._flush_event_counts()
             runtime_state = self._runtime_state("STOPPED")
