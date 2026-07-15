@@ -46,6 +46,31 @@ fails closed (`DEGRADED_EVENT_LOOP_LAG` blocks execution).
 `dry_run=true`, `live_enabled=false`, `fixed_shares=5`, no live adapter, shadow-only.
 No strategy thresholds changed. Secret scan of the full diff: clean.
 
+## Live-soak hardening (2026-07-15, commits 230bad8 / 1073e13 / a0c8ed2)
+
+Live operation surfaced four defects the test suite could not see, all fixed:
+
+1. **Windows venv launcher pair** — the venv `python.exe` spawns the base
+   interpreter as a child with an identical `-m lite_frequency_v4.bot` command
+   line; ownership preflight and the engine execution gate demanded exactly one
+   exact process and failed closed on every real launch. Both now require:
+   ≥1 exact process, all exact processes inside the lock's ownership tree,
+   zero orphans.
+2. **Evaluation-bundle flood** — an unconditional persist clause for
+   SKIP/SAFETY_FAIL actions bypassed fingerprint suppression, journaling a full
+   ~22 KB evidence bundle per market per tick. Bundles now persist only on
+   material transitions, executable actions on un-entered windows,
+   active-maker decisions, or due management samples (suppressed evaluations
+   are counted).
+3. **Capacity retry storm** — on `ExposureLimitExceeded` the engine reset the
+   suppression fingerprint, resubmitting doomed journaled entry commands at
+   full evaluation rate. Capacity rejections now latch per scope and clear
+   exactly when a position closes.
+4. **WAL liveness** — a gate-closed runtime (busy critical lane / degraded
+   health) deferred checkpoints indefinitely (WAL reached 3.6 GB). Above the
+   emergency threshold a PASSIVE checkpoint now runs through the closed gate,
+   rate-limited by the bounded min-interval.
+
 ## Migration
 
 Additive schema hydration happens on store open. Pre-change backup preserved at
