@@ -99,6 +99,24 @@ class FrequencyV4Config:
     raw_event_retention_hours: int = 24
     raw_event_max_rows: int = 250_000
     sqlite_busy_timeout_ms: int = 10_000
+    # Persistence lanes.  These bounds are operational safety controls; they
+    # do not alter strategy signals, execution tiers, or fixed-share sizing.
+    critical_queue_capacity: int = 2_048
+    telemetry_queue_capacity: int = 20_000
+    critical_command_timeout_s: float = 15.0
+    telemetry_batch_size: int = 512
+    telemetry_flush_interval_ms: int = 250
+    telemetry_coalescing_interval_ms: int = 1_000
+    writer_heartbeat_interval_ms: int = 1_000
+    writer_failure_timeout_ms: int = 5_000
+    checkpoint_wal_size_trigger_bytes: int = 32 * 1024 * 1024
+    checkpoint_min_interval_s: int = 60
+    retention_chunk_size: int = 250
+    retention_time_budget_ms: int = 1_000
+    reporting_worker_timeout_s: float = 120.0
+    maintenance_worker_timeout_s: float = 30.0
+    reporting_queue_capacity: int = 16
+    maintenance_queue_capacity: int = 8
     writer_queue_max: int = 10_000
     cex_writer_queue_max: int = 10_000
     loop_lag_threshold_ms: int = 250
@@ -229,6 +247,19 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "raw_event_retention_hours": (1, 720),
         "raw_event_max_rows": (1_000, 10_000_000),
         "sqlite_busy_timeout_ms": (100, 120_000),
+        "critical_queue_capacity": (16, 1_000_000),
+        "telemetry_queue_capacity": (100, 10_000_000),
+        "telemetry_batch_size": (1, 100_000),
+        "telemetry_flush_interval_ms": (10, 60_000),
+        "telemetry_coalescing_interval_ms": (10, 300_000),
+        "writer_heartbeat_interval_ms": (100, 60_000),
+        "writer_failure_timeout_ms": (500, 300_000),
+        "checkpoint_wal_size_trigger_bytes": (1_048_576, 10_737_418_240),
+        "checkpoint_min_interval_s": (1, 86_400),
+        "retention_chunk_size": (1, 100_000),
+        "retention_time_budget_ms": (10, 60_000),
+        "reporting_queue_capacity": (1, 10_000),
+        "maintenance_queue_capacity": (1, 10_000),
         "writer_queue_max": (100, 1_000_000),
         "cex_writer_queue_max": (100, 1_000_000),
         "loop_lag_threshold_ms": (10, 60_000),
@@ -242,6 +273,12 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         raise RuntimeError("invalid Frequency V4 config field: loop_lag_safety_ms")
     if cfg.maintenance_max_rows_per_pass < cfg.maintenance_chunk_rows:
         raise RuntimeError("invalid Frequency V4 config field: maintenance_max_rows_per_pass")
+    if cfg.maintenance_max_rows_per_pass < cfg.retention_chunk_size:
+        raise RuntimeError("invalid Frequency V4 config field: retention_chunk_size")
+    if cfg.telemetry_queue_capacity < cfg.telemetry_batch_size:
+        raise RuntimeError("invalid Frequency V4 config field: telemetry queue/batch")
+    if cfg.critical_command_timeout_s * 1_000 <= cfg.sqlite_busy_timeout_ms:
+        raise RuntimeError("invalid Frequency V4 config field: critical command timeout")
     if cfg.max_book_pair_skew_ms > cfg.book_max_age_ms:
         raise RuntimeError("invalid Frequency V4 config field: max_book_pair_skew_ms")
     if cfg.reconnect_cap_ms < cfg.reconnect_base_ms:
@@ -269,6 +306,9 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "rest_timeout_s": (0.0, 60.0, True),
         "fee_buffer_usd": (0.0, 100.0, False),
         "shutdown_drain_timeout_s": (0.0, 60.0, True),
+        "critical_command_timeout_s": (0.0, 120.0, True),
+        "reporting_worker_timeout_s": (0.0, 600.0, True),
+        "maintenance_worker_timeout_s": (0.0, 600.0, True),
         "maintenance_max_seconds_per_pass": (0.0, 30.0, True),
     }
     for name, (minimum, maximum, strict_minimum) in numbers.items():

@@ -11,6 +11,7 @@ import asyncio
 from collections import deque
 from dataclasses import asdict, dataclass, field
 import hashlib
+from itertools import islice
 import json
 from pathlib import Path
 import time
@@ -39,18 +40,31 @@ from .events import EventDecision, EventDisposition, canonical_json
 from .execution import ExecutionRouter, RouterAction, RouterDecision, tier_for_edge
 from .export import EXPORT_FILENAME, write_frequency_v4_dashboard
 from .features import BookHistoryBuffer, CexFeatureBuffer, FeatureEvidence
+from .maintenance import (
+    MaintenancePolicy,
+    MaintenanceSnapshot,
+    run_bounded_maintenance_pass,
+)
 from .polymarket_ws import PolymarketMarketWS
 from .positions import evaluate_exit_vs_hold
+from .persistence import (
+    V4PersistenceCommand,
+    V4PersistenceError,
+    V4PersistenceQueueFull,
+    V4PersistenceTimeout,
+    V4PersistenceWriter,
+)
 from .resolver import corroborated_resolution
 from .rest import ClobPublicClient, GammaPublicClient, hydrate_market_books
-from .risk import assess_shadow_exposure, entry_idempotency_key
+from .risk import entry_idempotency_key
 from .runtime import V4RuntimeFiles, immutable_safety_state, now_ms
 from .store import (
     ExposureLimitExceeded,
-    V4ReadOnlyStore,
-    V4Store,
+    V4StoreError,
     WindowReservationConflict,
 )
+from .telemetry import V4TelemetryWriter
+from .workers import V4MaintenanceWorker, V4ReadWorker, V4RuntimeIOWorker
 
 
 # Cadence for the heavy, whole-database synchronous maintenance operations.
@@ -63,6 +77,7 @@ from .store import (
 # fix is to run them off-loop against a dedicated read-only connection.
 DASHBOARD_EXPORT_INTERVAL_MS = 15_000
 INTEGRITY_CHECK_INTERVAL_MS = 300_000
+INTEGRITY_MAX_AGE_MS = 600_000
 
 
 def _sha256_json(value: Any) -> str:
@@ -132,14 +147,18 @@ class MakerPersistence:
 class FrequencyV4Engine:
     """One process, one nonce, one isolated v4 store, and exact window owners."""
 
-    def __init__(self, cfg: FrequencyV4Config, runtime: V4RuntimeFiles,
-                 store: V4Store) -> None:
+    def __init__(
+        self, cfg: FrequencyV4Config, runtime: V4RuntimeFiles,
+    ) -> None:
         validate_frequency_v4_config(cfg)
         self.cfg = cfg
         self.runtime = runtime
-        self.store = store
         self.session_id = uuid.uuid4().hex
         self.config_hash = _sha256_json(asdict(cfg))
+        self._db_path_resolved = str(Path(cfg.db_path).resolve())
+        self._runtime_dir_resolved = str(Path(cfg.runtime_dir).resolve())
+        self._export_path_resolved = str(
+            (Path(cfg.export_dir) / EXPORT_FILENAME).resolve())
         self.gamma = GammaPublicClient(cfg.gamma_base_url, timeout_s=cfg.rest_timeout_s)
         self.clob = ClobPublicClient(cfg.clob_base_url, timeout_s=cfg.rest_timeout_s)
         self.discovery = GammaMarketDiscovery(self.gamma.get_markets, cfg)
@@ -198,7 +217,6 @@ class FrequencyV4Engine:
         # bounded single-flight workers against a dedicated read-only (reads) or
         # chunked (writes) path, so a multi-second scan can never stall the
         # WebSocket heartbeat/reconnect path.
-        self._readonly_store: Optional[V4ReadOnlyStore] = None
         self._export_inflight = False
         self._integrity_inflight = False
         self._maintenance_inflight = False
@@ -206,13 +224,16 @@ class FrequencyV4Engine:
         self._last_export_ok = True
         self._export_runs = 0
         self._last_integrity_duration_ms = 0.0
-        self._last_integrity_ok = True
+        # UNKNOWN is fail-closed until the first dedicated read-worker check.
+        self._last_integrity_ok: Optional[bool] = None
+        self._last_integrity_ts_ms = 0
         self._integrity_runs = 0
         self._last_maintenance_duration_ms = 0.0
         self._last_maintenance_rows = 0
         self._maintenance_runs = 0
         self._last_published_state: dict[str, Any] = {}
         self._shutdown_drain_timed_out = False
+        self._telemetry_shutdown_ok: Optional[bool] = None
         self._polymarket_queue_discarded = 0
         self._cex_queue_discarded = 0
         self._event_count_buffer: dict[
@@ -223,7 +244,6 @@ class FrequencyV4Engine:
         self._hydration_inflight: set[str] = set()
         self._source_event_ids: dict[str, int] = {}
         self._cex_observation_ids: dict[str, int] = {}
-        self._bucket_counted_events: dict[str, None] = {}
         self._last_raw_persist_ns: dict[str, int] = {}
         self._last_health_persist_ms: dict[str, int] = {}
         self._active_subscription_map: dict[str, str] = {}
@@ -233,6 +253,7 @@ class FrequencyV4Engine:
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._stopping = asyncio.Event()
         self._started = False
+        self._stop_complete = False
         self._last_error = ""
         self._ignored_durations: dict[str, int] = {}
         self._last_discovery_ms = 0
@@ -244,6 +265,38 @@ class FrequencyV4Engine:
         self._poly_connected = False
         self._okx_epoch = 0
         self._okx_connected = False
+        # Persistence/reporting/runtime I/O workers are started explicitly in
+        # ``start``.  Hot runtime-state publication reads only these in-memory
+        # snapshots; it never performs SQLite or filesystem I/O itself.
+        self.persistence: Any = None
+        self.telemetry: Any = None
+        # Operational lifecycle reads and heavyweight reporting have separate
+        # read-only connections/queues.  A full export or integrity scan must
+        # never strand position management behind a long FIFO report.
+        self.read_worker: Any = None
+        self.report_worker: Any = None
+        self.maintenance_worker: Any = None
+        self.runtime_io_worker: Any = None
+        self._open_positions_count = 0
+        self._entered_window_ids: set[int] = set()
+        self._open_position_windows: set[int] = set()
+        self._expected_window_keys: set[tuple[str, int]] = set()
+        self._position_cache: dict[int, dict[str, Any]] = {}
+        self._management_last_ts: dict[int, int] = {}
+        self._management_seq: dict[int, int] = {}
+        self._resolution_state: dict[int, tuple[int, int]] = {}
+        self._process_ownership_cache: dict[str, Any] = {
+            "process_ownership_valid": False,
+            "exact_v4_processes": 0,
+            "owned_v4_processes": 0,
+            "orphan_processes": 0,
+        }
+        self._database_size_cache = 0
+        self._wal_size_cache = 0
+        self._checkpoint_state: dict[str, Any] = {}
+        self._maintenance_result: dict[str, Any] = {}
+        self._critical_command_sequence = 0
+        self._critical_failure_reason = ""
         self.counters: dict[str, int] = {
             "raw_events": 0,
             "accepted_events": 0,
@@ -261,6 +314,7 @@ class FrequencyV4Engine:
             "cex_ingest_overflow": 0,
             "cex_ingest_admitted": 0,
             "cex_ingest_rejected": 0,
+            "telemetry_event_bucket_overflow": 0,
         }
 
     @property
@@ -268,19 +322,61 @@ class FrequencyV4Engine:
         return Path(self.cfg.export_dir) / EXPORT_FILENAME
 
     def _runtime_state(self, state: str = "RUNNING") -> dict[str, Any]:
-        open_positions = self.store.query_one(
-            "SELECT COUNT(*) AS n FROM positions WHERE status='OPEN'")
         active = [market for market in self.markets.values()
                   if market.identity.window_open_ms <= now_ms() < market.identity.window_close_ms]
-        ownership = self.runtime.process_ownership()
+        ownership = dict(self._process_ownership_cache)
+        critical = self._writer_health()
+        critical["engine_latched_failure_reason"] = (
+            self._critical_failure_reason or None
+        )
+        telemetry = (
+            self.telemetry.snapshot() if self.telemetry is not None else {
+                "health": "NOT_STARTED", "queue_depth": 0,
+                "queue_capacity": self.cfg.telemetry_queue_capacity,
+            }
+        )
+        critical_evidence_incomplete = (
+            int(critical.get("unconfirmed_command_count") or 0)
+            + int(critical.get("ambiguous_command_count") or 0)
+            + int(critical.get("timeout_count") or 0)
+        )
+        ingress_evidence_loss = (
+            int(self.counters.get("polymarket_ingest_overflow") or 0)
+            + int(self.counters.get("cex_ingest_overflow") or 0)
+            + int(self._polymarket_queue_discarded)
+            + int(self._cex_queue_discarded)
+        )
+        raw_telemetry_loss = (
+            int(telemetry.get("dropped") or 0)
+            + int(telemetry.get("failed_batches") or 0)
+            + int(self.counters.get("telemetry_event_bucket_overflow") or 0)
+            + ingress_evidence_loss
+        )
+        # Stable dashboard aliases keep the external contract independent of
+        # the worker implementation's internal counter names.
+        telemetry_view = {
+            **telemetry,
+            "state": telemetry.get("state", telemetry.get("health", "UNKNOWN")),
+            "rows_submitted": int(telemetry.get("submitted") or 0),
+            "rows_written": int(telemetry.get("written") or 0),
+            "rows_coalesced": int(telemetry.get("coalesced") or 0),
+            "rows_dropped": int(telemetry.get("dropped") or 0),
+            # Raw telemetry is intentionally lossy under pressure.  Complete
+            # trade/candidate evidence travels through the critical atomic
+            # bundle, so these two concepts must never be conflated.
+            "raw_telemetry_loss_count": raw_telemetry_loss,
+            "ingress_evidence_loss_count": ingress_evidence_loss,
+            "critical_evidence_incomplete_count": critical_evidence_incomplete,
+            "incomplete_evidence_count": critical_evidence_incomplete,
+        }
         return {
             **immutable_safety_state(),
             "session_id": self.session_id,
             "state": state,
             "config_hash": self.config_hash,
-            "db_path": str(Path(self.cfg.db_path).resolve()),
-            "runtime_dir": str(Path(self.cfg.runtime_dir).resolve()),
-            "export_path": str(self.export_path.resolve()),
+            "db_path": self._db_path_resolved,
+            "runtime_dir": self._runtime_dir_resolved,
+            "export_path": self._export_path_resolved,
             **ownership,
             "markets_discovered": len(self.markets),
             "active_markets": len(active),
@@ -314,17 +410,46 @@ class FrequencyV4Engine:
             "integrity_check_ms": round(self._last_integrity_duration_ms, 1),
             "integrity_check_runs": self._integrity_runs,
             "integrity_ok": self._last_integrity_ok,
+            "integrity_checked_ts_ms": self._last_integrity_ts_ms or None,
+            "integrity_max_age_ms": INTEGRITY_MAX_AGE_MS,
             "maintenance_ms": round(self._last_maintenance_duration_ms, 1),
             "maintenance_runs": self._maintenance_runs,
             "maintenance_rows_last": self._last_maintenance_rows,
+            "persistence": {
+                "critical": critical,
+                "telemetry": telemetry_view,
+                "operational_reads": (
+                    self.read_worker.health() if self.read_worker is not None
+                    else {"state": "NOT_STARTED"}
+                ),
+                "reporting": (
+                    self.report_worker.health() if self.report_worker is not None
+                    else {"state": "NOT_STARTED"}
+                ),
+                "maintenance": (
+                    self.maintenance_worker.health()
+                    if self.maintenance_worker is not None
+                    else {"state": "NOT_STARTED"}
+                ),
+                "runtime_io": (
+                    self.runtime_io_worker.health()
+                    if self.runtime_io_worker is not None
+                    else {"state": "NOT_STARTED"}
+                ),
+                "latest_checkpoint": dict(self._checkpoint_state),
+                "latest_maintenance": dict(self._maintenance_result),
+                "db_size_bytes": self._database_size_cache,
+                "wal_size_bytes": self._wal_size_cache,
+            },
             "buffered_event_counter_buckets": len(self._event_count_buffer),
             "shutdown_drain_timed_out": self._shutdown_drain_timed_out,
             "polymarket_ingest_queue_discarded": self._polymarket_queue_discarded,
             "cex_ingest_queue_discarded": self._cex_queue_discarded,
+            "telemetry_shutdown_ok": self._telemetry_shutdown_ok,
             "polymarket_ws": self.poly_ws.health(),
             "okx_ws": self.okx.health,
             "counters": dict(self.counters),
-            "open_positions": int((open_positions or {}).get("n") or 0),
+            "open_positions": int(self._open_positions_count),
             "last_error": self._last_error,
             "integrity": self._last_integrity,
         }
@@ -338,6 +463,36 @@ class FrequencyV4Engine:
         # observed enqueue-to-dequeue latency is the honest lower bound on how
         # long the front-of-queue item has already waited.
         return round(self._cex_ingest_latency_ms, 3)
+
+    async def _refresh_runtime_probe(self) -> None:
+        """Refresh ownership and file sizes on the dedicated runtime worker."""
+
+        if self.runtime_io_worker is None:
+            raise RuntimeError("runtime I/O worker is not started")
+        try:
+            ownership, db_size, wal_size = await self.runtime_io_worker.run_io(
+                lambda: (
+                    self.runtime.process_ownership(),
+                    Path(self.cfg.db_path).stat().st_size
+                    if Path(self.cfg.db_path).exists() else 0,
+                    Path(f"{self.cfg.db_path}-wal").stat().st_size
+                    if Path(f"{self.cfg.db_path}-wal").exists() else 0,
+                ),
+                timeout_s=10.0,
+                name="runtime_ownership_and_database_sizes",
+            )
+        except Exception:
+            self._process_ownership_cache = {
+                "process_ownership_valid": False,
+                "exact_v4_processes": 0,
+                "owned_v4_processes": 0,
+                "orphan_processes": 0,
+                "probe_failed": True,
+            }
+            raise
+        self._process_ownership_cache = dict(ownership)
+        self._database_size_cache = int(db_size)
+        self._wal_size_cache = int(wal_size)
 
     def _cex_data_health(self, current: int) -> str:
         """Freshness-aware CEX health that a bare socket flag cannot fake.
@@ -379,15 +534,125 @@ class FrequencyV4Engine:
             return "DEGRADED"
         return "FRESH"
 
-    def _record_session(self) -> None:
-        self.store.record_runtime_session({
+    def _writer_health(self) -> dict[str, Any]:
+        if self.persistence is None:
+            return {
+                "state": "NOT_STARTED",
+                "queue_depth": 0,
+                "queue_capacity": self.cfg.critical_queue_capacity,
+                "unconfirmed_command_count": 0,
+            }
+        health = getattr(self.persistence, "health", None)
+        if callable(health):
+            try:
+                result = health(stale_after_ms=self.cfg.writer_failure_timeout_ms)
+            except TypeError:
+                result = health()
+        else:
+            result = self.persistence.metrics()
+        result = dict(result)
+        if result.get("state") == "RUNNING":
+            result["state"] = "HEALTHY"
+        for prefix in ("commit", "queue", "ack"):
+            summary = result.get(f"{prefix}_latency_ms")
+            if isinstance(summary, dict):
+                for statistic in ("avg", "p50", "p95", "max"):
+                    result.setdefault(
+                        f"{prefix}_latency_{statistic}_ms",
+                        float(summary.get(statistic) or 0.0),
+                    )
+        result.setdefault(
+            "transactions_per_minute",
+            float(result.get("transaction_rate_per_min") or 0.0),
+        )
+        return result
+
+    def _next_critical_command_id(self, method: str) -> str:
+        self._critical_command_sequence += 1
+        return (
+            f"{self.session_id}:{self._critical_command_sequence:012d}:"
+            f"{str(method).replace('_', '-')[:80]}"
+        )
+
+    async def _critical_execute(
+        self, method: str, *args: Any,
+        ordering_key: str = "global",
+        idempotency_key: Optional[str] = None,
+        command_type: str = "STORE_CALL",
+        priority: int = 50,
+        terminal: bool = False,
+        associated_asset: Optional[str] = None,
+        associated_window_id: Optional[int] = None,
+        associated_trade_id: Optional[int] = None,
+        expected_store_errors: tuple[str, ...] = (),
+        **kwargs: Any,
+    ) -> Any:
+        """Await one durable commit without running SQLite on the event loop."""
+
+        if self.persistence is None:
+            self._critical_failure_reason = "critical_writer_not_started"
+            raise V4PersistenceError(self._critical_failure_reason)
+        command = V4PersistenceCommand(
+            command_id=self._next_critical_command_id(method),
+            method=method,
+            args=tuple(args),
+            kwargs=kwargs,
+            ordering_key=ordering_key,
+            command_type=command_type,
+            idempotency_key=idempotency_key,
+            priority=priority,
+            terminal=terminal,
+            associated_asset=associated_asset,
+            associated_window_id=associated_window_id,
+            associated_trade_id=associated_trade_id,
+        )
+        try:
+            result = await self.persistence.execute(
+                command, timeout_s=self.cfg.critical_command_timeout_s)
+            return result
+        except (V4PersistenceQueueFull, V4PersistenceTimeout) as exc:
+            self._critical_failure_reason = type(exc).__name__
+            self._last_error = (
+                f"critical_persistence:{type(exc).__name__}:{exc}"
+            )[:240]
+            raise
+        except (WindowReservationConflict, ExposureLimitExceeded) as exc:
+            # Deterministic business-invariant rejection is not a writer
+            # outage. The caller records the precise risk/economic reason.
+            self._last_error = (
+                f"critical_rejected:{type(exc).__name__}:{exc}"
+            )[:240]
+            raise
+        except V4StoreError as exc:
+            if str(exc) in expected_store_errors:
+                self._last_error = (
+                    f"critical_rejected:{type(exc).__name__}:{exc}"
+                )[:240]
+                raise
+            self._critical_failure_reason = type(exc).__name__
+            self._last_error = (
+                f"critical_persistence:{type(exc).__name__}:{exc}"
+            )[:240]
+            raise
+        except Exception as exc:
+            # Latch ambiguous/unexpected acknowledgement failures until a
+            # process restart reconciles the durable journal. A later unrelated
+            # success must never make an unknown commit executable again.
+            self._critical_failure_reason = type(exc).__name__
+            self._last_error = (
+                f"critical_persistence:{type(exc).__name__}:{exc}"
+            )[:240]
+            raise
+
+    async def _record_session(self) -> None:
+        await self._critical_execute("record_runtime_session", {
             "session_id": self.session_id,
             "launch_nonce": self.runtime.launch_nonce,
             "pid": self.runtime.pid,
             "git_commit": self.runtime.commit,
             "config_hash": self.config_hash,
             "started_ts_ms": self.runtime.started_ts_ms,
-        })
+        }, idempotency_key=f"session-start:{self.session_id}")
 
     def _stream_key(self, event: SourceEvent | CexObservation) -> str:
         if isinstance(event, CexObservation):
@@ -400,7 +665,6 @@ class FrequencyV4Engine:
         *, classification: Optional[str] = None,
     ) -> None:
         source = event.source if isinstance(event, SourceEvent) else event.provider
-        event_id = event.event_key if isinstance(event, SourceEvent) else event.event_id
         bucket_start = int(event.receipt_ts_ms) // 1_000 * 1_000
         disposition = str(classification or decision.disposition.value)
         key = (
@@ -408,21 +672,50 @@ class FrequencyV4Engine:
             str(getattr(event, "asset", "") or ""),
             str(getattr(event, "event_type", "unknown")), disposition,
         )
+        if (key not in self._event_count_buffer
+                and len(self._event_count_buffer) >= self.cfg.telemetry_queue_capacity):
+            self._event_count_buffer.pop(next(iter(self._event_count_buffer)))
+            self.counters["telemetry_event_bucket_overflow"] += 1
         counts = self._event_count_buffer.setdefault(key, [0, 0, 0, 0])
         counts[0] += 1
         counts[1] += int(not decision.duplicate)
         counts[2] += int(decision.duplicate)
         counts[3] += int(not decision.accepted or classification is not None)
-        if classification is None:
-            self._bucket_counted_events[event_id] = None
-            if len(self._bucket_counted_events) > 50_000:
-                self._bucket_counted_events.pop(next(iter(self._bucket_counted_events)))
 
-    def _flush_event_counts(self) -> None:
+    def _telemetry_submit(
+        self, method: str, *args: Any, kwargs: Optional[dict[str, Any]] = None,
+        **policy: Any,
+    ) -> bool:
+        """Non-blocking admission to the lossy, observable telemetry lane."""
+
+        if self.telemetry is None:
+            self._last_error = "telemetry_not_started"
+            return False
+        disposition = self.telemetry.submit(
+            method, *args, kwargs=kwargs or {}, **policy)
+        return str(getattr(disposition, "value", disposition)) != "DROPPED"
+
+    def _update_window_funnel(
+        self, window_id: int, current: int, **changes: Any,
+    ) -> None:
+        self._telemetry_submit(
+            "update_window_funnel", int(window_id), int(current),
+            kwargs=changes,
+            state_key=("window-funnel", int(window_id), tuple(sorted(changes))),
+            state_value=changes,
+        )
+
+    def _flush_event_counts(self) -> bool:
         if not self._event_count_buffer:
-            return
-        buffered = self._event_count_buffer
-        self._event_count_buffer = {}
+            return True
+        # Bound hot-loop aggregation work even after a prolonged telemetry
+        # outage; remaining buckets stay queued for the next heartbeat.
+        limit = max(1, min(self.cfg.telemetry_batch_size, 1_024))
+        keys = list(islice(self._event_count_buffer, limit))
+        buffered = {
+            key: self._event_count_buffer.pop(key)
+            for key in keys
+        }
         rows = [
             {
                 "receipt_ts_ms": key[0],
@@ -439,13 +732,20 @@ class FrequencyV4Engine:
             for key, counts in buffered.items()
         ]
         try:
-            self.store.record_event_count_batch(rows)
-        except Exception:
+            if not self._telemetry_submit(
+                    "record_event_count_batch", rows,
+                    dedupe_key=("event-count-flush", _sha256_json(rows))):
+                raise RuntimeError("telemetry_event_count_admission_failed")
+            return True
+        except Exception as exc:
             for key, counts in buffered.items():
                 target = self._event_count_buffer.setdefault(key, [0, 0, 0, 0])
                 for index, count in enumerate(counts):
                     target[index] += count
-            raise
+            self._last_error = (
+                f"telemetry_event_count_flush:{type(exc).__name__}:{exc}"
+            )[:240]
+            return False
 
     def _should_persist_raw(self, event: SourceEvent | CexObservation,
                             decision: EventDecision) -> bool:
@@ -460,13 +760,35 @@ class FrequencyV4Engine:
 
     def _persist_source_event(self, event: SourceEvent | CexObservation,
                               decision: EventDecision, *, force: bool = False) -> int:
+        """Queue non-critical raw evidence; critical bundles persist exact rows.
+
+        Returning zero is intentional: lossy telemetry IDs may never be used as
+        authoritative trade evidence.  A material evaluation supplies the full
+        source row to the acknowledged critical bundle and receives committed
+        IDs from that transaction.
+        """
         event_id = (event.event_key if isinstance(event, SourceEvent) else event.event_id)
-        existing = self._source_event_ids.get(event_id)
-        if existing is not None:
-            return existing
         if not force and not self._should_persist_raw(event, decision):
-            self._buffer_event_count(event, decision)
             return 0
+        wrapper = self._source_event_wrapper(event, decision)
+        row = wrapper["value"]
+        kwargs = wrapper["kwargs"]
+        # Raw/unique/duplicate bucket admission is already known from the
+        # transport EventDecision and buffered separately.  This row is only
+        # retained raw evidence; SQLite write ordering must not reclassify it.
+        kwargs["count_in_bucket"] = False
+        kwargs["admitted_at_receipt"] = bool(decision.accepted)
+        kwargs["reference_only"] = True
+        admitted = self._telemetry_submit(
+            "record_source_event", row,
+            kwargs=kwargs,
+            dedupe_key=("source-event", self.session_id, event_id),
+        )
+        return 0
+
+    def _source_event_wrapper(
+        self, event: SourceEvent | CexObservation, decision: EventDecision,
+    ) -> dict[str, Any]:
         if isinstance(event, SourceEvent):
             row = event.to_dict()
             row["channel"] = self._stream_key(event)
@@ -501,19 +823,17 @@ class FrequencyV4Engine:
                 "classification": decision.disposition.value,
                 "invalid_reason": decision.reason or None,
             }
-        was_bucket_counted = event_id in self._bucket_counted_events
-        result = self.store.record_source_event(
-            row, session_id=self.session_id, now_ms=event.receipt_ts_ms,
-            future_tolerance_ms=0, sequence_contiguous=False,
-            count_in_bucket=not was_bucket_counted,
-            admitted_at_receipt=bool(was_bucket_counted and decision.accepted),
-        )
-        source_id = int(result["source_event_id"])
-        self._bucket_counted_events.pop(event_id, None)
-        self._source_event_ids[event_id] = source_id
-        if len(self._source_event_ids) > 50_000:
-            self._source_event_ids.pop(next(iter(self._source_event_ids)))
-        return source_id
+        return {
+            "value": row,
+            "kwargs": {
+                "session_id": self.session_id,
+                "now_ms": event.receipt_ts_ms,
+                "future_tolerance_ms": 0,
+                "sequence_contiguous": False,
+                "count_in_bucket": False,
+                "admitted_at_receipt": bool(decision.accepted),
+            },
+        }
 
     def _market_identity_for_token(self, token_id: str) -> Optional[int]:
         key = self.token_to_window.get(str(token_id))
@@ -522,9 +842,6 @@ class FrequencyV4Engine:
 
     def _persist_cex_observation(self, observation: CexObservation,
                                  decision: EventDecision, *, force: bool = False) -> int:
-        existing = self._cex_observation_ids.get(observation.event_id)
-        if existing is not None:
-            return existing
         source_id = self._persist_source_event(observation, decision, force=force)
         row = observation.to_dict()
         row.update({
@@ -532,12 +849,13 @@ class FrequencyV4Engine:
             "fresh": int(decision.accepted),
             "invalid_reason": None if decision.accepted else decision.reason,
         })
-        result = self.store.record_cex_observation(row, session_id=self.session_id)
-        observation_id = int(result["cex_observation_id"])
-        self._cex_observation_ids[observation.event_id] = observation_id
-        if len(self._cex_observation_ids) > 50_000:
-            self._cex_observation_ids.pop(next(iter(self._cex_observation_ids)))
-        return observation_id
+        self._telemetry_submit(
+            "record_cex_observation", row,
+            kwargs={"session_id": self.session_id},
+            dedupe_key=("cex-observation", self.session_id,
+                        observation.event_id),
+        )
+        return 0
 
     async def _on_source_health(self, health: dict[str, Any]) -> None:
         """In-memory reconnect-safety only; persistence runs off the callback.
@@ -598,7 +916,7 @@ class FrequencyV4Engine:
             )
         else:
             hydration_ok = bool(desired > 0 and hydrated >= desired)
-        self.store.record_source_health({
+        row = {
             "session_id": self.session_id,
             "source": source,
             "channel": "market" if source == "polymarket" else "public",
@@ -620,7 +938,22 @@ class FrequencyV4Engine:
             "regressed_count": int(counts.get("REJECT_TIMESTAMP_REGRESSION") or 0),
             "rest_recovery_status": self._last_rest_status,
             "last_error": str(health.get("last_error") or "")[:240] or None,
-        })
+        }
+        self._telemetry_submit(
+            "record_source_health", row,
+            state_key=("source-health", source),
+            state_value={
+                "status": row["status"], "connected": row["connected"],
+                "hydrated": row["hydrated"],
+                "reconnect_count": row["reconnect_count"],
+                "last_error": row["last_error"],
+                "freshness_band": (
+                    "STALE" if row["freshness_ms"] is None
+                    or int(row["freshness_ms"]) > self.cfg.cex_max_age_ms
+                    else "FRESH"
+                ),
+            },
+        )
 
     async def _on_cex_hydration(self, _asset: str,
                                 _decision: Optional[EventDecision]) -> None:
@@ -675,6 +1008,7 @@ class FrequencyV4Engine:
 
     async def _process_cex_observation(self, observation: CexObservation,
                                        decision: EventDecision) -> None:
+        self._buffer_event_count(observation, decision)
         self._persist_cex_observation(observation, decision, force=False)
         self.counters["cex_ingest_admitted"] += 1
         if observation.connection_epoch < self._okx_epoch:
@@ -758,6 +1092,7 @@ class FrequencyV4Engine:
 
     async def _process_polymarket_event(self, event: SourceEvent,
                                         decision: EventDecision) -> None:
+        self._buffer_event_count(event, decision)
         self._persist_source_event(event, decision, force=False)
         key = self.token_to_window.get(event.token_id)
         state = self.markets.get(key or "")
@@ -900,7 +1235,10 @@ class FrequencyV4Engine:
         for asset in self.cfg.required_assets:
             for offset in (0, 1):
                 opening = window_open_ms(current, offset_windows=offset)
-                self.store.ensure_asset_window({
+                expected_key = (asset, opening)
+                if expected_key in self._expected_window_keys:
+                    continue
+                await self._critical_execute("ensure_asset_window", {
                     "asset": asset,
                     "window_open_ts_ms": opening,
                     "window_close_ts_ms": opening + 300_000,
@@ -908,10 +1246,16 @@ class FrequencyV4Engine:
                     "lifecycle_status": "DISCOVERING",
                     "created_ts_ms": current,
                     "updated_ts_ms": current,
-                })
+                }, ordering_key=f"{asset}:{opening}",
+                    idempotency_key=(
+                        f"expected-window:{self.session_id}:{asset}:{opening}"
+                    ),
+                    command_type="MARKET_DISCOVERY",
+                    associated_asset=asset)
+                self._expected_window_keys.add(expected_key)
         discovered: list[MarketState] = []
         for identity in batch.eligible_markets:
-            state = self._persist_market(identity, current)
+            state = await self._persist_market(identity, current)
             discovered.append(state)
         for rejected in batch.rejected:
             reason = str(rejected.reason)
@@ -953,7 +1297,9 @@ class FrequencyV4Engine:
             except asyncio.TimeoutError:
                 pass
 
-    def _persist_market(self, identity: MarketIdentity, current: int) -> MarketState:
+    async def _persist_market(
+        self, identity: MarketIdentity, current: int,
+    ) -> MarketState:
         existing_state = self.markets.get(identity.window_key)
         if existing_state is not None:
             prior = existing_state.identity
@@ -966,30 +1312,23 @@ class FrequencyV4Engine:
                     prior.slug != identity.slug)):
                 self._reject(existing_state, "DISCOVERY", "duplicate_market_identity")
                 return existing_state
-        db_market = self.store.upsert_market({
-            "polymarket_market_id": identity.market_id,
-            "asset": identity.asset,
-            "slug": identity.slug,
-            "question": identity.slug,
-            "duration_ms": identity.duration_ms,
-            "open_ts_ms": identity.window_open_ms,
-            "close_ts_ms": identity.window_close_ms,
-            "status": "ACTIVE" if identity.active else "INACTIVE",
-            "accepting_orders": int(identity.accepting_orders),
-            "first_seen_ts_ms": current,
-            "last_seen_ts_ms": current,
-        })
-        found_identity = self.store.query_one(
-            """SELECT market_identity_id FROM market_identities
-               WHERE market_id=? AND event_id=? AND condition_id=?
-               AND yes_token_id=? AND no_token_id=?""",
-            (db_market, identity.event_id, identity.condition_id,
-             identity.yes_token_id, identity.no_token_id),
-        )
-        created_identity = found_identity is None
-        if found_identity is None:
-            market_identity_id = self.store.record_market_identity({
-                "market_id": db_market,
+        lifecycle = "ACTIVE" if identity.window_open_ms <= current else "UPCOMING"
+        persisted = await self._critical_execute(
+            "persist_market_bundle", {
+            "market": {
+                "polymarket_market_id": identity.market_id,
+                "asset": identity.asset,
+                "slug": identity.slug,
+                "question": identity.slug,
+                "duration_ms": identity.duration_ms,
+                "open_ts_ms": identity.window_open_ms,
+                "close_ts_ms": identity.window_close_ms,
+                "status": "ACTIVE" if identity.active else "INACTIVE",
+                "accepting_orders": int(identity.accepting_orders),
+                "first_seen_ts_ms": current,
+                "last_seen_ts_ms": current,
+            },
+            "identity": {
                 "event_id": identity.event_id,
                 "condition_id": identity.condition_id,
                 "yes_token_id": identity.yes_token_id,
@@ -999,36 +1338,23 @@ class FrequencyV4Engine:
                 "ambiguous": 0,
                 "verification_reason": "exact_five_minute_identity_verified",
                 "verified_ts_ms": current,
-            })
-        else:
-            market_identity_id = int(found_identity["market_identity_id"])
-        lifecycle = "ACTIVE" if identity.window_open_ms <= current else "UPCOMING"
-        window_id = self.store.ensure_asset_window({
-            "asset": identity.asset,
-            "window_open_ts_ms": identity.window_open_ms,
-            "window_close_ts_ms": identity.window_close_ms,
-            "expected": 1,
-            "lifecycle_status": lifecycle,
-            "created_ts_ms": current,
-            "updated_ts_ms": current,
-        })
-        linked = self.store.query_one(
-            """SELECT 1 AS present FROM window_market_links
-               WHERE window_id=? AND market_identity_id=?""",
-            (window_id, market_identity_id),
-        )
-        if linked is None:
-            self.store.link_window_market({
-                "window_id": window_id,
-                "market_identity_id": market_identity_id,
+            },
+            "window": {
+                "asset": identity.asset,
+                "window_open_ts_ms": identity.window_open_ms,
+                "window_close_ts_ms": identity.window_close_ms,
+                "expected": 1,
+                "lifecycle_status": lifecycle,
+                "created_ts_ms": current,
+                "updated_ts_ms": current,
+            },
+            "link": {
                 "eligibility_status": "ELIGIBLE",
                 "reject_reason": None,
                 "selected": 1,
                 "linked_ts_ms": current,
-            })
-        if created_identity:
-            self.store.record_anchor_observation({
-                "market_identity_id": market_identity_id,
+            },
+            "anchor": ({
                 "status": _anchor_db(identity.anchor_status),
                 "price_to_beat": identity.price_to_beat,
                 "source_field": "priceToBeat" if identity.anchored else None,
@@ -1037,12 +1363,31 @@ class FrequencyV4Engine:
                 ),
                 "provider_ts_ms": None,
                 "receipt_ts_ms": current,
-            })
-        self.store.update_window_funnel(
-            window_id, current, available=1, eligible=1,
-            available_ts_ms=current, eligible_ts_ms=current,
-            final_blocker=None, no_book_reason=None, data_invalid_reason=None,
+            } if existing_state is None else None),
+            "funnel": {
+                "now_ms": current,
+                "changes": {
+                    "available": 1,
+                    "eligible": 1,
+                    "available_ts_ms": current,
+                    "eligible_ts_ms": current,
+                    "final_blocker": None,
+                    "no_book_reason": None,
+                    "data_invalid_reason": None,
+                },
+            },
+            },
+            ordering_key=identity.window_key,
+            idempotency_key=(
+                f"market-bundle:{identity.window_key}:"
+                f"{identity.condition_id}:{current}"
+            ),
+            command_type="MARKET_DISCOVERY",
+            associated_asset=identity.asset,
         )
+        db_market = int(persisted["market_id"])
+        market_identity_id = int(persisted["market_identity_id"])
+        window_id = int(persisted["window_id"])
         if existing_state is None:
             state = MarketState(identity, window_id, db_market, market_identity_id)
             self.markets[identity.window_key] = state
@@ -1156,6 +1501,23 @@ class FrequencyV4Engine:
 
     def _persist_book(self, state: MarketState, side: str, book: BookState,
                       source_event_id: Optional[int]) -> int:
+        row = self._book_row(state, side, book, source_event_id)
+        self._telemetry_submit(
+            "record_book_snapshot", row,
+            state_key=("book", state.market_identity_id, book.token_id),
+            state_value={
+                "state_hash": row["state_hash"],
+                "hydrated": row["hydrated"], "stale": row["stale"],
+                "invalid_reason": row["invalid_reason"],
+            },
+        )
+        # Telemetry IDs are deliberately not exposed to executable state.  The
+        # acknowledged evaluation bundle re-inserts/idempotently resolves the
+        # exact snapshot and returns its committed identifier.
+        return 0
+
+    def _book_row(self, state: MarketState, side: str, book: BookState,
+                  source_event_id: Optional[int]) -> dict[str, Any]:
         bids = self._compact_levels(book.bids)
         asks = self._compact_levels(book.asks)
         state_hash = _sha256_json({
@@ -1163,16 +1525,7 @@ class FrequencyV4Engine:
             "provider": book.provider_ts_ms, "epoch": book.connection_epoch,
             "bids": bids, "asks": asks,
         })
-        found = self.store.query_one(
-            """SELECT book_snapshot_id FROM book_snapshots
-               WHERE market_identity_id=? AND token_id=? AND state_hash=?
-               AND receipt_ts_ms=?""",
-            (state.market_identity_id, book.token_id, state_hash, book.receipt_ts_ms),
-        )
-        if found is not None:
-            snapshot_id = int(found["book_snapshot_id"])
-        else:
-            snapshot_id = self.store.record_book_snapshot({
+        return {
                 "source_event_id": source_event_id,
                 "market_identity_id": state.market_identity_id,
                 "token_id": book.token_id,
@@ -1192,9 +1545,7 @@ class FrequencyV4Engine:
                 "hydrated": int(book.hydrated),
                 "stale": int(book.age_ms(now_ms()) > self.cfg.book_max_age_ms),
                 "invalid_reason": None,
-            })
-        state.book_snapshot_ids[side] = snapshot_id
-        return snapshot_id
+            }
 
     def _reject(self, state: Optional[MarketState], taxonomy: str, reason: str,
                 *, recoverable: bool = False, retry_count: int = 0,
@@ -1219,18 +1570,42 @@ class FrequencyV4Engine:
             state.last_reject_ts_ms = current
             state.last_no_book_reason = f"{taxonomy}:{reason}"
         try:
-            return self.store.record_reject({
+            # SCHEDULER is an in-memory subsystem label, not a persisted V1
+            # taxonomy.  Persist it truthfully under DATA_INVALID with the
+            # original label retained in detail rather than violating CHECK.
+            persisted_taxonomy = (
+                taxonomy if taxonomy in {
+                    "DISCOVERY", "NO_BOOK", "DATA_INVALID", "ECONOMIC",
+                    "EXECUTION", "RISK", "RESOLUTION",
+                } else "DATA_INVALID"
+            )
+            row = {
                 "session_id": self.session_id,
                 "window_id": state.window_id if state else None,
                 "candidate_id": candidate_id,
                 "source_event_id": source_event_id,
                 "reject_ts_ms": current,
-                "taxonomy": taxonomy,
+                "taxonomy": persisted_taxonomy,
                 "reason": str(reason),
                 "recoverable": int(recoverable),
                 "retry_count": int(retry_count),
-                "detail_json": detail or {},
-            })
+                "detail_json": {
+                    **(detail or {}),
+                    **({"subsystem_taxonomy": taxonomy}
+                       if persisted_taxonomy != taxonomy else {}),
+                },
+            }
+            admitted = self._telemetry_submit(
+                "record_reject", row,
+                state_key=("reject", state.window_id if state else 0,
+                           persisted_taxonomy, str(reason)),
+                state_value={
+                    "recoverable": bool(recoverable),
+                    "retry_count": int(retry_count),
+                    "candidate_id": candidate_id,
+                },
+            )
+            return int(admitted)
         except Exception as exc:  # noqa: BLE001 - reject telemetry must never crash the engine
             # A transient persistence failure while recording a reject is
             # itself only telemetry; it must never propagate out of a caller's
@@ -1288,11 +1663,6 @@ class FrequencyV4Engine:
         self.counters["evaluations"] += 1
         state.evaluation_seq += 1
 
-        trigger_source_id = 0
-        if trigger.event is not None and trigger.decision is not None:
-            trigger_source_id = self._persist_source_event(
-                trigger.event, trigger.decision, force=True)
-
         feature_evidence = self.cex_features.build(
             identity.asset, now_ms=current,
             window_open_ms=identity.window_open_ms,
@@ -1304,22 +1674,15 @@ class FrequencyV4Engine:
             max_age_ms=self.cfg.book_max_age_ms,
             max_pair_skew_ms=self.cfg.max_book_pair_skew_ms,
         )
-        book_trigger_id = trigger_source_id if isinstance(trigger.event, SourceEvent) else None
-        yes_snapshot = (
-            self._persist_book(state, "YES", yes_book, book_trigger_id)
-            if yes_book is not None else None
-        )
-        no_snapshot = (
-            self._persist_book(state, "NO", no_book, book_trigger_id)
-            if no_book is not None else None
-        )
+        yes_snapshot: Optional[int] = None
+        no_snapshot: Optional[int] = None
         if not pair.valid:
-            self.store.update_window_funnel(
+            self._update_window_funnel(
                 state.window_id, current, final_blocker=pair.reason.value,
                 no_book_reason=pair.reason.value,
             )
             self._reject(state, "NO_BOOK", pair.reason.value, recoverable=True,
-                         source_event_id=trigger_source_id or None)
+                         source_event_id=None)
             if pair.reason in {
                     NoBookReason.YES_BOOK_MISSING, NoBookReason.NO_BOOK_MISSING,
                     NoBookReason.BOTH_BOOKS_MISSING, NoBookReason.STALE_SNAPSHOT,
@@ -1362,13 +1725,13 @@ class FrequencyV4Engine:
             # Fail closed: a degraded event loop or failed integrity scan means
             # evidence and time-sensitive routing cannot be trusted.
             hard_failure = blocked
-            self.store.update_window_funnel(
+            self._update_window_funnel(
                 state.window_id, current, final_blocker=hard_failure,
                 data_invalid_reason=hard_failure,
             )
         elif not self._okx_connected:
             hard_failure = "all_fresh_cex_sources_unavailable"
-            self.store.update_window_funnel(
+            self._update_window_funnel(
                 state.window_id, current, final_blocker=hard_failure,
                 data_invalid_reason=hard_failure,
             )
@@ -1377,17 +1740,14 @@ class FrequencyV4Engine:
                 feature_evidence.features.invalidation_reason
                 or "all_fresh_cex_sources_unavailable"
             )
-            self.store.update_window_funnel(
+            self._update_window_funnel(
                 state.window_id, current, final_blocker=hard_failure,
                 data_invalid_reason=hard_failure,
             )
         elif not pair.valid:
             hard_failure = pair.reason.value
 
-        existing_entry = self.store.query_one(
-            "SELECT entry_id FROM entries WHERE window_id=?", (state.window_id,)
-        )
-        if existing_entry is not None:
+        if state.window_id in self._entered_window_ids:
             router_decision = RouterDecision(
                 RouterAction.NO_ACTION, "window_entry_already_exists",
                 tier_for_edge(calculation.result.selected_net_edge, self.cfg),
@@ -1429,32 +1789,56 @@ class FrequencyV4Engine:
             router_decision.tier, _outcome(router_decision.side) or "NONE",
             edge_bucket, ensemble.regime,
             feature_evidence.features.classification, pair.reason.value,
+            str(bool(decision_state.price_touched) if (
+                (decision_state := router_decision.state) is not None
+            ) else False),
         ))
-        has_open_position = self.store.query_one(
-            """SELECT 1 AS present FROM positions p JOIN entries e USING(entry_id)
-               WHERE p.status='OPEN' AND e.window_id=? LIMIT 1""",
-            (state.window_id,),
-        ) is not None
-        important = bool(
-            router_decision.action is not RouterAction.NO_ACTION
-            or self.router.active(identity) is not None
-            or fingerprint != state.last_candidate_fingerprint
+        has_open_position = state.window_id in self._open_position_windows
+        open_position_id = next(
+            (position_id for position_id, row in self._position_cache.items()
+             if int(row.get("window_id") or -1) == state.window_id
+             and row.get("status") == "OPEN"),
+            None,
         )
-        periodic_ms = 1_000 if (edge is not None and edge > 0.0) or has_open_position else 5_000
-        if (not important
-                and current - state.last_candidate_persist_ts_ms < periodic_ms):
+        management_due = bool(
+            has_open_position
+            and open_position_id is not None
+            and current - self._management_last_ts.get(open_position_id, 0) >= 1_000
+        )
+        important = bool(
+            fingerprint != state.last_candidate_fingerprint
+            or router_decision.action in {
+                RouterAction.START_OBSERVATION,
+                RouterAction.CROSS_SPREAD,
+                RouterAction.SKIP,
+                RouterAction.SAFETY_FAIL,
+            }
+            or management_due
+        )
+        if not important:
             return
-        state.last_candidate_fingerprint = fingerprint
-        state.last_candidate_persist_ts_ms = current
 
-        candidate_id, fair_id, decision_id = self._persist_evaluation(
-            state=state, trigger_source_id=trigger_source_id,
+        persisted = await self._persist_evaluation(
+            state=state, trigger=trigger,
             feature_evidence=feature_evidence, ensemble=ensemble,
             calculation=calculation, router_decision=router_decision,
-            yes_snapshot=yes_snapshot, no_snapshot=no_snapshot,
             now_ms_value=current,
             monotonic_ns_value=trigger.receipt_monotonic_ns or time.monotonic_ns(),
         )
+        # Suppression state advances only after the complete evidence graph is
+        # durably committed.  A failed/unknown acknowledgement remains
+        # fail-closed and a process restart may safely reconstruct from SQLite.
+        state.last_candidate_fingerprint = fingerprint
+        state.last_candidate_persist_ts_ms = current
+        candidate_id = int(persisted["candidate_id"])
+        fair_id = int(persisted["fair_value_calculation_id"])
+        decision_id = int(persisted["decision_id"])
+        book_ids = list(persisted.get("book_snapshot_ids") or ())
+        book_sides = [side for side, book in (("YES", yes_book), ("NO", no_book))
+                      if book is not None]
+        snapshots = dict(zip(book_sides, book_ids))
+        yes_snapshot = snapshots.get("YES")
+        no_snapshot = snapshots.get("NO")
         state.last_candidate_id = candidate_id
         state.last_fair_value_id = fair_id
         state.last_decision_id = decision_id
@@ -1465,96 +1849,77 @@ class FrequencyV4Engine:
         )
         if positive:
             self.counters["positive_edge_evaluations"] += 1
-            self.store.update_window_funnel(
-                state.window_id, current, positive_edge=1,
-                first_positive_edge_ts_ms=current,
-            )
         await self._advance_execution(
             state, ensemble, calculation, router_decision,
             candidate_id, fair_id, decision_id,
             yes_snapshot, no_snapshot, current,
             trigger.receipt_monotonic_ns or time.monotonic_ns(),
-            trigger_source_id,
+            int(persisted.get("source_event_id") or 0),
         )
         if not hard_failure:
             await self._manage_open_position(
                 state, calculation, fair_id, yes_snapshot, no_snapshot, current)
 
-        completed = now_ms()
-        latency_ms = max(0.0, (time.monotonic_ns() - trigger.receipt_monotonic_ns) / 1_000_000)
-        if trigger.receipt_monotonic_ns:
-            self.store.record_latency({
-                "session_id": self.session_id,
-                "window_id": state.window_id,
-                "candidate_id": candidate_id,
-                "source_event_id": trigger_source_id or None,
-                "measured_ts_ms": completed,
-                "stage": "EVENT_TO_DECISION",
-                "provider_ts_ms": getattr(trigger.event, "provider_ts_ms", None),
-                "receipt_ts_ms": trigger.receipt_ts_ms,
-                "completed_ts_ms": completed,
-                "latency_ms": latency_ms,
-                "within_target": int(latency_ms < 1_000.0),
-            })
-
-    def _persist_evaluation(
-        self, *, state: MarketState, trigger_source_id: int,
+    async def _persist_evaluation(
+        self, *, state: MarketState, trigger: EvaluationTrigger,
         feature_evidence: FeatureEvidence, ensemble: EnsembleResult,
         calculation: EconomicCalculation, router_decision: RouterDecision,
-        yes_snapshot: Optional[int], no_snapshot: Optional[int],
         now_ms_value: int, monotonic_ns_value: int,
-    ) -> tuple[int, int, int]:
+    ) -> dict[str, Any]:
         fair = calculation.result
         selected = _outcome(fair.selected_side)
         dominant = max(
             ensemble.outputs, key=lambda row: abs(row.contribution), default=None)
-        candidate_id = self.store.record_candidate({
-            "session_id": self.session_id,
-            "window_id": state.window_id,
-            "market_identity_id": state.market_identity_id,
-            "trigger_source_event_id": trigger_source_id or None,
-            "evaluation_ts_ms": now_ms_value,
-            "monotonic_ns": monotonic_ns_value,
-            "evaluation_seq": state.evaluation_seq,
-            "status": router_decision.action.value,
-            "regime": ensemble.regime,
-            "selected_side": selected,
-            "fair_probability_yes": fair.fair_probability_yes,
-            "fair_probability_no": fair.fair_probability_no,
-            "calibrated": int(not ensemble.model_uncalibrated),
-            "reliability": ensemble.reliability,
-            "positive_edge": int(
-                fair.selected_net_edge is not None and fair.selected_net_edge > 0.0),
-            "dominant_model": dominant.model_name if dominant else None,
-            "invalidation_reason": router_decision.reason
-            if router_decision.action in {RouterAction.NO_ACTION, RouterAction.SAFETY_FAIL}
-            else None,
-        })
-        if yes_snapshot is not None and state.books.get("YES") is not None:
-            self.store.link_candidate_book(
-                candidate_id, "YES", yes_snapshot,
-                max(0, state.books["YES"].age_ms(now_ms_value)))
-        if no_snapshot is not None and state.books.get("NO") is not None:
-            self.store.link_candidate_book(
-                candidate_id, "NO", no_snapshot,
-                max(0, state.books["NO"].age_ms(now_ms_value)))
+        source_wrapper = (
+            self._source_event_wrapper(trigger.event, trigger.decision)
+            if trigger.event is not None and trigger.decision is not None
+            else None
+        )
+        books: list[dict[str, Any]] = []
+        book_indices: dict[str, int] = {}
+        for side in ("YES", "NO"):
+            book = state.books.get(side)
+            if book is None:
+                continue
+            book_indices[side] = len(books)
+            book_row = self._book_row(state, side, book, None)
+            book_row.pop("source_event_id", None)
+            books.append({
+                "value": book_row,
+                "side": side,
+                "evidence_age_ms": max(0, book.age_ms(now_ms_value)),
+            })
+
+        cex_rows: list[dict[str, Any]] = []
         for observation in feature_evidence.observations:
             synthetic = EventDecision(
                 EventDisposition.ACCEPT_NO_NEW_TICK if observation.unchanged
                 else EventDisposition.ACCEPT_NEW,
                 observation, observation.classification,
             )
-            observation_id = self._persist_cex_observation(
-                observation, synthetic, force=True)
-            self.store.link_candidate_cex(
-                candidate_id, observation_id, "POINT_IN_TIME_FEATURE", 0,
-                max(0, now_ms_value - observation.provider_ts_ms),
-            )
+            observation_row = observation.to_dict()
+            observation_row.update({
+                "fresh": int(synthetic.accepted),
+                "invalid_reason": None if synthetic.accepted else synthetic.reason,
+            })
+            cex_rows.append({
+                "value": observation_row,
+                "kwargs": {
+                    "session_id": self.session_id,
+                    "already_validated_at_receipt": True,
+                },
+                "source_event": self._source_event_wrapper(observation, synthetic),
+                "role": "POINT_IN_TIME_FEATURE",
+                "horizon_ms": 0,
+                "evidence_age_ms": max(
+                    0, now_ms_value - observation.provider_ts_ms),
+            })
+
+        models: list[dict[str, Any]] = []
         for output in ensemble.outputs:
             regime_weight = min(
                 1.0, abs(output.contribution) / max(abs(output.raw_score), 1e-12))
-            self.store.record_model_contribution({
-                "candidate_id": candidate_id,
+            models.append({
                 "model_name": output.model_name,
                 "model_version": self.ensemble.MODEL_VERSION,
                 "correlation_group": output.correlation_group or output.family,
@@ -1576,60 +1941,143 @@ class FrequencyV4Engine:
                 RouterAction.CROSS_SPREAD, RouterAction.SKIP, RouterAction.SAFETY_FAIL}
             else calculation.result.phase
         )
-        fair_id = self.store.record_fair_value({
-            "candidate_id": candidate_id,
-            "phase": phase,
-            "calculation_seq": 0,
-            "calculated_ts_ms": now_ms_value,
-            "monotonic_ns": monotonic_ns_value,
-            "regime": ensemble.regime,
-            "fair_probability_yes": fair.fair_probability_yes,
-            "fair_probability_no": fair.fair_probability_no,
-            "calibrated": int(not ensemble.model_uncalibrated),
-            "calibration_label": (
-                "FORWARD_CALIBRATED" if not ensemble.model_uncalibrated
-                else "UNCALIBRATED_FORWARD_CANDIDATE"
-            ),
-        }, [
-            self._fair_side_row(
-                fair.yes, "YES", state.identity.yes_token_id,
-                yes_snapshot, fair.selected_side is EntrySide.BUY_YES,
-                now_ms_value,
-            ),
-            self._fair_side_row(
-                fair.no, "NO", state.identity.no_token_id,
-                no_snapshot, fair.selected_side is EntrySide.BUY_NO,
-                now_ms_value,
-            ),
-        ])
         selected_side = (
             fair.yes if fair.selected_side is EntrySide.BUY_YES
             else fair.no if fair.selected_side is EntrySide.BUY_NO else None)
         economic = bool(selected_side and selected_side.net_edge is not None
                         and selected_side.net_edge > 0.0)
-        decision_id = self.store.record_decision({
-            "candidate_id": candidate_id,
-            "fair_value_calculation_id": fair_id,
-            "decision_seq": 0,
-            "decision_ts_ms": now_ms_value,
-            "monotonic_ns": monotonic_ns_value,
-            "phase": phase,
-            "action": router_decision.action.value,
-            "selected_side": selected,
-            "selected_net_edge": fair.selected_net_edge,
-            "economic_gate_passed": int(economic),
-            "exact_depth_passed": int(bool(
-                selected_side and selected_side.valid
-                and selected_side.depth_shares >= self.cfg.fixed_shares)),
-            "evidence_fresh": int(bool(
-                selected_side and selected_side.valid
-                and selected_side.evidence_age_ms <= self.cfg.book_max_age_ms
-                and feature_evidence.features.valid)),
-            "safety_failure": int(router_decision.action is RouterAction.SAFETY_FAIL),
-            "quota_override": 0,
-            "reason": router_decision.reason,
-        })
-        return candidate_id, fair_id, decision_id
+        completed = now_ms()
+        latency_ms = max(
+            0.0,
+            (time.monotonic_ns() - trigger.receipt_monotonic_ns) / 1_000_000,
+        ) if trigger.receipt_monotonic_ns else 0.0
+        sides: list[dict[str, Any]] = []
+        for side_name, side_result, token_id, is_selected in (
+            ("YES", fair.yes, state.identity.yes_token_id,
+             fair.selected_side is EntrySide.BUY_YES),
+            ("NO", fair.no, state.identity.no_token_id,
+             fair.selected_side is EntrySide.BUY_NO),
+        ):
+            wrapper: dict[str, Any] = {
+                "value": self._fair_side_row(
+                    side_result, side_name, token_id, None, is_selected,
+                    now_ms_value,
+                )
+            }
+            if side_name in book_indices:
+                wrapper["book_index"] = book_indices[side_name]
+            sides.append(wrapper)
+
+        bundle = {
+            "source_event": source_wrapper,
+            "books": books,
+            "cex": cex_rows,
+            "candidate": {
+                "session_id": self.session_id,
+                "window_id": state.window_id,
+                "market_identity_id": state.market_identity_id,
+                "evaluation_ts_ms": now_ms_value,
+                "monotonic_ns": monotonic_ns_value,
+                "evaluation_seq": state.evaluation_seq,
+                "status": router_decision.action.value,
+                "regime": ensemble.regime,
+                "selected_side": selected,
+                "fair_probability_yes": fair.fair_probability_yes,
+                "fair_probability_no": fair.fair_probability_no,
+                "calibrated": int(not ensemble.model_uncalibrated),
+                "reliability": ensemble.reliability,
+                "positive_edge": int(
+                    fair.selected_net_edge is not None
+                    and fair.selected_net_edge > 0.0),
+                "dominant_model": dominant.model_name if dominant else None,
+                "invalidation_reason": (
+                    router_decision.reason
+                    if router_decision.action in {
+                        RouterAction.NO_ACTION, RouterAction.SAFETY_FAIL
+                    } else None
+                ),
+            },
+            "models": models,
+            "fair_value": {
+                "calculation": {
+                    "phase": phase,
+                    "calculation_seq": 0,
+                    "calculated_ts_ms": now_ms_value,
+                    "monotonic_ns": monotonic_ns_value,
+                    "regime": ensemble.regime,
+                    "fair_probability_yes": fair.fair_probability_yes,
+                    "fair_probability_no": fair.fair_probability_no,
+                    "calibrated": int(not ensemble.model_uncalibrated),
+                    "calibration_label": (
+                        "FORWARD_CALIBRATED"
+                        if not ensemble.model_uncalibrated
+                        else "UNCALIBRATED_FORWARD_CANDIDATE"
+                    ),
+                },
+                "sides": sides,
+            },
+            "decision": {
+                "decision_seq": 0,
+                "decision_ts_ms": now_ms_value,
+                "monotonic_ns": monotonic_ns_value,
+                "phase": phase,
+                "action": router_decision.action.value,
+                "selected_side": selected,
+                "selected_net_edge": fair.selected_net_edge,
+                "economic_gate_passed": int(economic),
+                "exact_depth_passed": int(bool(
+                    selected_side and selected_side.valid
+                    and selected_side.depth_shares >= self.cfg.fixed_shares)),
+                "evidence_fresh": int(bool(
+                    selected_side and selected_side.valid
+                    and selected_side.evidence_age_ms <= self.cfg.book_max_age_ms
+                    and feature_evidence.features.valid)),
+                "safety_failure": int(
+                    router_decision.action is RouterAction.SAFETY_FAIL),
+                "quota_override": 0,
+                "reason": router_decision.reason,
+            },
+            "latency": ({
+                "session_id": self.session_id,
+                "window_id": state.window_id,
+                "measured_ts_ms": completed,
+                "stage": "EVENT_TO_DECISION",
+                "provider_ts_ms": getattr(trigger.event, "provider_ts_ms", None),
+                "receipt_ts_ms": trigger.receipt_ts_ms,
+                "completed_ts_ms": completed,
+                "latency_ms": latency_ms,
+                "within_target": int(latency_ms < 1_000.0),
+            } if trigger.receipt_monotonic_ns else None),
+            "funnel": ({
+                "window_id": state.window_id,
+                "now_ms": now_ms_value,
+                "changes": {
+                    "positive_edge": 1,
+                    "first_positive_edge_ts_ms": now_ms_value,
+                },
+            } if fair.selected_net_edge is not None
+                 and fair.selected_net_edge > 0.0 else None),
+        }
+        return await self._critical_execute(
+            "persist_evaluation_bundle",
+            bundle,
+            ordering_key=state.identity.window_key,
+            idempotency_key=(
+                f"evaluation:{self.session_id}:{state.window_id}:"
+                f"{state.evaluation_seq}"
+            ),
+            command_type="ENTRY_DECISION_EVIDENCE",
+            priority=(20 if router_decision.action in {
+                RouterAction.CROSS_SPREAD,
+                RouterAction.SKIP,
+                RouterAction.SAFETY_FAIL,
+            } else 50),
+            terminal=router_decision.action in {
+                RouterAction.SKIP, RouterAction.SAFETY_FAIL,
+            },
+            associated_asset=state.identity.asset,
+            associated_window_id=state.window_id,
+        )
 
     def _fair_side_row(self, side: Any, outcome: str, token_id: str,
                        snapshot_id: Optional[int], selected: bool,
@@ -1672,7 +2120,8 @@ class FrequencyV4Engine:
                 self._reject(state, "EXECUTION", "maker_start_evidence_incomplete",
                              candidate_id=candidate_id)
                 return
-            maker_id = self.store.record_maker_observation({
+            maker_id = await self._critical_execute(
+                "record_maker_observation", {
                 "window_id": state.window_id,
                 "candidate_id": candidate_id,
                 "decision_id": decision_id,
@@ -1688,16 +2137,26 @@ class FrequencyV4Engine:
                 "price_touched": 0,
                 "maker_fill_assumed": 0,
                 "initial_net_edge": runtime_state.initial_edge,
-            })
+                },
+                ordering_key=state.identity.window_key,
+                idempotency_key=(
+                    f"maker-start:{state.window_id}:{candidate_id}"
+                ),
+                command_type="MAKER_START",
+                associated_asset=state.identity.asset,
+                associated_window_id=state.window_id,
+            )
             self.maker_persistence[state.identity.window_key] = MakerPersistence(
                 maker_id, candidate_id, fair_id)
             self.counters["maker_started"] += 1
             return
 
         maker = self.maker_persistence.get(state.identity.window_key)
+        maker_finished = False
         if decision.action is RouterAction.CONTINUE_OBSERVING and maker is not None:
             maker.update_seq += 1
-            self.store.record_maker_update({
+            await self._critical_execute(
+                "record_maker_update", {
                 "maker_observation_id": maker.maker_observation_id,
                 "update_seq": maker.update_seq,
                 "update_ts_ms": current,
@@ -1710,7 +2169,16 @@ class FrequencyV4Engine:
                     decision.state and decision.state.price_touched)),
                 "action": decision.action.value,
                 "reason": decision.reason,
-            })
+                },
+                ordering_key=state.identity.window_key,
+                idempotency_key=(
+                    f"maker-update:{maker.maker_observation_id}:"
+                    f"{maker.update_seq}"
+                ),
+                command_type="MAKER_UPDATE",
+                associated_asset=state.identity.asset,
+                associated_window_id=state.window_id,
+            )
             self.counters["maker_updates"] += 1
             return
 
@@ -1718,8 +2186,19 @@ class FrequencyV4Engine:
                 RouterAction.CROSS_SPREAD, RouterAction.SKIP,
                 RouterAction.SAFETY_FAIL}):
             runtime_state = decision.state
-            self.store.finish_maker_observation(
+            await self._critical_execute(
+                "finish_maker_observation",
                 maker.maker_observation_id,
+                ordering_key=state.identity.window_key,
+                idempotency_key=(
+                    f"maker-finish:{maker.maker_observation_id}:"
+                    f"{decision.action.value}"
+                ),
+                command_type="MAKER_FINISH",
+                priority=20,
+                terminal=True,
+                associated_asset=state.identity.asset,
+                associated_window_id=state.window_id,
                 end_ts_ms=current,
                 end_monotonic_ns=monotonic,
                 final_fair_value_id=fair_id,
@@ -1729,14 +2208,25 @@ class FrequencyV4Engine:
                 outcome=decision.action.value,
                 reason=decision.reason,
             )
+            maker_finished = True
             self.maker_persistence.pop(state.identity.window_key, None)
 
         if decision.action is RouterAction.CROSS_SPREAD:
+            if decision.state is not None and not maker_finished:
+                # A maker-to-cross transition is executable only after both its
+                # start and terminal observation records are acknowledged.  We
+                # never infer that evidence from an in-memory router state.
+                self._critical_failure_reason = "maker_persistence_missing"
+                self._reject(
+                    state, "DATA_INVALID", "maker_completion_evidence_missing",
+                    candidate_id=candidate_id,
+                )
+                return
             await self._create_shadow_entry(
                 state, calculation, decision, candidate_id,
                 fair_id, decision_id, selected_snapshot, current)
         elif decision.action is RouterAction.SKIP:
-            self.store.update_window_funnel(
+            self._update_window_funnel(
                 state.window_id, current,
                 missed_opportunity=int(bool(
                     calculation.result.selected_net_edge is not None
@@ -1754,9 +2244,17 @@ class FrequencyV4Engine:
         decision: RouterDecision, candidate_id: int, fair_id: int,
         decision_id: int, selected_snapshot: Optional[int], current: int,
     ) -> None:
-        if self.store.query_one(
-                "SELECT entry_id FROM entries WHERE window_id=?",
-                (state.window_id,)) is not None:
+        if state.window_id in self._entered_window_ids:
+            return
+        blocked = self._execution_blocked_reason()
+        committed_now = now_ms()
+        if blocked:
+            self._reject(state, "DATA_INVALID", blocked, candidate_id=candidate_id)
+            return
+        if not (state.identity.window_open_ms <= committed_now
+                < state.identity.window_close_ms):
+            self._reject(state, "EXECUTION", "window_not_open_at_commit",
+                         candidate_id=candidate_id)
             return
         side = decision.side
         outcome = _outcome(side)
@@ -1777,119 +2275,148 @@ class FrequencyV4Engine:
             self._reject(state, "ECONOMIC", "positive_ev_entry_gate_failed",
                          candidate_id=candidate_id)
             return
-        exposure = self.store.query_one(
-            """SELECT COUNT(*) AS open_positions,
-               COALESCE(SUM(committed_exposure_usd),0) AS committed
-               FROM positions WHERE status='OPEN'""") or {}
-        asset_exposure = self.store.query_one(
-            """SELECT COUNT(*) AS open_for_asset
-               FROM positions WHERE status='OPEN' AND asset=?""",
-            (state.identity.asset,),
-        ) or {}
-        risk = assess_shadow_exposure(
-            committed_exposure_usd=float(exposure.get("committed") or 0),
-            open_positions=int(exposure.get("open_positions") or 0),
-            open_for_asset=int(asset_exposure.get("open_for_asset") or 0),
-            sweep=sweep,
-            equity_usd=self.cfg.research_equity_usd,
-            exposure_cap_pct=self.cfg.exposure_cap_pct,
-            available_balance_usd=max(
-                0.0, self.cfg.research_equity_usd
-                - float(exposure.get("committed") or 0)),
-            max_open_positions=self.cfg.max_open_positions,
-            max_open_per_asset=self.cfg.max_open_per_asset,
-            fee_rate=self.cfg.crypto_taker_fee_rate,
-            fee_buffer_usd=0.0,
-        )
-        if not risk.allowed:
-            self._reject(state, "RISK", risk.reason, candidate_id=candidate_id,
-                         detail=risk.__dict__ if hasattr(risk, "__dict__") else asdict(risk))
+        selected_book = state.books.get(outcome)
+        latest_cex = self.cex_features.latest(state.identity.asset)
+        if (selected_book is None
+                or selected_book.age_ms(committed_now) > self.cfg.book_max_age_ms
+                or latest_cex is None
+                or committed_now - latest_cex.provider_ts_ms > self.cfg.cex_max_age_ms):
+            self._reject(state, "DATA_INVALID", "entry_evidence_stale_at_submit",
+                         candidate_id=candidate_id)
             return
+        commit_deadline = min(
+            state.identity.window_close_ms - 1,
+            committed_now + max(
+                1,
+                min(
+                    1_000,
+                    self.cfg.book_max_age_ms - selected_book.age_ms(committed_now),
+                    self.cfg.cex_max_age_ms
+                    - (committed_now - latest_cex.provider_ts_ms),
+                ),
+            ),
+        )
         token_id = state.identity.token_for_side(side)
         idempotency = entry_idempotency_key(state.identity, side)
         try:
-            self.store.reserve_window({
-                "window_id": state.window_id,
-                "session_id": self.session_id,
-                "market_identity_id": state.market_identity_id,
-                "owner_launch_nonce": self.runtime.launch_nonce,
-                "outcome_side": outcome,
-                "state": "RESERVED",
-                "idempotency_key": idempotency,
-                "candidate_id": candidate_id,
-                "decision_id": decision_id,
-                "reserved_ts_ms": current,
-                "updated_ts_ms": current,
-            })
-            entry_id = self.store.create_entry({
-                "session_id": self.session_id,
-                "window_id": state.window_id,
-                "market_identity_id": state.market_identity_id,
-                "candidate_id": candidate_id,
-                "decision_id": decision_id,
-                "fair_value_calculation_id": fair_id,
-                "book_snapshot_id": selected_snapshot,
-                "outcome_side": outcome,
-                "token_id": token_id,
-                "shares": self.cfg.fixed_shares,
-                "entry_ts_ms": current,
-                "entry_mode": (
-                    "CROSS_SPREAD" if decision.state is None else "MAKER_TO_CROSS"),
-                "executable_vwap": sweep.vwap,
-                "worst_consumed_price": sweep.worst_price,
-                "depth_shares": selected_result.depth_shares,
-                "gross_cost": sweep.notional,
-                "estimated_fee": fee_total,
-                "execution_buffer": selected_result.execution_buffer,
-                "latency_buffer": selected_result.latency_buffer,
-                "uncertainty_buffer": selected_result.uncertainty_buffer,
-                "selected_net_edge": selected_result.net_edge,
-                "execution_verified": 1,
-                "maker_fill_assumed": 0,
-                "idempotency_key": idempotency,
-                "status": "OPEN",
-            },
-                max_concurrent_positions=self.cfg.max_open_positions,
-                global_exposure_cap_usd=self.cfg.exposure_cap_usd,
-                per_asset_exposure_cap_usd=self.cfg.exposure_cap_usd,
-                max_open_per_asset=self.cfg.max_open_per_asset,
+            committed = await self._critical_execute(
+                "reserve_and_create_entry_bundle", {
+                    "reservation": {
+                        "window_id": state.window_id,
+                        "session_id": self.session_id,
+                        "market_identity_id": state.market_identity_id,
+                        "owner_launch_nonce": self.runtime.launch_nonce,
+                        "outcome_side": outcome,
+                        "state": "RESERVED",
+                        "idempotency_key": idempotency,
+                        "candidate_id": candidate_id,
+                        "decision_id": decision_id,
+                        "reserved_ts_ms": committed_now,
+                        "updated_ts_ms": committed_now,
+                    },
+                    "entry": {
+                        "session_id": self.session_id,
+                        "window_id": state.window_id,
+                        "market_identity_id": state.market_identity_id,
+                        "candidate_id": candidate_id,
+                        "decision_id": decision_id,
+                        "fair_value_calculation_id": fair_id,
+                        "book_snapshot_id": selected_snapshot,
+                        "outcome_side": outcome,
+                        "token_id": token_id,
+                        "shares": self.cfg.fixed_shares,
+                        "entry_ts_ms": committed_now,
+                        "entry_mode": (
+                            "CROSS_SPREAD" if decision.state is None
+                            else "MAKER_TO_CROSS"),
+                        "executable_vwap": sweep.vwap,
+                        "worst_consumed_price": sweep.worst_price,
+                        "depth_shares": selected_result.depth_shares,
+                        "gross_cost": sweep.notional,
+                        "estimated_fee": fee_total,
+                        "execution_buffer": selected_result.execution_buffer,
+                        "latency_buffer": selected_result.latency_buffer,
+                        "uncertainty_buffer": selected_result.uncertainty_buffer,
+                        "selected_net_edge": selected_result.net_edge,
+                        "execution_verified": 1,
+                        "maker_fill_assumed": 0,
+                        "idempotency_key": idempotency,
+                        "status": "OPEN",
+                    },
+                    "max_concurrent_positions": self.cfg.max_open_positions,
+                    "global_exposure_cap_usd": self.cfg.exposure_cap_usd,
+                    "per_asset_exposure_cap_usd": self.cfg.exposure_cap_usd,
+                    "max_open_per_asset": self.cfg.max_open_per_asset,
+                    "commit_deadline_ts_ms": commit_deadline,
+                },
+                ordering_key=state.identity.window_key,
+                # The store-level entry key remains the stable one-entry/window
+                # invariant.  The journal key identifies this concrete evidence
+                # attempt so a later fresh candidate cannot conflict with a
+                # prior deadline-expired payload.
+                idempotency_key=(
+                    f"entry-command:{idempotency}:{decision_id}"
+                ),
+                command_type="ENTRY_CREATE",
+                priority=5,
+                associated_asset=state.identity.asset,
+                associated_window_id=state.window_id,
+                expected_store_errors=("entry commit deadline expired",),
             )
+            entry_id = int(committed["entry_id"])
             self.counters["entries"] += 1
-            self.store.update_window_funnel(
-                state.window_id, current, actual_entry=1, entry_ts_ms=current)
+            self._entered_window_ids.add(state.window_id)
+            self._open_position_windows.add(state.window_id)
+            self._open_positions_count += 1
+            self._update_window_funnel(
+                state.window_id, committed_now,
+                actual_entry=1, entry_ts_ms=committed_now)
+            position_row = committed.get("position") or committed.get("position_row")
+            if isinstance(position_row, dict):
+                self._position_cache[int(position_row["position_id"])] = dict(position_row)
+            elif self.read_worker is not None:
+                row = await self.read_worker.query_one(
+                    """SELECT p.*,e.window_id,e.gross_cost,e.estimated_fee,
+                       e.executable_vwap,e.entry_ts_ms
+                       FROM positions p JOIN entries e USING(entry_id)
+                       WHERE e.entry_id=?""",
+                    (entry_id,),
+                )
+                if row is not None:
+                    self._position_cache[int(row["position_id"])] = row
             # The entry ID is deliberately not passed to any adapter: there is
             # no execution surface beyond this atomic shadow record.
             _ = entry_id
-        except (WindowReservationConflict, ExposureLimitExceeded, ValueError) as exc:
+        except (WindowReservationConflict, ExposureLimitExceeded) as exc:
+            # Exposure/window contention can clear on a later event.  Do not
+            # suppress the next fresh evaluation with the prior fingerprint.
+            state.last_candidate_fingerprint = ""
             reason = getattr(exc, "reason", str(exc) or type(exc).__name__)
-            self.store.release_window_reservation(
-                window_id=state.window_id,
-                session_id=self.session_id,
-                owner_launch_nonce=self.runtime.launch_nonce,
-                idempotency_key=idempotency,
-            )
             self._reject(state, "RISK", str(reason), candidate_id=candidate_id)
+        except V4StoreError as exc:
+            if str(exc) != "entry commit deadline expired":
+                raise
+            state.last_candidate_fingerprint = ""
+            self._reject(
+                state, "EXECUTION", "entry_commit_deadline_expired",
+                candidate_id=candidate_id,
+            )
 
     async def _manage_open_position(
         self, state: MarketState, calculation: EconomicCalculation,
         fair_id: int, yes_snapshot: Optional[int], no_snapshot: Optional[int],
         current: int,
     ) -> None:
-        entry = self.store.query_one(
-            """SELECT p.*,e.gross_cost,e.estimated_fee,e.executable_vwap,
-               e.outcome_side,e.entry_id,e.entry_ts_ms
-               FROM positions p JOIN entries e ON e.entry_id=p.entry_id
-               WHERE p.status='OPEN' AND e.window_id=?""",
-            (state.window_id,),
+        entry = next(
+            (row for row in self._position_cache.values()
+             if int(row.get("window_id") or -1) == state.window_id
+             and row.get("status") == "OPEN"),
+            None,
         )
         if entry is None or current >= state.identity.window_close_ms:
             return
-        latest = self.store.query_one(
-            """SELECT decision_ts_ms FROM management_decisions
-               WHERE position_id=? ORDER BY decision_seq DESC LIMIT 1""",
-            (entry["position_id"],),
-        )
-        if latest is not None and current - int(latest["decision_ts_ms"]) < 1_000:
+        position_id = int(entry["position_id"])
+        if current - self._management_last_ts.get(position_id, 0) < 1_000:
             return
         side = EntrySide.BUY_YES if entry["outcome_side"] == "YES" else EntrySide.BUY_NO
         owned_book = state.books.get(str(entry["outcome_side"]))
@@ -1908,20 +2435,16 @@ class FrequencyV4Engine:
             now_ms=current,
             cfg=self.cfg,
         )
-        decision_seq_row = self.store.query_one(
-            """SELECT COALESCE(MAX(decision_seq),-1)+1 AS seq
-               FROM management_decisions WHERE position_id=?""",
-            (entry["position_id"],),
-        ) or {"seq": 0}
+        decision_seq = self._management_seq.get(position_id, 0)
         snapshot = yes_snapshot if side is EntrySide.BUY_YES else no_snapshot
         action = (
             "EXIT_BOOK" if management.action == "EXIT_BOOK"
             else "AWAIT_RESOLUTION" if management.action == "HOLD_OFFICIAL_RESOLUTION"
             else "HOLD"
         )
-        self.store.record_management_decision({
-            "position_id": entry["position_id"],
-            "decision_seq": int(decision_seq_row["seq"]),
+        decision_row = {
+            "position_id": position_id,
+            "decision_seq": decision_seq,
             "decision_ts_ms": current,
             "monotonic_ns": time.monotonic_ns(),
             "book_snapshot_id": snapshot,
@@ -1937,41 +2460,66 @@ class FrequencyV4Engine:
             "thesis_state": management.thesis_state,
             "action": action,
             "reason": management.reason,
-        })
-        if not management.exit_selected or management.sweep is None:
-            return
-        entry_fees = float(entry["estimated_fee"] or 0.0)
-        payout = management.sweep.notional
-        gross = payout - float(entry["gross_cost"])
-        exit_fee = float(management.exit_fee or 0.0)
-        self.store.close_position({
-            "position_id": entry["position_id"],
-            "exit_ts_ms": current,
-            "exit_source": "BOOK",
-            "book_snapshot_id": snapshot,
-            "shares": self.cfg.fixed_shares,
-            "executable_vwap": management.sweep.vwap,
-            "worst_consumed_price": management.sweep.worst_price,
-            "payout_usd": payout,
-            "gross_pnl": gross,
-            "exit_fee": exit_fee,
-            "net_pnl": gross - entry_fees - exit_fee,
-            "evidence_verified": 1,
-            "resolution_outcome": None,
-            "reason": management.reason,
-        })
+        }
+        close_row: Optional[dict[str, Any]] = None
+        if management.exit_selected and management.sweep is not None:
+            entry_fees = float(entry["estimated_fee"] or 0.0)
+            payout = management.sweep.notional
+            gross = payout - float(entry["gross_cost"])
+            exit_fee = float(management.exit_fee or 0.0)
+            close_row = {
+                "position_id": position_id,
+                "exit_ts_ms": current,
+                "exit_source": "BOOK",
+                "book_snapshot_id": snapshot,
+                "shares": self.cfg.fixed_shares,
+                "executable_vwap": management.sweep.vwap,
+                "worst_consumed_price": management.sweep.worst_price,
+                "payout_usd": payout,
+                "gross_pnl": gross,
+                "exit_fee": exit_fee,
+                "net_pnl": gross - entry_fees - exit_fee,
+                "evidence_verified": 1,
+                "resolution_outcome": None,
+                "reason": management.reason,
+            }
+        management_payload = {"decision": decision_row, "close": close_row}
+        await self._critical_execute(
+            "management_bundle",
+            management_payload,
+            ordering_key=state.identity.window_key,
+            idempotency_key=(
+                f"management:{position_id}:{decision_seq}:"
+                f"{_sha256_json(management_payload)[:20]}"
+            ),
+            command_type=("POSITION_EXIT" if close_row else "POSITION_MANAGEMENT"),
+            priority=10 if close_row else 40,
+            terminal=close_row is not None,
+            associated_asset=state.identity.asset,
+            associated_window_id=state.window_id,
+            associated_trade_id=int(entry["entry_id"]),
+        )
+        self._management_last_ts[position_id] = current
+        self._management_seq[position_id] = decision_seq + 1
+        if close_row is not None:
+            entry["status"] = "CLOSED"
+            self._position_cache.pop(position_id, None)
+            self._open_position_windows.discard(state.window_id)
+            self._open_positions_count = max(0, self._open_positions_count - 1)
 
     async def _resolution_loop(self) -> None:
         while not self._stopping.is_set():
             current = now_ms()
-            rows = self.store.query(
+            rows = (
+                await self.read_worker.query(
                 """SELECT p.position_id,p.entry_id,p.outcome_side,p.open_shares,
-                   e.market_identity_id,e.gross_cost,e.estimated_fee,
-                   w.window_close_ts_ms
+                   e.market_identity_id,e.gross_cost,e.estimated_fee,e.window_id,
+                   w.asset,w.window_close_ts_ms
                    FROM positions p JOIN entries e ON e.entry_id=p.entry_id
                    JOIN asset_windows w ON w.window_id=e.window_id
                    WHERE p.status='OPEN' AND w.window_close_ts_ms<=?""",
                 (current,),
+                ) if self.read_worker is not None else []
             )
             for row in rows:
                 try:
@@ -1983,17 +2531,19 @@ class FrequencyV4Engine:
             except asyncio.TimeoutError:
                 pass
 
-    def _identity_by_db_id(self, market_identity_id: int) -> Optional[MarketIdentity]:
+    async def _identity_by_db_id(
+        self, market_identity_id: int,
+    ) -> Optional[MarketIdentity]:
         for state in self.markets.values():
             if state.market_identity_id == int(market_identity_id):
                 return state.identity
-        row = self.store.query_one(
+        row = await self.read_worker.query_one(
             """SELECT m.asset,m.slug,m.polymarket_market_id,m.open_ts_ms,m.close_ts_ms,
                mi.event_id,mi.condition_id,mi.yes_token_id,mi.no_token_id
                FROM market_identities mi JOIN markets m ON m.market_id=mi.market_id
                WHERE mi.market_identity_id=?""",
             (int(market_identity_id),),
-        )
+        ) if self.read_worker is not None else None
         if row is None:
             return None
         return MarketIdentity(
@@ -2006,19 +2556,16 @@ class FrequencyV4Engine:
         )
 
     async def _resolve_position(self, row: dict[str, Any], current: int) -> None:
-        identity = self._identity_by_db_id(int(row["market_identity_id"]))
+        identity = await self._identity_by_db_id(int(row["market_identity_id"]))
         if identity is None:
             self._reject(None, "RESOLUTION", "market_identity_missing")
             return
-        last_attempt = self.store.query_one(
-            """SELECT attempt_no,attempt_ts_ms FROM resolution_attempts
-               WHERE entry_id=? ORDER BY attempt_no DESC LIMIT 1""",
-            (row["entry_id"],),
-        )
+        entry_id = int(row["entry_id"])
+        last_attempt = self._resolution_state.get(entry_id)
         if last_attempt is not None:
-            exponent = min(max(0, int(last_attempt["attempt_no"]) - 1), 6)
+            exponent = min(max(0, int(last_attempt[0]) - 1), 6)
             retry_ms = min(300_000, 5_000 * (2 ** exponent))
-            if current - int(last_attempt["attempt_ts_ms"]) < retry_ms:
+            if current - int(last_attempt[1]) < retry_ms:
                 return
         direct, event = await asyncio.gather(
             self.gamma.get_market(identity.market_id),
@@ -2034,15 +2581,11 @@ class FrequencyV4Engine:
             direct_market=direct if isinstance(direct, dict) else None,
             event=event if isinstance(event, dict) else None,
         )
-        prior = self.store.query_one(
-            """SELECT COALESCE(MAX(attempt_no),0)+1 AS attempt
-               FROM resolution_attempts WHERE entry_id=?""",
-            (row["entry_id"],),
-        ) or {"attempt": 1}
+        attempt_no = (last_attempt[0] + 1) if last_attempt is not None else 1
         evidence_hash = _sha256_json({"direct": direct, "event": event})
-        self.store.record_resolution_attempt({
-            "entry_id": row["entry_id"],
-            "attempt_no": int(prior["attempt"]),
+        attempt_row = {
+            "entry_id": entry_id,
+            "attempt_no": attempt_no,
             "attempt_ts_ms": current,
             "source": "GAMMA_DIRECT_AND_EVENT",
             "result": "RESOLVED" if evidence.verified else "PENDING",
@@ -2050,31 +2593,59 @@ class FrequencyV4Engine:
             "evidence_hash": evidence_hash,
             "verified": int(evidence.verified),
             "error": None if evidence.verified else evidence.reason,
-        })
+        }
+        close_row: Optional[dict[str, Any]] = None
+        if evidence.verified and evidence.outcome in {"YES", "NO"}:
+            payout = (
+                self.cfg.fixed_shares
+                if evidence.outcome == row["outcome_side"] else 0.0
+            )
+            gross = payout - float(row["gross_cost"])
+            entry_fee = float(row["estimated_fee"] or 0.0)
+            close_row = {
+                "position_id": row["position_id"],
+                "exit_ts_ms": current,
+                "exit_source": "OFFICIAL_RESOLUTION",
+                "book_snapshot_id": None,
+                "shares": self.cfg.fixed_shares,
+                "executable_vwap": None,
+                "worst_consumed_price": None,
+                "payout_usd": payout,
+                "gross_pnl": gross,
+                "exit_fee": 0.0,
+                "net_pnl": gross - entry_fee,
+                "evidence_verified": 1,
+                "resolution_outcome": evidence.outcome,
+                "reason": "official_corroborated_resolution",
+            }
+        resolution_payload = {"attempt": attempt_row, "close": close_row}
+        await self._critical_execute(
+            "resolution_bundle",
+            resolution_payload,
+            ordering_key=identity.window_key,
+            idempotency_key=(
+                f"resolution:{entry_id}:{attempt_no}:"
+                f"{_sha256_json(resolution_payload)[:20]}"
+            ),
+            command_type=("OFFICIAL_RESOLUTION" if close_row else "RESOLUTION_RETRY"),
+            priority=1 if close_row else 25,
+            terminal=close_row is not None,
+            associated_asset=identity.asset,
+            associated_window_id=int(row.get("window_id") or 0) or None,
+            associated_trade_id=entry_id,
+        )
         self.counters["resolution_attempts"] += 1
-        if not evidence.verified or evidence.outcome not in {"YES", "NO"}:
+        self._resolution_state[entry_id] = (attempt_no, current)
+        if close_row is None:
             self._reject(None, "RESOLUTION", evidence.reason, recoverable=True,
-                         detail={"entry_id": row["entry_id"]})
+                         detail={"entry_id": entry_id})
             return
-        payout = self.cfg.fixed_shares if evidence.outcome == row["outcome_side"] else 0.0
-        gross = payout - float(row["gross_cost"])
-        entry_fee = float(row["estimated_fee"] or 0.0)
-        self.store.close_position({
-            "position_id": row["position_id"],
-            "exit_ts_ms": current,
-            "exit_source": "OFFICIAL_RESOLUTION",
-            "book_snapshot_id": None,
-            "shares": self.cfg.fixed_shares,
-            "executable_vwap": None,
-            "worst_consumed_price": None,
-            "payout_usd": payout,
-            "gross_pnl": gross,
-            "exit_fee": 0.0,
-            "net_pnl": gross - entry_fee,
-            "evidence_verified": 1,
-            "resolution_outcome": evidence.outcome,
-            "reason": "official_corroborated_resolution",
-        })
+        position_id = int(row["position_id"])
+        window_id = int(row.get("window_id") or 0)
+        self._position_cache.pop(position_id, None)
+        if window_id:
+            self._open_position_windows.discard(window_id)
+        self._open_positions_count = max(0, self._open_positions_count - 1)
 
     async def _discovery_loop(self) -> None:
         while not self._stopping.is_set():
@@ -2099,8 +2670,54 @@ class FrequencyV4Engine:
         running; only executable candidate creation is suppressed.
         """
 
-        if not self._last_integrity_ok:
+        if self.persistence is None:
+            return "critical_writer_not_started"
+        ownership = self._process_ownership_cache
+        if not bool(ownership.get("process_ownership_valid")):
+            return "critical_process_ownership_unverified"
+        if int(ownership.get("orphan_processes") or 0) != 0:
+            return "critical_orphan_process_detected"
+        if (int(ownership.get("exact_v4_processes") or 0) != 1
+                or int(ownership.get("owned_v4_processes") or 0) != 1):
+            return "critical_process_count_mismatch"
+        writer = self._writer_health()
+        if str(writer.get("state") or "") != "HEALTHY":
+            return "critical_writer_unhealthy"
+        if self._critical_failure_reason:
+            return "critical_command_failed"
+        if int(writer.get("unconfirmed_command_count") or 0) > 0:
+            return "critical_command_unconfirmed"
+        reconciliation = writer.get("recovery_reconciliation")
+        reconciliation = reconciliation if isinstance(reconciliation, dict) else {}
+        unfinished_makers = int(
+            writer.get("unfinished_makers_left_fail_closed")
+            or writer.get("orphan_maker_observation_count")
+            or reconciliation.get("unfinished_makers_left_fail_closed")
+            or 0
+        )
+        if unfinished_makers > 0:
+            return "critical_unfinished_maker_evidence"
+        heartbeat_age_ms = writer.get("heartbeat_age_ms")
+        if (heartbeat_age_ms is not None
+                and int(heartbeat_age_ms) > self.cfg.writer_failure_timeout_ms):
+            return "critical_writer_heartbeat_stale"
+        for label, worker in (
+            ("operational_read_worker", self.read_worker),
+            ("reporting_read_worker", self.report_worker),
+        ):
+            if worker is None:
+                return f"{label}_not_started"
+            health = worker.health()
+            if str(health.get("state") or "") != "RUNNING" or not bool(
+                    health.get("thread_alive")):
+                return f"{label}_unhealthy"
+        if self._last_integrity_ok is None:
+            return "sqlite_integrity_unknown"
+        if self._last_integrity_ok is False:
             return "sqlite_integrity_degraded"
+        if (not self._last_integrity_ts_ms
+                or now_ms() - self._last_integrity_ts_ms > INTEGRITY_MAX_AGE_MS):
+            return "sqlite_integrity_stale"
         if self._loop_lag_ms > self.cfg.loop_lag_safety_ms:
             return "event_loop_lag_degraded"
         if (self._loop_lag_safety_breach_mono_ns
@@ -2117,8 +2734,15 @@ class FrequencyV4Engine:
         """
 
         blocked = self._execution_blocked_reason()
-        if blocked == "sqlite_integrity_degraded":
+        if blocked in {
+            "sqlite_integrity_unknown", "sqlite_integrity_degraded",
+            "sqlite_integrity_stale", "reporting_read_worker_not_started",
+            "reporting_read_worker_unhealthy", "operational_read_worker_not_started",
+            "operational_read_worker_unhealthy",
+        }:
             return "DEGRADED_INTEGRITY"
+        if blocked.startswith("critical_"):
+            return "DEGRADED_PERSISTENCE"
         if blocked == "event_loop_lag_degraded":
             return "DEGRADED_EVENT_LOOP_LAG"
         active_assets = {
@@ -2145,9 +2769,6 @@ class FrequencyV4Engine:
         # own workers so this cadence stays responsive.
         last_health_ms = 0
         expected_mono = time.monotonic()
-        last_db_changes = int(self.store.connection.total_changes)
-        last_db_sample_ms = now_ms()
-        db_writes_per_min = 0
         while not self._stopping.is_set():
             loop_lag_ms = max(
                 0.0, (time.monotonic() - expected_mono) * 1_000.0,
@@ -2155,17 +2776,33 @@ class FrequencyV4Engine:
             current = now_ms()
             self._flush_event_counts()
             self._persist_pending_source_health(current)
+            if current - last_health_ms >= 5_000 and self.runtime_io_worker is not None:
+                try:
+                    await self._refresh_runtime_probe()
+                except Exception as exc:
+                    self._last_error = (
+                        f"runtime_probe:{type(exc).__name__}:{exc}"
+                    )[:240]
             state_name = self._runtime_state_name(current)
-            runtime_state = self.runtime.publish(self._runtime_state(state_name))
+            state_payload = self._runtime_state(state_name)
+            if self.runtime_io_worker is not None:
+                runtime_state = await self.runtime_io_worker.run_io(
+                    self.runtime.publish,
+                    state_payload,
+                    timeout_s=10.0,
+                    name="runtime_publish",
+                )
+            else:
+                runtime_state = state_payload
             self._last_published_state = runtime_state
             if current - last_health_ms >= 5_000:
-                total_changes = int(self.store.connection.total_changes)
-                elapsed_ms = max(1, current - last_db_sample_ms)
-                db_writes_per_min = int(round(
-                    max(0, total_changes - last_db_changes) * 60_000 / elapsed_ms))
-                last_db_changes = total_changes
-                last_db_sample_ms = current
-                self.store.record_runtime_health({
+                writer = self._writer_health()
+                db_writes_per_min = int(
+                    writer.get("transactions_per_minute")
+                    or writer.get("transaction_rate_per_min")
+                    or 0
+                )
+                self._telemetry_submit("record_runtime_health", {
                     "session_id": self.session_id,
                     "sample_ts_ms": current,
                     "heartbeat_ts_ms": current,
@@ -2173,10 +2810,16 @@ class FrequencyV4Engine:
                     "state": state_name,
                     "loop_lag_ms": loop_lag_ms,
                     "db_writes_per_min": db_writes_per_min,
-                    "db_size_bytes": self.store.database_size_bytes(),
+                    "db_size_bytes": self._database_size_cache,
                     "open_positions": runtime_state["open_positions"],
                     "last_error": self._last_error or None,
-                })
+                }, state_key=("runtime-health", self.session_id, state_name),
+                    state_value={
+                        "loop_lag_bucket": int(loop_lag_ms // 25),
+                        "writer_state": writer.get("state"),
+                        "open_positions": runtime_state["open_positions"],
+                        "last_error": self._last_error or None,
+                    })
                 last_health_ms = current
             expected_mono = time.monotonic() + 2.0
             try:
@@ -2186,21 +2829,31 @@ class FrequencyV4Engine:
 
     async def _run_integrity_check(self) -> None:
         """Off-loop integrity scan on the read-only connection (single-flight)."""
-        if self._readonly_store is None or self._integrity_inflight:
+        if self.report_worker is None or self._integrity_inflight:
             return
         self._integrity_inflight = True
         started = time.monotonic()
         try:
-            result = await asyncio.to_thread(self._readonly_store.integrity_check)
+            result = await self.report_worker.run_report(
+                lambda store: store.integrity_check(),
+                timeout_s=self.cfg.reporting_worker_timeout_s,
+                name="sqlite_integrity_check",
+            )
             self._last_integrity = result
-            # A reported problem (corruption / FK violation) fails closed; a
-            # transient scan exception is logged but does not halt trading.
+            self._last_integrity_ts_ms = now_ms()
+            # A reported problem (corruption / FK violation) fails closed.
             self._last_integrity_ok = bool(
                 result.get("integrity") == "ok"
                 and not result.get("foreign_key_violations"))
             if not self._last_integrity_ok:
                 self._last_error = f"integrity_degraded:{result.get('integrity')}"[:240]
         except Exception as exc:  # noqa: BLE001 - reporting worker must not crash
+            self._last_integrity_ok = None
+            self._last_integrity = {
+                "integrity": "UNKNOWN",
+                "foreign_key_violations": [],
+                "error": f"{type(exc).__name__}:{exc}"[:200],
+            }
             self._last_error = f"integrity:{type(exc).__name__}:{exc}"[:240]
         finally:
             self._last_integrity_duration_ms = (time.monotonic() - started) * 1_000.0
@@ -2209,18 +2862,22 @@ class FrequencyV4Engine:
 
     async def _run_dashboard_export(self) -> None:
         """Off-loop whole-database dashboard export (single-flight, atomic write)."""
-        if self._readonly_store is None or self._export_inflight:
+        if self.report_worker is None or self._export_inflight:
             return
         self._export_inflight = True
         started = time.monotonic()
         current = now_ms()
         state = self._last_published_state or self._runtime_state("RUNNING")
         try:
-            await asyncio.to_thread(
+            await self.report_worker.run_report(
                 write_frequency_v4_dashboard,
-                self._readonly_store, self.export_path,
-                now_ms=current, config=self.cfg,
-                runtime_state=state, session_id=self.session_id,
+                self.export_path,
+                timeout_s=self.cfg.reporting_worker_timeout_s,
+                name="dashboard_export",
+                now_ms=current,
+                config=self.cfg,
+                runtime_state=state,
+                session_id=self.session_id,
                 integrity=self._last_integrity or None,
             )
             self._last_export_ms = current
@@ -2242,7 +2899,9 @@ class FrequencyV4Engine:
         multi-second scan runs.
         """
         last_export_ms = 0
-        last_integrity_ms = 0
+        # ``start`` already ran one full integrity scan.  Preserve its schedule
+        # instead of immediately repeating the expensive 431 MB read.
+        last_integrity_ms = self._last_integrity_ts_ms
         while not self._stopping.is_set():
             current = now_ms()
             if current - last_integrity_ms >= INTEGRITY_CHECK_INTERVAL_MS:
@@ -2256,69 +2915,110 @@ class FrequencyV4Engine:
             except asyncio.TimeoutError:
                 pass
 
-    def _has_deletable_raw(self, cutoff: int) -> bool:
-        """Fast, index-backed check for any unpinned raw row past the cutoff.
-
-        Backed by ix_{source_events,book_snapshots,cex_retention} so the steady
-        state (nothing old enough to delete) costs an index seek, not a scan.
-        """
-        for table in ("source_events", "book_snapshots", "cex_observations"):
-            if self.store.query_one(
-                    f"SELECT 1 AS x FROM {table} WHERE retention_class='RAW' "
-                    "AND pin_count=0 AND receipt_ts_ms<? LIMIT 1",
-                    (int(cutoff),)) is not None:
-                return True
-        return False
-
-    def _maintenance_pass_blocking(self) -> dict[str, int]:
-        """Chunked retention/compaction, run in a worker thread.
-
-        Uses the shared writer connection via the store lock in small chunks so
-        each lock hold is brief and the event-loop write path is not starved; a
-        short sleep between chunks hands the lock to any waiting writer.  A cheap
-        index-backed pre-check skips the compaction scan entirely when nothing is
-        old enough to delete, and a full integrity scan is never paid per chunk.
-        All trade/candidate-referenced evidence is protected by the store's
-        existing retention filters.
-        """
-        chunk = int(self.cfg.maintenance_chunk_rows)
-        budget = int(self.cfg.maintenance_max_rows_per_pass)
-        deadline = time.monotonic() + float(self.cfg.maintenance_max_seconds_per_pass)
-        retention_ms = self.cfg.raw_event_retention_hours * 3_600_000
-        cutoff = max(0, now_ms() - retention_ms)
-        total = 0
-        if self._has_deletable_raw(cutoff):
-            while total < budget and time.monotonic() < deadline:
-                result = self.store.compact_raw_evidence(
-                    now_ms(), retention_ms=retention_ms,
-                    batch_size=chunk, run_integrity=False)
-                deleted = (int(result.get("source_events", 0))
-                           + int(result.get("book_snapshots", 0))
-                           + int(result.get("cex_observations", 0)))
-                total += deleted
-                if deleted == 0:
-                    break
-                time.sleep(0.002)
-        self.store.enforce_raw_row_cap(self.cfg.raw_event_max_rows)
-        # Roll up one-second buckets only once some have actually aged out.
-        bucket_cutoff = max(0, now_ms() - 6 * 3_600_000)
-        if self.store.query_one(
-                "SELECT 1 AS x FROM event_buckets WHERE bucket_ms=1000 "
-                "AND bucket_start_ts_ms<? LIMIT 1", (bucket_cutoff,)) is not None:
-            self.store.compact_event_buckets(
-                now_ms(), detail_retention_ms=6 * 3_600_000)
-        return {"rows": total}
-
     async def _run_maintenance_pass(self) -> None:
-        """Off-loop bounded maintenance pass (single-flight)."""
-        if self._maintenance_inflight:
+        """Run policy-gated checkpoint/retention on its owner connection."""
+        if self._maintenance_inflight or self.maintenance_worker is None:
             return
         self._maintenance_inflight = True
         started = time.monotonic()
         try:
-            result = await asyncio.to_thread(self._maintenance_pass_blocking)
-            self._last_maintenance_rows = int(result.get("rows", 0))
+            current = now_ms()
+            writer = self._writer_health()
+            telemetry = self.telemetry.snapshot() if self.telemetry is not None else {}
+            reporting = (
+                self.report_worker.health()
+                if self.report_worker is not None else {}
+            )
+            reporting_active = bool(reporting.get("current_job"))
+            reporting_duration = float(reporting.get("current_duration_ms") or 0.0)
+            runtime_health = self._runtime_state_name(current)
+            snapshot = MaintenanceSnapshot(
+                now_ms=current,
+                wal_bytes=max(0, int(self._wal_size_cache)),
+                critical_queue_depth=max(0, int(writer.get("queue_depth") or 0)),
+                telemetry_queue_depth=max(0, int(telemetry.get("queue_depth") or 0)),
+                runtime_active=True,
+                runtime_health=(
+                    "HEALTHY" if runtime_health == "RUNNING" else runtime_health
+                ),
+                writer_healthy=writer.get("state") == "HEALTHY",
+                open_positions=max(0, int(self._open_positions_count)),
+                active_readers=int(reporting_active),
+                long_reader_count=int(
+                    reporting_active
+                    and reporting_duration > self.cfg.reporting_worker_timeout_s * 1_000
+                ),
+                critical_commit_p95_ms=writer.get("commit_latency_p95_ms"),
+                time_to_window_boundary_ms=(
+                    300_000 - current % 300_000
+                ),
+                last_checkpoint_attempt_ts_ms=(
+                    self._checkpoint_state.get("started_ts_ms")
+                    or self._checkpoint_state.get("completed_ts_ms")
+                ),
+                last_successful_checkpoint_ts_ms=(
+                    self._checkpoint_state.get("completed_ts_ms")
+                    if self._checkpoint_state.get("successful") else None
+                ),
+            )
+            policy = MaintenancePolicy(
+                wal_trigger_bytes=self.cfg.checkpoint_wal_size_trigger_bytes,
+                restart_trigger_bytes=max(
+                    self.cfg.checkpoint_wal_size_trigger_bytes * 4,
+                    self.cfg.checkpoint_wal_size_trigger_bytes,
+                ),
+                truncate_trigger_bytes=max(
+                    self.cfg.checkpoint_wal_size_trigger_bytes * 4,
+                    self.cfg.checkpoint_wal_size_trigger_bytes,
+                ),
+                checkpoint_min_interval_ms=self.cfg.checkpoint_min_interval_s * 1_000,
+                retention_ms=self.cfg.raw_event_retention_hours * 3_600_000,
+                retention_chunk_rows=min(
+                    self.cfg.retention_chunk_size,
+                    self.cfg.maintenance_chunk_rows,
+                ),
+                retention_row_budget=self.cfg.maintenance_max_rows_per_pass,
+                retention_time_budget_ms=min(
+                    self.cfg.retention_time_budget_ms,
+                    max(1, int(
+                        self.cfg.maintenance_max_seconds_per_pass * 1_000
+                    )),
+                ),
+                raw_event_max_rows=self.cfg.raw_event_max_rows,
+                event_bucket_detail_retention_ms=min(
+                    self.cfg.raw_event_retention_hours * 3_600_000,
+                    15 * 60_000,
+                ),
+                metadata_retention_ms=(
+                    self.cfg.raw_event_retention_hours * 3_600_000
+                ),
+                metadata_max_rows=self.cfg.raw_event_max_rows,
+                journal_payload_retention_ms=(
+                    self.cfg.raw_event_retention_hours * 3_600_000
+                ),
+            )
+            result = await self.maintenance_worker.run_maintenance(
+                run_bounded_maintenance_pass,
+                snapshot=snapshot,
+                policy=policy,
+                timeout_s=self.cfg.maintenance_worker_timeout_s,
+                name="bounded_checkpoint_retention",
+            )
+            result_view = result.as_dict()
+            self._maintenance_result = dict(result_view)
+            self._last_maintenance_rows = int(result_view.get("rows_deleted") or 0)
+            checkpoint = result_view.get("checkpoint")
+            if isinstance(checkpoint, dict):
+                self._checkpoint_state = dict(checkpoint)
+                self._wal_size_cache = int(
+                    checkpoint.get("after_wal_bytes") or self._wal_size_cache
+                )
         except Exception as exc:  # noqa: BLE001 - maintenance must not crash market-data tasks
+            self._maintenance_result = {
+                "status": "FAILED",
+                "reason": "maintenance_worker_failure",
+                "failure_reason": f"{type(exc).__name__}:{exc}"[:200],
+            }
             self._last_error = f"maintenance:{type(exc).__name__}:{exc}"[:240]
         finally:
             self._last_maintenance_duration_ms = (time.monotonic() - started) * 1_000.0
@@ -2369,16 +3069,155 @@ class FrequencyV4Engine:
             index = min(len(ordered) - 1, int(0.95 * len(ordered)))
             self._loop_lag_p95_ms = ordered[index]
 
+    async def _restore_persistence_caches(self) -> None:
+        """Load committed lifecycle state through the owner read worker."""
+
+        if self.read_worker is None:
+            raise RuntimeError("read worker is not started")
+        entered, positions, management, resolutions = await asyncio.gather(
+            self.read_worker.query(
+                "SELECT entry_id,window_id FROM entries"
+            ),
+            self.read_worker.query(
+                """SELECT p.*,e.window_id,e.market_identity_id,e.gross_cost,
+                   e.estimated_fee,e.executable_vwap,e.entry_ts_ms,e.outcome_side
+                   FROM positions p JOIN entries e USING(entry_id)
+                   WHERE p.status='OPEN'"""
+            ),
+            self.read_worker.query(
+                """SELECT position_id,MAX(decision_seq)+1 AS next_seq,
+                   MAX(decision_ts_ms) AS last_ts
+                   FROM management_decisions GROUP BY position_id"""
+            ),
+            self.read_worker.query(
+                """SELECT r.entry_id,r.attempt_no,r.attempt_ts_ms
+                   FROM resolution_attempts r JOIN (
+                     SELECT entry_id,MAX(attempt_no) AS attempt_no
+                     FROM resolution_attempts GROUP BY entry_id
+                   ) latest ON latest.entry_id=r.entry_id
+                   AND latest.attempt_no=r.attempt_no"""
+            ),
+        )
+        self._entered_window_ids = {
+            int(row["window_id"]) for row in entered
+        }
+        self._position_cache = {
+            int(row["position_id"]): dict(row) for row in positions
+        }
+        self._open_position_windows = {
+            int(row["window_id"]) for row in positions
+        }
+        self._open_positions_count = len(positions)
+        self._management_seq = {
+            int(row["position_id"]): int(row.get("next_seq") or 0)
+            for row in management
+        }
+        self._management_last_ts = {
+            int(row["position_id"]): int(row.get("last_ts") or 0)
+            for row in management
+        }
+        self._resolution_state = {
+            int(row["entry_id"]): (
+                int(row["attempt_no"]), int(row["attempt_ts_ms"])
+            ) for row in resolutions
+        }
+
     async def start(self) -> None:
         if self._started:
             raise RuntimeError("Frequency V4 engine already started")
+        verified_ownership = getattr(
+            self.runtime, "verified_process_ownership", None
+        )
+        if not isinstance(verified_ownership, dict):
+            raise RuntimeError(
+                "Frequency V4 process ownership was not verified before DB startup"
+            )
+        self._process_ownership_cache = dict(verified_ownership)
         self._started = True
-        self._record_session()
-        self.runtime.publish(self._runtime_state("STARTING"))
-        # Dedicated read-only connection for off-loop reporting; the writer
-        # store has already created the database and enabled WAL by now.
-        self._readonly_store = V4ReadOnlyStore(
-            self.cfg.db_path, busy_timeout_ms=self.cfg.sqlite_busy_timeout_ms)
+        self.persistence = V4PersistenceWriter(
+            self.cfg.db_path,
+            queue_capacity=self.cfg.critical_queue_capacity,
+            busy_timeout_ms=self.cfg.sqlite_busy_timeout_ms,
+            sample_interval_s=self.cfg.writer_heartbeat_interval_ms / 1_000.0,
+            checkpoint_on_close=False,
+            current_launch_nonce=self.runtime.launch_nonce,
+            proven_absent_launch_nonces=(
+                getattr(self.runtime, "proven_absent_launch_nonces", ())
+            ),
+        )
+        # The writer opens/migrates SQLite on its dedicated thread. Waiting for
+        # startup uses one bounded isolated executor call before sockets start.
+        await asyncio.to_thread(
+            self.persistence.start, self.cfg.critical_command_timeout_s)
+        self.telemetry = V4TelemetryWriter(
+            self.persistence,
+            capacity=self.cfg.telemetry_queue_capacity,
+            batch_size=self.cfg.telemetry_batch_size,
+            flush_interval_s=self.cfg.telemetry_flush_interval_ms / 1_000.0,
+            coalescing_interval_s=(
+                self.cfg.telemetry_coalescing_interval_ms / 1_000.0),
+            submit_timeout_s=min(5.0, self.cfg.critical_command_timeout_s),
+            heartbeat_interval_s=(
+                self.cfg.writer_heartbeat_interval_ms / 1_000.0),
+        )
+        self.telemetry.start()
+        self.read_worker = V4ReadWorker(
+            self.cfg.db_path,
+            worker_name="lite-frequency-v4-operational-read-worker",
+            worker_kind="OPERATIONAL_READ",
+            queue_capacity=self.cfg.reporting_queue_capacity,
+            busy_timeout_ms=self.cfg.sqlite_busy_timeout_ms,
+            default_timeout_s=self.cfg.reporting_worker_timeout_s,
+        )
+        self.report_worker = V4ReadWorker(
+            self.cfg.db_path,
+            worker_name="lite-frequency-v4-report-read-worker",
+            worker_kind="READ_REPORT",
+            queue_capacity=self.cfg.reporting_queue_capacity,
+            busy_timeout_ms=self.cfg.sqlite_busy_timeout_ms,
+            default_timeout_s=self.cfg.reporting_worker_timeout_s,
+        )
+        self.maintenance_worker = V4MaintenanceWorker(
+            self.cfg.db_path,
+            queue_capacity=self.cfg.maintenance_queue_capacity,
+            busy_timeout_ms=self.cfg.sqlite_busy_timeout_ms,
+            default_timeout_s=self.cfg.maintenance_worker_timeout_s,
+            background_write_admission=(
+                self.persistence.try_acquire_background_write
+            ),
+            background_write_release=(
+                self.persistence.release_background_write
+            ),
+        )
+        self.runtime_io_worker = V4RuntimeIOWorker(
+            queue_capacity=max(8, self.cfg.reporting_queue_capacity),
+            default_timeout_s=10.0,
+        )
+        await asyncio.gather(
+            self.read_worker.start_async(
+                timeout_s=self.cfg.reporting_worker_timeout_s),
+            self.report_worker.start_async(
+                timeout_s=self.cfg.reporting_worker_timeout_s),
+            self.maintenance_worker.start_async(
+                timeout_s=self.cfg.maintenance_worker_timeout_s),
+            self.runtime_io_worker.start_async(timeout_s=10.0),
+        )
+        # Ownership is an execution invariant, not delayed telemetry.  Verify it
+        # before discovery or source startup can create an executable candidate.
+        await self._refresh_runtime_probe()
+        await self._record_session()
+        await self._restore_persistence_caches()
+        # Fail closed until this initial read-worker scan establishes a known
+        # integrity state. Sources still start when clean so recovery remains
+        # observable; executable candidates are gated by the result.
+        await self._run_integrity_check()
+        starting_state = self._runtime_state("STARTING")
+        self._last_published_state = await self.runtime_io_worker.run_io(
+            self.runtime.publish,
+            starting_state,
+            timeout_s=10.0,
+            name="runtime_publish_starting",
+        )
         await self.discover_once()
         await self.poly_ws.start()
         await self.okx.start()
@@ -2402,7 +3241,14 @@ class FrequencyV4Engine:
     async def run_until_stopped(self) -> None:
         await self.start()
         while not self._stopping.is_set():
-            if self.runtime.stop_requested():
+            stop_requested = False
+            if self.runtime_io_worker is not None:
+                stop_requested = bool(await self.runtime_io_worker.run_io(
+                    self.runtime.stop_requested,
+                    timeout_s=2.0,
+                    name="runtime_stop_requested",
+                ))
+            if stop_requested:
                 self._stopping.set()
                 break
             for task in tuple(self._tasks):
@@ -2417,86 +3263,155 @@ class FrequencyV4Engine:
                 pass
 
     async def stop(self, reason: str = "graceful_stop") -> None:
-        # 1. Stop accepting new executable evidence and mark shutting down.
+        if self._stop_complete:
+            return
         self._stopping.set()
-        try:
-            self.runtime.publish(self._runtime_state("STOPPING"))
-        except Exception as exc:  # noqa: BLE001 - shutdown telemetry is best-effort
-            self._last_error = f"stopping_publish:{type(exc).__name__}"[:240]
-        # 2. Close both sources so their WebSocket receive loops end; after this
-        #    no further observation/event can be enqueued.
-        await self.poly_ws.stop()
-        await self.okx.stop()
-        # 3. Give both ingestion consumers a bounded window to drain what is
-        #    already queued.  The consumer loops keep dequeuing while stopping
-        #    and exit only once their queue is empty, so join() returns as soon
-        #    as every queued item has been persisted.
         drain_timeout = float(self.cfg.shutdown_drain_timeout_s)
         try:
-            await asyncio.wait_for(
-                asyncio.gather(
-                    self._polymarket_ingest_queue.join(),
-                    self._cex_ingest_queue.join(),
-                ),
-                timeout=drain_timeout,
-            )
-            self._shutdown_drain_timed_out = False
-        except asyncio.TimeoutError:
-            self._shutdown_drain_timed_out = True
-        # 4. Account for anything still queued after the bounded window rather
-        #    than pretending it was persisted.  These are un-persisted raw
-        #    market-data observations/events only; trade evidence (entries,
-        #    positions, exits, resolutions) is written synchronously at decision
-        #    time and never flows through these queues.
-        self._polymarket_queue_discarded = self._polymarket_ingest_queue.qsize()
-        self._cex_queue_discarded = self._cex_ingest_queue.qsize()
-        if self._shutdown_drain_timed_out and (
-                self._polymarket_queue_discarded or self._cex_queue_discarded):
-            self._last_error = (
-                "shutdown_drain_timeout_discarded_"
-                f"poly{self._polymarket_queue_discarded}_"
-                f"cex{self._cex_queue_discarded}"
-            )
-        # 5. Let the off-loop reporting/maintenance workers finish their current
-        #    job and exit cleanly (they observe _stopping between jobs) before we
-        #    cancel anything, so the read-only connection is never closed while a
-        #    worker thread is still reading it.
-        reporting = [t for t in self._tasks
-                     if t.get_name() in {"v4-reporting", "v4-maintenance"}
-                     and not t.done()]
-        if reporting:
+            if self.runtime_io_worker is not None:
+                try:
+                    await self.runtime_io_worker.run_io(
+                        self.runtime.publish,
+                        self._runtime_state("STOPPING"),
+                        timeout_s=10.0,
+                        name="runtime_publish_stopping",
+                    )
+                except Exception as exc:
+                    self._last_error = (
+                        f"stopping_publish:{type(exc).__name__}:{exc}"
+                    )[:240]
+
+            # Stop producers first, then drain only already-admitted raw data.
+            await self.poly_ws.stop()
+            await self.okx.stop()
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*reporting, return_exceptions=True),
-                    timeout=max(drain_timeout, 8.0),
+                    asyncio.gather(
+                        self._polymarket_ingest_queue.join(),
+                        self._cex_ingest_queue.join(),
+                    ),
+                    timeout=drain_timeout,
                 )
+                self._shutdown_drain_timed_out = False
             except asyncio.TimeoutError:
-                self._last_error = "shutdown_reporting_drain_timeout"
-        # 6. Cancel consumers (now idle or timed out) and every other task.
-        for task in self._tasks:
-            if not task.done():
-                task.cancel()
-        for task in tuple(self._background_tasks):
-            if not task.done():
-                task.cancel()
-        pending = [*self._tasks, *tuple(self._background_tasks)]
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
-        self._background_tasks.clear()
-        if self._readonly_store is not None:
-            try:
-                self._readonly_store.close()
-            except Exception:  # noqa: BLE001 - best-effort on shutdown
-                pass
-        try:
+                self._shutdown_drain_timed_out = True
+            self._polymarket_queue_discarded = self._polymarket_ingest_queue.qsize()
+            self._cex_queue_discarded = self._cex_ingest_queue.qsize()
+            if self._shutdown_drain_timed_out and (
+                    self._polymarket_queue_discarded
+                    or self._cex_queue_discarded):
+                self._last_error = (
+                    "shutdown_drain_timeout_discarded_"
+                    f"poly{self._polymarket_queue_discarded}_"
+                    f"cex{self._cex_queue_discarded}"
+                )
+
+            for task in self._tasks:
+                if not task.done():
+                    task.cancel()
+            for task in tuple(self._background_tasks):
+                if not task.done():
+                    task.cancel()
+            pending = [*self._tasks, *tuple(self._background_tasks)]
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            self._background_tasks.clear()
+
             self._flush_event_counts()
-            runtime_state = self._runtime_state("STOPPED")
-            write_frequency_v4_dashboard(
-                self.store, self.export_path, now_ms=now_ms(),
-                config=self.cfg, runtime_state=runtime_state,
-                session_id=self.session_id,
-            )
+            if self.telemetry is not None:
+                drained = bool(await asyncio.to_thread(
+                    self.telemetry.stop,
+                    drain=True,
+                    timeout_s=max(drain_timeout, 10.0),
+                ))
+                self._telemetry_shutdown_ok = drained
+                if not drained:
+                    # Raw telemetry may be discarded, never critical trade
+                    # evidence.  A second bounded non-draining stop is allowed
+                    # solely to guarantee that its owner connection is closed
+                    # before final DB/export verification.
+                    forced = bool(await asyncio.to_thread(
+                        self.telemetry.stop,
+                        drain=False,
+                        timeout_s=max(drain_timeout, 10.0),
+                    ))
+                    self._last_error = "telemetry_shutdown_forced_after_drain_timeout"
+                    if not forced:
+                        self._critical_failure_reason = "telemetry_shutdown_timeout"
+                        raise V4PersistenceError(
+                            "telemetry owner thread did not stop before verification"
+                        )
+
+            if self.persistence is not None:
+                await self._critical_execute(
+                    "end_runtime_session",
+                    self.session_id,
+                    now_ms(),
+                    reason,
+                    ordering_key="global",
+                    idempotency_key=f"session-end:{self.session_id}",
+                    command_type="SESSION_TERMINAL",
+                    priority=0,
+                    terminal=True,
+                )
+
+            final_state = self._runtime_state("STOPPED")
+            if self.report_worker is not None:
+                try:
+                    await self.report_worker.run_report(
+                        write_frequency_v4_dashboard,
+                        self.export_path,
+                        timeout_s=self.cfg.reporting_worker_timeout_s,
+                        name="final_dashboard_export",
+                        now_ms=now_ms(),
+                        config=self.cfg,
+                        runtime_state=final_state,
+                        session_id=self.session_id,
+                        integrity=self._last_integrity or None,
+                    )
+                except Exception as exc:
+                    self._last_error = (
+                        f"final_export:{type(exc).__name__}:{exc}"
+                    )[:240]
+            if self.runtime_io_worker is not None:
+                try:
+                    self._last_published_state = await self.runtime_io_worker.run_io(
+                        self.runtime.publish,
+                        final_state,
+                        timeout_s=10.0,
+                        name="runtime_publish_stopped",
+                    )
+                except Exception as exc:
+                    self._last_error = (
+                        f"stopped_publish:{type(exc).__name__}:{exc}"
+                    )[:240]
         finally:
             await self.gamma.close()
             await self.clob.close()
-            self.store.end_runtime_session(self.session_id, now_ms(), reason)
+            for worker in (
+                self.maintenance_worker, self.report_worker, self.read_worker,
+            ):
+                if worker is not None:
+                    try:
+                        await worker.stop_async(timeout_s=max(drain_timeout, 10.0))
+                    except Exception as exc:
+                        self._last_error = (
+                            f"worker_stop:{type(exc).__name__}:{exc}"
+                        )[:240]
+            if self.persistence is not None:
+                try:
+                    await self.persistence.aclose(
+                        timeout_s=max(drain_timeout, 15.0))
+                except Exception as exc:
+                    self._last_error = (
+                        f"persistence_stop:{type(exc).__name__}:{exc}"
+                    )[:240]
+            if self.runtime_io_worker is not None:
+                try:
+                    await self.runtime_io_worker.stop_async(
+                        timeout_s=max(drain_timeout, 10.0))
+                except Exception as exc:
+                    self._last_error = (
+                        f"runtime_io_stop:{type(exc).__name__}:{exc}"
+                    )[:240]
+            self._stop_complete = True

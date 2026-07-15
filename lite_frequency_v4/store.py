@@ -6,7 +6,7 @@ All trading rows are shadow evidence; there is no order-placement surface.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, is_dataclass
 import hashlib
 import json
@@ -15,13 +15,14 @@ from pathlib import Path
 import re
 import sqlite3
 import threading
-from typing import Any, Iterable, Iterator, Mapping, Optional
+import time
+from typing import Any, Callable, Iterable, Iterator, Mapping, Optional
 
 
 STRATEGY_ID = "lite_frequency_v4"
 MODE = "lite_frequency_v4_shadow"
 FIXED_SHARES = 5.0
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SECRET_KEY_RE = re.compile(
     r"(?i)(private_key|api_secret|api_key|passphrase|password|bot_token|"
@@ -52,6 +53,10 @@ class ExposureLimitExceeded(V4StoreError):
     def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason
+
+
+class V4BackgroundWriteDeferred(V4StoreError):
+    """Raised when a critical-first gate declines a background write."""
 
 
 def _record(value: Any) -> dict[str, Any]:
@@ -94,6 +99,95 @@ def _canonical_hash(value: Any) -> str:
 def stable_idempotency_key(*parts: Any) -> str:
     """Stable, non-random idempotency key for persistent reservations."""
     return _canonical_hash(["lite-frequency-v4", *parts])
+
+
+PERSISTENCE_SCHEMA_V2_SQL = r"""
+CREATE TABLE IF NOT EXISTS persistence_commands (
+    persistence_command_id INTEGER PRIMARY KEY,
+    command_id TEXT NOT NULL UNIQUE,
+    command_type TEXT NOT NULL,
+    method TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    ordering_key TEXT NOT NULL,
+    priority INTEGER NOT NULL CHECK(priority >= 0),
+    terminal INTEGER NOT NULL DEFAULT 0 CHECK(terminal IN (0,1)),
+    associated_asset TEXT,
+    associated_window_id INTEGER,
+    associated_trade_id INTEGER,
+    payload_hash TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('SUBMITTED','EXECUTING','COMMITTED','FAILED')),
+    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+    submitted_ts_ms INTEGER NOT NULL CHECK(submitted_ts_ms >= 0),
+    started_ts_ms INTEGER,
+    committed_ts_ms INTEGER,
+    completed_ts_ms INTEGER,
+    worker_thread_id INTEGER CHECK(worker_thread_id IS NULL OR worker_thread_id > 0),
+    transaction_reference TEXT,
+    result_json TEXT,
+    error_type TEXT,
+    error TEXT,
+    CHECK(started_ts_ms IS NULL OR started_ts_ms >= submitted_ts_ms),
+    CHECK(committed_ts_ms IS NULL OR committed_ts_ms >= submitted_ts_ms),
+    CHECK(completed_ts_ms IS NULL OR completed_ts_ms >= submitted_ts_ms),
+    CHECK((status='COMMITTED' AND committed_ts_ms IS NOT NULL
+           AND error_type IS NULL AND error IS NULL)
+       OR status<>'COMMITTED'),
+    CHECK((status='FAILED' AND error_type IS NOT NULL AND completed_ts_ms IS NOT NULL)
+       OR status<>'FAILED')
+);
+
+CREATE TABLE IF NOT EXISTS persistence_worker_samples (
+    persistence_worker_sample_id INTEGER PRIMARY KEY,
+    sample_ts_ms INTEGER NOT NULL CHECK(sample_ts_ms >= 0),
+    worker_thread_id INTEGER NOT NULL CHECK(worker_thread_id > 0),
+    state TEXT NOT NULL,
+    queue_depth INTEGER NOT NULL CHECK(queue_depth >= 0),
+    queue_capacity INTEGER NOT NULL CHECK(queue_capacity > 0),
+    queue_high_water INTEGER NOT NULL CHECK(queue_high_water >= 0),
+    oldest_queue_age_ms INTEGER NOT NULL CHECK(oldest_queue_age_ms >= 0),
+    commands_submitted INTEGER NOT NULL CHECK(commands_submitted >= 0),
+    commands_committed INTEGER NOT NULL CHECK(commands_committed >= 0),
+    commands_failed INTEGER NOT NULL CHECK(commands_failed >= 0),
+    commands_retried INTEGER NOT NULL CHECK(commands_retried >= 0),
+    idempotent_replays INTEGER NOT NULL CHECK(idempotent_replays >= 0),
+    queue_full_count INTEGER NOT NULL CHECK(queue_full_count >= 0),
+    timeout_count INTEGER NOT NULL CHECK(timeout_count >= 0),
+    transactions_started INTEGER NOT NULL CHECK(transactions_started >= 0),
+    transactions_committed INTEGER NOT NULL CHECK(transactions_committed >= 0),
+    transactions_rolled_back INTEGER NOT NULL CHECK(transactions_rolled_back >= 0),
+    last_commit_ts_ms INTEGER,
+    last_error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS checkpoint_runs (
+    checkpoint_run_id INTEGER PRIMARY KEY,
+    started_ts_ms INTEGER NOT NULL CHECK(started_ts_ms >= 0),
+    completed_ts_ms INTEGER NOT NULL CHECK(completed_ts_ms >= started_ts_ms),
+    mode TEXT NOT NULL CHECK(mode IN ('PASSIVE','FULL','RESTART','TRUNCATE')),
+    reason TEXT NOT NULL,
+    before_wal_bytes INTEGER NOT NULL CHECK(before_wal_bytes >= 0),
+    after_wal_bytes INTEGER NOT NULL CHECK(after_wal_bytes >= 0),
+    duration_ms REAL NOT NULL CHECK(duration_ms >= 0),
+    busy_result INTEGER,
+    frames_total INTEGER,
+    frames_checkpointed INTEGER,
+    database_bytes INTEGER NOT NULL DEFAULT 0 CHECK(database_bytes >= 0),
+    success INTEGER NOT NULL CHECK(success IN (0,1)),
+    failure_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS ix_persistence_commands_state_time
+    ON persistence_commands(status,completed_ts_ms,command_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_persistence_commands_idempotency
+    ON persistence_commands(idempotency_key);
+CREATE INDEX IF NOT EXISTS ix_persistence_commands_ordering
+    ON persistence_commands(ordering_key,persistence_command_id);
+CREATE INDEX IF NOT EXISTS ix_persistence_worker_samples_time
+    ON persistence_worker_samples(sample_ts_ms);
+CREATE INDEX IF NOT EXISTS ix_checkpoint_runs_time
+    ON checkpoint_runs(started_ts_ms);
+"""
 
 
 SCHEMA_SQL = r"""
@@ -750,42 +844,81 @@ CREATE INDEX ix_pnl_terminal ON pnl_records(terminal_ts_ms,verified);
 CREATE INDEX ix_rejects_time ON reject_events(reject_ts_ms,taxonomy,reason);
 CREATE INDEX ix_source_health_latest ON source_health(source,channel,sample_ts_ms);
 CREATE INDEX ix_runtime_health_latest ON runtime_health(session_id,sample_ts_ms);
-"""
+""" + PERSISTENCE_SCHEMA_V2_SQL
 
 
 EXPECTED_TABLES = frozenset(
-    line.split()[2]
-    for line in SCHEMA_SQL.splitlines()
-    if line.startswith("CREATE TABLE ")
+    match.group(1) for match in re.finditer(
+        r"^CREATE TABLE(?: IF NOT EXISTS)? ([a-z_][a-z0-9_]*)",
+        SCHEMA_SQL, flags=re.MULTILINE,
+    )
 )
 
 
 class V4Store:
-    """Thread-safe V4 SQLite store with explicit atomic transactions."""
+    """V4 SQLite store with explicit and nestable atomic transactions.
 
-    def __init__(self, db_path: str | Path, *, busy_timeout_ms: int = 10_000):
+    ``enforce_thread_ownership`` defaults to true.  A competing operation must
+    construct and close its own store on the worker thread that uses it; a
+    connection is never transferable between threads.
+    """
+
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        busy_timeout_ms: int = 10_000,
+        enforce_thread_ownership: bool = True,
+        background_write_admission: Optional[Callable[[], bool]] = None,
+        background_write_release: Optional[Callable[[], None]] = None,
+    ):
         if isinstance(busy_timeout_ms, bool) or not isinstance(busy_timeout_ms, int):
             raise ValueError("busy_timeout_ms must be an integer")
         if busy_timeout_ms < 100 or busy_timeout_ms > 120_000:
             raise ValueError("busy_timeout_ms must be within [100, 120000] ms")
         self.busy_timeout_ms = int(busy_timeout_ms)
+        if type(enforce_thread_ownership) is not bool:
+            raise ValueError("enforce_thread_ownership must be a strict boolean")
+        if (background_write_admission is None) != (background_write_release is None):
+            raise ValueError("background write gate requires admission and release")
+        if (background_write_admission is not None
+                and (not callable(background_write_admission)
+                     or not callable(background_write_release))):
+            raise ValueError("background write gate callbacks must be callable")
         self.path = Path(db_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._closed = False
+        self._enforce_thread_ownership = enforce_thread_ownership
+        self._owner_thread_id = threading.get_ident()
+        self._transaction_depth = 0
+        self._transaction_owner_thread_id: Optional[int] = None
+        self._transaction_rollback_only = False
+        self._transaction_counters = {
+            "started": 0,
+            "committed": 0,
+            "rolled_back": 0,
+            "nested": 0,
+        }
+        self._retention_action_index = 0
+        self._background_write_admission = background_write_admission
+        self._background_write_release = background_write_release
+        self._background_gate_depth = 0
         # The SQLite C-level busy timeout and the Python connect timeout are
         # derived from one configured value so a slow/contended writer waits a
         # bounded, operator-controlled interval rather than a hardcoded literal.
         self._conn = sqlite3.connect(
             str(self.path), timeout=self.busy_timeout_ms / 1000.0,
-            check_same_thread=False, isolation_level=None,
+            check_same_thread=enforce_thread_ownership, isolation_level=None,
         )
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.execute("PRAGMA synchronous=NORMAL")
-            self._conn.execute("PRAGMA wal_autocheckpoint=1000")
+            # Only the dedicated persistence owner may decide when a checkpoint
+            # is safe.  SQLite must never checkpoint implicitly on a hot path.
+            self._conn.execute("PRAGMA wal_autocheckpoint=0")
             self._conn.execute("PRAGMA journal_size_limit=67108864")
             journal = str(self._conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]).lower()
             if journal != "wal":
@@ -812,18 +945,74 @@ class V4Store:
         "ON candidate_book_evidence(book_snapshot_id)",
         "CREATE INDEX IF NOT EXISTS ix_candidates_trigger_source "
         "ON candidates(trigger_source_event_id)",
+        "CREATE INDEX IF NOT EXISTS ix_candidates_retention "
+        "ON candidates(evaluation_ts_ms,candidate_id)",
+        "CREATE INDEX IF NOT EXISTS ix_retention_runs_time "
+        "ON retention_runs(started_ts_ms,retention_run_id)",
+        "CREATE INDEX IF NOT EXISTS ix_maker_observations_candidate "
+        "ON maker_observations(candidate_id,maker_observation_id)",
+        "CREATE INDEX IF NOT EXISTS ix_rejects_candidate "
+        "ON reject_events(candidate_id,reject_event_id)",
+        "CREATE INDEX IF NOT EXISTS ix_latency_candidate "
+        "ON latency_metrics(candidate_id,latency_metric_id)",
     )
 
     def _ensure_performance_indexes(self) -> None:
+        self._assert_owner()
         with self._lock:
             for statement in self._PERFORMANCE_INDEXES:
                 self._conn.execute(statement)
 
     @property
     def connection(self) -> sqlite3.Connection:
+        self._assert_owner()
         return self._conn
 
+    @property
+    def owner_thread_id(self) -> int:
+        return int(self._owner_thread_id)
+
+    @property
+    def transaction_counters(self) -> dict[str, int]:
+        with self._lock:
+            return dict(self._transaction_counters)
+
+    def _assert_owner(self) -> None:
+        if self._closed:
+            raise V4StoreError("V4 store is closed")
+        if (self._enforce_thread_ownership
+                and threading.get_ident() != self._owner_thread_id):
+            raise V4StoreError(
+                "V4 writable connection used outside its owner thread")
+
+    @staticmethod
+    def _migration_statements(sql: str) -> Iterator[str]:
+        for statement in sql.split(";"):
+            cleaned = statement.strip()
+            if cleaned:
+                yield cleaned
+
+    def _apply_migration_v2(self) -> None:
+        """Apply the additive V1 -> V2 persistence schema migration atomically."""
+
+        applied = int(time.time() * 1_000)
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            for statement in self._migration_statements(PERSISTENCE_SCHEMA_V2_SQL):
+                self._conn.execute(statement)
+            self._conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version,applied_ts_ms,schema_hash) "
+                "VALUES(?,?,?)",
+                (2, applied, _canonical_hash(PERSISTENCE_SCHEMA_V2_SQL)),
+            )
+            self._conn.execute("PRAGMA user_version=2")
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+
     def _initialize_fresh_schema(self) -> None:
+        self._assert_owner()
         tables = {
             str(row[0]) for row in self._conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
@@ -845,6 +1034,15 @@ class V4Store:
                 "SELECT MAX(version) FROM schema_migrations"
             ).fetchone()
             version = int(row[0]) if row and row[0] is not None else 0
+            if version == 1:
+                self._apply_migration_v2()
+                tables = {
+                    str(found[0]) for found in self._conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' "
+                        "AND name NOT LIKE 'sqlite_%'"
+                    ).fetchall()
+                }
+                version = 2
             if version != SCHEMA_VERSION:
                 raise V4SchemaError(
                     f"unsupported v4 schema version {version}; expected {SCHEMA_VERSION}"
@@ -855,20 +1053,71 @@ class V4Store:
 
     @contextmanager
     def transaction(self, *, immediate: bool = False) -> Iterator[sqlite3.Connection]:
+        self._assert_owner()
         with self._lock:
-            try:
-                self._conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
-                yield self._conn
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-                raise
+            thread_id = threading.get_ident()
+            outer = self._transaction_depth == 0
+            gate = self._background_write_gate() if outer else nullcontext()
+            with gate:
+                if outer:
+                    self._conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+                    self._transaction_depth = 1
+                    self._transaction_owner_thread_id = thread_id
+                    self._transaction_rollback_only = False
+                    self._transaction_counters["started"] += 1
+                else:
+                    if self._transaction_owner_thread_id != thread_id:
+                        raise V4StoreError("nested transaction changed owner thread")
+                    self._transaction_depth += 1
+                    self._transaction_counters["nested"] += 1
+                try:
+                    yield self._conn
+                    if outer:
+                        if self._transaction_rollback_only:
+                            raise V4StoreError(
+                                "nested transaction marked outer transaction rollback-only")
+                        self._conn.commit()
+                        self._transaction_counters["committed"] += 1
+                except Exception:
+                    if outer:
+                        self._conn.rollback()
+                        self._transaction_counters["rolled_back"] += 1
+                    else:
+                        self._transaction_rollback_only = True
+                    raise
+                finally:
+                    self._transaction_depth -= 1
+                    if outer:
+                        self._transaction_depth = 0
+                        self._transaction_owner_thread_id = None
+                        self._transaction_rollback_only = False
+
+    @contextmanager
+    def _background_write_gate(self) -> Iterator[None]:
+        admission = self._background_write_admission
+        release = self._background_write_release
+        if admission is None or self._background_gate_depth > 0:
+            yield
+            return
+        admitted = bool(admission())
+        if not admitted:
+            raise V4BackgroundWriteDeferred(
+                "background write deferred while critical persistence is pending")
+        self._background_gate_depth = 1
+        try:
+            yield
+        finally:
+            self._background_gate_depth = 0
+            assert release is not None
+            release()
 
     def query(self, sql: str, params: Iterable[Any] = ()) -> list[dict[str, Any]]:
+        self._assert_owner()
         with self._lock:
             return [dict(row) for row in self._conn.execute(sql, tuple(params)).fetchall()]
 
     def query_one(self, sql: str, params: Iterable[Any] = ()) -> Optional[dict[str, Any]]:
+        self._assert_owner()
         with self._lock:
             row = self._conn.execute(sql, tuple(params)).fetchone()
         return dict(row) if row is not None else None
@@ -1116,6 +1365,7 @@ class V4Store:
         sequence_contiguous: Optional[bool] = None,
         count_in_bucket: bool = True,
         admitted_at_receipt: bool = False,
+        reference_only: bool = False,
     ) -> dict[str, Any]:
         row = self._safe_payload(value)
         if session_id is not None:
@@ -1134,8 +1384,13 @@ class V4Store:
             raise ValueError("count_in_bucket must be a strict boolean")
         if type(admitted_at_receipt) is not bool:
             raise ValueError("admitted_at_receipt must be a strict boolean")
+        if type(reference_only) is not bool:
+            raise ValueError("reference_only must be a strict boolean")
+        if reference_only and count_in_bucket:
+            raise ValueError("reference-only evidence must already be bucket-counted")
         if admitted_at_receipt and count_in_bucket:
             raise ValueError("late admitted evidence must already be bucket-counted")
+        admitted_at_receipt = admitted_at_receipt or reference_only
         event_key = row.pop("event_key", None)
         if "receipt_monotonic_ns" in row:
             row.setdefault("monotonic_ns", row.pop("receipt_monotonic_ns"))
@@ -1198,7 +1453,8 @@ class V4Store:
                 if "UNIQUE constraint failed: source_events" not in str(exc):
                     raise
                 existing = conn.execute(
-                    """SELECT source_event_id FROM source_events
+                    """SELECT source_event_id,classification,accepted,invalid_reason
+                       FROM source_events
                        WHERE session_id=? AND source=? AND channel=?
                        AND connection_epoch=? AND dedupe_key=?""",
                     (str(row["session_id"]), str(row["source"]), str(row["channel"]),
@@ -1207,14 +1463,20 @@ class V4Store:
                 if existing is None:
                     raise
                 event_id = int(existing[0])
-                inserted, duplicate = False, True
-                conn.execute(
-                    """UPDATE source_events SET duplicate_count=duplicate_count+1,
-                       last_duplicate_receipt_ts_ms=MAX(COALESCE(last_duplicate_receipt_ts_ms,0),?)
-                       WHERE source_event_id=?""",
-                    (receipt_ts, event_id),
-                )
-                classification = "DUPLICATE"
+                inserted, duplicate = False, not reference_only
+                if reference_only:
+                    classification = str(existing[1])
+                    accepted = bool(existing[2])
+                    invalid_reason = existing[3]
+                else:
+                    conn.execute(
+                        """UPDATE source_events SET duplicate_count=duplicate_count+1,
+                           last_duplicate_receipt_ts_ms=MAX(
+                             COALESCE(last_duplicate_receipt_ts_ms,0),?)
+                           WHERE source_event_id=?""",
+                        (receipt_ts, event_id),
+                    )
+                    classification = "DUPLICATE"
             if count_in_bucket:
                 self._record_event_bucket(
                     conn, receipt_ts_ms=receipt_ts, source=str(row["source"]),
@@ -1238,10 +1500,12 @@ class V4Store:
                 )
         return {
             "source_event_id": event_id, "inserted": inserted,
-            "duplicate": duplicate, "accepted": bool(accepted and inserted),
+            "duplicate": duplicate,
+            "accepted": bool(accepted and (inserted or reference_only)),
             "classification": classification, "invalid_reason": invalid_reason,
             "sequence_contiguous": contiguous,
             "admitted_at_receipt": admitted_at_receipt,
+            "reference_only": reference_only,
         }
 
     def record_book_snapshot(self, value: Any) -> int:
@@ -1255,7 +1519,10 @@ class V4Store:
 
     def record_cex_observation(
         self, value: Any, *, session_id: Optional[str] = None,
+        already_validated_at_receipt: bool = False,
     ) -> dict[str, Any]:
+        if type(already_validated_at_receipt) is not bool:
+            raise ValueError("already_validated_at_receipt must be a strict boolean")
         row = self._safe_payload(value)
         if session_id is not None:
             if row.get("session_id") not in (None, str(session_id)):
@@ -1282,27 +1549,34 @@ class V4Store:
         row["unchanged"] = int(bool(row.get("unchanged", False)))
         row.setdefault("retention_class", "RAW")
         with self.transaction(immediate=True) as conn:
-            prior = conn.execute(
-                """SELECT price,bid,ask,provider_ts_ms,receipt_ts_ms
-                   FROM cex_observations WHERE session_id=? AND provider=? AND instrument=?
-                   ORDER BY provider_ts_ms DESC,cex_observation_id DESC LIMIT 1""",
-                (str(row["session_id"]), str(row["provider"]), str(row["instrument"])),
-            ).fetchone()
+            prior = None
+            if not already_validated_at_receipt:
+                prior = conn.execute(
+                    """SELECT price,bid,ask,provider_ts_ms,receipt_ts_ms
+                       FROM cex_observations WHERE session_id=? AND provider=? AND instrument=?
+                       ORDER BY provider_ts_ms DESC,cex_observation_id DESC LIMIT 1""",
+                    (str(row["session_id"]), str(row["provider"]),
+                     str(row["instrument"])),
+                ).fetchone()
             classification = str(row.get("classification") or "NEW_TICK")
             invalid_reason = row.get("invalid_reason")
             if int(row["provider_ts_ms"]) > int(row["receipt_ts_ms"]):
                 classification, invalid_reason = "INVALID", "future_provider_timestamp"
-            elif prior is not None and int(row["provider_ts_ms"]) < int(prior[3]):
+            elif (not already_validated_at_receipt and prior is not None
+                  and int(row["provider_ts_ms"]) < int(prior[3])):
                 classification, invalid_reason = "INVALID", "regressed_provider_timestamp"
-            elif bool(row["unchanged"]) or (
+            elif not already_validated_at_receipt and (bool(row["unchanged"]) or (
                 prior is not None and all(
                     row.get(key) == prior[index]
                     for index, key in enumerate(("price", "bid", "ask"))
                 )
-            ):
+            )):
                 classification = "NO_NEW_TICK"
+            if classification not in {"NEW_TICK", "NO_NEW_TICK", "INVALID"}:
+                raise ValueError("invalid CEX observation classification")
             row["classification"] = classification
-            row["fresh"] = int(classification != "INVALID" and bool(row.get("fresh", True)))
+            row["fresh"] = int(
+                classification != "INVALID" and bool(row.get("fresh", True)))
             row["invalid_reason"] = invalid_reason
             try:
                 observation_id = self._insert("cex_observations", row, conn=conn)
@@ -1311,15 +1585,19 @@ class V4Store:
                 if "UNIQUE constraint failed: cex_observations" not in str(exc):
                     raise
                 existing = conn.execute(
-                    """SELECT cex_observation_id,classification FROM cex_observations
+                    """SELECT cex_observation_id,classification,fresh
+                       FROM cex_observations
                        WHERE session_id=? AND provider=? AND instrument=?
                        AND connection_epoch=? AND event_id=?""",
                     (str(row["session_id"]), str(row["provider"]), str(row["instrument"]),
                      int(row["connection_epoch"]), str(row["event_id"])),
                 ).fetchone()
-                observation_id, classification, inserted = int(existing[0]), str(existing[1]), False
+                observation_id = int(existing[0])
+                classification = str(existing[1])
+                row["fresh"] = int(existing[2])
+                inserted = False
         return {"cex_observation_id": observation_id, "inserted": inserted,
-                "classification": classification, "fresh": classification != "INVALID"}
+                "classification": classification, "fresh": bool(row["fresh"])}
 
     def record_candidate(self, value: Any) -> int:
         row = self._safe_payload(value)
@@ -1811,18 +2089,575 @@ class V4Store:
         with self.transaction() as conn:
             return self._insert("runtime_health", value, conn=conn)
 
+    def record_persistence_worker_sample(self, value: Any) -> int:
+        with self.transaction() as conn:
+            return self._insert("persistence_worker_samples", value, conn=conn)
+
     def record_compounding_preview(self, value: Any) -> int:
         row = self._safe_payload(value)
         row["influences_sizing"] = 0
         with self.transaction(immediate=True) as conn:
             return self._insert("compounding_preview", row, conn=conn)
 
-    def latest_source_health(self) -> list[dict[str, Any]]:
+    @staticmethod
+    def _bundle(value: Optional[Mapping[str, Any]], parts: Mapping[str, Any]) -> dict[str, Any]:
+        result = dict(value or {})
+        result.update(parts)
+        return result
+
+    @staticmethod
+    def _wrapped_row(value: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        wrapper = dict(value) if isinstance(value, Mapping) else {"value": value}
+        if "value" in wrapper:
+            row = _record(wrapper.pop("value"))
+            return row, wrapper
+        return dict(wrapper), {}
+
+    def persist_market_bundle(
+        self, value: Optional[Mapping[str, Any]] = None, **parts: Any,
+    ) -> dict[str, Any]:
+        """Atomically upsert one market, identity, exact window and metadata.
+
+        Bundle keys are ``market``, ``identity``, ``window`` and optional
+        ``link``, ``anchor`` and ``funnel``.  ``funnel`` accepts either
+        ``{"now_ms": ..., "changes": {...}}`` or fields plus ``updated_ts_ms``.
+        """
+
+        bundle = self._safe_payload(self._bundle(value, parts))
+        for required in ("market", "identity", "window"):
+            if required not in bundle:
+                raise ValueError(f"market bundle missing {required}")
+        with self.transaction(immediate=True) as conn:
+            market_id = self.upsert_market(bundle["market"])
+            identity = self._safe_payload(bundle["identity"])
+            identity["market_id"] = market_id
+            identity.setdefault("identity_fingerprint", stable_idempotency_key(
+                identity.get("market_id"), identity.get("event_id"),
+                identity.get("condition_id"), identity.get("yes_token_id"),
+                identity.get("no_token_id"),
+            ))
+            found = conn.execute(
+                "SELECT * FROM market_identities WHERE identity_fingerprint=?",
+                (str(identity["identity_fingerprint"]),),
+            ).fetchone()
+            if found is None:
+                market_identity_id = self.record_market_identity(identity)
+            else:
+                found_row = dict(found)
+                for name in ("market_id", "event_id", "condition_id",
+                             "yes_token_id", "no_token_id"):
+                    if str(found_row[name]) != str(identity[name]):
+                        raise V4StoreError("market identity fingerprint conflict")
+                market_identity_id = int(found_row["market_identity_id"])
+
+            window_id = self.ensure_asset_window(bundle["window"])
+            link_idempotent = False
+            if bundle.get("link") is not None:
+                link = self._safe_payload(bundle["link"])
+                link.update({
+                    "window_id": window_id,
+                    "market_identity_id": market_identity_id,
+                })
+                existing_link = conn.execute(
+                    "SELECT * FROM window_market_links WHERE window_id=? AND market_identity_id=?",
+                    (window_id, market_identity_id),
+                ).fetchone()
+                if existing_link is None:
+                    self.link_window_market(link)
+                else:
+                    link_idempotent = True
+
+            anchor_id: Optional[int] = None
+            if bundle.get("anchor") is not None:
+                anchor = self._safe_payload(bundle["anchor"])
+                anchor["market_identity_id"] = market_identity_id
+                existing_anchor = conn.execute(
+                    """SELECT anchor_observation_id FROM anchor_observations
+                       WHERE market_identity_id=? AND status=?
+                       AND price_to_beat IS ? AND source_field IS ?
+                       AND parse_error IS ? AND provider_ts_ms IS ? AND receipt_ts_ms=?""",
+                    (market_identity_id, anchor.get("status"), anchor.get("price_to_beat"),
+                     anchor.get("source_field"), anchor.get("parse_error"),
+                     anchor.get("provider_ts_ms"), int(anchor["receipt_ts_ms"])),
+                ).fetchone()
+                anchor_id = (int(existing_anchor[0]) if existing_anchor is not None
+                             else self.record_anchor_observation(anchor))
+
+            if bundle.get("funnel") is not None:
+                funnel = self._safe_payload(bundle["funnel"])
+                changes = dict(funnel.pop("changes", funnel))
+                now_value = int(funnel.get("now_ms", changes.pop(
+                    "now_ms", changes.pop("updated_ts_ms", 0))))
+                if now_value <= 0:
+                    raise ValueError("market bundle funnel requires now_ms")
+                self.update_window_funnel(window_id, now_value, **changes)
+        return {
+            "market_id": market_id, "market_identity_id": market_identity_id,
+            "window_id": window_id, "anchor_observation_id": anchor_id,
+            "link_idempotent": link_idempotent,
+        }
+
+    def _record_book_snapshot_idempotent(self, value: Any) -> int:
+        row = self._safe_payload(value)
+        row.setdefault("state_hash", _canonical_hash({
+            key: row.get(key) for key in (
+                "token_id", "bids_json", "asks_json", "best_bid", "best_ask")
+        }))
+        found = self.query_one(
+            """SELECT book_snapshot_id FROM book_snapshots
+               WHERE market_identity_id=? AND token_id=? AND state_hash=?
+               AND receipt_ts_ms=?""",
+            (row["market_identity_id"], row["token_id"], row["state_hash"],
+             row["receipt_ts_ms"]),
+        )
+        return (int(found["book_snapshot_id"]) if found is not None
+                else self.record_book_snapshot(row))
+
+    def persist_evaluation_bundle(
+        self, value: Optional[Mapping[str, Any]] = None, **parts: Any,
+    ) -> dict[str, Any]:
+        """Persist a complete candidate evidence graph in one transaction.
+
+        Supported keys: ``source_event`` (optional wrapper with ``value`` and
+        ``kwargs``), ``books``, ``cex`` (observation wrappers), ``candidate``,
+        ``candidate_book_links``, ``candidate_cex_links``, ``models``,
+        ``fair_value`` (``calculation`` and ``sides``), ``decision``, optional
+        ``latency`` and ``funnel``.
+        """
+
+        bundle = self._safe_payload(self._bundle(value, parts))
+        for required in ("candidate", "fair_value", "decision"):
+            if required not in bundle:
+                raise ValueError(f"evaluation bundle missing {required}")
+        with self.transaction(immediate=True) as conn:
+            source_event_id: Optional[int] = None
+            if bundle.get("source_event") is not None:
+                source_row, source_meta = self._wrapped_row(bundle["source_event"])
+                source_kwargs = dict(source_meta.get("kwargs") or {})
+                source_kwargs.update({
+                    "reference_only": True,
+                    "count_in_bucket": False,
+                    "admitted_at_receipt": True,
+                })
+                source_result = self.record_source_event(
+                    source_row, **source_kwargs)
+                source_event_id = int(source_result["source_event_id"])
+
+            book_ids: list[int] = []
+            book_meta: list[dict[str, Any]] = []
+            for raw_book in bundle.get("books") or ():
+                book, meta = self._wrapped_row(raw_book)
+                # A candidate trigger is not necessarily the event that
+                # produced either book. Never misattribute a CEX or opposite-
+                # side trigger as the snapshot's Polymarket source evidence.
+                # Callers may supply an exact per-book source_event_id; absent
+                # that evidence, NULL is the only honest value.
+                book_ids.append(self._record_book_snapshot_idempotent(book))
+                book_meta.append(meta)
+
+            cex_ids: list[int] = []
+            cex_meta: list[dict[str, Any]] = []
+            cex_source_ids: list[Optional[int]] = []
+            for raw_cex in bundle.get("cex") or ():
+                observation, meta = self._wrapped_row(raw_cex)
+                cex_source_id: Optional[int] = None
+                if meta.get("source_event") is not None:
+                    cex_source, cex_source_meta = self._wrapped_row(meta["source_event"])
+                    cex_source_kwargs = dict(cex_source_meta.get("kwargs") or {})
+                    cex_source_kwargs.update({
+                        "reference_only": True,
+                        "count_in_bucket": False,
+                        "admitted_at_receipt": True,
+                    })
+                    source_result = self.record_source_event(
+                        cex_source, **cex_source_kwargs)
+                    cex_source_id = int(source_result["source_event_id"])
+                    observation.setdefault("source_event_id", cex_source_id)
+                result = self.record_cex_observation(
+                    observation, **dict(meta.get("kwargs") or {}))
+                cex_ids.append(int(result["cex_observation_id"]))
+                cex_source_ids.append(cex_source_id)
+                cex_meta.append(meta)
+
+            candidate = self._safe_payload(bundle["candidate"])
+            if source_event_id is not None:
+                candidate.setdefault("trigger_source_event_id", source_event_id)
+            candidate_id = self.record_candidate(candidate)
+
+            explicit_book_links = list(bundle.get("candidate_book_links") or ())
+            if not explicit_book_links:
+                explicit_book_links = [
+                    {
+                        "book_index": index,
+                        "side": meta.get("side", meta.get("outcome_side",
+                                 self.query_one(
+                                     "SELECT outcome_side FROM book_snapshots WHERE book_snapshot_id=?",
+                                     (book_id,),
+                                 )["outcome_side"])),
+                        "evidence_age_ms": int(meta.get("evidence_age_ms") or 0),
+                    }
+                    for index, (book_id, meta) in enumerate(zip(book_ids, book_meta))
+                ]
+            for raw_link in explicit_book_links:
+                link = dict(raw_link)
+                index = int(link.pop("book_index"))
+                self.link_candidate_book(
+                    candidate_id, str(link.pop("side", link.pop("outcome_side", ""))),
+                    book_ids[index], int(link.pop("evidence_age_ms", 0)))
+                if link:
+                    raise ValueError(f"unsupported candidate book link fields: {sorted(link)}")
+
+            explicit_cex_links = list(bundle.get("candidate_cex_links") or ())
+            if not explicit_cex_links:
+                explicit_cex_links = [
+                    {"cex_index": index, "role": meta.get("role", "POINT_IN_TIME_FEATURE"),
+                     "horizon_ms": int(meta.get("horizon_ms") or 0),
+                     "evidence_age_ms": int(meta.get("evidence_age_ms") or 0)}
+                    for index, meta in enumerate(cex_meta)
+                ]
+            for raw_link in explicit_cex_links:
+                link = dict(raw_link)
+                index = int(link.pop("cex_index"))
+                self.link_candidate_cex(
+                    candidate_id, cex_ids[index],
+                    str(link.pop("role", link.pop("evidence_role", "POINT_IN_TIME_FEATURE"))),
+                    int(link.pop("horizon_ms", 0)),
+                    int(link.pop("evidence_age_ms", 0)))
+                if link:
+                    raise ValueError(f"unsupported candidate CEX link fields: {sorted(link)}")
+
+            model_ids: list[int] = []
+            for raw_model in bundle.get("models") or ():
+                model = self._safe_payload(raw_model)
+                model["candidate_id"] = candidate_id
+                existing_model = conn.execute(
+                    "SELECT model_contribution_id FROM model_contributions "
+                    "WHERE candidate_id=? AND model_name=?",
+                    (candidate_id, str(model["model_name"])),
+                ).fetchone()
+                model_ids.append(int(existing_model[0]) if existing_model is not None
+                                 else self.record_model_contribution(model))
+
+            fair_spec = dict(bundle["fair_value"])
+            calculation = self._safe_payload(fair_spec.get("calculation") or {})
+            calculation["candidate_id"] = candidate_id
+            sides: list[dict[str, Any]] = []
+            for raw_side in fair_spec.get("sides") or ():
+                side, meta = self._wrapped_row(raw_side)
+                if meta.get("book_index") is not None:
+                    side["book_snapshot_id"] = book_ids[int(meta["book_index"])]
+                sides.append(side)
+            existing_fair = conn.execute(
+                """SELECT fair_value_calculation_id FROM fair_value_calculations
+                   WHERE candidate_id=? AND phase=? AND calculation_seq=?""",
+                (candidate_id, str(calculation["phase"]),
+                 int(calculation.get("calculation_seq") or 0)),
+            ).fetchone()
+            if existing_fair is None:
+                fair_id = self.record_fair_value(calculation, sides)
+            else:
+                fair_id = int(existing_fair[0])
+                existing_sides = {
+                    str(row[0]) for row in conn.execute(
+                        "SELECT outcome_side FROM fair_value_sides "
+                        "WHERE fair_value_calculation_id=?", (fair_id,)).fetchall()
+                }
+                for side in sides:
+                    if str(side["outcome_side"]) not in existing_sides:
+                        side = dict(side)
+                        side["fair_value_calculation_id"] = fair_id
+                        self._insert("fair_value_sides", side, conn=conn)
+
+            decision = self._safe_payload(bundle["decision"])
+            decision.update({
+                "candidate_id": candidate_id,
+                "fair_value_calculation_id": fair_id,
+            })
+            existing_decision = conn.execute(
+                "SELECT decision_id FROM decisions WHERE candidate_id=? AND decision_seq=?",
+                (candidate_id, int(decision.get("decision_seq") or 0)),
+            ).fetchone()
+            decision_id = (int(existing_decision[0]) if existing_decision is not None
+                           else self.record_decision(decision))
+
+            latency_id: Optional[int] = None
+            if bundle.get("latency") is not None:
+                latency = self._safe_payload(bundle["latency"])
+                latency.setdefault("candidate_id", candidate_id)
+                if source_event_id is not None:
+                    latency.setdefault("source_event_id", source_event_id)
+                existing_latency = conn.execute(
+                    """SELECT latency_metric_id FROM latency_metrics
+                       WHERE candidate_id=? AND stage=? AND measured_ts_ms=?
+                       AND completed_ts_ms IS ?""",
+                    (candidate_id, str(latency["stage"]), int(latency["measured_ts_ms"]),
+                     latency.get("completed_ts_ms")),
+                ).fetchone()
+                latency_id = (int(existing_latency[0]) if existing_latency is not None
+                              else self.record_latency(latency))
+
+            if bundle.get("funnel") is not None:
+                funnel = self._safe_payload(bundle["funnel"])
+                window_id = int(funnel.pop("window_id", candidate["window_id"]))
+                changes = dict(funnel.pop("changes", funnel))
+                now_value = int(funnel.get("now_ms", changes.pop(
+                    "now_ms", changes.pop("updated_ts_ms", 0))))
+                if now_value <= 0:
+                    raise ValueError("evaluation bundle funnel requires now_ms")
+                self.update_window_funnel(window_id, now_value, **changes)
+        return {
+            "source_event_id": source_event_id,
+            "book_snapshot_ids": book_ids,
+            "cex_source_event_ids": cex_source_ids,
+            "cex_observation_ids": cex_ids,
+            "candidate_id": candidate_id,
+            "model_contribution_ids": model_ids,
+            "fair_value_calculation_id": fair_id,
+            "decision_id": decision_id,
+            "latency_metric_id": latency_id,
+        }
+
+    def reserve_and_create_entry_bundle(
+        self, reservation: Any, entry: Optional[Any] = None, *,
+        max_concurrent_positions: Optional[int] = None,
+        global_exposure_cap_usd: Optional[float] = None,
+        per_asset_exposure_cap_usd: Optional[float] = None,
+        max_open_per_asset: int = 1,
+        commit_deadline_ts_ms: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Reserve and create an entry under one outer IMMEDIATE transaction.
+
+        The optional wall-clock deadline is checked *after* SQLite grants the
+        write transaction.  A command that waited behind another writer can
+        therefore never reserve a window or create an entry using evidence
+        that expired while it was queued or blocked on ``BEGIN IMMEDIATE``.
+        """
+
+        if entry is None and isinstance(reservation, Mapping) and "reservation" in reservation:
+            bundle = dict(reservation)
+            entry = bundle["entry"]
+            reservation = bundle["reservation"]
+            max_concurrent_positions = int(bundle["max_concurrent_positions"])
+            global_exposure_cap_usd = float(bundle["global_exposure_cap_usd"])
+            per_asset_exposure_cap_usd = float(bundle["per_asset_exposure_cap_usd"])
+            max_open_per_asset = int(bundle.get("max_open_per_asset", max_open_per_asset))
+            if bundle.get("commit_deadline_ts_ms") is not None:
+                commit_deadline_ts_ms = int(bundle["commit_deadline_ts_ms"])
+        if entry is None or max_concurrent_positions is None \
+                or global_exposure_cap_usd is None or per_asset_exposure_cap_usd is None:
+            raise ValueError("entry bundle is incomplete")
+        with self.transaction(immediate=True):
+            if (commit_deadline_ts_ms is not None
+                    and int(time.time() * 1_000) > int(commit_deadline_ts_ms)):
+                raise V4StoreError("entry commit deadline expired")
+            reservation_result = self.reserve_window(reservation)
+            entry_id = self.create_entry(
+                entry, max_concurrent_positions=int(max_concurrent_positions),
+                global_exposure_cap_usd=float(global_exposure_cap_usd),
+                per_asset_exposure_cap_usd=float(per_asset_exposure_cap_usd),
+                max_open_per_asset=int(max_open_per_asset),
+            )
+            position = self.query_one(
+                "SELECT * FROM positions WHERE entry_id=?", (int(entry_id),))
+            if position is None:
+                raise V4StoreError("entry bundle committed without a position")
+        return {
+            "reservation": reservation_result,
+            "entry_id": entry_id,
+            "position_id": int(position["position_id"]),
+            "position": position,
+        }
+
+    def management_bundle(self, value: Any, close: Optional[Any] = None) -> dict[str, Any]:
+        """Atomically persist management authorization and optional book close."""
+
+        if close is None and isinstance(value, Mapping) and "decision" in value:
+            bundle = dict(value)
+            decision, close = bundle["decision"], bundle.get("close")
+        else:
+            decision = value
+        row = self._safe_payload(decision)
+        with self.transaction(immediate=True) as conn:
+            existing = conn.execute(
+                "SELECT management_decision_id,action FROM management_decisions "
+                "WHERE position_id=? AND decision_seq=?",
+                (int(row["position_id"]), int(row["decision_seq"])),
+            ).fetchone()
+            if existing is None:
+                management_id = self.record_management_decision(row)
+            else:
+                if str(existing[1]) != str(row["action"]):
+                    raise V4StoreError("management decision idempotency conflict")
+                management_id = int(existing[0])
+            exit_id: Optional[int] = None
+            if close is not None:
+                position = conn.execute(
+                    "SELECT status FROM positions WHERE position_id=?",
+                    (int(row["position_id"]),),
+                ).fetchone()
+                if position is not None and str(position[0]) == "OPEN":
+                    exit_id = self.close_position(close)
+                else:
+                    prior_exit = conn.execute(
+                        "SELECT exit_id FROM exits WHERE position_id=? ORDER BY exit_id LIMIT 1",
+                        (int(row["position_id"]),),
+                    ).fetchone()
+                    if prior_exit is None:
+                        raise ValueError("closed management position has no exit")
+                    exit_id = int(prior_exit[0])
+        return {"management_decision_id": management_id, "exit_id": exit_id}
+
+    def resolution_bundle(self, value: Any, close: Optional[Any] = None) -> dict[str, Any]:
+        """Atomically persist an official attempt and optional terminal close."""
+
+        if close is None and isinstance(value, Mapping) and "attempt" in value:
+            bundle = dict(value)
+            attempt, close = bundle["attempt"], bundle.get("close")
+        else:
+            attempt = value
+        row = self._safe_payload(attempt)
+        with self.transaction(immediate=True) as conn:
+            existing = conn.execute(
+                "SELECT resolution_attempt_id,evidence_hash FROM resolution_attempts "
+                "WHERE entry_id=? AND attempt_no=?",
+                (int(row["entry_id"]), int(row["attempt_no"])),
+            ).fetchone()
+            if existing is None:
+                attempt_id = self.record_resolution_attempt(row)
+            else:
+                if str(existing[1] or "") != str(row.get("evidence_hash") or ""):
+                    raise V4StoreError("resolution attempt idempotency conflict")
+                attempt_id = int(existing[0])
+            exit_id: Optional[int] = None
+            if close is not None:
+                position = conn.execute(
+                    "SELECT position_id,status FROM positions WHERE entry_id=?",
+                    (int(row["entry_id"]),),
+                ).fetchone()
+                if position is None:
+                    raise ValueError("resolution entry has no position")
+                if str(position[1]) == "OPEN":
+                    exit_id = self.close_position(close)
+                else:
+                    prior_exit = conn.execute(
+                        "SELECT exit_id FROM exits WHERE position_id=? ORDER BY exit_id LIMIT 1",
+                        (int(position[0]),),
+                    ).fetchone()
+                    if prior_exit is None:
+                        raise ValueError("resolved position has no exit")
+                    exit_id = int(prior_exit[0])
+        return {"resolution_attempt_id": attempt_id, "exit_id": exit_id}
+
+    def reconcile_startup_state(
+        self, *, current_launch_nonce: Optional[str] = None,
+        proven_absent_launch_nonces: Iterable[str] = (),
+        reconciled_ts_ms: Optional[int] = None,
+    ) -> dict[str, int]:
+        """Validate lifecycle consistency and conservatively release stale locks.
+
+        A RESERVED lock is released only when its nonce is explicitly supplied
+        as externally proven absent, it is not the current nonce, and no entry
+        exists.  No entry, position, exit, or execution evidence is replayed or
+        synthesized by recovery.
+        """
+
+        absent = {str(value) for value in proven_absent_launch_nonces if str(value)}
+        current = str(current_launch_nonce or "")
+        if current and current in absent:
+            raise ValueError("current launch nonce cannot be proven absent")
+        timestamp = int(reconciled_ts_ms or int(time.time() * 1_000))
+        if timestamp < 0:
+            raise ValueError("invalid reconciliation timestamp")
+        with self.transaction(immediate=True) as conn:
+            counts = {
+                "entries_without_positions": int(conn.execute(
+                    """SELECT COUNT(*) FROM entries e LEFT JOIN positions p USING(entry_id)
+                       WHERE p.position_id IS NULL""").fetchone()[0]),
+                "open_entry_position_mismatch": int(conn.execute(
+                    """SELECT COUNT(*) FROM entries e JOIN positions p USING(entry_id)
+                       WHERE (e.status='OPEN') <> (p.status='OPEN')""").fetchone()[0]),
+                "closed_positions_without_exit": int(conn.execute(
+                    """SELECT COUNT(*) FROM positions p LEFT JOIN exits x USING(position_id)
+                       WHERE p.status='CLOSED' AND x.exit_id IS NULL""").fetchone()[0]),
+                "exits_with_nonclosed_position": int(conn.execute(
+                    """SELECT COUNT(*) FROM exits x JOIN positions p USING(position_id)
+                       WHERE p.status<>'CLOSED'""").fetchone()[0]),
+                "duplicate_position_exits": int(conn.execute(
+                    """SELECT COUNT(*) FROM (SELECT position_id FROM exits
+                       GROUP BY position_id HAVING COUNT(*)>1)""").fetchone()[0]),
+                "reserved_without_entry": int(conn.execute(
+                    """SELECT COUNT(*) FROM window_locks wl LEFT JOIN entries e USING(window_id)
+                       WHERE wl.state='RESERVED' AND e.entry_id IS NULL""").fetchone()[0]),
+                "unfinished_maker_observations": int(conn.execute(
+                    """SELECT COUNT(*) FROM maker_observations
+                       WHERE maker_end_ts_ms IS NULL""").fetchone()[0]),
+            }
+            releasable = [
+                (int(row[0]), str(row[1])) for row in conn.execute(
+                    """SELECT wl.window_id,wl.owner_launch_nonce FROM window_locks wl
+                       LEFT JOIN entries e USING(window_id)
+                       WHERE wl.state='RESERVED' AND e.entry_id IS NULL""").fetchall()
+                if str(row[1]) in absent and str(row[1]) != current
+            ]
+            released = 0
+            for window_id, nonce in releasable:
+                cursor = conn.execute(
+                    """DELETE FROM window_locks WHERE window_id=?
+                       AND owner_launch_nonce=? AND state='RESERVED'
+                       AND NOT EXISTS(SELECT 1 FROM entries WHERE window_id=?)""",
+                    (window_id, nonce, window_id),
+                )
+                released += int(cursor.rowcount)
+            counts["released_proven_stale_reservations"] = released
+            counts["reserved_left_fail_closed"] = max(
+                0, counts["reserved_without_entry"] - released)
+            abandoned_makers = conn.execute(
+                """UPDATE maker_observations SET
+                   maker_end_ts_ms=MAX(maker_start_ts_ms,?),
+                   outcome='ABANDONED',reason='STARTUP_RECONCILED',
+                   maker_fill_assumed=0
+                   WHERE maker_end_ts_ms IS NULL AND candidate_id IN (
+                     SELECT c.candidate_id FROM candidates c
+                     JOIN runtime_sessions rs ON rs.session_id=c.session_id
+                     WHERE rs.launch_nonce IN ({})
+                   )""".format(
+                    ",".join("?" for _ in absent) if absent else "NULL"
+                ),
+                (timestamp, *sorted(absent)) if absent else (timestamp,),
+            ).rowcount
+            counts["reconciled_abandoned_maker_observations"] = int(
+                abandoned_makers)
+            counts["unfinished_makers_left_fail_closed"] = max(
+                0,
+                counts["unfinished_maker_observations"]
+                - counts["reconciled_abandoned_maker_observations"],
+            )
+            counts["consistency_errors"] = sum(
+                counts[name] for name in (
+                    "entries_without_positions", "open_entry_position_mismatch",
+                    "closed_positions_without_exit", "exits_with_nonclosed_position",
+                    "duplicate_position_exits",
+                ))
+            counts["reconciled_ts_ms"] = timestamp
+        return counts
+
+    def latest_source_health(self, session_id: Optional[str] = None) -> list[dict[str, Any]]:
+        """Return each channel's latest row, optionally scoped to one session."""
+
+        if session_id is None:
+            return self.query(
+                """SELECT sh.* FROM source_health sh JOIN (
+                   SELECT source,channel,MAX(source_health_id) latest_id FROM source_health
+                   GROUP BY source,channel) latest ON latest.latest_id=sh.source_health_id
+                   ORDER BY sh.source,sh.channel"""
+            )
         return self.query(
             """SELECT sh.* FROM source_health sh JOIN (
                SELECT source,channel,MAX(source_health_id) latest_id FROM source_health
-               GROUP BY source,channel) latest ON latest.latest_id=sh.source_health_id
-               ORDER BY sh.source,sh.channel"""
+               WHERE session_id=? GROUP BY source,channel
+               ) latest ON latest.latest_id=sh.source_health_id
+               WHERE sh.session_id=? ORDER BY sh.source,sh.channel""",
+            (str(session_id), str(session_id)),
         )
 
     def pin_source_event(self, source_event_id: int) -> None:
@@ -1832,6 +2667,414 @@ class V4Store:
                    pin_count=pin_count+1 WHERE source_event_id=?""",
                 (int(source_event_id),),
             )
+
+    @contextmanager
+    def _sqlite_deadline(self, deadline_monotonic: Optional[float]) -> Iterator[None]:
+        """Interrupt a maintenance statement once its monotonic budget expires."""
+
+        self._assert_owner()
+        if deadline_monotonic is None:
+            yield
+            return
+        deadline = float(deadline_monotonic)
+        if not math.isfinite(deadline) or deadline <= 0:
+            raise ValueError("deadline_monotonic must be finite and positive")
+        if time.monotonic() >= deadline:
+            raise TimeoutError("maintenance deadline exhausted")
+        remaining_ms = max(
+            1, int(math.ceil((deadline - time.monotonic()) * 1_000.0)))
+        bounded_busy_timeout = min(self.busy_timeout_ms, remaining_ms)
+        prior_busy_timeout = int(
+            self._conn.execute("PRAGMA busy_timeout").fetchone()[0])
+        self._conn.execute(f"PRAGMA busy_timeout={bounded_busy_timeout}")
+        self._conn.set_progress_handler(
+            lambda: int(time.monotonic() >= deadline), 1_000)
+        try:
+            yield
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if ("interrupted" in message
+                    or (any(token in message for token in ("locked", "busy"))
+                        and time.monotonic() >= deadline)):
+                raise TimeoutError("maintenance deadline exhausted") from exc
+            raise
+        finally:
+            self._conn.set_progress_handler(None, 0)
+            self._conn.execute(f"PRAGMA busy_timeout={prior_busy_timeout}")
+
+    @staticmethod
+    def _retention_result(
+        action: str,
+        *,
+        rows_deleted: int = 0,
+        rows_compacted: int = 0,
+        protected_rows_skipped: int = 0,
+        deadline_exhausted: bool = False,
+        metrics: Optional[Mapping[str, int]] = None,
+    ) -> dict[str, Any]:
+        deleted = max(0, int(rows_deleted))
+        compacted = max(0, int(rows_compacted))
+        protected = max(0, int(protected_rows_skipped))
+        return {
+            "action": str(action),
+            "rows_deleted": deleted,
+            "rows_compacted": compacted,
+            "budget_units": deleted + compacted,
+            "protected_rows_skipped": protected,
+            "deadline_exhausted": bool(deadline_exhausted),
+            "trade_evidence_deleted": 0,
+            "permanent_rows_deleted": 0,
+            "protected_rows_deleted": 0,
+            "metrics": {
+                str(key): max(0, int(value))
+                for key, value in dict(metrics or {}).items()
+            },
+        }
+
+    @staticmethod
+    def _raw_unlinked_predicate(table: str, alias: str = "raw") -> str:
+        """SQL predicate proving that a raw row is outside every evidence graph."""
+
+        if table == "cex_observations":
+            return (
+                f"NOT EXISTS(SELECT 1 FROM candidate_cex_evidence e "
+                f"WHERE e.cex_observation_id={alias}.cex_observation_id)"
+            )
+        if table == "book_snapshots":
+            return " AND ".join((
+                f"NOT EXISTS(SELECT 1 FROM candidate_book_evidence e WHERE "
+                f"e.book_snapshot_id={alias}.book_snapshot_id)",
+                f"NOT EXISTS(SELECT 1 FROM fair_value_sides e WHERE "
+                f"e.book_snapshot_id={alias}.book_snapshot_id)",
+                f"NOT EXISTS(SELECT 1 FROM maker_observations e WHERE "
+                f"e.initial_book_snapshot_id={alias}.book_snapshot_id OR "
+                f"e.final_book_snapshot_id={alias}.book_snapshot_id)",
+                f"NOT EXISTS(SELECT 1 FROM maker_updates e WHERE "
+                f"e.book_snapshot_id={alias}.book_snapshot_id)",
+                f"NOT EXISTS(SELECT 1 FROM entries e WHERE "
+                f"e.book_snapshot_id={alias}.book_snapshot_id)",
+                f"NOT EXISTS(SELECT 1 FROM management_decisions e WHERE "
+                f"e.book_snapshot_id={alias}.book_snapshot_id)",
+                f"NOT EXISTS(SELECT 1 FROM exits e WHERE "
+                f"e.book_snapshot_id={alias}.book_snapshot_id)",
+            ))
+        if table == "source_events":
+            return " AND ".join((
+                f"NOT EXISTS(SELECT 1 FROM candidates e WHERE "
+                f"e.trigger_source_event_id={alias}.source_event_id)",
+                f"NOT EXISTS(SELECT 1 FROM book_snapshots e WHERE "
+                f"e.source_event_id={alias}.source_event_id)",
+                f"NOT EXISTS(SELECT 1 FROM cex_observations e WHERE "
+                f"e.source_event_id={alias}.source_event_id)",
+                f"NOT EXISTS(SELECT 1 FROM maker_updates e WHERE "
+                f"e.source_event_id={alias}.source_event_id)",
+                f"NOT EXISTS(SELECT 1 FROM latency_metrics e WHERE "
+                f"e.source_event_id={alias}.source_event_id)",
+                f"NOT EXISTS(SELECT 1 FROM reject_events e WHERE "
+                f"e.source_event_id={alias}.source_event_id)",
+            ))
+        raise ValueError("unsupported raw retention table")
+
+    def _delete_old_raw_step(
+        self,
+        table: str,
+        *,
+        cutoff_ts_ms: int,
+        max_rows: int,
+        deadline_monotonic: Optional[float],
+    ) -> Optional[dict[str, Any]]:
+        id_col = {
+            "source_events": "source_event_id",
+            "book_snapshots": "book_snapshot_id",
+            "cex_observations": "cex_observation_id",
+        }[table]
+        predicate = self._raw_unlinked_predicate(table)
+        with self._sqlite_deadline(deadline_monotonic):
+            with self.transaction(immediate=True) as conn:
+                cursor = conn.execute(
+                    f"""DELETE FROM {table} WHERE {id_col} IN (
+                       SELECT raw.{id_col} FROM {table} raw
+                       WHERE raw.receipt_ts_ms<? AND raw.retention_class='RAW'
+                       AND raw.pin_count=0 AND {predicate}
+                       ORDER BY raw.receipt_ts_ms,raw.{id_col} LIMIT ?
+                       )""",
+                    (int(cutoff_ts_ms), int(max_rows)),
+                )
+                deleted = int(cursor.rowcount)
+        if not deleted:
+            return None
+        return self._retention_result(
+            f"raw_age:{table}", rows_deleted=deleted,
+            metrics={f"raw_age_{table}_deleted": deleted})
+
+    def _delete_nontrade_candidate_graph_step(
+        self,
+        *,
+        cutoff_ts_ms: int,
+        max_rows: int,
+        deadline_monotonic: Optional[float],
+    ) -> Optional[dict[str, Any]]:
+        """Delete one old graph only when its complete cascade fits the budget."""
+
+        oversize = 0
+        with self._sqlite_deadline(deadline_monotonic):
+            with self.transaction(immediate=True) as conn:
+                candidate_ids = [int(row[0]) for row in conn.execute(
+                    """SELECT c.candidate_id FROM candidates c
+                       WHERE c.evaluation_ts_ms<?
+                       AND NOT EXISTS(SELECT 1 FROM entries e
+                                      WHERE e.candidate_id=c.candidate_id)
+                       AND NOT EXISTS(SELECT 1 FROM maker_observations m
+                                      WHERE m.candidate_id=c.candidate_id
+                                      AND m.maker_end_ts_ms IS NULL)
+                       AND NOT EXISTS(SELECT 1 FROM window_locks wl
+                                      WHERE wl.candidate_id=c.candidate_id
+                                      AND wl.state IN ('RESERVED','ENTERED'))
+                       AND NOT EXISTS(SELECT 1 FROM persistence_commands pc
+                                      WHERE pc.associated_window_id=c.window_id
+                                      AND pc.status<>'COMMITTED')
+                       ORDER BY c.evaluation_ts_ms,c.candidate_id LIMIT 4""",
+                    (int(cutoff_ts_ms),),
+                ).fetchall()]
+                for candidate_id in candidate_ids:
+                    if (deadline_monotonic is not None
+                            and time.monotonic() >= float(deadline_monotonic)):
+                        raise TimeoutError("maintenance deadline exhausted")
+                    conn.execute("SAVEPOINT v4_candidate_retention")
+                    before = int(conn.total_changes)
+                    cursor = conn.execute(
+                        """DELETE FROM candidates WHERE candidate_id=?
+                           AND NOT EXISTS(SELECT 1 FROM entries
+                                          WHERE candidate_id=?)""",
+                        (candidate_id, candidate_id),
+                    )
+                    changed = int(conn.total_changes) - before
+                    if cursor.rowcount == 1 and changed <= int(max_rows):
+                        conn.execute("RELEASE v4_candidate_retention")
+                        return self._retention_result(
+                            "candidate_graph", rows_deleted=changed,
+                            metrics={
+                                "candidate_graphs_deleted": 1,
+                                "candidate_graph_rows_deleted": changed,
+                            },
+                        )
+                    conn.execute("ROLLBACK TO v4_candidate_retention")
+                    conn.execute("RELEASE v4_candidate_retention")
+                    if cursor.rowcount == 1:
+                        oversize += 1
+        if oversize:
+            return self._retention_result(
+                "candidate_graph_oversize",
+                protected_rows_skipped=oversize,
+                metrics={"candidate_graphs_over_budget": oversize},
+            )
+        return None
+
+    def _compact_journal_payload_step(
+        self,
+        *,
+        cutoff_ts_ms: int,
+        max_rows: int,
+        deadline_monotonic: Optional[float],
+    ) -> Optional[dict[str, Any]]:
+        """Tombstone replay payloads while retaining the durable idempotency record."""
+
+        with self._sqlite_deadline(deadline_monotonic):
+            with self.transaction(immediate=True) as conn:
+                rows = conn.execute(
+                    """SELECT pc.persistence_command_id,pc.payload_hash
+                       FROM persistence_commands pc
+                       WHERE pc.status='COMMITTED' AND pc.terminal=0
+                       AND pc.associated_trade_id IS NULL
+                       AND pc.completed_ts_ms<?
+                       AND pc.payload_json NOT LIKE '{\"compacted\":true,%'
+                       AND UPPER(pc.command_type) NOT IN
+                           ('ENTRY','MANAGEMENT','RESOLUTION','TERMINAL')
+                       AND pc.method NOT IN (
+                         'reserve_and_create_entry_bundle','create_entry',
+                         'management_bundle','record_management_decision',
+                         'resolution_bundle','record_resolution_attempt',
+                         'close_position','mark_unresolved_final',
+                         'record_maker_observation','record_maker_update',
+                         'finish_maker_observation')
+                       AND (pc.associated_window_id IS NULL OR NOT EXISTS(
+                         SELECT 1 FROM entries e
+                         WHERE e.window_id=pc.associated_window_id))
+                       ORDER BY pc.completed_ts_ms,pc.persistence_command_id
+                       LIMIT ?""",
+                    (int(cutoff_ts_ms), int(max_rows)),
+                ).fetchall()
+                compacted = 0
+                for row in rows:
+                    if (deadline_monotonic is not None
+                            and time.monotonic() >= float(deadline_monotonic)):
+                        raise TimeoutError("maintenance deadline exhausted")
+                    tombstone = json.dumps(
+                        {"compacted": True, "payload_hash": str(row[1])},
+                        sort_keys=True, separators=(",", ":"), allow_nan=False,
+                    )
+                    compacted += int(conn.execute(
+                        """UPDATE persistence_commands SET payload_json=?
+                           WHERE persistence_command_id=? AND status='COMMITTED'
+                           AND terminal=0 AND payload_hash=?""",
+                        (tombstone, int(row[0]), str(row[1])),
+                    ).rowcount)
+        if not compacted:
+            return None
+        return self._retention_result(
+            "journal_payload", rows_compacted=compacted,
+            metrics={"journal_payloads_compacted": compacted})
+
+    def _delete_metadata_step(
+        self,
+        table: str,
+        *,
+        cutoff_ts_ms: int,
+        maximum_rows: int,
+        max_delete_rows: int,
+        deadline_monotonic: Optional[float],
+    ) -> Optional[dict[str, Any]]:
+        id_col, time_col = {
+            "persistence_worker_samples": (
+                "persistence_worker_sample_id", "sample_ts_ms"),
+            "checkpoint_runs": ("checkpoint_run_id", "started_ts_ms"),
+            "retention_runs": ("retention_run_id", "started_ts_ms"),
+        }[table]
+        with self._sqlite_deadline(deadline_monotonic):
+            with self.transaction(immediate=True) as conn:
+                boundary = conn.execute(
+                    f"""SELECT {id_col} FROM {table}
+                       ORDER BY {id_col} DESC LIMIT 1 OFFSET ?""",
+                    (int(maximum_rows) - 1,),
+                ).fetchone()
+                boundary_id = int(boundary[0]) if boundary is not None else None
+                conditions = [f"meta.{time_col}<?"]
+                params: list[Any] = [int(cutoff_ts_ms)]
+                if boundary_id is not None:
+                    conditions.append(f"meta.{id_col}<?")
+                    params.append(boundary_id)
+                params.append(int(max_delete_rows))
+                cursor = conn.execute(
+                    f"""DELETE FROM {table} WHERE {id_col} IN (
+                       SELECT meta.{id_col} FROM {table} meta
+                       WHERE ({' OR '.join(conditions)})
+                       AND meta.{id_col}<>(SELECT MAX({id_col}) FROM {table})
+                       ORDER BY meta.{id_col} LIMIT ?
+                       )""",
+                    tuple(params),
+                )
+                deleted = int(cursor.rowcount)
+        if not deleted:
+            return None
+        return self._retention_result(
+            f"metadata:{table}", rows_deleted=deleted,
+            metrics={f"{table}_deleted": deleted})
+
+    def _raw_cap_step(
+        self,
+        table: str,
+        *,
+        maximum_rows: int,
+        max_delete_rows: int,
+        deadline_monotonic: Optional[float],
+    ) -> Optional[dict[str, Any]]:
+        result = self.enforce_raw_row_cap(
+            maximum_rows,
+            max_delete_rows=max_delete_rows,
+            deadline_monotonic=deadline_monotonic,
+            _only_table=table,
+        )
+        deleted = int(result.get(table, 0))
+        if not deleted:
+            return None
+        return self._retention_result(
+            f"raw_cap:{table}", rows_deleted=deleted,
+            metrics={f"raw_cap_{table}_deleted": deleted})
+
+    def bounded_retention_step(
+        self,
+        *,
+        cutoff_ts_ms: int,
+        max_rows: int,
+        deadline_monotonic: float,
+        protect_trade_evidence: bool = True,
+        raw_event_max_rows: int = 250_000,
+        event_bucket_detail_retention_ms: int = 15 * 60 * 1_000,
+        metadata_retention_ms: int = 24 * 60 * 60 * 1_000,
+        metadata_max_rows: int = 100_000,
+        journal_payload_retention_ms: int = 24 * 60 * 60 * 1_000,
+        now_ms: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Execute at most one small retention transaction before ``deadline``.
+
+        Actions rotate so a journal backlog cannot starve raw caps, bucket
+        compaction, or worker/checkpoint metadata retention. Trade-linked
+        candidates, terminal commands, ambiguous commands, and pinned evidence
+        are excluded structurally rather than deleted and reconstructed later.
+        """
+
+        self._assert_owner()
+        if type(protect_trade_evidence) is not bool or not protect_trade_evidence:
+            raise ValueError("trade evidence protection must remain enabled")
+        limit = int(max_rows)
+        if not 1 <= limit <= 50_000:
+            raise ValueError("max_rows must be in [1, 50000]")
+        if int(raw_event_max_rows) < 1_000:
+            raise ValueError("raw_event_max_rows must be at least 1000")
+        if int(metadata_max_rows) < 1_000:
+            raise ValueError("metadata_max_rows must be at least 1000")
+        current = int(now_ms if now_ms is not None else time.time() * 1_000)
+        if current < 0 or int(cutoff_ts_ms) < 0:
+            raise ValueError("retention timestamps must be nonnegative")
+        if time.monotonic() >= float(deadline_monotonic):
+            return self._retention_result(
+                "deadline", deadline_exhausted=True)
+
+        bucket_cutoff = max(0, current - int(event_bucket_detail_retention_ms))
+        metadata_cutoff = max(0, current - int(metadata_retention_ms))
+        journal_cutoff = max(0, current - int(journal_payload_retention_ms))
+        actions = (
+            lambda: self._delete_nontrade_candidate_graph_step(
+                cutoff_ts_ms=int(cutoff_ts_ms), max_rows=limit,
+                deadline_monotonic=deadline_monotonic),
+            lambda: self._compact_journal_payload_step(
+                cutoff_ts_ms=journal_cutoff, max_rows=limit,
+                deadline_monotonic=deadline_monotonic),
+            lambda: self._compact_event_bucket_step(
+                cutoff_ts_ms=bucket_cutoff, max_rows=limit,
+                deadline_monotonic=deadline_monotonic),
+            *(lambda table=table: self._delete_old_raw_step(
+                table, cutoff_ts_ms=int(cutoff_ts_ms), max_rows=limit,
+                deadline_monotonic=deadline_monotonic)
+              for table in ("cex_observations", "book_snapshots", "source_events")),
+            *(lambda table=table: self._raw_cap_step(
+                table, maximum_rows=int(raw_event_max_rows),
+                max_delete_rows=limit, deadline_monotonic=deadline_monotonic)
+              for table in ("cex_observations", "book_snapshots", "source_events")),
+            *(lambda table=table: self._delete_metadata_step(
+                table, cutoff_ts_ms=metadata_cutoff,
+                maximum_rows=int(metadata_max_rows), max_delete_rows=limit,
+                deadline_monotonic=deadline_monotonic)
+              for table in (
+                  "persistence_worker_samples", "checkpoint_runs", "retention_runs")),
+        )
+        start = self._retention_action_index % len(actions)
+        for offset in range(len(actions)):
+            if time.monotonic() >= float(deadline_monotonic):
+                return self._retention_result(
+                    "deadline", deadline_exhausted=True)
+            index = (start + offset) % len(actions)
+            try:
+                result = actions[index]()
+            except TimeoutError:
+                return self._retention_result(
+                    "deadline", deadline_exhausted=True)
+            self._retention_action_index = (index + 1) % len(actions)
+            if result is not None and (
+                    int(result.get("budget_units", 0)) > 0
+                    or int(result.get("protected_rows_skipped", 0)) > 0):
+                return result
+        return self._retention_result("no_eligible_rows")
 
     def compact_raw_evidence(
         self, now_ms: int, *, retention_ms: int = 6 * 60 * 60 * 1000,
@@ -1849,43 +3092,31 @@ class V4Store:
         if not 1 <= int(batch_size) <= 50_000:
             raise ValueError("batch_size must be in [1, 50000]")
         cutoff = max(0, int(now_ms) - int(retention_ms))
+        deleted = {
+            "source_events": 0,
+            "book_snapshots": 0,
+            "cex_observations": 0,
+        }
+        # Children are removed before their source event so evidence lineage is
+        # never nulled merely to make a parent row deletable.
+        for table in ("cex_observations", "book_snapshots", "source_events"):
+            result = self._delete_old_raw_step(
+                table, cutoff_ts_ms=cutoff, max_rows=int(batch_size),
+                deadline_monotonic=None,
+            )
+            if result is not None:
+                deleted[table] = int(result["rows_deleted"])
+        pinned = 0
         with self.transaction(immediate=True) as conn:
             run_id = self._insert("retention_runs", {
                 "started_ts_ms": int(now_ms), "raw_cutoff_ts_ms": cutoff,
                 "requested_batch_size": int(batch_size),
+                "completed_ts_ms": int(now_ms),
+                "source_events_deleted": deleted["source_events"],
+                "book_snapshots_deleted": deleted["book_snapshots"],
+                "cex_observations_deleted": deleted["cex_observations"],
+                "pinned_rows_skipped": pinned,
             }, conn=conn)
-            pinned = sum(int(conn.execute(
-                f"SELECT COUNT(*) FROM {table} WHERE receipt_ts_ms<? AND (pin_count>0 OR retention_class<>'RAW')",
-                (cutoff,),
-            ).fetchone()[0]) for table in ("source_events", "book_snapshots", "cex_observations"))
-            deleted: dict[str, int] = {}
-            for table, id_col in (
-                ("source_events", "source_event_id"),
-                ("book_snapshots", "book_snapshot_id"),
-                ("cex_observations", "cex_observation_id"),
-            ):
-                protected = {
-                    "source_events": "source_event_id NOT IN (SELECT trigger_source_event_id FROM candidates WHERE trigger_source_event_id IS NOT NULL)",
-                    "book_snapshots": "book_snapshot_id NOT IN (SELECT book_snapshot_id FROM candidate_book_evidence)",
-                    "cex_observations": "cex_observation_id NOT IN (SELECT cex_observation_id FROM candidate_cex_evidence)",
-                }[table]
-                ids = [int(row[0]) for row in conn.execute(
-                    f"""SELECT {id_col} FROM {table} WHERE receipt_ts_ms<?
-                       AND retention_class='RAW' AND pin_count=0 AND {protected}
-                       ORDER BY receipt_ts_ms,{id_col} LIMIT ?""",
-                    (cutoff, int(batch_size)),
-                ).fetchall()]
-                if ids:
-                    marks = ",".join("?" for _ in ids)
-                    conn.execute(f"DELETE FROM {table} WHERE {id_col} IN ({marks})", ids)
-                deleted[table] = len(ids)
-            conn.execute(
-                """UPDATE retention_runs SET completed_ts_ms=?,source_events_deleted=?,
-                   book_snapshots_deleted=?,cex_observations_deleted=?,pinned_rows_skipped=?
-                   WHERE retention_run_id=?""",
-                (int(now_ms), deleted["source_events"], deleted["book_snapshots"],
-                 deleted["cex_observations"], pinned, run_id),
-            )
         if not run_integrity:
             return {"retention_run_id": run_id, "cutoff_ts_ms": cutoff,
                     "pinned_rows_skipped": pinned, **deleted}
@@ -1899,76 +3130,155 @@ class V4Store:
         return {"retention_run_id": run_id, "cutoff_ts_ms": cutoff,
                 "pinned_rows_skipped": pinned, **deleted, **integrity}
 
-    def enforce_raw_row_cap(self, maximum_rows: int) -> dict[str, int]:
-        """Bound unlinked raw rows while preserving candidate/trade evidence."""
+    def enforce_raw_row_cap(
+        self,
+        maximum_rows: int,
+        *,
+        max_delete_rows: int = 5_000,
+        deadline_monotonic: Optional[float] = None,
+        _only_table: Optional[str] = None,
+    ) -> dict[str, int]:
+        """Delete a bounded number of oldest, proven-unlinked raw rows.
+
+        The cap is evaluated with an indexed ``OFFSET`` boundary instead of a
+        full-table count. Each table uses its own small transaction and the
+        combined delete never exceeds ``max_delete_rows``.
+        """
 
         limit = int(maximum_rows)
+        delete_budget = int(max_delete_rows)
         if limit < 1_000:
             raise ValueError("raw row cap must be at least 1000")
-        protections = {
-            "source_events": "source_event_id NOT IN (SELECT trigger_source_event_id FROM candidates WHERE trigger_source_event_id IS NOT NULL)",
-            "book_snapshots": "book_snapshot_id NOT IN (SELECT book_snapshot_id FROM candidate_book_evidence)",
-            "cex_observations": "cex_observation_id NOT IN (SELECT cex_observation_id FROM candidate_cex_evidence)",
-        }
+        if not 1 <= delete_budget <= 50_000:
+            raise ValueError("max_delete_rows must be in [1, 50000]")
         id_columns = {
             "source_events": "source_event_id",
             "book_snapshots": "book_snapshot_id",
             "cex_observations": "cex_observation_id",
         }
-        deleted: dict[str, int] = {}
-        with self.transaction(immediate=True) as conn:
-            for table in ("source_events", "book_snapshots", "cex_observations"):
-                count = int(conn.execute(
-                    f"SELECT COUNT(*) FROM {table} WHERE retention_class='RAW' AND pin_count=0"
-                ).fetchone()[0])
-                excess = max(0, count - limit)
-                if excess:
-                    id_col = id_columns[table]
+        if _only_table is not None and _only_table not in id_columns:
+            raise ValueError("unsupported raw row-cap table")
+        tables = ((_only_table,) if _only_table is not None else
+                  ("source_events", "book_snapshots", "cex_observations"))
+        deleted = {table: 0 for table in id_columns}
+        remaining = delete_budget
+        for table in tables:
+            if remaining <= 0:
+                break
+            id_col = id_columns[table]
+            predicate = self._raw_unlinked_predicate(table)
+            with self._sqlite_deadline(deadline_monotonic):
+                with self.transaction(immediate=True) as conn:
+                    boundary = conn.execute(
+                        f"""SELECT raw.receipt_ts_ms,raw.{id_col} FROM {table} raw
+                           WHERE raw.retention_class='RAW' AND raw.pin_count=0
+                           ORDER BY raw.receipt_ts_ms DESC,raw.{id_col} DESC
+                           LIMIT 1 OFFSET ?""",
+                        (limit - 1,),
+                    ).fetchone()
+                    if boundary is None:
+                        continue
                     cursor = conn.execute(
                         f"""DELETE FROM {table} WHERE {id_col} IN (
-                            SELECT {id_col} FROM {table}
-                            WHERE retention_class='RAW' AND pin_count=0
-                            AND {protections[table]}
-                            ORDER BY receipt_ts_ms,{id_col} LIMIT ?
-                        )""", (excess,))
-                    deleted[table] = int(cursor.rowcount)
-                else:
-                    deleted[table] = 0
+                           SELECT raw.{id_col} FROM {table} raw
+                           WHERE raw.retention_class='RAW' AND raw.pin_count=0
+                           AND {predicate}
+                           AND (raw.receipt_ts_ms<? OR
+                                (raw.receipt_ts_ms=? AND raw.{id_col}<?))
+                           ORDER BY raw.receipt_ts_ms,raw.{id_col} LIMIT ?
+                           )""",
+                        (int(boundary[0]), int(boundary[0]), int(boundary[1]),
+                         remaining),
+                    )
+                    changed = int(cursor.rowcount)
+                    deleted[table] = changed
+                    remaining -= changed
         return deleted
 
-    def compact_event_buckets(self, now_ms: int, *, detail_retention_ms: int) -> int:
-        """Roll old one-second counters into minute counters atomically."""
+    def _compact_event_bucket_step(
+        self,
+        *,
+        cutoff_ts_ms: int,
+        max_rows: int,
+        deadline_monotonic: Optional[float],
+    ) -> Optional[dict[str, Any]]:
+        """Roll at most ``max_rows`` one-second buckets into minute buckets."""
 
+        with self._sqlite_deadline(deadline_monotonic):
+            with self.transaction(immediate=True) as conn:
+                rows = conn.execute(
+                    """SELECT rowid,bucket_start_ts_ms,source,channel,asset,
+                       event_type,classification,raw_count,unique_count,
+                       duplicate_count,invalid_count FROM event_buckets
+                       WHERE bucket_ms=1000 AND bucket_start_ts_ms<?
+                       ORDER BY bucket_start_ts_ms,rowid LIMIT ?""",
+                    (int(cutoff_ts_ms), int(max_rows)),
+                ).fetchall()
+                if not rows:
+                    return None
+                aggregates: dict[tuple[Any, ...], list[int]] = {}
+                rowids: list[int] = []
+                for row in rows:
+                    if (deadline_monotonic is not None
+                            and time.monotonic() >= float(deadline_monotonic)):
+                        raise TimeoutError("maintenance deadline exhausted")
+                    rowids.append(int(row[0]))
+                    key = (
+                        (int(row[1]) // 60_000) * 60_000,
+                        str(row[2]), str(row[3]), str(row[4]), str(row[5]),
+                        str(row[6]),
+                    )
+                    totals = aggregates.setdefault(key, [0, 0, 0, 0])
+                    for index in range(4):
+                        totals[index] += int(row[7 + index])
+                for key, totals in aggregates.items():
+                    conn.execute(
+                        """INSERT INTO event_buckets(
+                           bucket_start_ts_ms,bucket_ms,source,channel,asset,event_type,
+                           classification,raw_count,unique_count,duplicate_count,invalid_count)
+                           VALUES(?,60000,?,?,?,?,?,?,?,?,?)
+                           ON CONFLICT(bucket_start_ts_ms,bucket_ms,source,channel,asset,event_type,classification)
+                           DO UPDATE SET raw_count=raw_count+excluded.raw_count,
+                             unique_count=unique_count+excluded.unique_count,
+                             duplicate_count=duplicate_count+excluded.duplicate_count,
+                             invalid_count=invalid_count+excluded.invalid_count""",
+                        (*key, *totals),
+                    )
+                marks = ",".join("?" for _ in rowids)
+                deleted = int(conn.execute(
+                    f"DELETE FROM event_buckets WHERE rowid IN ({marks})", rowids
+                ).rowcount)
+                if deleted != len(rowids):
+                    raise V4StoreError("event bucket compaction lost row ownership")
+        return self._retention_result(
+            "event_buckets", rows_compacted=deleted,
+            metrics={
+                "event_bucket_detail_rows_compacted": deleted,
+                "event_bucket_minute_groups_updated": len(aggregates),
+            },
+        )
+
+    def compact_event_buckets(
+        self,
+        now_ms: int,
+        *,
+        detail_retention_ms: int,
+        max_rows: int = 5_000,
+        deadline_monotonic: Optional[float] = None,
+    ) -> int:
+        """Boundedly roll old one-second counters into minute counters."""
+
+        if not 1 <= int(max_rows) <= 50_000:
+            raise ValueError("max_rows must be in [1, 50000]")
         cutoff = max(0, int(now_ms) - int(detail_retention_ms))
-        with self.transaction(immediate=True) as conn:
-            rows = conn.execute(
-                """SELECT (bucket_start_ts_ms/60000)*60000 AS minute_start,
-                   source,channel,asset,event_type,classification,
-                   SUM(raw_count),SUM(unique_count),SUM(duplicate_count),SUM(invalid_count)
-                   FROM event_buckets WHERE bucket_ms=1000 AND bucket_start_ts_ms<?
-                   GROUP BY minute_start,source,channel,asset,event_type,classification""",
-                (cutoff,),
-            ).fetchall()
-            for row in rows:
-                conn.execute(
-                    """INSERT INTO event_buckets(
-                       bucket_start_ts_ms,bucket_ms,source,channel,asset,event_type,
-                       classification,raw_count,unique_count,duplicate_count,invalid_count)
-                       VALUES(?,60000,?,?,?,?,?,?,?,?,?)
-                       ON CONFLICT(bucket_start_ts_ms,bucket_ms,source,channel,asset,event_type,classification)
-                       DO UPDATE SET raw_count=raw_count+excluded.raw_count,
-                         unique_count=unique_count+excluded.unique_count,
-                         duplicate_count=duplicate_count+excluded.duplicate_count,
-                         invalid_count=invalid_count+excluded.invalid_count""",
-                    tuple(row),
-                )
-            deleted = conn.execute(
-                "DELETE FROM event_buckets WHERE bucket_ms=1000 AND bucket_start_ts_ms<?",
-                (cutoff,),
-            ).rowcount
-        return int(deleted)
+        result = self._compact_event_bucket_step(
+            cutoff_ts_ms=cutoff, max_rows=int(max_rows),
+            deadline_monotonic=deadline_monotonic,
+        )
+        return int(result["rows_compacted"]) if result is not None else 0
 
     def integrity_check(self) -> dict[str, Any]:
+        self._assert_owner()
         with self._lock:
             result = [str(row[0]) for row in self._conn.execute("PRAGMA integrity_check").fetchall()]
             fk = [dict(row) for row in self._conn.execute("PRAGMA foreign_key_check").fetchall()]
@@ -1982,11 +3292,75 @@ class V4Store:
             if (candidate := Path(f"{self.path}{suffix}")).exists()
         )
 
+    def checkpoint(self, *, mode: str = "PASSIVE", reason: str = "manual") -> dict[str, Any]:
+        """Run and journal one explicit WAL checkpoint.
+
+        Automatic checkpoints are disabled.  This method is deliberately not
+        called by :meth:`close`; the persistence owner schedules it explicitly.
+        """
+
+        self._assert_owner()
+        parsed_mode = str(mode).upper()
+        if parsed_mode not in {"PASSIVE", "FULL", "RESTART", "TRUNCATE"}:
+            raise ValueError("unsupported WAL checkpoint mode")
+        if self._transaction_depth:
+            raise V4StoreError("cannot checkpoint inside an active transaction")
+        with self._background_write_gate():
+            started_ts = int(time.time() * 1_000)
+            started_mono = time.monotonic()
+            wal_path = Path(f"{self.path}-wal")
+            before = wal_path.stat().st_size if wal_path.exists() else 0
+            busy = total = checkpointed = None
+            failure: Optional[str] = None
+            try:
+                with self._lock:
+                    result = self._conn.execute(
+                        f"PRAGMA wal_checkpoint({parsed_mode})").fetchone()
+                if result is not None:
+                    busy, total, checkpointed = (
+                        int(result[0]), int(result[1]), int(result[2]))
+                success = int((busy or 0) == 0)
+                if not success:
+                    failure = "checkpoint_busy"
+            except Exception as exc:
+                success = 0
+                failure = f"{type(exc).__name__}:{exc}"[:500]
+            completed_ts = max(started_ts, int(time.time() * 1_000))
+            after = wal_path.stat().st_size if wal_path.exists() else 0
+            duration = max(0.0, (time.monotonic() - started_mono) * 1_000.0)
+            with self.transaction(immediate=True) as conn:
+                run_id = self._insert("checkpoint_runs", {
+                    "started_ts_ms": started_ts,
+                    "completed_ts_ms": completed_ts,
+                    "mode": parsed_mode,
+                    "reason": str(reason),
+                    "before_wal_bytes": int(before),
+                    "after_wal_bytes": int(after),
+                    "duration_ms": duration,
+                    "busy_result": busy,
+                    "frames_total": total,
+                    "frames_checkpointed": checkpointed,
+                    "database_bytes": (
+                        self.path.stat().st_size if self.path.exists() else 0),
+                    "success": success,
+                    "failure_reason": failure,
+                }, conn=conn)
+        return {
+            "checkpoint_run_id": run_id, "mode": parsed_mode,
+            "before_wal_bytes": int(before), "after_wal_bytes": int(after),
+            "duration_ms": duration, "busy_result": busy,
+            "frames_total": total, "frames_checkpointed": checkpointed,
+            "success": bool(success), "failure_reason": failure,
+        }
+
     def close(self) -> None:
         with self._lock:
             if self._closed:
                 return
-            self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            if (self._enforce_thread_ownership
+                    and threading.get_ident() != self._owner_thread_id):
+                raise V4StoreError(
+                    "V4 writable connection closed outside its owner thread")
             self._conn.close()
             self._closed = True
 
@@ -2009,31 +3383,51 @@ class V4ReadOnlyStore(V4Store):
     instead of mutating the database.
     """
 
-    def __init__(self, db_path: str | Path, *, busy_timeout_ms: int = 5_000):
+    def __init__(self, db_path: str | Path, *, busy_timeout_ms: int = 5_000,
+                 enforce_thread_ownership: bool = True):
         if isinstance(busy_timeout_ms, bool) or not isinstance(busy_timeout_ms, int):
             raise ValueError("busy_timeout_ms must be an integer")
         if busy_timeout_ms < 100 or busy_timeout_ms > 120_000:
             raise ValueError("busy_timeout_ms must be within [100, 120000] ms")
         self.busy_timeout_ms = int(busy_timeout_ms)
+        if type(enforce_thread_ownership) is not bool:
+            raise ValueError("enforce_thread_ownership must be a strict boolean")
         self.path = Path(db_path)
         if not self.path.exists():
             raise V4SchemaError(f"read-only store requires an existing database: {self.path}")
         self._lock = threading.RLock()
         self._closed = False
+        self._enforce_thread_ownership = enforce_thread_ownership
+        self._owner_thread_id = threading.get_ident()
+        self._transaction_depth = 0
+        self._transaction_owner_thread_id = None
+        self._transaction_rollback_only = False
+        self._transaction_counters = {
+            "started": 0, "committed": 0, "rolled_back": 0, "nested": 0,
+        }
+        self._retention_action_index = 0
+        self._background_write_admission = None
+        self._background_write_release = None
+        self._background_gate_depth = 0
         self._conn = sqlite3.connect(
             f"file:{self.path.as_posix()}?mode=ro", uri=True,
             timeout=self.busy_timeout_ms / 1000.0,
-            check_same_thread=False, isolation_level=None,
+            check_same_thread=enforce_thread_ownership, isolation_level=None,
         )
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
             self._conn.execute("PRAGMA query_only=ON")
+            self._conn.execute("PRAGMA wal_autocheckpoint=0")
 
     def close(self) -> None:
         # A read-only connection must not attempt a WAL checkpoint (a write).
         with self._lock:
             if self._closed:
                 return
+            if (self._enforce_thread_ownership
+                    and threading.get_ident() != self._owner_thread_id):
+                raise V4StoreError(
+                    "V4 read-only connection closed outside its owner thread")
             self._conn.close()
             self._closed = True

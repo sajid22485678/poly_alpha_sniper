@@ -33,6 +33,11 @@ export async function GET(): Promise<Response> {
     if (snapshot.strategy_id !== "lite_frequency_v4" || snapshot.mode !== "lite_frequency_v4_shadow") {
       return response({ ok: false, missing: false, age_ms: null, snapshot: null, error: "wrong_export_namespace" }, 503);
     }
+    if (snapshot.dry_run !== true || snapshot.live_enabled !== false
+      || snapshot.real_orders_possible !== false || snapshot.live_adapter_present !== false
+      || snapshot.kill_switch_engaged !== true || snapshot.fixed_shares !== 5) {
+      return response({ ok: false, missing: false, age_ms: null, snapshot: null, error: "unsafe_export_contract" }, 503);
+    }
     const ageMs = Math.max(0, Date.now() - info.mtimeMs);
     return response({ ok: true, missing: false, age_ms: ageMs, snapshot });
   } catch (error: unknown) {

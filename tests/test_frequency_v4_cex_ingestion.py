@@ -39,17 +39,24 @@ from poly_alpha_sniper.lite_frequency_v4.events import (
     EventDecision,
     EventDisposition,
 )
+from poly_alpha_sniper.lite_frequency_v4.persistence import V4PersistenceWriter
 from poly_alpha_sniper.lite_frequency_v4.runtime import (
     V4RuntimeFiles,
     immutable_safety_state,
     now_ms,
 )
 from poly_alpha_sniper.lite_frequency_v4.store import V4ReadOnlyStore, V4Store
+from poly_alpha_sniper.lite_frequency_v4.telemetry import V4TelemetryWriter
+from poly_alpha_sniper.lite_frequency_v4.workers import (
+    V4MaintenanceWorker,
+    V4ReadWorker,
+    V4RuntimeIOWorker,
+)
 
 
 @pytest.fixture
 def engine_harness(tmp_path, monkeypatch):
-    """Real engine/store around isolated paths with no network I/O."""
+    """Real engine with production-shaped, single-owner persistence workers."""
 
     cfg = FrequencyV4Config()
     cfg.db_path = str(tmp_path / "poly_alpha_frequency_v4.db")
@@ -59,16 +66,96 @@ def engine_harness(tmp_path, monkeypatch):
 
     runtime = V4RuntimeFiles(cfg.runtime_dir, repo_root=tmp_path)
     runtime.acquire()
-    store = V4Store(cfg.db_path)
-    engine = FrequencyV4Engine(cfg, runtime, store)
-    engine._record_session()
+    monkeypatch.setattr(runtime, "process_ownership", lambda: {
+        "process_ownership_valid": True,
+        "exact_v4_processes": 1,
+        "owned_v4_processes": 1,
+        "orphan_processes": 0,
+        "exact_pids": [runtime.pid],
+    })
+    engine = FrequencyV4Engine(cfg, runtime)
+    persistence = V4PersistenceWriter(
+        cfg.db_path,
+        queue_capacity=cfg.critical_queue_capacity,
+        busy_timeout_ms=cfg.sqlite_busy_timeout_ms,
+        checkpoint_on_close=False,
+    )
+    persistence.start()
+    telemetry = V4TelemetryWriter(
+        persistence,
+        capacity=cfg.telemetry_queue_capacity,
+        batch_size=cfg.telemetry_batch_size,
+        flush_interval_s=cfg.telemetry_flush_interval_ms / 1_000.0,
+        coalescing_interval_s=cfg.telemetry_coalescing_interval_ms / 1_000.0,
+        submit_timeout_s=cfg.critical_command_timeout_s,
+        heartbeat_interval_s=cfg.writer_heartbeat_interval_ms / 1_000.0,
+    )
+    telemetry.start()
+    read_worker = V4ReadWorker(
+        cfg.db_path,
+        queue_capacity=cfg.reporting_queue_capacity,
+        busy_timeout_ms=cfg.sqlite_busy_timeout_ms,
+        default_timeout_s=cfg.reporting_worker_timeout_s,
+    ).start()
+    report_worker = V4ReadWorker(
+        cfg.db_path,
+        worker_name="test-v4-cex-report-reader",
+        worker_kind="READ_REPORT",
+        queue_capacity=cfg.reporting_queue_capacity,
+        busy_timeout_ms=cfg.sqlite_busy_timeout_ms,
+        default_timeout_s=cfg.reporting_worker_timeout_s,
+    ).start()
+    maintenance_worker = V4MaintenanceWorker(
+        cfg.db_path,
+        queue_capacity=cfg.maintenance_queue_capacity,
+        busy_timeout_ms=cfg.sqlite_busy_timeout_ms,
+        default_timeout_s=cfg.maintenance_worker_timeout_s,
+    ).start()
+    runtime_io_worker = V4RuntimeIOWorker(
+        queue_capacity=cfg.reporting_queue_capacity,
+        default_timeout_s=cfg.reporting_worker_timeout_s,
+    ).start()
+    engine.persistence = persistence
+    engine.telemetry = telemetry
+    engine.read_worker = read_worker
+    engine.report_worker = report_worker
+    engine.maintenance_worker = maintenance_worker
+    engine.runtime_io_worker = runtime_io_worker
+    engine._process_ownership_cache = {
+        "process_ownership_valid": True,
+        "exact_v4_processes": 1,
+        "owned_v4_processes": 1,
+        "orphan_processes": 0,
+    }
+    # Execution stays fail-closed until the dedicated read worker has verified
+    # the isolated test database, just as production startup does.
+    asyncio.run(engine._record_session())
+    asyncio.run(engine._run_integrity_check())
     try:
         yield SimpleNamespace(
-            engine=engine, store=store, runtime=runtime, cfg=cfg, root=tmp_path,
+            engine=engine, persistence=persistence, telemetry=telemetry,
+            read_worker=read_worker, maintenance_worker=maintenance_worker,
+            report_worker=report_worker,
+            runtime_io_worker=runtime_io_worker, runtime=runtime, cfg=cfg,
+            root=tmp_path,
         )
     finally:
-        store.close()
+        telemetry.stop(drain=True, timeout_s=5.0)
+        report_worker.stop(timeout_s=5.0)
+        read_worker.stop(timeout_s=5.0)
+        maintenance_worker.stop(timeout_s=5.0)
+        runtime_io_worker.stop(timeout_s=5.0)
+        persistence.close(timeout_s=5.0)
         runtime.release()
+
+
+def _flush_telemetry(harness) -> None:
+    assert harness.telemetry.flush(timeout_s=5.0)
+
+
+def _query_one(harness, sql: str, params=()):
+    _flush_telemetry(harness)
+    return harness.read_worker.query_one_sync(sql, params)
 
 
 def _identity(current: int, *, asset: str = "BTC", suffix: str = "1") -> MarketIdentity:
@@ -177,14 +264,19 @@ def test_cex_callback_never_writes_sqlite_on_receive_path(engine_harness):
 
     async def scenario():
         obs = _observation(now_ms(), event_id="no-write")
-        before = engine.store.connection.total_changes
+        before = _query_one(
+            engine_harness, "SELECT COUNT(*) AS n FROM cex_observations")["n"]
         await engine._on_cex_observation(obs, _accepted(obs))
         # Callback only enqueued: no rows changed, and the item is queued.
-        assert engine.store.connection.total_changes == before
+        assert _query_one(
+            engine_harness, "SELECT COUNT(*) AS n FROM cex_observations")["n"] == before
         assert engine._cex_ingest_queue.qsize() == 1
         await engine._drain_cex_ingest_once()
-        # The dedicated consumer performed the write.
-        assert engine.store.connection.total_changes > before
+        # The dedicated consumer admitted telemetry and its owner thread
+        # performed the SQLite write.
+        _flush_telemetry(engine_harness)
+        assert _query_one(
+            engine_harness, "SELECT COUNT(*) AS n FROM cex_observations")["n"] > before
         assert engine._cex_ingest_queue.qsize() == 0
 
     asyncio.run(scenario())
@@ -195,13 +287,15 @@ def test_cex_callback_never_writes_sqlite_on_receive_path(engine_harness):
 def test_slow_cex_persistence_does_not_block_receive(engine_harness, monkeypatch):
     engine = engine_harness.engine
     persist_calls = {"n": 0}
+    original = engine_harness.persistence.submit_telemetry_batch
 
-    def slow_record(*_a, **_k):
+    def slow_record(*args, **kwargs):
         persist_calls["n"] += 1
         time.sleep(1.0)
-        return {"cex_observation_id": persist_calls["n"]}
+        return original(*args, **kwargs)
 
-    monkeypatch.setattr(engine.store, "record_cex_observation", slow_record)
+    monkeypatch.setattr(
+        engine_harness.persistence, "submit_telemetry_batch", slow_record)
 
     async def scenario():
         start = time.monotonic()
@@ -320,16 +414,19 @@ def test_cex_overflow_invalidates_executable_feature_state(engine_harness):
 def test_superseded_epoch_observation_is_audited_but_not_reused(engine_harness):
     engine = engine_harness.engine
     current = now_ms()
-    engine._persist_market(_identity(current), current)
 
     async def scenario():
+        await engine._persist_market(_identity(current), current)
         obs = _observation(current, event_id="epoch-1", epoch=1)
         await engine._on_cex_observation(obs, _accepted(obs))
         # A reconnect advances the OKX epoch while the observation waits.
         engine._okx_epoch = 2
-        before = engine.store.connection.total_changes
+        before = _query_one(
+            engine_harness, "SELECT COUNT(*) AS n FROM cex_observations")["n"]
         await engine._drain_cex_ingest_once()
-        after = engine.store.connection.total_changes
+        _flush_telemetry(engine_harness)
+        after = _query_one(
+            engine_harness, "SELECT COUNT(*) AS n FROM cex_observations")["n"]
         return before, after
 
     before, after = asyncio.run(scenario())
@@ -363,7 +460,7 @@ def test_cex_queue_depth_and_high_water_telemetry(engine_harness):
 def test_cex_data_health_is_stale_when_connected_but_evidence_old(engine_harness):
     engine = engine_harness.engine
     current = now_ms()
-    engine._persist_market(_identity(current), current)
+    asyncio.run(engine._persist_market(_identity(current), current))
     engine._okx_connected = True
     stale = current - engine.cfg.cex_max_age_ms - 5_000
     engine.cex_features.append(_observation(stale, event_id="stale"))
@@ -376,7 +473,7 @@ def test_cex_data_health_is_stale_when_connected_but_evidence_old(engine_harness
 def test_connected_but_no_fresh_cex_reports_degraded(engine_harness, monkeypatch):
     engine = engine_harness.engine
     current = now_ms()
-    engine._persist_market(_identity(current), current)
+    asyncio.run(engine._persist_market(_identity(current), current))
     engine._okx_connected = True
     engine._poly_connected = True
     stale = current - engine.cfg.cex_max_age_ms - 5_000
@@ -504,10 +601,10 @@ def test_shutdown_drain_timeout_accounts_for_remaining_items(engine_harness, mon
 
 # 15. Retention never removes trade evidence.
 def test_retention_never_deletes_trade_evidence(engine_harness, monkeypatch):
-    engine, store = engine_harness.engine, engine_harness.store
+    engine = engine_harness.engine
     current = now_ms()
     identity = _identity(current)
-    state = engine._persist_market(identity, current)
+    state = asyncio.run(engine._persist_market(identity, current))
     asyncio.run(_mark_source_ready(engine))
     state.books = {
         "YES": _book(identity, "YES", current),
@@ -519,17 +616,21 @@ def test_retention_never_deletes_trade_evidence(engine_harness, monkeypatch):
     asyncio.run(engine._evaluate(state, EvaluationTrigger(
         source="test-entry", receipt_ts_ms=current,
         receipt_monotonic_ns=time.monotonic_ns())))
-    assert store.query_one("SELECT COUNT(*) AS n FROM entries")["n"] == 1
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM entries")["n"] == 1
 
     # Aggressive retention: a far-future "now" with the minimum retention
     # window puts every raw row past the deletion cutoff.
-    store.compact_raw_evidence(
-        current + 10_000_000, retention_ms=60_000, batch_size=1_000)
-    store.enforce_raw_row_cap(1_000)
+    asyncio.run(engine_harness.maintenance_worker.compact_raw_evidence(
+        current + 10_000_000, retention_ms=60_000, batch_size=1_000))
+    asyncio.run(engine_harness.maintenance_worker.enforce_raw_row_cap(1_000))
 
-    assert store.query_one("SELECT COUNT(*) AS n FROM entries")["n"] == 1
-    assert store.query_one("SELECT COUNT(*) AS n FROM positions")["n"] == 1
-    integrity = store.integrity_check()
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM entries")["n"] == 1
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM positions")["n"] == 1
+    integrity = engine_harness.read_worker.run_report_sync(
+        lambda store: store.integrity_check())
     assert integrity["integrity"] == "ok"
     assert integrity["foreign_key_violations"] == []
 
@@ -610,11 +711,11 @@ def test_heartbeat_loop_does_not_run_whole_db_scans(engine_harness, monkeypatch)
         engine_module, "write_frequency_v4_dashboard",
         lambda *_a, **_k: exports.__setitem__("n", exports["n"] + 1))
 
-    def counting_integrity():
+    def counting_integrity(_store):
         integrities["n"] += 1
         return {"integrity": "ok", "foreign_key_violations": []}
 
-    monkeypatch.setattr(engine.store, "integrity_check", counting_integrity)
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", counting_integrity)
     iterations = {"n": 0}
     original_publish = engine.runtime.publish
 
@@ -641,12 +742,18 @@ def test_reject_persistence_failure_never_propagates(engine_harness, monkeypatch
     def boom(*_a, **_k):
         raise RuntimeError("db exploded")
 
-    monkeypatch.setattr(engine.store, "record_reject", boom)
+    monkeypatch.setattr(
+        engine_harness.persistence, "submit_telemetry_batch", boom)
     result = engine._reject(
         None, "SCHEDULER", "active_subscription_ConnectionClosedError",
         recoverable=True)
-    assert result == 0
-    assert "reject_persist" in engine._last_error
+    # Admission succeeded synchronously; the physical sink then failed on its
+    # own thread without propagating into this caller.
+    assert result == 1
+    assert engine_harness.telemetry.flush(timeout_s=2.0)
+    telemetry = engine_harness.telemetry.snapshot()
+    assert telemetry["failed_batches"] >= 1
+    assert telemetry["dropped"] >= 1
 
 
 # 20. The ingestion refactor introduces no live-order surface.
@@ -706,26 +813,27 @@ def test_readonly_store_cannot_mutate(tmp_path):
 # 3. The dashboard export uses the read-only store, not the writer connection.
 def test_export_uses_readonly_store_not_writer(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
     captured = {}
+    main_thread = threading.get_ident()
 
     def fake_export(store, _path, **_k):
         captured["store"] = store
+        captured["thread"] = threading.get_ident()
+        captured["query_only"] = int(
+            store.connection.execute("PRAGMA query_only").fetchone()[0])
         return {}
 
     monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", fake_export)
-    try:
-        asyncio.run(engine._run_dashboard_export())
-        assert captured["store"] is engine._readonly_store
-        assert captured["store"] is not engine.store
-    finally:
-        engine._readonly_store.close()
+    asyncio.run(engine._run_dashboard_export())
+    assert isinstance(captured["store"], V4ReadOnlyStore)
+    assert captured["store"] is not engine.persistence
+    assert captured["thread"] != main_thread
+    assert captured["query_only"] == 1
 
 
 # 4. A slow dashboard export runs off-loop and does not block the event loop.
 def test_slow_export_does_not_block_event_loop(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
 
     def slow_export(*_a, **_k):
         time.sleep(0.4)
@@ -742,23 +850,19 @@ def test_slow_export_does_not_block_event_loop(engine_harness, monkeypatch):
     async def scenario():
         await asyncio.gather(engine._run_dashboard_export(), ticker())
 
-    try:
-        asyncio.run(scenario())
-        assert ticks["n"] >= 15
-    finally:
-        engine._readonly_store.close()
+    asyncio.run(scenario())
+    assert ticks["n"] >= 15
 
 
 # 5. A slow integrity check runs off-loop and does not block heartbeat coroutines.
 def test_slow_integrity_does_not_block_heartbeat(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
 
-    def slow_integrity():
+    def slow_integrity(_store):
         time.sleep(0.4)
         return {"integrity": "ok", "foreign_key_violations": []}
 
-    monkeypatch.setattr(engine._readonly_store, "integrity_check", slow_integrity)
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", slow_integrity)
     ticks = {"n": 0}
 
     async def heartbeat():
@@ -769,17 +873,13 @@ def test_slow_integrity_does_not_block_heartbeat(engine_harness, monkeypatch):
     async def scenario():
         await asyncio.gather(engine._run_integrity_check(), heartbeat())
 
-    try:
-        asyncio.run(scenario())
-        assert ticks["n"] >= 15
-    finally:
-        engine._readonly_store.close()
+    asyncio.run(scenario())
+    assert ticks["n"] >= 15
 
 
 # 6 & 8. Export is single-flight: concurrent/duplicate runs are coalesced.
 def test_export_is_single_flight(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
     concurrent = {"max": 0, "cur": 0}
 
     def export(*_a, **_k):
@@ -798,17 +898,13 @@ def test_export_is_single_flight(engine_harness, monkeypatch):
             engine._run_dashboard_export(),
         )
 
-    try:
-        asyncio.run(scenario())
-        assert concurrent["max"] == 1
-        assert engine._export_runs == 1
-    finally:
-        engine._readonly_store.close()
+    asyncio.run(scenario())
+    assert concurrent["max"] == 1
+    assert engine._export_runs == 1
 
 
 def test_duplicate_export_is_coalesced_while_inflight(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
     calls = {"n": 0}
     monkeypatch.setattr(
         engine_module, "write_frequency_v4_dashboard",
@@ -819,23 +915,22 @@ def test_duplicate_export_is_coalesced_while_inflight(engine_harness, monkeypatc
         assert calls["n"] == 0
     finally:
         engine._export_inflight = False
-        engine._readonly_store.close()
 
 
 # 7. Integrity is single-flight.
 def test_integrity_is_single_flight(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
     concurrent = {"max": 0, "cur": 0}
+    runs_before = engine._integrity_runs
 
-    def integrity():
+    def integrity(_store):
         concurrent["cur"] += 1
         concurrent["max"] = max(concurrent["max"], concurrent["cur"])
         time.sleep(0.15)
         concurrent["cur"] -= 1
         return {"integrity": "ok", "foreign_key_violations": []}
 
-    monkeypatch.setattr(engine._readonly_store, "integrity_check", integrity)
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", integrity)
 
     async def scenario():
         await asyncio.gather(
@@ -844,48 +939,38 @@ def test_integrity_is_single_flight(engine_harness, monkeypatch):
             engine._run_integrity_check(),
         )
 
-    try:
-        asyncio.run(scenario())
-        assert concurrent["max"] == 1
-        assert engine._integrity_runs == 1
-    finally:
-        engine._readonly_store.close()
+    asyncio.run(scenario())
+    assert concurrent["max"] == 1
+    assert engine._integrity_runs == runs_before + 1
 
 
 # 9. An export failure does not crash the caller (a critical loop).
 def test_export_failure_does_not_crash(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
 
     def boom(*_a, **_k):
         raise RuntimeError("export boom")
 
     monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", boom)
-    try:
-        asyncio.run(engine._run_dashboard_export())  # must not raise
-        assert engine._last_export_ok is False
-        assert "export:" in engine._last_error
-    finally:
-        engine._readonly_store.close()
+    asyncio.run(engine._run_dashboard_export())  # must not raise
+    assert engine._last_export_ok is False
+    assert "export:" in engine._last_error
 
 
 # 10. A failed integrity result degrades health and fails closed.
 def test_integrity_failure_degrades_health_and_fails_closed(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
     monkeypatch.setattr(
-        engine._readonly_store, "integrity_check",
-        lambda: {"integrity": "malformed database", "foreign_key_violations": []})
-    try:
-        asyncio.run(engine._run_integrity_check())
-        assert engine._last_integrity_ok is False
-        assert engine._execution_blocked_reason() == "sqlite_integrity_degraded"
-        assert engine._runtime_state_name(now_ms()) == "DEGRADED_INTEGRITY"
-    finally:
-        engine._readonly_store.close()
+        V4ReadOnlyStore, "integrity_check",
+        lambda _store: {
+            "integrity": "malformed database", "foreign_key_violations": []})
+    asyncio.run(engine._run_integrity_check())
+    assert engine._last_integrity_ok is False
+    assert engine._execution_blocked_reason() == "sqlite_integrity_degraded"
+    assert engine._runtime_state_name(now_ms()) == "DEGRADED_INTEGRITY"
 
 
-# 11. Shutdown waits for an active reporting job and closes the read-only store.
+# 11. Shutdown waits for active reporting and closes its owner worker.
 def test_shutdown_waits_for_reporting_and_closes_readonly_store(engine_harness, monkeypatch):
     engine = engine_harness.engine
     engine.poly_ws.stop = AsyncMock()
@@ -893,7 +978,6 @@ def test_shutdown_waits_for_reporting_and_closes_readonly_store(engine_harness, 
     engine.gamma.close = AsyncMock()
     engine.clob.close = AsyncMock()
     monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", lambda *a, **k: {})
-    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
     finished = {"reporting": False}
 
     async def slow_reporting():
@@ -913,85 +997,113 @@ def test_shutdown_waits_for_reporting_and_closes_readonly_store(engine_harness, 
 
     asyncio.run(scenario())
     assert finished["reporting"] is True
-    assert engine._readonly_store._closed is True
+    assert engine_harness.read_worker.health()["state"] == "STOPPED"
 
 
 # 12. Retention SQL executes off the event loop (a worker thread), never on it.
 def test_maintenance_runs_off_the_event_loop(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    monkeypatch.setattr(engine, "_has_deletable_raw", lambda _cutoff: True)
     main_thread = threading.get_ident()
     seen_threads = []
-    original = engine.store.compact_raw_evidence
 
-    def spy(*a, **k):
+    def spy(_store, **_kwargs):
         seen_threads.append(threading.get_ident())
-        return original(*a, **k)
+        return SimpleNamespace(as_dict=lambda: {
+            "rows_deleted": 0, "checkpoint": None,
+        })
 
-    monkeypatch.setattr(engine.store, "compact_raw_evidence", spy)
+    monkeypatch.setattr(engine_module, "run_bounded_maintenance_pass", spy)
     asyncio.run(engine._run_maintenance_pass())
     assert seen_threads
     assert all(tid != main_thread for tid in seen_threads)
 
 
-# 13. Maintenance deletes in configured chunks with integrity skipped per chunk.
+def _maintenance_snapshot(current: int | None = None):
+    return engine_module.MaintenanceSnapshot(
+        now_ms=current or now_ms(), wal_bytes=0,
+        critical_queue_depth=0, telemetry_queue_depth=0,
+        runtime_active=True, runtime_health="HEALTHY", writer_healthy=True,
+        open_positions=0, time_to_window_boundary_ms=60_000,
+        critical_commit_p95_ms=1.0,
+    )
+
+
+def _maintenance_policy(*, chunk: int, rows: int, budget_ms: int):
+    return engine_module.MaintenancePolicy(
+        wal_trigger_bytes=1_000_000_000,
+        restart_trigger_bytes=1_000_000_000,
+        truncate_trigger_bytes=1_000_000_000,
+        checkpoint_min_interval_ms=60_000,
+        retention_ms=60_000,
+        retention_chunk_rows=chunk,
+        retention_row_budget=rows,
+        retention_time_budget_ms=budget_ms,
+    )
+
+
+# 13. Maintenance deletes only within configured bounded-store chunks.
 def test_maintenance_is_chunked_and_bounded(engine_harness, monkeypatch):
-    engine = engine_harness.engine
-    monkeypatch.setattr(engine, "_has_deletable_raw", lambda _cutoff: True)
-    engine.cfg.maintenance_chunk_rows = 100
-    engine.cfg.maintenance_max_rows_per_pass = 300
     calls = []
 
-    def fake_compact(_now, *, retention_ms, batch_size, run_integrity):
-        calls.append((batch_size, run_integrity))
-        return {"source_events": batch_size, "book_snapshots": 0,
-                "cex_observations": 0}
+    def fake_compact(_store, *, max_rows, deadline_monotonic, **kwargs):
+        calls.append((max_rows, deadline_monotonic, kwargs))
+        return {"rows_deleted": max_rows, "budget_units": max_rows}
 
-    monkeypatch.setattr(engine.store, "compact_raw_evidence", fake_compact)
-    monkeypatch.setattr(engine.store, "enforce_raw_row_cap", lambda *a, **k: {})
-    monkeypatch.setattr(engine.store, "compact_event_buckets", lambda *a, **k: 0)
-    result = engine._maintenance_pass_blocking()
+    monkeypatch.setattr(V4Store, "bounded_retention_step", fake_compact)
+    result = engine_harness.maintenance_worker.run_maintenance_sync(
+        engine_module.run_bounded_maintenance_pass,
+        snapshot=_maintenance_snapshot(),
+        policy=_maintenance_policy(chunk=100, rows=300, budget_ms=2_000),
+    )
     assert calls
-    assert all(bs == 100 and ri is False for bs, ri in calls)
-    assert result["rows"] <= 400
-    assert len(calls) <= 4
+    assert all(1 <= rows <= 100 for rows, _deadline, _kwargs in calls)
+    assert all(call[2]["protect_trade_evidence"] is True for call in calls)
+    assert result.rows_deleted <= 300
+    assert sum(rows for rows, _deadline, _kwargs in calls) <= 300
 
 
 # 14. Maintenance respects the wall-clock budget even with rows remaining.
 def test_maintenance_respects_time_budget(engine_harness, monkeypatch):
-    engine = engine_harness.engine
-    monkeypatch.setattr(engine, "_has_deletable_raw", lambda _cutoff: True)
-    engine.cfg.maintenance_chunk_rows = 10
-    engine.cfg.maintenance_max_rows_per_pass = 10_000_000
-    engine.cfg.maintenance_max_seconds_per_pass = 0.2
+    calls = {"n": 0}
 
-    def slow_compact(_now, *, retention_ms, batch_size, run_integrity):
+    def slow_compact(_store, *, max_rows, deadline_monotonic, **_kwargs):
+        calls["n"] += 1
         time.sleep(0.05)
-        return {"source_events": batch_size, "book_snapshots": 0,
-                "cex_observations": 0}
+        exhausted = time.monotonic() >= deadline_monotonic
+        rows = 0 if exhausted else min(max_rows, 100)
+        return {
+            "rows_deleted": rows,
+            "budget_units": rows,
+            "deadline_exhausted": exhausted,
+        }
 
-    monkeypatch.setattr(engine.store, "compact_raw_evidence", slow_compact)
-    monkeypatch.setattr(engine.store, "enforce_raw_row_cap", lambda *a, **k: {})
-    monkeypatch.setattr(engine.store, "compact_event_buckets", lambda *a, **k: 0)
+    monkeypatch.setattr(V4Store, "bounded_retention_step", slow_compact)
     start = time.monotonic()
-    result = engine._maintenance_pass_blocking()
+    result = engine_harness.maintenance_worker.run_maintenance_sync(
+        engine_module.run_bounded_maintenance_pass,
+        snapshot=_maintenance_snapshot(),
+        policy=_maintenance_policy(
+            chunk=300, rows=10_000_000, budget_ms=200),
+    )
     elapsed = time.monotonic() - start
     assert elapsed < 1.0
-    assert result["rows"] <= 10 * 12
+    assert result.time_budget_exhausted is True
+    assert calls["n"] <= 5
+    assert result.rows_deleted <= 400
 
 
 # 16. Maintenance contention does not block the WebSocket receive callbacks.
 def test_maintenance_does_not_block_ws_callbacks(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    monkeypatch.setattr(engine, "_has_deletable_raw", lambda _cutoff: True)
 
-    def slow_compact(_now, *, retention_ms, batch_size, run_integrity):
-        time.sleep(0.3)  # a single slow scan holding the store lock in a thread
-        return {"source_events": 0, "book_snapshots": 0, "cex_observations": 0}
+    def slow_maintenance(_store, **_kwargs):
+        time.sleep(0.3)
+        return SimpleNamespace(as_dict=lambda: {
+            "rows_deleted": 0, "checkpoint": None,
+        })
 
-    monkeypatch.setattr(engine.store, "compact_raw_evidence", slow_compact)
-    monkeypatch.setattr(engine.store, "enforce_raw_row_cap", lambda *a, **k: {})
-    monkeypatch.setattr(engine.store, "compact_event_buckets", lambda *a, **k: 0)
+    monkeypatch.setattr(
+        engine_module, "run_bounded_maintenance_pass", slow_maintenance)
 
     async def scenario():
         maintenance = asyncio.create_task(engine._run_maintenance_pass())
@@ -1045,41 +1157,44 @@ def test_retention_indexes_migrate_into_existing_db(tmp_path):
 
 
 def test_maintenance_skips_compaction_when_nothing_old(engine_harness, monkeypatch):
-    engine = engine_harness.engine
     called = {"n": 0}
-    original = engine.store.compact_raw_evidence
+    original = V4Store.bounded_retention_step
 
-    def spy(*a, **k):
+    def spy(store, *a, **k):
         called["n"] += 1
-        return original(*a, **k)
+        return original(store, *a, **k)
 
-    monkeypatch.setattr(engine.store, "compact_raw_evidence", spy)
-    # The harness database holds only recent rows, so nothing is old enough to
-    # delete and the expensive compaction scan is skipped entirely.
-    assert engine._has_deletable_raw(now_ms() - 10) is False
-    engine._maintenance_pass_blocking()
-    assert called["n"] == 0
+    monkeypatch.setattr(V4Store, "bounded_retention_step", spy)
+    # Fresh-only evidence yields one bounded zero-result probe. The policy then
+    # stops immediately instead of consuming the remaining row/time budget.
+    result = engine_harness.maintenance_worker.run_maintenance_sync(
+        engine_module.run_bounded_maintenance_pass,
+        snapshot=_maintenance_snapshot(),
+        policy=_maintenance_policy(chunk=300, rows=3_000, budget_ms=1_000),
+    )
+    assert called["n"] == 1
+    assert result.rows_deleted == 0
+    assert result.chunks_completed == 1
 
 
 # 17. A maintenance failure does not crash the engine.
 def test_maintenance_failure_does_not_crash(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    monkeypatch.setattr(engine, "_has_deletable_raw", lambda _cutoff: True)
 
     def boom(*_a, **_k):
         raise RuntimeError("maintenance boom")
 
-    monkeypatch.setattr(engine.store, "compact_raw_evidence", boom)
+    monkeypatch.setattr(engine_module, "run_bounded_maintenance_pass", boom)
     asyncio.run(engine._run_maintenance_pass())  # must not raise
     assert "maintenance:" in engine._last_error
 
 
 # 18. Severe event-loop lag fails closed for new executable candidates.
 def test_loop_lag_fails_closed_candidate_execution(engine_harness, monkeypatch):
-    engine, store = engine_harness.engine, engine_harness.store
+    engine = engine_harness.engine
     current = now_ms()
     identity = _identity(current)
-    state = engine._persist_market(identity, current)
+    state = asyncio.run(engine._persist_market(identity, current))
     asyncio.run(_mark_source_ready(engine))
     state.books = {
         "YES": _book(identity, "YES", current),
@@ -1093,8 +1208,9 @@ def test_loop_lag_fails_closed_candidate_execution(engine_harness, monkeypatch):
     asyncio.run(engine._evaluate(state, EvaluationTrigger(
         source="lag-test", receipt_ts_ms=current,
         receipt_monotonic_ns=time.monotonic_ns())))
-    assert store.query_one("SELECT COUNT(*) AS n FROM entries")["n"] == 0
-    decision = store.query_one(
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM entries")["n"] == 0
+    decision = _query_one(engine_harness,
         "SELECT reason FROM decisions ORDER BY decision_id DESC LIMIT 1")
     assert "event_loop_lag" in decision["reason"]
 
@@ -1102,7 +1218,6 @@ def test_loop_lag_fails_closed_candidate_execution(engine_harness, monkeypatch):
 # 19 & 20. Heartbeat and OKX admission stay responsive during slow reporting.
 def test_ws_callbacks_stay_responsive_during_slow_reporting(engine_harness, monkeypatch):
     engine = engine_harness.engine
-    engine._readonly_store = V4ReadOnlyStore(engine.cfg.db_path)
 
     def slow_export(*_a, **_k):
         time.sleep(0.3)
@@ -1127,10 +1242,7 @@ def test_ws_callbacks_stay_responsive_during_slow_reporting(engine_harness, monk
         await asyncio.gather(report, beat)
         return elapsed
 
-    try:
-        elapsed = asyncio.run(scenario())
-        assert elapsed < 0.15                       # OKX admission not blocked
-        assert engine.counters["accepted_events"] == 20
-        assert ticks["n"] >= 15                     # heartbeat kept ticking
-    finally:
-        engine._readonly_store.close()
+    elapsed = asyncio.run(scenario())
+    assert elapsed < 0.15                       # OKX admission not blocked
+    assert engine.counters["accepted_events"] == 20
+    assert ticks["n"] >= 15                     # heartbeat kept ticking

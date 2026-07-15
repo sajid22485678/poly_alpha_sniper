@@ -182,6 +182,55 @@ def _latest_candidates(store: Any, limit: int = 12) -> list[dict[str, Any]]:
     return candidates
 
 
+_PERSISTENCE_CONFIG_FIELDS = (
+    "critical_queue_capacity", "telemetry_queue_capacity",
+    "critical_command_timeout_s", "telemetry_batch_size",
+    "telemetry_flush_interval_ms", "telemetry_coalescing_interval_ms",
+    "writer_heartbeat_interval_ms", "writer_failure_timeout_ms",
+    "checkpoint_wal_size_trigger_bytes", "checkpoint_min_interval_s",
+    "retention_chunk_size", "retention_time_budget_ms",
+    "reporting_worker_timeout_s", "maintenance_worker_timeout_s",
+    "reporting_queue_capacity", "maintenance_queue_capacity",
+    "raw_event_retention_hours", "raw_event_max_rows",
+    "maintenance_chunk_rows", "maintenance_max_rows_per_pass",
+    "maintenance_max_seconds_per_pass", "writer_queue_max",
+    "cex_writer_queue_max", "shutdown_drain_timeout_s",
+    "sqlite_busy_timeout_ms",
+)
+
+
+def _effective_persistence_config(config: Any) -> dict[str, Any]:
+    """Return only sanitized numeric persistence controls for operators."""
+
+    result = {
+        name: _value(config, name)
+        for name in _PERSISTENCE_CONFIG_FIELDS
+        if _value(config, name) is not None
+    }
+    retention_ms = int(
+        _value(config, "raw_event_retention_hours", default=24)
+    ) * 3_600_000
+    result.update({
+        "effective_retention_time_budget_ms": min(
+            int(_value(config, "retention_time_budget_ms", default=1_000)),
+            max(1, int(float(_value(
+                config, "maintenance_max_seconds_per_pass", default=1.0
+            )) * 1_000)),
+        ),
+        "effective_retention_chunk_rows": min(
+            int(_value(config, "retention_chunk_size", default=250)),
+            int(_value(config, "maintenance_chunk_rows", default=250)),
+        ),
+        "event_bucket_detail_retention_ms": min(retention_ms, 15 * 60_000),
+        "metadata_retention_ms": retention_ms,
+        "metadata_max_rows": int(_value(
+            config, "raw_event_max_rows", default=250_000
+        )),
+        "journal_payload_retention_ms": retention_ms,
+    })
+    return result
+
+
 def build_frequency_v4_dashboard(
     store: Any, *, now_ms: int, config: Any = None,
     runtime_state: Any = None, session_id: Optional[str] = None,
@@ -203,7 +252,10 @@ def build_frequency_v4_dashboard(
     open_positions = store.open_positions()
     exposure = sum(float(row.get("committed_exposure_usd") or 0) for row in open_positions)
     latest_health = _latest_runtime_health(store, effective_session_id)
-    source_health = store.latest_source_health()
+    try:
+        source_health = store.latest_source_health(session_id=effective_session_id)
+    except TypeError:  # Compatibility for a pre-v2 read-only store in tests.
+        source_health = store.latest_source_health()
     nonce = runtime.get("launch_nonce")
     nonce_fingerprint = (
         hashlib.sha256(str(nonce).encode("utf-8")).hexdigest()[:12]
@@ -253,8 +305,81 @@ def build_frequency_v4_dashboard(
            JOIN asset_windows w ON w.window_id=e.window_id
            ORDER BY p.terminal_ts_ms DESC,p.pnl_record_id DESC LIMIT 20"""
     )
+    persistence = _mapping(runtime.get("persistence"))
+    critical = _mapping(persistence.get("critical"))
+    telemetry = _mapping(persistence.get("telemetry"))
+    operational_reads = _mapping(persistence.get("operational_reads"))
+    reporting = _mapping(persistence.get("reporting"))
+    maintenance = _mapping(persistence.get("maintenance"))
+    latest_maintenance = _mapping(persistence.get("latest_maintenance"))
+    runtime_io = _mapping(persistence.get("runtime_io"))
+    writer_state = str(critical.get("state") or "UNKNOWN")
+    writer_timeouts = int(critical.get("timeout_count") or 0)
+    critical_incomplete = int(
+        telemetry.get("critical_evidence_incomplete_count")
+        or telemetry.get("incomplete_evidence_count") or 0
+    )
+    raw_telemetry_loss = int(
+        telemetry.get("raw_telemetry_loss_count")
+        or telemetry.get("rows_dropped") or 0
+    )
+    telemetry_failures = int(telemetry.get("failed_batches") or 0)
+    execution_blocked_reason = str(
+        runtime.get("execution_blocked_reason")
+        or critical.get("engine_latched_failure_reason") or ""
+    )
+    critical_blocked_reasons = [
+        reason for reason, present in (
+            ("critical_writer_unhealthy", writer_state != "HEALTHY"),
+            ("critical_command_timeout", writer_timeouts > 0),
+            ("unconfirmed_critical_command", int(
+                critical.get("unconfirmed_command_count") or 0) > 0),
+            ("critical_evidence_incomplete", critical_incomplete > 0),
+            (f"engine_execution_blocked:{execution_blocked_reason}", bool(
+                execution_blocked_reason)),
+            ("process_ownership_unverified", not bool(
+                runtime.get("process_ownership_valid"))),
+            ("orphan_v4_process_detected", int(
+                runtime.get("orphan_processes") or 0) > 0),
+            ("operational_read_worker_unhealthy", str(
+                operational_reads.get("state") or "") != "RUNNING"),
+            ("reporting_read_worker_unhealthy", str(
+                reporting.get("state") or "") != "RUNNING"),
+            ("sqlite_integrity_unhealthy", not (
+                integrity.get("integrity") == "ok"
+                and not integrity.get("foreign_key_violations"))),
+        ) if present
+    ]
+    critical_execution_ready = not critical_blocked_reasons
+    operational_degraded_reasons = [
+        *critical_blocked_reasons,
+        *(["telemetry_writer_unhealthy"] if str(
+            telemetry.get("state") or telemetry.get("health") or ""
+        ) != "HEALTHY" else []),
+        *(["raw_telemetry_loss"] if raw_telemetry_loss > 0 else []),
+        *(["telemetry_batch_failure"] if telemetry_failures > 0 else []),
+        *(["maintenance_worker_unhealthy"] if str(
+            maintenance.get("state") or "") != "RUNNING" else []),
+        *(["maintenance_pass_failed"] if str(
+            latest_maintenance.get("status") or ""
+        ) == "FAILED" else []),
+        *(["runtime_io_worker_unhealthy"] if str(
+            runtime_io.get("state") or "") != "RUNNING" else []),
+    ]
+    persistence_ready = bool(
+        critical_execution_ready and not operational_degraded_reasons
+    )
+    db_path = Path(store.path)
+    wal_path = Path(f"{db_path}-wal")
+    shm_path = Path(f"{db_path}-shm")
+    try:
+        latest_checkpoint = store.query_one(
+            "SELECT * FROM checkpoint_runs ORDER BY checkpoint_run_id DESC LIMIT 1"
+        )
+    except Exception:  # A v1 fixture can be exported before migration tests run.
+        latest_checkpoint = None
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_ts_ms": int(now_ms),
         "strategy_id": STRATEGY_ID,
         "mode": MODE,
@@ -284,6 +409,34 @@ def build_frequency_v4_dashboard(
             "orphan_processes": int(runtime.get("orphan_processes") or 0),
             "process_ownership_valid": bool(runtime.get("process_ownership_valid", False)),
             "latest_health": latest_health,
+        },
+        "effective_config": {
+            "config_hash": runtime.get("config_hash"),
+            **_effective_persistence_config(config),
+        },
+        "persistence": {
+            "critical": critical,
+            "telemetry": telemetry,
+            "operational_reads": operational_reads,
+            "reporting": reporting,
+            "maintenance": maintenance,
+            "latest_maintenance": latest_maintenance,
+            "runtime_io": runtime_io,
+            "latest_checkpoint": latest_checkpoint,
+            "connection_ownership": {
+                "critical_writer": "dedicated_writer_thread",
+                "telemetry": "dedicated_aggregator_and_writer_connection",
+                "operational_reads": "dedicated_operational_read_only_worker",
+                "reporting": "dedicated_report_read_only_worker",
+                "maintenance": "dedicated_maintenance_worker",
+            },
+            "operational_ready": persistence_ready,
+            "critical_execution_ready": critical_execution_ready,
+            "critical_blocked_reasons": critical_blocked_reasons,
+            "operational_degraded_reasons": operational_degraded_reasons,
+            # Backward-compatible alias, now explicitly operational rather
+            # than a claim that lossy raw telemetry blocked safe shadow entry.
+            "blocked_reasons": operational_degraded_reasons,
         },
         "sources": source_health,
         "source_policy": {
@@ -325,9 +478,13 @@ def build_frequency_v4_dashboard(
             "maker_fill_assumed_count": metrics["execution"]["maker_fill_assumed_count"],
         },
         "database": {
-            "path_name": Path(store.path).name,
+            "path_name": db_path.name,
             "size_bytes": store.database_size_bytes(),
+            "db_bytes": db_path.stat().st_size if db_path.exists() else 0,
+            "wal_bytes": wal_path.stat().st_size if wal_path.exists() else 0,
+            "shm_bytes": shm_path.stat().st_size if shm_path.exists() else 0,
             "wal_enabled": True,
+            "wal_autocheckpoint": 0,
             "foreign_keys_enabled": True,
             "legacy_data_included": False,
         },

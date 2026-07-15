@@ -54,6 +54,9 @@ export interface FrequencyV4Snapshot {
   heartbeat_ts_ms?: number;
   export_age_ms?: number;
   runtime?: Record<string, unknown>;
+  effective_config?: Record<string, unknown>;
+  persistence?: Record<string, unknown>;
+  database?: Record<string, unknown>;
   sources?: SourceHealth[] | Record<string, SourceHealth>;
   market_universe?: Record<string, unknown>;
   frequency?: Record<string, unknown> & { rolling?: Record<string, RollingFrequency> };

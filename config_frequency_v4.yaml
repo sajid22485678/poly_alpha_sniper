@@ -58,6 +58,22 @@ lite_frequency_v4_shadow:
   raw_event_retention_hours: 24
   raw_event_max_rows: 250000
   sqlite_busy_timeout_ms: 10000
+  critical_queue_capacity: 2048
+  telemetry_queue_capacity: 20000
+  critical_command_timeout_s: 15.0
+  telemetry_batch_size: 512
+  telemetry_flush_interval_ms: 250
+  telemetry_coalescing_interval_ms: 1000
+  writer_heartbeat_interval_ms: 1000
+  writer_failure_timeout_ms: 5000
+  checkpoint_wal_size_trigger_bytes: 33554432
+  checkpoint_min_interval_s: 60
+  retention_chunk_size: 250
+  retention_time_budget_ms: 1000
+  reporting_worker_timeout_s: 120.0
+  maintenance_worker_timeout_s: 30.0
+  reporting_queue_capacity: 16
+  maintenance_queue_capacity: 8
   writer_queue_max: 10000
   cex_writer_queue_max: 10000
   loop_lag_threshold_ms: 250

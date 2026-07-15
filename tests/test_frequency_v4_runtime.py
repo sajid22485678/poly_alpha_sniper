@@ -128,6 +128,7 @@ def test_stale_lock_is_replaced_without_accepting_its_nonce(tmp_path, monkeypatc
         assert lock["launch_nonce"] == runtime.launch_nonce
         assert lock["launch_nonce"] != stale_nonce
         assert lock["pid"] == os.getpid()
+        assert runtime.proven_absent_launch_nonces == (stale_nonce,)
     finally:
         runtime.release()
 

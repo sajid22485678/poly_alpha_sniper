@@ -90,6 +90,21 @@ def test_initial_tiers_and_maker_timing_match_v4_mission():
     assert cfg.exposure_cap_usd == 9.75
 
 
+def test_persistence_controls_are_explicit_bounded_and_do_not_change_strategy():
+    cfg = FrequencyV4Config()
+    assert cfg.critical_queue_capacity == 2_048
+    assert cfg.telemetry_queue_capacity == 20_000
+    assert cfg.critical_command_timeout_s == 15.0
+    assert cfg.telemetry_batch_size == 512
+    assert cfg.telemetry_flush_interval_ms == 250
+    assert cfg.writer_heartbeat_interval_ms == 1_000
+    assert cfg.checkpoint_wal_size_trigger_bytes == 32 * 1024 * 1024
+    assert cfg.retention_chunk_size == 250
+    validate_frequency_v4_config(cfg)
+    assert (cfg.strong_cross_edge, cfg.medium_maker_edge,
+            cfg.weak_observe_edge, cfg.fixed_shares) == (0.020, 0.010, 0.005, 5.0)
+
+
 @pytest.mark.parametrize("body", [
     "lite_frequency_v4_shadow:\n  unknown_field: 1\n",
     "lite_frequency_v4_shadow:\n  strong_cross_edge: .nan\n",
@@ -99,6 +114,10 @@ def test_initial_tiers_and_maker_timing_match_v4_mission():
     "lite_frequency_v4_shadow:\n  rest_recovery_min_ms: 751\n",
     "lite_frequency_v4_shadow:\n  fair_probability_ceiling: 1.0\n",
     "lite_frequency_v4_shadow:\n  max_open_positions: false\n",
+    "lite_frequency_v4_shadow:\n  critical_queue_capacity: 0\n",
+    "lite_frequency_v4_shadow:\n  telemetry_batch_size: 1000\n  telemetry_queue_capacity: 100\n",
+    "lite_frequency_v4_shadow:\n  critical_command_timeout_s: 1\n",
+    "lite_frequency_v4_shadow:\n  checkpoint_wal_size_trigger_bytes: 100\n",
 ])
 def test_nonfinite_unknown_wrong_type_and_out_of_range_fail_closed(tmp_path, body):
     path = tmp_path / "bad.yaml"

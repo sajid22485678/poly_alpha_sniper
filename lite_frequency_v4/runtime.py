@@ -117,6 +117,13 @@ class V4RuntimeFiles:
         self.commit = current_commit(self.repo_root)
         self._guard_fd: Optional[int] = None
         self._held = False
+        self.verified_process_ownership: Optional[dict[str, Any]] = None
+        # Populated only while holding the OS guard.  A nonce enters this set
+        # only when its recorded process is proven absent (or its PID has been
+        # reused with a different creation time) before the stale lock is
+        # replaced.  The persistence owner uses this narrow evidence to release
+        # crash-left reservations; it never guesses from wall-clock age.
+        self.proven_absent_launch_nonces: tuple[str, ...] = ()
 
     def _acquire_guard(self) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -166,19 +173,30 @@ class V4RuntimeFiles:
     def acquire(self) -> dict[str, Any]:
         try:
             self._acquire_guard()
+            proven_absent: list[str] = []
             if self.lock_path.exists():
                 existing = self._read_json(self.lock_path)
                 existing_pid = int(existing.get("pid") or 0)
                 recorded_create = existing.get("process_create_time")
-                actual_create = process_create_time(existing_pid) if pid_alive(existing_pid) else None
-                same_process = bool(
-                    actual_create is not None
-                    and (recorded_create is None or abs(float(recorded_create) - actual_create) < 0.01)
+                alive = pid_alive(existing_pid)
+                actual_create = process_create_time(existing_pid) if alive else None
+                if alive and actual_create is None:
+                    raise RuntimeError(
+                        "Frequency V4 process lock owner is alive but its "
+                        "creation time cannot be verified"
+                    )
+                reused_pid = bool(
+                    alive and actual_create is not None
+                    and recorded_create is not None
+                    and abs(float(recorded_create) - actual_create) >= 0.01
                 )
-                if same_process:
+                if alive and not reused_pid:
                     raise RuntimeError(
                         f"Frequency V4 already has an active process lock (pid={existing_pid})"
                     )
+                prior_nonce = str(existing.get("launch_nonce") or "").lower()
+                if _valid_nonce(prior_nonce) and prior_nonce != self.launch_nonce:
+                    proven_absent.append(prior_nonce)
                 self.lock_path.unlink(missing_ok=True)
             self.stop_path.unlink(missing_ok=True)
             payload = {
@@ -197,10 +215,31 @@ class V4RuntimeFiles:
             finally:
                 os.close(fd)
             self._held = True
+            self.proven_absent_launch_nonces = tuple(sorted(set(proven_absent)))
+            self.verified_process_ownership = None
             return payload
         except Exception:
+            self.proven_absent_launch_nonces = ()
+            self.verified_process_ownership = None
             self._release_guard()
             raise
+
+    def verify_process_ownership(self) -> dict[str, Any]:
+        """Prove the acquired lock owns the sole exact V4 module process."""
+
+        result = self.process_ownership()
+        if not (
+            bool(result.get("process_ownership_valid"))
+            and int(result.get("exact_v4_processes") or 0) == 1
+            and int(result.get("owned_v4_processes") or 0) == 1
+            and int(result.get("orphan_processes") or 0) == 0
+        ):
+            self.verified_process_ownership = None
+            raise RuntimeError(
+                "Frequency V4 exact process ownership preflight failed"
+            )
+        self.verified_process_ownership = dict(result)
+        return dict(result)
 
     def publish(self, state: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         timestamp = now_ms()

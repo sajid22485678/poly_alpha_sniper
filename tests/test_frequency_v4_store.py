@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 import sqlite3
+import time
 
 import pytest
 
@@ -7,6 +8,7 @@ from poly_alpha_sniper.lite_frequency_v4.contracts import CexObservation, Source
 from poly_alpha_sniper.lite_frequency_v4.store import (
     EXPECTED_TABLES,
     ExposureLimitExceeded,
+    V4BackgroundWriteDeferred,
     V4SchemaError,
     V4Store,
     WindowReservationConflict,
@@ -502,33 +504,42 @@ def test_cex_contract_aliases_and_zero_future_tolerance(tmp_path):
 
 def test_atomic_entry_race_allows_exactly_one_asset_window_entry(tmp_path):
     path = tmp_path / "race.db"
-    one = V4Store(path)
-    seed_session(one)
-    context = seed_market_window(one)
-    evidence = seed_candidate_entry_context(one, context)
-    two = V4Store(path)
+    seed_store = V4Store(path)
+    try:
+        seed_session(seed_store)
+        context = seed_market_window(seed_store)
+        evidence = seed_candidate_entry_context(seed_store, context)
+    finally:
+        seed_store.close()
     payloads = [entry_payload(context, evidence, idem=f"contender-{n}") for n in (1, 2)]
 
-    def attempt(pair):
-        store, payload = pair
+    def attempt(payload):
+        store = V4Store(path)
         try:
-            return ("ok", create_entry(store, payload))
-        except WindowReservationConflict as exc:
-            return ("blocked", exc.reason)
+            try:
+                return ("ok", create_entry(store, payload))
+            except WindowReservationConflict as exc:
+                return ("blocked", exc.reason)
+        finally:
+            store.close()
 
+    verifier = None
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
-            results = list(pool.map(attempt, ((one, payloads[0]), (two, payloads[1]))))
+            results = list(pool.map(attempt, payloads))
+        verifier = V4Store(path)
         assert sorted(result[0] for result in results) == ["blocked", "ok"]
-        assert one.query_one("SELECT COUNT(*) count FROM entries")["count"] == 1
-        entry = one.query_one("SELECT * FROM entries")
+        assert verifier.query_one("SELECT COUNT(*) count FROM entries")["count"] == 1
+        entry = verifier.query_one("SELECT * FROM entries")
         assert entry["shares"] == 5.0
         assert entry["maker_fill_assumed"] == 0
-        assert one.query_one("SELECT COUNT(*) count FROM positions WHERE status='OPEN'")["count"] == 1
-        assert one.integrity_check()["foreign_key_violations"] == []
+        assert verifier.query_one(
+            "SELECT COUNT(*) count FROM positions WHERE status='OPEN'"
+        )["count"] == 1
+        assert verifier.integrity_check()["foreign_key_violations"] == []
     finally:
-        one.close()
-        two.close()
+        if verifier is not None:
+            verifier.close()
 
 
 def test_entry_risk_limit_rolls_back_without_partial_rows(tmp_path):
@@ -693,53 +704,67 @@ def test_reservation_release_requires_exact_owner_and_never_releases_entry(tmp_p
 
 def test_atomic_per_asset_open_position_cap_across_windows(tmp_path):
     path = tmp_path / "per-asset-race.db"
-    one = V4Store(path)
-    seed_session(one)
-    first_context = seed_market_window(
-        one, open_ts=NOW - 600_000, suffix="asset-cap-one"
-    )
-    second_context = seed_market_window(
-        one, open_ts=NOW - 300_000, suffix="asset-cap-two"
-    )
-    first_evidence = seed_candidate_entry_context(one, first_context, seq=1)
-    second_evidence = seed_candidate_entry_context(one, second_context, seq=2)
-    two = V4Store(path)
+    seed_store = V4Store(path)
+    try:
+        seed_session(seed_store)
+        first_context = seed_market_window(
+            seed_store, open_ts=NOW - 600_000, suffix="asset-cap-one"
+        )
+        second_context = seed_market_window(
+            seed_store, open_ts=NOW - 300_000, suffix="asset-cap-two"
+        )
+        first_evidence = seed_candidate_entry_context(
+            seed_store, first_context, seq=1
+        )
+        second_evidence = seed_candidate_entry_context(
+            seed_store, second_context, seq=2
+        )
+    finally:
+        seed_store.close()
 
-    def attempt(store, context, evidence, contender):
+    def attempt(context, evidence, contender):
+        store = V4Store(path)
         try:
-            entry_id = store.create_entry(
-                entry_payload(context, evidence, idem=f"asset-cap-{contender}"),
-                max_concurrent_positions=10,
-                global_exposure_cap_usd=100.0,
-                per_asset_exposure_cap_usd=100.0,
-                max_open_per_asset=1,
-            )
-            return "ok", entry_id
-        except ExposureLimitExceeded as exc:
-            return "blocked", exc.reason
+            try:
+                entry_id = store.create_entry(
+                    entry_payload(
+                        context, evidence, idem=f"asset-cap-{contender}"
+                    ),
+                    max_concurrent_positions=10,
+                    global_exposure_cap_usd=100.0,
+                    per_asset_exposure_cap_usd=100.0,
+                    max_open_per_asset=1,
+                )
+                return "ok", entry_id
+            except ExposureLimitExceeded as exc:
+                return "blocked", exc.reason
+        finally:
+            store.close()
 
+    verifier = None
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = (
-                pool.submit(attempt, one, first_context, first_evidence, "one"),
-                pool.submit(attempt, two, second_context, second_evidence, "two"),
+                pool.submit(attempt, first_context, first_evidence, "one"),
+                pool.submit(attempt, second_context, second_evidence, "two"),
             )
             results = [future.result() for future in futures]
+        verifier = V4Store(path)
         assert sorted(result[0] for result in results) == ["blocked", "ok"]
         assert {result[1] for result in results if result[0] == "blocked"} == {
             "max_open_per_asset"
         }
-        assert one.query_one("SELECT COUNT(*) count FROM entries") == {"count": 1}
-        assert one.query_one(
+        assert verifier.query_one("SELECT COUNT(*) count FROM entries") == {"count": 1}
+        assert verifier.query_one(
             "SELECT COUNT(*) count FROM positions WHERE asset='BTC' AND status='OPEN'"
         ) == {"count": 1}
-        assert one.integrity_check() == {
+        assert verifier.integrity_check() == {
             "integrity": "ok",
             "foreign_key_violations": [],
         }
     finally:
-        one.close()
-        two.close()
+        if verifier is not None:
+            verifier.close()
 
 
 def test_event_bucket_compaction_preserves_totals_and_is_idempotent(tmp_path):
@@ -961,5 +986,602 @@ def test_late_admitted_evidence_bypasses_regression_without_double_counting(tmp_
         assert store.query_one("SELECT COUNT(*) count FROM source_events") == {
             "count": 2
         }
+    finally:
+        store.close()
+
+
+def test_entry_bundle_ack_contains_committed_position_without_followup_read(tmp_path):
+    store = V4Store(tmp_path / "entry-position-ack.db")
+    try:
+        seed_session(store)
+        context = seed_market_window(store, suffix="position-ack")
+        evidence = seed_candidate_entry_context(store, context)
+        reservation = store.query_one(
+            "SELECT * FROM window_locks WHERE window_id=?", (context["window_id"],))
+        result = store.reserve_and_create_entry_bundle(
+            reservation,
+            entry_payload(context, evidence, idem="position-ack-entry"),
+            max_concurrent_positions=4,
+            global_exposure_cap_usd=10.0,
+            per_asset_exposure_cap_usd=5.0,
+        )
+        assert result["entry_id"] > 0
+        assert result["position_id"] == result["position"]["position_id"]
+        assert result["position"]["entry_id"] == result["entry_id"]
+        assert result["position"]["status"] == "OPEN"
+        assert result["position"]["shares"] == 5.0
+    finally:
+        store.close()
+
+
+def test_validated_cex_feature_horizons_are_not_reclassified_by_bundle_order(tmp_path):
+    store = V4Store(tmp_path / "validated-horizons.db")
+    try:
+        session = seed_session(store)
+        context = seed_market_window(store, suffix="validated-horizons")
+        base = {
+            "session_id": session,
+            "provider": "OKX",
+            "instrument": "BTC-USDT",
+            "asset": "BTC",
+            "event_type": "ticker",
+            "price": 100.0,
+            "bid": 99.9,
+            "ask": 100.1,
+            "receipt_ts_ms": NOW,
+            "monotonic_ns": NOW * 1_000_000,
+            "classification": "NEW_TICK",
+            "fresh": True,
+        }
+        source_reference = {
+            "value": {
+                "session_id": session,
+                "source": "OKX",
+                "channel": "tickers:BTC-USDT",
+                "event_type": "ticker",
+                "asset": "BTC",
+                "dedupe_key": "validated-horizon-source",
+                "provider_ts_ms": NOW-10,
+                "receipt_ts_ms": NOW,
+                "monotonic_ns": NOW * 1_000_000,
+                "sequence_no": 20,
+                "payload": {"price": 100},
+            },
+            "kwargs": {"session_id": session},
+        }
+        result = store.persist_evaluation_bundle({
+            "cex": [
+                {"value": {**base, "event_id": "newest", "provider_ts_ms": NOW-10,
+                            "sequence_no": 20},
+                 "kwargs": {"session_id": session,
+                            "already_validated_at_receipt": True},
+                 "source_event": source_reference,
+                 "role": "POINT_IN_TIME_FEATURE", "horizon_ms": 100,
+                 "evidence_age_ms": 10},
+                {"value": {**base, "event_id": "older", "provider_ts_ms": NOW-1_000,
+                            "sequence_no": 10},
+                 "kwargs": {"session_id": session,
+                            "already_validated_at_receipt": True},
+                 "source_event": source_reference,
+                 "role": "POINT_IN_TIME_FEATURE", "horizon_ms": 1_000,
+                 "evidence_age_ms": 1_000},
+            ],
+            "candidate": {
+                "session_id": session,
+                "window_id": context["window_id"],
+                "market_identity_id": context["identity_id"],
+                "evaluation_ts_ms": NOW,
+                "monotonic_ns": NOW * 1_000_000,
+                "evaluation_seq": 99,
+                "status": "NO_EDGE",
+                "regime": "QUIET",
+                "fair_probability_yes": 0.5,
+                "fair_probability_no": 0.5,
+                "calibrated": False,
+                "reliability": 0.5,
+                "positive_edge": False,
+            },
+            "fair_value": {
+                "calculation": {
+                    "phase": "FINAL",
+                    "calculation_seq": 1,
+                    "calculated_ts_ms": NOW,
+                    "monotonic_ns": NOW * 1_000_000,
+                    "regime": "QUIET",
+                    "fair_probability_yes": 0.5,
+                    "fair_probability_no": 0.5,
+                    "calibrated": False,
+                    "calibration_label": "UNCALIBRATED",
+                },
+                "sides": [],
+            },
+            "decision": {
+                "decision_seq": 1,
+                "decision_ts_ms": NOW,
+                "monotonic_ns": NOW * 1_000_000,
+                "phase": "FINAL",
+                "action": "SKIP",
+                "economic_gate_passed": False,
+                "exact_depth_passed": False,
+                "evidence_fresh": True,
+                "reason": "no_positive_edge",
+            },
+        })
+        assert len(result["cex_observation_ids"]) == 2
+        assert result["cex_source_event_ids"][0] == result["cex_source_event_ids"][1]
+        assert store.query(
+            "SELECT event_id,classification,fresh,invalid_reason "
+            "FROM cex_observations ORDER BY provider_ts_ms DESC"
+        ) == [
+            {"event_id": "newest", "classification": "NEW_TICK",
+             "fresh": 1, "invalid_reason": None},
+            {"event_id": "older", "classification": "NEW_TICK",
+             "fresh": 1, "invalid_reason": None},
+        ]
+        assert store.query_one(
+            "SELECT COUNT(*) count FROM candidate_cex_evidence "
+            "WHERE candidate_id=?", (result["candidate_id"],)
+        ) == {"count": 2}
+        assert store.query_one(
+            "SELECT duplicate_count FROM source_events WHERE dedupe_key=?",
+            ("validated-horizon-source",),
+        ) == {"duplicate_count": 0}
+    finally:
+        store.close()
+
+
+def test_reference_only_source_resolution_never_inflates_duplicate_telemetry(tmp_path):
+    store = V4Store(tmp_path / "reference-only-source.db")
+    try:
+        session = seed_session(store)
+        event = {
+            "session_id": session,
+            "source": "OKX",
+            "channel": "tickers:BTC-USDT",
+            "event_type": "ticker",
+            "asset": "BTC",
+            "dedupe_key": "already-admitted-event",
+            "provider_ts_ms": NOW-1,
+            "receipt_ts_ms": NOW,
+            "monotonic_ns": NOW * 1_000_000,
+            "sequence_no": 1,
+            "payload": {"price": 100},
+        }
+        first = store.record_source_event(
+            event, now_ms=NOW, count_in_bucket=False,
+            admitted_at_receipt=True, reference_only=True)
+        second = store.record_source_event(
+            event, now_ms=NOW, count_in_bucket=False,
+            admitted_at_receipt=True, reference_only=True)
+        row = store.query_one(
+            "SELECT duplicate_count,last_duplicate_receipt_ts_ms "
+            "FROM source_events WHERE source_event_id=?",
+            (first["source_event_id"],),
+        )
+        assert first["inserted"] is True
+        assert second["inserted"] is False
+        assert second["duplicate"] is False
+        assert second["accepted"] is True
+        assert row == {"duplicate_count": 0,
+                       "last_duplicate_receipt_ts_ms": None}
+        assert store.query_one(
+            "SELECT COUNT(*) count FROM event_buckets") == {"count": 0}
+    finally:
+        store.close()
+
+
+def test_startup_reconciliation_abandons_only_proven_absent_owner_makers(tmp_path):
+    store = V4Store(tmp_path / "maker-startup-reconcile.db")
+    try:
+        seed_session(store, session_id="absent-session")
+        absent_context = seed_market_window(
+            store, session_id="absent-session", suffix="absent-maker")
+        absent_evidence = seed_candidate_entry_context(store, absent_context)
+        seed_session(store, session_id="current-session")
+        current_context = seed_market_window(
+            store, session_id="current-session", open_ts=NOW-600_000,
+            suffix="current-maker")
+        current_evidence = seed_candidate_entry_context(store, current_context)
+
+        def maker(context, evidence):
+            return store.record_maker_observation({
+                "window_id": context["window_id"],
+                "candidate_id": evidence["candidate_id"],
+                "decision_id": evidence["decision_id"],
+                "initial_fair_value_calculation_id": evidence["fair_id"],
+                "initial_book_snapshot_id": evidence["book_id"],
+                "maker_start_ts_ms": evidence["entry_ts"],
+                "maker_deadline_ts_ms": evidence["entry_ts"] + 1_000,
+                "start_monotonic_ns": evidence["entry_ts"] * 1_000_000,
+                "maker_target_price": 0.48,
+                "chase_cap_price": 0.50,
+                "initial_net_edge": 0.015,
+                "maker_fill_assumed": False,
+            })
+
+        absent_maker = maker(absent_context, absent_evidence)
+        current_maker = maker(current_context, current_evidence)
+        result = store.reconcile_startup_state(
+            current_launch_nonce="nonce-current-session",
+            proven_absent_launch_nonces=("nonce-absent-session",),
+            reconciled_ts_ms=NOW+5_000,
+        )
+        assert result["unfinished_maker_observations"] == 2
+        assert result["reconciled_abandoned_maker_observations"] == 1
+        assert result["unfinished_makers_left_fail_closed"] == 1
+        assert store.query_one(
+            "SELECT maker_end_ts_ms,outcome,reason,maker_fill_assumed "
+            "FROM maker_observations WHERE maker_observation_id=?",
+            (absent_maker,),
+        ) == {
+            "maker_end_ts_ms": NOW+5_000,
+            "outcome": "ABANDONED",
+            "reason": "STARTUP_RECONCILED",
+            "maker_fill_assumed": 0,
+        }
+        assert store.query_one(
+            "SELECT maker_end_ts_ms,outcome,reason,maker_fill_assumed "
+            "FROM maker_observations WHERE maker_observation_id=?",
+            (current_maker,),
+        ) == {
+            "maker_end_ts_ms": None,
+            "outcome": None,
+            "reason": None,
+            "maker_fill_assumed": 0,
+        }
+        assert store.query_one("SELECT COUNT(*) count FROM entries") == {"count": 0}
+    finally:
+        store.close()
+
+
+def test_bounded_retention_prunes_only_nontrade_graph_and_linked_raw_evidence(tmp_path):
+    store = V4Store(tmp_path / "bounded-graph-retention.db")
+    try:
+        seed_session(store)
+        trade_context = seed_market_window(
+            store, open_ts=NOW-600_000, suffix="retained-trade")
+        trade_evidence = seed_candidate_entry_context(store, trade_context, seq=1)
+        trade_entry = create_entry(
+            store, entry_payload(trade_context, trade_evidence,
+                                 idem="retained-trade-entry"))
+
+        raw_context = seed_market_window(
+            store, open_ts=NOW-900_000, suffix="pruned-nontrade")
+        raw_evidence = seed_candidate_entry_context(store, raw_context, seq=2)
+        raw_lock = store.query_one(
+            "SELECT * FROM window_locks WHERE window_id=?", (raw_context["window_id"],))
+        assert store.release_window_reservation(
+            window_id=raw_context["window_id"],
+            session_id=raw_context["session_id"],
+            owner_launch_nonce=raw_lock["owner_launch_nonce"],
+            idempotency_key=raw_lock["idempotency_key"],
+        )
+
+        for _ in range(30):
+            result = store.bounded_retention_step(
+                cutoff_ts_ms=NOW-100_000,
+                max_rows=250,
+                deadline_monotonic=time.monotonic()+1.0,
+                protect_trade_evidence=True,
+                raw_event_max_rows=250_000,
+                now_ms=NOW,
+            )
+            if result["action"] == "no_eligible_rows":
+                break
+
+        assert store.query_one(
+            "SELECT candidate_id FROM candidates WHERE candidate_id=?",
+            (raw_evidence["candidate_id"],),
+        ) is None
+        assert store.query_one(
+            "SELECT source_event_id FROM source_events WHERE source_event_id=?",
+            (raw_evidence["event_id"],),
+        ) is None
+        assert store.query_one(
+            "SELECT book_snapshot_id FROM book_snapshots WHERE book_snapshot_id=?",
+            (raw_evidence["book_id"],),
+        ) is None
+        assert store.query_one(
+            "SELECT cex_observation_id FROM cex_observations "
+            "WHERE cex_observation_id=?", (raw_evidence["cex_id"],),
+        ) is None
+        assert store.query_one(
+            "SELECT candidate_id FROM candidates WHERE candidate_id=?",
+            (trade_evidence["candidate_id"],),
+        ) is not None
+        assert store.query_one(
+            "SELECT entry_id FROM entries WHERE entry_id=?", (trade_entry,)
+        ) == {"entry_id": trade_entry}
+        assert store.query_one(
+            "SELECT retention_class,pin_count FROM source_events "
+            "WHERE source_event_id=?", (trade_evidence["event_id"],)
+        )["retention_class"] == "TRADE_EVIDENCE"
+        assert store.integrity_check() == {
+            "integrity": "ok", "foreign_key_violations": []}
+    finally:
+        store.close()
+
+
+def test_journal_payload_compaction_keeps_idempotency_and_protected_commands(tmp_path):
+    store = V4Store(tmp_path / "journal-retention.db")
+    try:
+        seed_session(store)
+        context = seed_market_window(
+            store, open_ts=NOW-600_000, suffix="journal-trade")
+        evidence = seed_candidate_entry_context(store, context)
+        create_entry(store, entry_payload(context, evidence, idem="journal-trade-entry"))
+
+        def insert_command(name, *, status="COMMITTED", terminal=0,
+                           window_id=None, trade_id=None):
+            payload_hash = (name[0] * 64)[:64]
+            values = {
+                "command_id": name,
+                "command_type": "EVALUATION",
+                "method": "persist_evaluation_bundle",
+                "idempotency_key": f"idem-{name}",
+                "ordering_key": f"order-{name}",
+                "priority": 10,
+                "terminal": terminal,
+                "associated_window_id": window_id,
+                "associated_trade_id": trade_id,
+                "payload_hash": payload_hash,
+                "payload_json": '{"large":"' + ("x" * 1000) + '"}',
+                "status": status,
+                "attempt_count": 1,
+                "submitted_ts_ms": NOW-20_000,
+                "started_ts_ms": NOW-19_000,
+            }
+            if status == "COMMITTED":
+                values.update({
+                    "committed_ts_ms": NOW-18_000,
+                    "completed_ts_ms": NOW-18_000,
+                    "result_json": '{"candidate_id":1}',
+                })
+            with store.transaction(immediate=True) as conn:
+                return store._insert("persistence_commands", values, conn=conn)
+
+        insert_command("compactable")
+        insert_command("terminal", terminal=1)
+        insert_command("trade", window_id=context["window_id"])
+        insert_command("ambiguous", status="EXECUTING")
+        before = {
+            row["command_id"]: row for row in store.query(
+                "SELECT command_id,idempotency_key,payload_hash,payload_json,"
+                "result_json,status FROM persistence_commands")
+        }
+
+        for _ in range(20):
+            result = store.bounded_retention_step(
+                cutoff_ts_ms=0,
+                max_rows=10,
+                deadline_monotonic=time.monotonic()+1.0,
+                protect_trade_evidence=True,
+                journal_payload_retention_ms=1_000,
+                now_ms=NOW,
+            )
+            if result["metrics"].get("journal_payloads_compacted"):
+                break
+
+        after = {
+            row["command_id"]: row for row in store.query(
+                "SELECT command_id,idempotency_key,payload_hash,payload_json,"
+                "result_json,status FROM persistence_commands")
+        }
+        assert after["compactable"]["payload_json"].startswith(
+            '{"compacted":true,"payload_hash":')
+        for field in ("idempotency_key", "payload_hash", "result_json", "status"):
+            assert after["compactable"][field] == before["compactable"][field]
+        for name in ("terminal", "trade", "ambiguous"):
+            assert after[name] == before[name]
+    finally:
+        store.close()
+
+
+def test_bounded_retention_deadline_prevents_any_transaction(tmp_path):
+    store = V4Store(tmp_path / "retention-deadline.db")
+    try:
+        seed_session(store)
+        before = store.transaction_counters
+        result = store.bounded_retention_step(
+            cutoff_ts_ms=NOW,
+            max_rows=10,
+            deadline_monotonic=time.monotonic()-1.0,
+            protect_trade_evidence=True,
+            now_ms=NOW,
+        )
+        assert result["deadline_exhausted"] is True
+        assert result["budget_units"] == 0
+        assert store.transaction_counters == before
+    finally:
+        store.close()
+
+
+def test_bounded_retention_deadline_caps_sqlite_lock_wait(tmp_path):
+    path = tmp_path / "retention-lock-deadline.db"
+    owner = V4Store(path)
+    contender = V4Store(path)
+    try:
+        seed_session(owner)
+        started = time.monotonic()
+        with owner.transaction(immediate=True):
+            result = contender.bounded_retention_step(
+                cutoff_ts_ms=NOW,
+                max_rows=10,
+                deadline_monotonic=time.monotonic()+0.02,
+                protect_trade_evidence=True,
+                now_ms=NOW,
+            )
+        elapsed = time.monotonic() - started
+        assert result["deadline_exhausted"] is True
+        assert result["budget_units"] == 0
+        assert elapsed < 0.5
+        assert contender.query_one("PRAGMA busy_timeout") == {
+            "timeout": contender.busy_timeout_ms}
+    finally:
+        contender.close()
+        owner.close()
+
+
+def test_bounded_retention_rolls_buckets_and_bounds_maintenance_metadata(tmp_path):
+    store = V4Store(tmp_path / "bounded-metadata.db")
+    try:
+        seed_session(store)
+        store.record_event_count(
+            receipt_ts_ms=NOW-10_000,
+            source="OKX", channel="ticker", asset="BTC",
+            event_type="ticker", classification="ACCEPTED",
+            unique=True, duplicate=False, invalid=False,
+        )
+        store.record_event_count(
+            receipt_ts_ms=NOW,
+            source="OKX", channel="ticker", asset="BTC",
+            event_type="ticker", classification="ACCEPTED",
+            unique=True, duplicate=False, invalid=False,
+        )
+        sample = {
+            "worker_thread_id": 123,
+            "state": "HEALTHY",
+            "queue_depth": 0,
+            "queue_capacity": 100,
+            "queue_high_water": 1,
+            "oldest_queue_age_ms": 0,
+            "commands_submitted": 1,
+            "commands_committed": 1,
+            "commands_failed": 0,
+            "commands_retried": 0,
+            "idempotent_replays": 0,
+            "queue_full_count": 0,
+            "timeout_count": 0,
+            "transactions_started": 1,
+            "transactions_committed": 1,
+            "transactions_rolled_back": 0,
+        }
+        for ts in (NOW-10_000, NOW):
+            store.record_persistence_worker_sample(
+                {**sample, "sample_ts_ms": ts})
+            with store.transaction(immediate=True) as conn:
+                store._insert("checkpoint_runs", {
+                    "started_ts_ms": ts,
+                    "completed_ts_ms": ts,
+                    "mode": "PASSIVE",
+                    "reason": "test",
+                    "before_wal_bytes": 0,
+                    "after_wal_bytes": 0,
+                    "duration_ms": 0.0,
+                    "database_bytes": 0,
+                    "success": 1,
+                }, conn=conn)
+                store._insert("retention_runs", {
+                    "started_ts_ms": ts,
+                    "completed_ts_ms": ts,
+                    "raw_cutoff_ts_ms": max(0, ts-1_000),
+                    "requested_batch_size": 1,
+                }, conn=conn)
+
+        aggregate_metrics = {}
+        for _ in range(20):
+            result = store.bounded_retention_step(
+                cutoff_ts_ms=0,
+                max_rows=10,
+                deadline_monotonic=time.monotonic()+1.0,
+                protect_trade_evidence=True,
+                event_bucket_detail_retention_ms=1_000,
+                metadata_retention_ms=1_000,
+                metadata_max_rows=1_000,
+                now_ms=NOW,
+            )
+            aggregate_metrics.update(result["metrics"])
+            if result["action"] == "no_eligible_rows":
+                break
+
+        assert aggregate_metrics["event_bucket_detail_rows_compacted"] == 1
+        assert aggregate_metrics["persistence_worker_samples_deleted"] == 1
+        assert aggregate_metrics["checkpoint_runs_deleted"] == 1
+        assert aggregate_metrics["retention_runs_deleted"] == 1
+        assert store.query_one(
+            "SELECT COUNT(*) count FROM event_buckets WHERE bucket_ms=1000"
+        ) == {"count": 1}
+        assert store.query_one(
+            "SELECT SUM(raw_count) raw FROM event_buckets WHERE bucket_ms=60000"
+        ) == {"raw": 1}
+        assert store.query_one(
+            "SELECT COUNT(*) count FROM persistence_worker_samples"
+        ) == {"count": 1}
+        assert store.query_one(
+            "SELECT COUNT(*) count FROM checkpoint_runs") == {"count": 1}
+        assert store.query_one(
+            "SELECT COUNT(*) count FROM retention_runs") == {"count": 1}
+    finally:
+        store.close()
+
+
+def test_background_gate_defers_outer_write_and_checkpoint_without_leak(tmp_path):
+    path = tmp_path / "background-gate.db"
+    initial = V4Store(path)
+    seed_session(initial)
+    initial.close()
+    calls = {"admit": 0, "release": 0}
+
+    def deny():
+        calls["admit"] += 1
+        return False
+
+    def release():
+        calls["release"] += 1
+
+    store = V4Store(
+        path,
+        background_write_admission=deny,
+        background_write_release=release,
+    )
+    try:
+        with pytest.raises(V4BackgroundWriteDeferred):
+            store.record_runtime_health({
+                "session_id": "session-v4",
+                "sample_ts_ms": NOW,
+                "heartbeat_ts_ms": NOW,
+                "pid": 123,
+                "state": "RUNNING",
+                "loop_lag_ms": 0,
+            })
+        with pytest.raises(V4BackgroundWriteDeferred):
+            store.checkpoint(mode="PASSIVE", reason="critical_pending")
+        assert calls == {"admit": 2, "release": 0}
+        assert store.query_one(
+            "SELECT COUNT(*) count FROM runtime_health") == {"count": 0}
+        assert store.query_one(
+            "SELECT COUNT(*) count FROM checkpoint_runs") == {"count": 0}
+    finally:
+        store.close()
+
+
+def test_background_gate_releases_once_per_outer_transaction(tmp_path):
+    calls = {"admit": 0, "release": 0}
+
+    def admit():
+        calls["admit"] += 1
+        return True
+
+    def release():
+        calls["release"] += 1
+
+    store = V4Store(
+        tmp_path / "background-gate-release.db",
+        background_write_admission=admit,
+        background_write_release=release,
+    )
+    try:
+        seed_session(store)
+        assert calls == {"admit": 1, "release": 1}
+        with store.transaction(immediate=True):
+            store.record_runtime_health({
+                "session_id": "session-v4",
+                "sample_ts_ms": NOW,
+                "heartbeat_ts_ms": NOW,
+                "pid": 123,
+                "state": "RUNNING",
+                "loop_lag_ms": 0,
+            })
+        assert calls == {"admit": 2, "release": 2}
     finally:
         store.close()

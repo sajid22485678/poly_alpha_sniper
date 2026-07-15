@@ -52,18 +52,40 @@ def _store_with_health(tmp_path):
     return store, session, context
 
 
+def _healthy_runtime_state(session: str) -> dict:
+    return {
+        "session_id": session, "pid": 12345,
+        "launch_nonce": "nonce-session-v4", "heartbeat_ts_ms": NOW,
+        "current_commit": "c"*40, "config_hash": "d"*64,
+        "state": "RUNNING", "process_ownership_valid": True,
+        "orphan_processes": 0, "execution_blocked_reason": "",
+        "persistence": {
+            "critical": {
+                "state": "HEALTHY", "queue_depth": 0,
+                "queue_capacity": 2048, "timeout_count": 0,
+                "unconfirmed_command_count": 0,
+            },
+            "telemetry": {
+                "state": "HEALTHY", "queue_depth": 0,
+                "queue_capacity": 20000, "rows_dropped": 0,
+                "failed_batches": 0,
+                "raw_telemetry_loss_count": 0,
+                "critical_evidence_incomplete_count": 0,
+            },
+            "operational_reads": {"state": "RUNNING"},
+            "reporting": {"state": "RUNNING"},
+            "maintenance": {"state": "RUNNING"},
+            "runtime_io": {"state": "RUNNING"},
+        },
+    }
+
+
 def test_export_snapshot_is_v4_only_and_surfaces_safety_health_capacity(tmp_path):
     store, session, _ = _store_with_health(tmp_path)
     try:
         payload = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=FrequencyV4Config(), session_id=session,
-            runtime_state={
-                "session_id": session, "pid": 12345,
-                "launch_nonce": "nonce-session-v4", "heartbeat_ts_ms": NOW,
-                "current_commit": "c"*40, "config_hash": "d"*64,
-                "state": "RUNNING", "process_ownership_valid": True,
-                "orphan_processes": 0,
-            },
+            runtime_state=_healthy_runtime_state(session),
         )
         assert payload["strategy_id"] == "lite_frequency_v4"
         assert payload["mode"] == "lite_frequency_v4_shadow"
@@ -104,7 +126,52 @@ def test_export_snapshot_is_v4_only_and_surfaces_safety_health_capacity(tmp_path
         }
         assert payload["database"]["path_name"] == "poly_alpha_frequency_v4.db"
         assert payload["database"]["legacy_data_included"] is False
+        assert payload["database"]["wal_autocheckpoint"] == 0
+        assert payload["persistence"]["operational_ready"] is True
+        assert payload["persistence"]["critical_execution_ready"] is True
+        assert payload["persistence"]["critical_blocked_reasons"] == []
+        assert payload["persistence"]["connection_ownership"] == {
+            "critical_writer": "dedicated_writer_thread",
+            "telemetry": "dedicated_aggregator_and_writer_connection",
+            "operational_reads": "dedicated_operational_read_only_worker",
+            "reporting": "dedicated_report_read_only_worker",
+            "maintenance": "dedicated_maintenance_worker",
+        }
+        assert payload["effective_config"]["critical_queue_capacity"] == 2048
+        assert payload["effective_config"]["maintenance_max_rows_per_pass"] == 4000
+        encoded = json.dumps(payload).lower()
+        for forbidden in ("gamma_base_url", "clob_ws_url", "nonce-session-v4", "api_key"):
+            assert forbidden not in encoded
         assert payload["acceptance_gate"]["live_enablement_authorized"] is False
+    finally:
+        store.close()
+
+
+def test_export_separates_critical_block_from_lossy_raw_telemetry(tmp_path):
+    store, session, _ = _store_with_health(tmp_path)
+    try:
+        raw_loss = _healthy_runtime_state(session)
+        raw_loss["persistence"]["telemetry"]["rows_dropped"] = 3
+        raw_loss["persistence"]["telemetry"]["raw_telemetry_loss_count"] = 3
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(),
+            session_id=session, runtime_state=raw_loss,
+        )
+        assert payload["persistence"]["critical_execution_ready"] is True
+        assert payload["persistence"]["operational_ready"] is False
+        assert "raw_telemetry_loss" in payload["persistence"]["blocked_reasons"]
+
+        latched = _healthy_runtime_state(session)
+        latched["execution_blocked_reason"] = "critical_command_failed"
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(),
+            session_id=session, runtime_state=latched,
+        )
+        assert payload["persistence"]["critical_execution_ready"] is False
+        assert any(
+            reason.endswith("critical_command_failed")
+            for reason in payload["persistence"]["critical_blocked_reasons"]
+        )
     finally:
         store.close()
 

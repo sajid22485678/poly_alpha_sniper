@@ -28,12 +28,21 @@ from poly_alpha_sniper.lite_frequency_v4.events import (
     EventDisposition,
 )
 from poly_alpha_sniper.lite_frequency_v4.runtime import V4RuntimeFiles, now_ms
-from poly_alpha_sniper.lite_frequency_v4.store import V4Store
+from poly_alpha_sniper.lite_frequency_v4.persistence import V4PersistenceWriter
+from poly_alpha_sniper.lite_frequency_v4.telemetry import (
+    TelemetryDisposition,
+    V4TelemetryWriter,
+)
+from poly_alpha_sniper.lite_frequency_v4.workers import (
+    V4MaintenanceWorker,
+    V4ReadWorker,
+    V4RuntimeIOWorker,
+)
 
 
 @pytest.fixture
 def engine_harness(tmp_path, monkeypatch):
-    """Build the real engine/store around isolated paths without network I/O."""
+    """Build the engine around real thread-owned workers without network I/O."""
 
     cfg = FrequencyV4Config()
     cfg.db_path = str(tmp_path / "poly_alpha_frequency_v4.db")
@@ -43,16 +52,126 @@ def engine_harness(tmp_path, monkeypatch):
 
     runtime = V4RuntimeFiles(cfg.runtime_dir, repo_root=tmp_path)
     runtime.acquire()
-    store = V4Store(cfg.db_path)
-    engine = FrequencyV4Engine(cfg, runtime, store)
-    engine._record_session()
+    monkeypatch.setattr(runtime, "process_ownership", lambda: {
+        "process_ownership_valid": True,
+        "exact_v4_processes": 1,
+        "owned_v4_processes": 1,
+        "orphan_processes": 0,
+        "exact_pids": [runtime.pid],
+    })
+    persistence = V4PersistenceWriter(
+        cfg.db_path,
+        queue_capacity=cfg.critical_queue_capacity,
+        busy_timeout_ms=cfg.sqlite_busy_timeout_ms,
+        checkpoint_on_close=False,
+    )
+    persistence.start()
+    telemetry = V4TelemetryWriter(
+        persistence,
+        capacity=cfg.telemetry_queue_capacity,
+        batch_size=cfg.telemetry_batch_size,
+        flush_interval_s=cfg.telemetry_flush_interval_ms / 1_000.0,
+        coalescing_interval_s=cfg.telemetry_coalescing_interval_ms / 1_000.0,
+        submit_timeout_s=cfg.critical_command_timeout_s,
+        heartbeat_interval_s=cfg.writer_heartbeat_interval_ms / 1_000.0,
+    )
+    telemetry.start()
+    reader = V4ReadWorker(
+        cfg.db_path,
+        queue_capacity=cfg.reporting_queue_capacity,
+        busy_timeout_ms=cfg.sqlite_busy_timeout_ms,
+        default_timeout_s=cfg.reporting_worker_timeout_s,
+    ).start()
+    reporter = V4ReadWorker(
+        cfg.db_path,
+        worker_name="test-v4-report-reader",
+        worker_kind="READ_REPORT",
+        queue_capacity=cfg.reporting_queue_capacity,
+        busy_timeout_ms=cfg.sqlite_busy_timeout_ms,
+        default_timeout_s=cfg.reporting_worker_timeout_s,
+    ).start()
+    maintenance = V4MaintenanceWorker(
+        cfg.db_path,
+        queue_capacity=cfg.maintenance_queue_capacity,
+        busy_timeout_ms=cfg.sqlite_busy_timeout_ms,
+        default_timeout_s=cfg.maintenance_worker_timeout_s,
+    ).start()
+    runtime_io = V4RuntimeIOWorker(
+        queue_capacity=cfg.reporting_queue_capacity,
+        default_timeout_s=cfg.reporting_worker_timeout_s,
+    ).start()
+    engine = FrequencyV4Engine(cfg, runtime)
+    engine.persistence = persistence
+    engine.telemetry = telemetry
+    engine.read_worker = reader
+    engine.report_worker = reporter
+    engine.maintenance_worker = maintenance
+    engine.runtime_io_worker = runtime_io
+    engine._process_ownership_cache = {
+        "process_ownership_valid": True,
+        "exact_v4_processes": 1,
+        "owned_v4_processes": 1,
+        "orphan_processes": 0,
+    }
+    # Tests begin only after the same fail-closed startup integrity gate that
+    # production runs on the dedicated reporting connection.
+    integrity = reader.run_report_sync(lambda store: store.integrity_check())
+    engine._last_integrity = integrity
+    engine._last_integrity_ok = bool(
+        integrity["integrity"] == "ok"
+        and not integrity["foreign_key_violations"]
+    )
+    engine._last_integrity_ts_ms = now_ms()
+    asyncio.run(engine._record_session())
     try:
         yield SimpleNamespace(
-            engine=engine, store=store, runtime=runtime, cfg=cfg, root=tmp_path,
+            engine=engine,
+            reader=reader,
+            reporter=reporter,
+            persistence=persistence,
+            telemetry=telemetry,
+            maintenance=maintenance,
+            runtime_io=runtime_io,
+            runtime=runtime,
+            cfg=cfg,
+            root=tmp_path,
         )
     finally:
-        store.close()
-        runtime.release()
+        try:
+            asyncio.run(engine._critical_execute(
+                "end_runtime_session",
+                engine.session_id,
+                now_ms(),
+                "test_teardown",
+                ordering_key="global",
+                idempotency_key=f"session-end:{engine.session_id}",
+            ))
+        finally:
+            telemetry.stop(drain=True, timeout_s=10.0)
+            reporter.stop(timeout_s=10.0)
+            reader.stop(timeout_s=10.0)
+            maintenance.stop(timeout_s=10.0)
+            runtime_io.stop(timeout_s=10.0)
+            persistence.close(timeout_s=10.0)
+            runtime.release()
+
+
+def _persist_market(
+    engine: FrequencyV4Engine, identity: MarketIdentity, current: int,
+):
+    return asyncio.run(engine._persist_market(identity, current))
+
+
+def _query_one(engine_harness, sql: str, params=()):
+    return engine_harness.reader.query_one_sync(sql, params)
+
+
+def _critical(engine: FrequencyV4Engine, method: str, *args, **kwargs):
+    return asyncio.run(engine._critical_execute(method, *args, **kwargs))
+
+
+def _flush_telemetry(engine_harness) -> None:
+    assert engine_harness.telemetry.flush(timeout_s=10.0)
 
 
 def _identity(current: int, *, asset: str = "BTC", suffix: str = "1") -> MarketIdentity:
@@ -191,7 +310,7 @@ def test_callbacks_admit_only_accepted_evidence_and_coalesce_latest_trigger(
     engine = engine_harness.engine
     current = now_ms()
     identity = _identity(current)
-    state = engine._persist_market(identity, current)
+    state = _persist_market(engine, identity, current)
     engine.pending.clear()
 
     first = _observation(current, event_id="tick-first")
@@ -253,14 +372,14 @@ def test_callbacks_admit_only_accepted_evidence_and_coalesce_latest_trigger(
     assert state.books["YES"].token_id == identity.yes_token_id
     assert engine.pending[identity.window_key].event == event
     assert engine.counters["coalesced_triggers"] == 1
-    # Accepted CEX evidence is persisted as an individual row; rejected/stale
-    # CEX evidence is aggregated into event_buckets off the receive path
-    # (symmetric with the Polymarket ingestion path) rather than row-persisted.
-    assert engine.store.query_one(
-        "SELECT COUNT(*) AS n FROM cex_observations"
+    # Accepted raw evidence drains through the lossy telemetry owner, never the
+    # callback/event-loop thread. Rejected/stale evidence remains aggregated.
+    _flush_telemetry(engine_harness)
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM cex_observations"
     )["n"] == 1
-    assert engine.store.query_one(
-        "SELECT COUNT(*) AS n FROM source_events"
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM source_events"
     )["n"] >= 1
 
 
@@ -278,17 +397,18 @@ def test_rejected_polymarket_backlog_is_batched_off_receive_path(
     )
     decision = EventDecision(
         EventDisposition.REJECT_STALE, event, "book_too_old_at_receipt")
-    batch = Mock()
-    monkeypatch.setattr(engine.store, "record_event_count_batch", batch)
+    submit = Mock(return_value=TelemetryDisposition.ACCEPTED)
+    monkeypatch.setattr(engine.telemetry, "submit", submit)
 
     asyncio.run(engine._on_polymarket_event(event, decision))
 
     assert engine._polymarket_ingest_queue.empty()
     assert len(engine._event_count_buffer) == 1
-    batch.assert_not_called()
+    submit.assert_not_called()
     engine._flush_event_counts()
-    batch.assert_called_once()
-    row = batch.call_args.args[0][0]
+    submit.assert_called_once()
+    assert submit.call_args.args[0] == "record_event_count_batch"
+    row = submit.call_args.args[1][0]
     assert row["raw_count"] == 1
     assert row["invalid_count"] == 1
     assert row["classification"] == "REJECT_STALE"
@@ -298,7 +418,7 @@ def test_polymarket_ingest_queue_overflow_clears_executable_book(engine_harness)
     engine = engine_harness.engine
     current = now_ms()
     identity = _identity(current)
-    state = engine._persist_market(identity, current)
+    state = _persist_market(engine, identity, current)
     state.books["YES"] = _book(identity, "YES", current)
     engine._polymarket_ingest_queue = asyncio.Queue(maxsize=1)
     first = SourceEvent(
@@ -333,7 +453,7 @@ def test_polymarket_disconnect_or_epoch_change_clears_engine_books(engine_harnes
     engine = engine_harness.engine
     current = now_ms()
     identity = _identity(current)
-    state = engine._persist_market(identity, current)
+    state = _persist_market(engine, identity, current)
     state.books = {
         "YES": _book(identity, "YES", current),
         "NO": _book(identity, "NO", current),
@@ -360,10 +480,10 @@ def test_polymarket_disconnect_or_epoch_change_clears_engine_books(engine_harnes
 
 def test_strong_edge_routes_one_exact_five_share_shadow_entry_idempotently(
         engine_harness, monkeypatch):
-    engine, store = engine_harness.engine, engine_harness.store
+    engine = engine_harness.engine
     current = now_ms()
     identity = _identity(current)
-    state = engine._persist_market(identity, current)
+    state = _persist_market(engine, identity, current)
     asyncio.run(_mark_source_ready(engine))
     state.books = {
         "YES": _book(identity, "YES", current),
@@ -379,7 +499,7 @@ def test_strong_edge_routes_one_exact_five_share_shadow_entry_idempotently(
         receipt_monotonic_ns=time.monotonic_ns(),
     )
     asyncio.run(engine._evaluate(state, first))
-    row = store.query_one("SELECT * FROM entries")
+    row = _query_one(engine_harness, "SELECT * FROM entries")
     assert row is not None
     assert row["outcome_side"] == "YES"
     assert row["shares"] == 5.0
@@ -391,48 +511,60 @@ def test_strong_edge_routes_one_exact_five_share_shadow_entry_idempotently(
     # A verified pre-close book exit can occur before another high-frequency
     # evaluation is coalesced.  Window idempotency must still prevent both a
     # second row and a second increment of the runtime entry counter.
-    position = store.query_one(
+    position = _query_one(
+        engine_harness,
         "SELECT * FROM positions WHERE entry_id=?", (row["entry_id"],))
     terminal_ts = now_ms() + 10
-    store.record_management_decision({
-        "position_id": position["position_id"],
-        "decision_seq": 0,
-        "decision_ts_ms": terminal_ts,
-        "monotonic_ns": time.monotonic_ns(),
-        "book_snapshot_id": row["book_snapshot_id"],
-        "fair_value_calculation_id": row["fair_value_calculation_id"],
-        "updated_fair_probability": 0.75,
-        "executable_exit_value": 1.8,
-        "hold_to_resolution_value": 1.7,
-        "remaining_time_ms": identity.window_close_ms - terminal_ts,
-        "spread": 0.01,
-        "depth_shares": 20.0,
-        "estimated_fee": 0.0,
-        "uncertainty": 0.1,
-        "thesis_state": "INVALIDATED",
-        "action": "EXIT_BOOK",
-        "reason": "test_verified_book_exit",
-    })
     sell_sweep = exact_sweep(state.books["YES"], buy=False)
     assert sell_sweep is not None
     exit_fee = sweep_fee(sell_sweep, engine.cfg.crypto_taker_fee_rate)
     gross_pnl = sell_sweep.notional - float(row["gross_cost"])
-    store.close_position({
-        "position_id": position["position_id"],
-        "exit_ts_ms": terminal_ts,
-        "exit_source": "BOOK",
-        "book_snapshot_id": row["book_snapshot_id"],
-        "shares": 5.0,
-        "executable_vwap": sell_sweep.vwap,
-        "worst_consumed_price": sell_sweep.worst_price,
-        "payout_usd": sell_sweep.notional,
-        "gross_pnl": gross_pnl,
-        "exit_fee": exit_fee,
-        "net_pnl": gross_pnl - float(row["estimated_fee"]) - exit_fee,
-        "evidence_verified": 1,
-        "resolution_outcome": None,
-        "reason": "test_verified_book_exit",
-    })
+    _critical(
+        engine, "management_bundle", {
+            "decision": {
+                "position_id": position["position_id"],
+                "decision_seq": 0,
+                "decision_ts_ms": terminal_ts,
+                "monotonic_ns": time.monotonic_ns(),
+                "book_snapshot_id": row["book_snapshot_id"],
+                "fair_value_calculation_id": row["fair_value_calculation_id"],
+                "updated_fair_probability": 0.75,
+                "executable_exit_value": 1.8,
+                "hold_to_resolution_value": 1.7,
+                "remaining_time_ms": identity.window_close_ms - terminal_ts,
+                "spread": 0.01,
+                "depth_shares": 20.0,
+                "estimated_fee": 0.0,
+                "uncertainty": 0.1,
+                "thesis_state": "INVALIDATED",
+                "action": "EXIT_BOOK",
+                "reason": "test_verified_book_exit",
+            },
+            "close": {
+                "position_id": position["position_id"],
+                "exit_ts_ms": terminal_ts,
+                "exit_source": "BOOK",
+                "book_snapshot_id": row["book_snapshot_id"],
+                "shares": 5.0,
+                "executable_vwap": sell_sweep.vwap,
+                "worst_consumed_price": sell_sweep.worst_price,
+                "payout_usd": sell_sweep.notional,
+                "gross_pnl": gross_pnl,
+                "exit_fee": exit_fee,
+                "net_pnl": gross_pnl - float(row["estimated_fee"]) - exit_fee,
+                "evidence_verified": 1,
+                "resolution_outcome": None,
+                "reason": "test_verified_book_exit",
+            },
+        },
+        ordering_key=identity.window_key,
+        idempotency_key=f"test-management-exit:{position['position_id']}",
+        command_type="POSITION_MANAGEMENT",
+        terminal=True,
+        associated_asset=identity.asset,
+        associated_window_id=state.window_id,
+        associated_trade_id=row["entry_id"],
+    )
 
     second = EvaluationTrigger(
         source="test-repeat",
@@ -440,25 +572,29 @@ def test_strong_edge_routes_one_exact_five_share_shadow_entry_idempotently(
         receipt_monotonic_ns=time.monotonic_ns(),
     )
     asyncio.run(engine._evaluate(state, second))
-    assert store.query_one("SELECT COUNT(*) AS n FROM entries")["n"] == 1
-    assert store.query_one("SELECT COUNT(*) AS n FROM decisions")["n"] == 2
-    repeated = store.query_one(
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM entries")["n"] == 1
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM decisions")["n"] == 2
+    repeated = _query_one(
+        engine_harness,
         "SELECT action,reason FROM decisions ORDER BY decision_id DESC LIMIT 1"
     )
     assert repeated == {
         "action": "NO_ACTION", "reason": "window_entry_already_exists"}
     assert engine.counters["entries"] == 1
-    assert store.query_one(
-        "SELECT COUNT(*) AS n FROM entries WHERE maker_fill_assumed=1"
+    assert _query_one(
+        engine_harness,
+        "SELECT COUNT(*) AS n FROM entries WHERE maker_fill_assumed=1",
     )["n"] == 0
 
 
 def test_recent_cex_tick_cannot_authorize_entry_after_provider_disconnect(
         engine_harness, monkeypatch):
-    engine, store = engine_harness.engine, engine_harness.store
+    engine = engine_harness.engine
     current = now_ms()
     identity = _identity(current)
-    state = engine._persist_market(identity, current)
+    state = _persist_market(engine, identity, current)
     asyncio.run(_mark_source_ready(engine))
     state.books = {
         "YES": _book(identity, "YES", current),
@@ -493,8 +629,10 @@ def test_recent_cex_tick_cannot_authorize_entry_after_provider_disconnect(
     )
     asyncio.run(engine._evaluate(state, trigger))
 
-    assert store.query_one("SELECT COUNT(*) AS n FROM entries")["n"] == 0
-    decision = store.query_one(
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM entries")["n"] == 0
+    decision = _query_one(
+        engine_harness,
         "SELECT action,economic_gate_passed,evidence_fresh,reason "
         "FROM decisions ORDER BY decision_id DESC LIMIT 1"
     )
@@ -509,7 +647,7 @@ def test_unsafe_source_evidence_cannot_drive_open_position_management(
     engine = engine_harness.engine
     current = now_ms()
     identity = _identity(current)
-    state = engine._persist_market(identity, current)
+    state = _persist_market(engine, identity, current)
     asyncio.run(_mark_source_ready(engine))
     state.books = {
         "YES": _book(identity, "YES", current),
@@ -526,8 +664,9 @@ def test_unsafe_source_evidence_cannot_drive_open_position_management(
         receipt_ts_ms=current,
         receipt_monotonic_ns=time.monotonic_ns(),
     )))
-    assert engine.store.query_one(
-        "SELECT COUNT(*) AS n FROM positions WHERE status='OPEN'"
+    assert _query_one(
+        engine_harness,
+        "SELECT COUNT(*) AS n FROM positions WHERE status='OPEN'",
     )["n"] == 1
 
     original_management = FrequencyV4Engine._manage_open_position.__get__(
@@ -567,18 +706,18 @@ def test_unsafe_source_evidence_cannot_drive_open_position_management(
     )))
 
     assert management_probe.call_count == 0
-    assert engine.store.query_one(
-        "SELECT COUNT(*) AS n FROM management_decisions"
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM management_decisions",
     )["n"] == 0
-    assert engine.store.query_one(
-        "SELECT COUNT(*) AS n FROM positions WHERE status='OPEN'"
+    assert _query_one(
+        engine_harness,
+        "SELECT COUNT(*) AS n FROM positions WHERE status='OPEN'",
     )["n"] == 1
 
 
 def test_engine_owns_only_v4_paths_and_has_no_execution_adapter(engine_harness):
-    engine, store, cfg = (
-        engine_harness.engine, engine_harness.store, engine_harness.cfg)
-    database = store.query_one("PRAGMA database_list")
+    engine, cfg = engine_harness.engine, engine_harness.cfg
+    database = _query_one(engine_harness, "PRAGMA database_list")
     assert database is not None
     assert str(engine_harness.root.resolve()) in str(database["file"])
     assert "poly_alpha_lite.db" not in cfg.db_path
@@ -614,10 +753,10 @@ def test_runtime_health_does_not_call_stale_or_disconnected_cex_history_running(
 
 def test_unresolved_official_resolution_uses_bounded_exponential_retry(
         engine_harness, monkeypatch):
-    engine, store = engine_harness.engine, engine_harness.store
+    engine = engine_harness.engine
     current = now_ms()
     identity = _identity(current)
-    state = engine._persist_market(identity, current)
+    state = _persist_market(engine, identity, current)
     asyncio.run(_mark_source_ready(engine))
     state.books = {
         "YES": _book(identity, "YES", current),
@@ -631,7 +770,8 @@ def test_unresolved_official_resolution_uses_bounded_exponential_retry(
         receipt_ts_ms=current,
         receipt_monotonic_ns=time.monotonic_ns(),
     )))
-    row = store.query_one(
+    row = _query_one(
+        engine_harness,
         """SELECT p.position_id,p.entry_id,p.outcome_side,p.open_shares,
            e.market_identity_id,e.gross_cost,e.estimated_fee,
            w.window_close_ts_ms
@@ -650,19 +790,19 @@ def test_unresolved_official_resolution_uses_bounded_exponential_retry(
     asyncio.run(engine._resolve_position(row, resolution_time))
     asyncio.run(engine._resolve_position(row, resolution_time + 4_999))
     assert market_request.await_count == event_request.await_count == 1
-    assert store.query_one(
-        "SELECT COUNT(*) AS n FROM resolution_attempts"
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM resolution_attempts",
     )["n"] == 1
 
     asyncio.run(engine._resolve_position(row, resolution_time + 5_000))
     asyncio.run(engine._resolve_position(row, resolution_time + 14_999))
     assert market_request.await_count == event_request.await_count == 2
-    assert store.query_one(
-        "SELECT COUNT(*) AS n FROM resolution_attempts"
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM resolution_attempts",
     )["n"] == 2
 
     asyncio.run(engine._resolve_position(row, resolution_time + 15_000))
     assert market_request.await_count == event_request.await_count == 3
-    assert store.query_one(
-        "SELECT COUNT(*) AS n FROM resolution_attempts"
+    assert _query_one(
+        engine_harness, "SELECT COUNT(*) AS n FROM resolution_attempts",
     )["n"] == 3

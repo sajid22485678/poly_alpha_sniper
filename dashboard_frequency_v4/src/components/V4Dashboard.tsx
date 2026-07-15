@@ -111,12 +111,18 @@ export default function V4Dashboard() {
   const pnlSummary = record(pnl);
   const integritySummary = record(integrity);
   const exposureSummary = record(data.exposure);
+  const persistenceSummary = record(data.persistence);
+  const criticalWriter = record(persistenceSummary.critical);
+  const telemetryWriter = record(persistenceSummary.telemetry);
+  const checkpoint = record(persistenceSummary.latest_checkpoint);
+  const persistenceReady = persistenceSummary.operational_ready === true;
+  const criticalReady = persistenceSummary.critical_execution_ready === true;
 
   return (
     <main>
       <header>
         <div><p className="eyebrow">ISOLATED • DETERMINISTIC • SHADOW ONLY</p><h1>Frequency V4</h1><p className="subtitle">Fee-net economics outrank the 19–36 entries/hour research objective.</p></div>
-        <div className={`safety ${safe ? "safe" : "unsafe"}`}>{safe ? "SAFETY LOCKS VERIFIED" : "UNSAFE STATE — FAIL CLOSED"}</div>
+        <div><div className={`safety ${safe ? "safe" : "unsafe"}`}>{safe ? "SAFETY LOCKS VERIFIED" : "UNSAFE STATE — FAIL CLOSED"}</div><div className={`safety ${criticalReady ? "safe" : "unsafe"}`}>{criticalReady ? "CRITICAL EXECUTION READY" : "CRITICAL EXECUTION BLOCKED"}</div><div className={`safety ${persistenceReady ? "safe" : "unsafe"}`}>{persistenceReady ? "PERSISTENCE HEALTHY" : "PERSISTENCE DEGRADED — REVIEW REQUIRED"}</div></div>
       </header>
 
       <section className="grid hero-grid">
@@ -139,6 +145,17 @@ export default function V4Dashboard() {
         <Card label="conflicts / duplicates" value={`${fmt(integritySummary.conflicts, 0)} / ${fmt(integritySummary.duplicates, 0)}`} tone={integritySummary.conflicts === 0 && integritySummary.duplicates === 0 ? "good" : "bad"} />
         <Card label="unresolved final" value={integritySummary.unresolved_final} tone={integritySummary.unresolved_final === 0 ? "good" : "bad"} />
         <Card label="assumed maker fills" value={integritySummary.maker_fill_assumed_count} tone={integritySummary.maker_fill_assumed_count === 0 ? "good" : "bad"} />
+        <Card label="critical writer" value={criticalWriter.state} tone={criticalWriter.state === "HEALTHY" ? "good" : "bad"} />
+        <Card label="critical queue" value={`${fmt(criticalWriter.queue_depth, 0)} / ${fmt(criticalWriter.queue_capacity, 0)}`} tone={Number(criticalWriter.queue_depth ?? 0) === 0 ? "good" : "warn"} />
+        <Card label="critical p95 ms" value={criticalWriter.commit_latency_p95_ms} />
+        <Card label="telemetry queue" value={`${fmt(telemetryWriter.queue_depth, 0)} / ${fmt(telemetryWriter.queue_capacity, 0)}`} tone={Number(telemetryWriter.rows_dropped ?? 0) === 0 ? "good" : "warn"} />
+        <Card label="telemetry coalesced" value={telemetryWriter.rows_coalesced} />
+        <Card label="telemetry dropped" value={telemetryWriter.rows_dropped} tone={Number(telemetryWriter.rows_dropped ?? 0) === 0 ? "good" : "warn"} />
+        <Card label="telemetry batch failures" value={telemetryWriter.failed_batches} tone={Number(telemetryWriter.failed_batches ?? 0) === 0 ? "good" : "warn"} />
+        <Card label="critical evidence incomplete" value={telemetryWriter.critical_evidence_incomplete_count} tone={Number(telemetryWriter.critical_evidence_incomplete_count ?? 0) === 0 ? "good" : "bad"} />
+        <Card label="WAL bytes" value={record(data.database).wal_bytes} />
+        <Card label="checkpoint status" value={checkpoint.status ?? checkpoint.mode} tone={checkpoint.successful === false ? "warn" : "neutral"} />
+        <Card label="checkpoint busy" value={checkpoint.busy_result} tone={Number(checkpoint.busy_result ?? 0) === 0 ? "good" : "warn"} />
       </section>
 
       <section className="panel">
@@ -157,6 +174,9 @@ export default function V4Dashboard() {
         <Table title="Data-invalid taxonomy" value={data.data_invalid} />
         <Table title="Reject constraints" value={data.reject_reasons} />
         <Table title="Integrity & conflicts" value={integrity} />
+        <Table title="Persistence architecture" value={data.persistence} />
+        <Table title="Effective persistence config" value={data.effective_config} />
+        <Table title="Database / WAL" value={data.database} />
         <Table title="300-trade forward gate" value={data.acceptance_gate} />
         <Table title="Performance breakdowns" value={data.breakdowns} />
       </section>
