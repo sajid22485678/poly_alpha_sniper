@@ -78,6 +78,13 @@ from .workers import V4MaintenanceWorker, V4ReadWorker, V4RuntimeIOWorker
 DASHBOARD_EXPORT_INTERVAL_MS = 15_000
 INTEGRITY_CHECK_INTERVAL_MS = 300_000
 INTEGRITY_MAX_AGE_MS = 600_000
+# Non-executable evaluation-state transitions (SKIP/NO_ACTION reason or bucket
+# changes) that reverse within this window are threshold flapping around a
+# price/score boundary, not decision evidence; they are suppressed and counted
+# instead of persisting a full evidence bundle each tick.  Executable actions,
+# safety transitions, maker decisions, management samples, and each window's
+# first evaluation always persist regardless of this interval.
+IMMATERIAL_TRANSITION_MIN_INTERVAL_MS = 5_000
 
 
 def _sha256_json(value: Any) -> str:
@@ -1790,11 +1797,21 @@ class FrequencyV4Engine:
             edge_bucket = "POSITIVE_BELOW_TIER"
         else:
             edge_bucket = "NON_POSITIVE"
+        # Materiality fingerprint.  Direction and edge bucket participate only
+        # while an actionable positive edge exists: at edge<=0 the selected
+        # side and the NONE<->NON_POSITIVE bucket boundary flap on every tick
+        # and are score noise, not decision evidence.  Volatile per-tick model
+        # inputs (feature classification) are likewise excluded; eligibility
+        # is already captured by the action/reason pair, regime, and book
+        # pairing state.
+        actionable_edge = edge_bucket not in {"NONE", "NON_POSITIVE"}
         fingerprint = "|".join((
             router_decision.action.value, router_decision.reason,
-            router_decision.tier, _outcome(router_decision.side) or "NONE",
-            edge_bucket, ensemble.regime,
-            feature_evidence.features.classification, pair.reason.value,
+            router_decision.tier,
+            (_outcome(router_decision.side) or "NONE")
+            if actionable_edge else "NONE",
+            edge_bucket if actionable_edge else "NO_EDGE",
+            ensemble.regime, pair.reason.value,
             str(bool(decision_state.price_touched) if (
                 (decision_state := router_decision.state) is not None
             ) else False),
@@ -1811,17 +1828,33 @@ class FrequencyV4Engine:
             and open_position_id is not None
             and current - self._management_last_ts.get(open_position_id, 0) >= 1_000
         )
-        # Persist the full evidence bundle only for material evaluations:
-        # any state transition (fingerprint), an action that will actually
-        # advance execution, a decision affecting an active maker observation,
-        # or a due management sample.  Repeated identical no-edge/skip
+        # Persist the full evidence bundle only for material evaluations: an
+        # action that will actually advance execution, a decision affecting an
+        # active maker observation, a due management sample, a safety-state
+        # transition, the first evaluation of a window, or a non-executable
+        # state transition that has held long enough to not be threshold
+        # flapping.  Repeated identical or rapidly flapping no-edge/skip
         # evaluations are counted and suppressed instead of journaled, per the
         # telemetry aggregation contract.
         maker_active = state.identity.window_key in self.maker_persistence
         capacity_blocked = (
             self._entry_capacity_block(state.identity.asset) is not None)
+        transitioned = fingerprint != state.last_candidate_fingerprint
+        first_evaluation = not state.last_candidate_fingerprint
+        immaterial_interval_ok = (
+            current - state.last_candidate_persist_ts_ms
+            >= IMMATERIAL_TRANSITION_MIN_INTERVAL_MS
+        )
         important = bool(
-            fingerprint != state.last_candidate_fingerprint
+            (transitioned and (
+                first_evaluation
+                or immaterial_interval_ok
+                or router_decision.action in {
+                    RouterAction.START_OBSERVATION,
+                    RouterAction.CROSS_SPREAD,
+                    RouterAction.SAFETY_FAIL,
+                }
+            ))
             or (not capacity_blocked
                 and state.window_id not in self._entered_window_ids
                 and router_decision.action in {
@@ -2739,7 +2772,15 @@ class FrequencyV4Engine:
             return "critical_writer_unhealthy"
         if self._critical_failure_reason:
             return "critical_command_failed"
-        if int(writer.get("unconfirmed_command_count") or 0) > 0:
+        # Only genuinely trade-critical unconfirmed commands (reservations,
+        # entries, position transitions, exits, resolution, maker evidence)
+        # gate new entries.  Evidence-only bundles are materialized in their
+        # authoritative tables and must not throttle execution.  Writers that
+        # do not expose the scoped count stay fully fail-closed.
+        unconfirmed = writer.get("unconfirmed_trade_critical_count")
+        if unconfirmed is None:
+            unconfirmed = writer.get("unconfirmed_command_count")
+        if int(unconfirmed or 0) > 0:
             return "critical_command_unconfirmed"
         reconciliation = writer.get("recovery_reconciliation")
         reconciliation = reconciliation if isinstance(reconciliation, dict) else {}

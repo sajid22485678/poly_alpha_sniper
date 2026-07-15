@@ -616,6 +616,44 @@ async def test_writer_health_and_integrity_gates_fail_closed(
 
 
 @pytest.mark.asyncio
+async def test_execution_gate_scopes_unconfirmed_to_trade_critical(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with _running_engine(tmp_path, monkeypatch) as (engine, _runtime):
+        assert engine._execution_blocked_reason() == ""
+        healthy = engine.persistence.health
+
+        def with_counts(total: int, critical: Any) -> Any:
+            def fake(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+                result = healthy()
+                result["unconfirmed_command_count"] = total
+                if critical is None:
+                    result.pop("unconfirmed_trade_critical_count", None)
+                else:
+                    result["unconfirmed_trade_critical_count"] = critical
+                return result
+            return fake
+
+        # Unconfirmed evidence-only commands never block entry execution.
+        monkeypatch.setattr(engine.persistence, "health", with_counts(7, 0))
+        assert engine._execution_blocked_reason() == ""
+
+        # A single unconfirmed trade-critical command stays fail-closed.
+        monkeypatch.setattr(engine.persistence, "health", with_counts(7, 1))
+        assert engine._execution_blocked_reason() == (
+            "critical_command_unconfirmed")
+
+        # A writer that cannot report the scoped count falls back to the
+        # total and remains fully fail-closed.
+        monkeypatch.setattr(engine.persistence, "health", with_counts(3, None))
+        assert engine._execution_blocked_reason() == (
+            "critical_command_unconfirmed")
+
+        monkeypatch.setattr(engine.persistence, "health", healthy)
+        assert engine._execution_blocked_reason() == ""
+
+
+@pytest.mark.asyncio
 async def test_unchanged_evaluation_is_materially_coalesced(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

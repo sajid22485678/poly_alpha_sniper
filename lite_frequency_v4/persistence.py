@@ -60,6 +60,31 @@ ALLOWED_STORE_METHODS = frozenset({
     "reconcile_startup_state",
     "compact_raw_evidence", "enforce_raw_row_cap", "compact_event_buckets",
 })
+# Methods whose unconfirmed state makes new trade execution unsafe: locks and
+# reservations, idempotency-bearing entries, position transitions, exits,
+# resolution/accounting, maker execution evidence, and session accounting.
+# Evidence-only bundles (evaluations, market discovery, telemetry) are fully
+# materialized in their authoritative tables and must not gate entries.
+TRADE_CRITICAL_METHODS = TERMINAL_METHODS | frozenset({
+    "reserve_window", "release_window_reservation", "create_entry",
+    "reserve_and_create_entry_bundle", "ensure_asset_window",
+    "record_maker_observation", "record_maker_update",
+    "finish_maker_observation", "record_management_decision",
+    "record_resolution_attempt", "record_runtime_session",
+    "reconcile_startup_state",
+})
+# High-volume evidence command types whose journal payload is a redundant
+# serialization of rows the same transaction writes to authoritative evidence
+# tables.  Their payloads are tombstoned atomically WITH the durable commit;
+# pending/failed payloads are never touched, and idempotency (payload_hash),
+# identity, status, timestamps, references, and error metadata all remain.
+COMPACT_ON_COMMIT_COMMAND_TYPES = frozenset({
+    "ENTRY_DECISION_EVIDENCE", "MARKET_DISCOVERY",
+})
+
+
+def _is_trade_critical(command: "V4PersistenceCommand") -> bool:
+    return bool(command.terminal) or command.method in TRADE_CRITICAL_METHODS
 
 
 class V4PersistenceError(V4StoreError):
@@ -402,7 +427,10 @@ class V4PersistenceWriter:
             "terminal_submitted": 0, "terminal_committed": 0,
             "last_commit_ts_ms": 0, "last_committed_command_id": "",
             "heartbeat_ts_ms": 0, "transaction_rate_per_min": 0.0,
-            "unconfirmed_command_count": 0, "last_error": "",
+            "unconfirmed_command_count": 0,
+            "unconfirmed_trade_critical_count": 0,
+            "journal_payloads_compacted_on_commit": 0,
+            "last_error": "",
             "journal_finalization_failures": 0,
             "unfinished_maker_observations": 0,
             "reconciled_abandoned_maker_observations": 0,
@@ -416,6 +444,12 @@ class V4PersistenceWriter:
         }
         self._telemetry_sink: Optional[V4TelemetryStoreSink] = None
         self._telemetry_sink_lock = threading.Lock()
+        # Trade-critical commands accepted by the scheduler but not yet
+        # journal-admitted.  Guarded by _metrics_lock; the exposed
+        # unconfirmed_trade_critical_count is this queue-side hold plus the
+        # journal-side counter, so the execution gate never sees a gap while
+        # a trade-critical command is anywhere in flight.
+        self._queued_trade_critical = 0
 
     def start(self, timeout_s: float = 10.0) -> None:
         with self._lifecycle_lock:
@@ -458,6 +492,8 @@ class V4PersistenceWriter:
         with self._metrics_lock:
             self._metrics["commands_submitted"] += 1
             self._metrics["terminal_submitted"] += int(command_snapshot.terminal)
+            if _is_trade_critical(command_snapshot):
+                self._queued_trade_critical += 1
         return future
 
     async def execute(self, command: V4PersistenceCommand,
@@ -571,6 +607,8 @@ class V4PersistenceWriter:
             }
         queue_depth = self._scheduler.depth
         gate = self._write_gate.snapshot()
+        with self._metrics_lock:
+            queued_trade_critical = self._queued_trade_critical
         result.update({
             "queue_depth": queue_depth,
             "queue_capacity": self._scheduler.capacity,
@@ -581,6 +619,9 @@ class V4PersistenceWriter:
             "ack_latency_ms": latency["ack"],
             "unconfirmed_command_count": (
                 int(result.get("unconfirmed_command_count") or 0) + queue_depth),
+            "unconfirmed_trade_critical_count": (
+                int(result.get("unconfirmed_trade_critical_count") or 0)
+                + queued_trade_critical),
             **gate,
         })
         return result
@@ -647,6 +688,7 @@ class V4PersistenceWriter:
         with self._metrics_lock:
             self._metrics["recovered_abandoned"] += len(rows)
             self._metrics["unconfirmed_command_count"] = 0
+            self._metrics["unconfirmed_trade_critical_count"] = 0
 
     def _existing_result(self, store: V4Store, command: V4PersistenceCommand,
                          payload_hash: str) -> tuple[bool, Any]:
@@ -690,6 +732,8 @@ class V4PersistenceWriter:
             )
         with self._metrics_lock:
             self._metrics["unconfirmed_command_count"] += 1
+            if _is_trade_critical(command):
+                self._metrics["unconfirmed_trade_critical_count"] += 1
         return False, None
 
     @staticmethod
@@ -725,25 +769,48 @@ class V4PersistenceWriter:
         return getattr(store, command.method)(*command.args, **dict(command.kwargs))
 
     def _commit_command(self, store: V4Store, command: V4PersistenceCommand,
-                        attempt: int) -> Any:
+                        attempt: int, payload_hash: str) -> Any:
         reference = f"v4tx:{command.command_id}:{attempt}"
+        # Evidence-only payloads are tombstoned atomically WITH the durable
+        # commit: the same transaction has just written the authoritative
+        # evidence rows, recovery never reads a COMMITTED payload back, and
+        # idempotency continues to verify against the retained payload_hash.
+        # Pending/failed rows and every trade-critical payload keep their
+        # full payload_json.
+        compact = (
+            command.command_type in COMPACT_ON_COMMIT_COMMAND_TYPES
+            and not command.terminal
+            and not _is_trade_critical(command)
+            and command.associated_trade_id is None
+        )
+        payload_clause = ",payload_json=?" if compact else ""
+        parameters: list[Any] = []
         with store.transaction(immediate=True) as conn:
             result = self._dispatch(store, command)
             result_json = _canonical_json(result)
             committed = _now_ms()
+            if compact:
+                parameters.append(json.dumps(
+                    {"compacted": True, "payload_hash": payload_hash},
+                    sort_keys=True, separators=(",", ":"), allow_nan=False,
+                ))
             cursor = conn.execute(
-                """UPDATE persistence_commands SET status='COMMITTED',
+                f"""UPDATE persistence_commands SET status='COMMITTED',
                    committed_ts_ms=MAX(
                        submitted_ts_ms,COALESCE(started_ts_ms,submitted_ts_ms),?),
                    completed_ts_ms=MAX(
                        submitted_ts_ms,COALESCE(started_ts_ms,submitted_ts_ms),?),
-                   result_json=?,
+                   result_json=?{payload_clause},
                    transaction_reference=?,error_type=NULL,error=NULL
                    WHERE command_id=? AND status='EXECUTING'""",
-                (committed, committed, result_json, reference, command.command_id),
+                (committed, committed, result_json, *parameters, reference,
+                 command.command_id),
             )
             if cursor.rowcount != 1:
                 raise V4PersistenceError("journal lost executing command ownership")
+        if compact:
+            with self._metrics_lock:
+                self._metrics["journal_payloads_compacted_on_commit"] += 1
         return result
 
     @staticmethod
@@ -792,6 +859,9 @@ class V4PersistenceWriter:
             self._metrics["last_committed_command_id"] = command.command_id
             self._metrics["unconfirmed_command_count"] = max(
                 0, int(self._metrics["unconfirmed_command_count"]) - 1)
+            if _is_trade_critical(command):
+                self._metrics["unconfirmed_trade_critical_count"] = max(
+                    0, int(self._metrics["unconfirmed_trade_critical_count"]) - 1)
             self._metrics["heartbeat_ts_ms"] = _now_ms()
             self._latency_samples["queue"].append(queue_ms)
             self._latency_samples["commit"].append(max(0.0, commit_ms))
@@ -807,6 +877,19 @@ class V4PersistenceWriter:
         process_started = time.monotonic()
         queue_ms = max(0.0, float(_now_ms() - envelope.enqueued_ts_ms))
         journal_open = False
+        # The queue-side hold transfers to the journal-side counter at
+        # admission; releasing it only after _journal_submitted returns keeps
+        # the trade-critical gate free of any in-flight visibility gap.
+        queue_hold = _is_trade_critical(command)
+
+        def release_queue_hold() -> None:
+            nonlocal queue_hold
+            if queue_hold:
+                queue_hold = False
+                with self._metrics_lock:
+                    self._queued_trade_critical = max(
+                        0, self._queued_trade_critical - 1)
+
         try:
             for journal_attempt in range(1, command.max_attempts + 1):
                 try:
@@ -821,6 +904,7 @@ class V4PersistenceWriter:
                     with self._metrics_lock:
                         self._metrics["commands_retried"] += 1
                     time.sleep(min(0.1, 0.01 * (2 ** (journal_attempt - 1))))
+            release_queue_hold()
             if replay:
                 with self._metrics_lock:
                     self._metrics["idempotent_replays"] += 1
@@ -844,7 +928,8 @@ class V4PersistenceWriter:
                     self._mark_executing(
                         store, command, attempt, threading.get_ident())
                     commit_started = time.monotonic()
-                    result = self._commit_command(store, command, attempt)
+                    result = self._commit_command(
+                        store, command, attempt, payload_hash)
                     commit_ms = max(0.0, (time.monotonic() - commit_started) * 1_000.0)
                     self._ack_committed(
                         envelope, result, queue_ms=queue_ms,
@@ -868,11 +953,18 @@ class V4PersistenceWriter:
             )
             failure_finalized = known_prior_journal or self._mark_failed(
                 store, command, command.max_attempts, exc)
+            release_queue_hold()
+            trade_critical = _is_trade_critical(command)
             with self._metrics_lock:
                 self._metrics["commands_failed"] += 1
                 if failure_finalized:
                     self._metrics["unconfirmed_command_count"] = max(
                         0, int(self._metrics["unconfirmed_command_count"]) - 1)
+                    if trade_critical:
+                        self._metrics["unconfirmed_trade_critical_count"] = max(
+                            0,
+                            int(self._metrics["unconfirmed_trade_critical_count"]) - 1,
+                        )
                     self._metrics["last_error"] = (
                         f"{type(exc).__name__}:{exc}")[:500]
                 else:
@@ -881,6 +973,8 @@ class V4PersistenceWriter:
                     # the count established by _journal_submitted.
                     if not journal_open:
                         self._metrics["unconfirmed_command_count"] += 1
+                        if trade_critical:
+                            self._metrics["unconfirmed_trade_critical_count"] += 1
                     self._metrics["journal_finalization_failures"] += 1
                     self._metrics["state"] = "DEGRADED"
                     self._metrics["last_error"] = (
@@ -1183,7 +1277,9 @@ class V4TelemetryStoreSink:
 
 
 __all__ = [
-    "ALLOWED_STORE_METHODS", "TELEMETRY_BATCH_METHOD", "TELEMETRY_METHODS",
+    "ALLOWED_STORE_METHODS", "COMPACT_ON_COMMIT_COMMAND_TYPES",
+    "TRADE_CRITICAL_METHODS",
+    "TELEMETRY_BATCH_METHOD", "TELEMETRY_METHODS",
     "V4PersistenceCommand", "V4PersistenceCommandFailed",
     "V4PersistenceError", "V4PersistenceIdempotencyConflict",
     "V4PersistenceQueueFull", "V4PersistenceTimeout", "V4PersistenceWriter",

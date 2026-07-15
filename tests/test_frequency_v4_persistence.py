@@ -732,3 +732,233 @@ def test_reconciliation_releases_only_explicitly_proven_stale_reservation(tmp_pa
     assert second["released_proven_stale_reservations"] == 1
     assert store.query_one("SELECT COUNT(*) n FROM window_locks") == {"n": 0}
     store.close()
+
+
+def _event_count_batch_row(offset: int = 0) -> dict:
+    return {
+        "receipt_ts_ms": NOW + offset, "source": "okx", "channel": "ticker",
+        "asset": "BTC", "event_type": "ticker", "classification": "NEW_TICK",
+        "raw_count": 3, "unique_count": 3, "duplicate_count": 0,
+        "invalid_count": 0,
+    }
+
+
+_COMPACT_PREFIX = '{"compacted":true,'
+
+
+def test_evidence_payload_tombstones_atomically_with_commit_only(tmp_path):
+    path = tmp_path / "compact-on-commit.db"
+    writer = V4PersistenceWriter(path, sample_interval_s=0.0)
+    evidence = V4PersistenceCommand(
+        command_id="evidence-compact-1", method="record_event_count_batch",
+        args=([_event_count_batch_row()],), ordering_key="evidence",
+        command_type="ENTRY_DECISION_EVIDENCE",
+    )
+    terminal_evidence = V4PersistenceCommand(
+        command_id="evidence-terminal-1", method="record_event_count_batch",
+        args=([_event_count_batch_row(1)],), ordering_key="evidence",
+        command_type="ENTRY_DECISION_EVIDENCE", terminal=True,
+    )
+    trade_linked = V4PersistenceCommand(
+        command_id="evidence-trade-linked-1",
+        method="record_event_count_batch",
+        args=([_event_count_batch_row(2)],), ordering_key="evidence",
+        command_type="ENTRY_DECISION_EVIDENCE", associated_trade_id=7,
+    )
+    trade_critical_method = V4PersistenceCommand(
+        command_id="window-keep-1", method="ensure_asset_window",
+        args=({
+            "asset": "BTC", "window_open_ts_ms": NOW,
+            "window_close_ts_ms": NOW + 300_000, "expected": 1,
+            "lifecycle_status": "DISCOVERING", "created_ts_ms": NOW,
+            "updated_ts_ms": NOW,
+        },), ordering_key="BTC:compact",
+        command_type="ENTRY_DECISION_EVIDENCE",
+    )
+    result = writer.execute_sync(evidence, timeout_s=5.0)
+    writer.execute_sync(terminal_evidence, timeout_s=5.0)
+    writer.execute_sync(trade_linked, timeout_s=5.0)
+    writer.execute_sync(trade_critical_method, timeout_s=5.0)
+    assert writer.metrics()["journal_payloads_compacted_on_commit"] == 1
+    writer.close()
+
+    store = V4Store(path)
+    try:
+        compacted = store.query_one(
+            "SELECT status,payload_json,payload_hash,result_json "
+            "FROM persistence_commands WHERE command_id='evidence-compact-1'")
+        assert compacted["status"] == "COMMITTED"
+        assert compacted["payload_json"].startswith(_COMPACT_PREFIX)
+        assert json.loads(compacted["payload_json"]) == {
+            "compacted": True, "payload_hash": compacted["payload_hash"]}
+        assert compacted["result_json"] is not None
+        for retained_id in ("evidence-terminal-1", "evidence-trade-linked-1",
+                            "window-keep-1"):
+            row = store.query_one(
+                "SELECT status,payload_json FROM persistence_commands "
+                "WHERE command_id=?", (retained_id,))
+            assert row["status"] == "COMMITTED"
+            assert not row["payload_json"].startswith(_COMPACT_PREFIX)
+            assert json.loads(row["payload_json"])["method"]
+    finally:
+        store.close()
+
+    # Idempotent replay of a compacted command still returns the committed
+    # result deterministically from the journal without re-executing it.
+    replacement = V4PersistenceWriter(path)
+    assert replacement.execute_sync(evidence, timeout_s=5.0) == result
+    assert replacement.metrics()["idempotent_replays"] == 1
+    replacement.close()
+
+
+def test_failed_and_inflight_evidence_payloads_are_never_compacted(
+        tmp_path, monkeypatch):
+    path = tmp_path / "compact-failed.db"
+
+    def boom(_store, _rows):
+        raise ValueError("evidence write failed")
+
+    monkeypatch.setattr(V4Store, "record_event_count_batch", boom)
+    writer = V4PersistenceWriter(path, sample_interval_s=0.0)
+    failing = V4PersistenceCommand(
+        command_id="evidence-fail-1", method="record_event_count_batch",
+        args=([_event_count_batch_row()],), ordering_key="evidence",
+        command_type="ENTRY_DECISION_EVIDENCE",
+    )
+    with pytest.raises(ValueError, match="evidence write failed"):
+        writer.execute_sync(failing, timeout_s=5.0)
+    writer.close()
+    store = V4Store(path)
+    try:
+        row = store.query_one(
+            "SELECT status,payload_json,error_type FROM persistence_commands "
+            "WHERE command_id='evidence-fail-1'")
+        assert row["status"] == "FAILED"
+        assert row["error_type"] == "ValueError"
+        assert not row["payload_json"].startswith(_COMPACT_PREFIX)
+        assert json.loads(row["payload_json"])["method"] == (
+            "record_event_count_batch")
+    finally:
+        store.close()
+
+    # An in-flight (SUBMITTED/EXECUTING) command retains its full recoverable
+    # payload while the mutation is still executing.
+    monkeypatch.undo()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def block_writer(_store, _rows):
+        entered.set()
+        assert release.wait(5.0)
+        return None
+
+    monkeypatch.setattr(V4Store, "record_event_count_batch", block_writer)
+    blocked_path = tmp_path / "compact-inflight.db"
+    blocked_writer = V4PersistenceWriter(blocked_path, sample_interval_s=60.0)
+    inflight = blocked_writer.submit(V4PersistenceCommand(
+        command_id="evidence-inflight-1", method="record_event_count_batch",
+        args=([_event_count_batch_row()],), ordering_key="evidence",
+        command_type="ENTRY_DECISION_EVIDENCE",
+    ))
+    assert entered.wait(3.0)
+    observer = V4Store(blocked_path)
+    try:
+        row = observer.query_one(
+            "SELECT status,payload_json FROM persistence_commands "
+            "WHERE command_id='evidence-inflight-1'")
+        assert row["status"] in {"SUBMITTED", "EXECUTING"}
+        assert not row["payload_json"].startswith(_COMPACT_PREFIX)
+        assert json.loads(row["payload_json"])["method"] == (
+            "record_event_count_batch")
+    finally:
+        observer.close()
+    release.set()
+    assert inflight.result(timeout=5.0) is None
+    blocked_writer.close()
+
+
+def test_unconfirmed_gate_counts_only_trade_critical_commands(
+        tmp_path, monkeypatch):
+    path = tmp_path / "scoped-unconfirmed.db"
+    entered = threading.Event()
+    release = threading.Event()
+
+    def block_writer(_store, _rows):
+        entered.set()
+        assert release.wait(5.0)
+        return None
+
+    monkeypatch.setattr(V4Store, "record_event_count_batch", block_writer)
+    writer = V4PersistenceWriter(path, sample_interval_s=60.0)
+    evidence = writer.submit(V4PersistenceCommand(
+        command_id="scoped-evidence-1", method="record_event_count_batch",
+        args=([_event_count_batch_row()],), ordering_key="evidence",
+        command_type="ENTRY_DECISION_EVIDENCE",
+    ))
+    assert entered.wait(3.0)
+    metrics = writer.metrics()
+    assert metrics["unconfirmed_command_count"] >= 1
+    assert metrics["unconfirmed_trade_critical_count"] == 0
+
+    # A queued trade-critical command is visible to the execution gate
+    # immediately at submission, before journal admission, with no gap.
+    critical = writer.submit(V4PersistenceCommand(
+        command_id="scoped-critical-1", method="record_event_count_batch",
+        args=([_event_count_batch_row(1)],), ordering_key="critical",
+        terminal=True,
+    ))
+    metrics = writer.metrics()
+    assert metrics["unconfirmed_trade_critical_count"] >= 1
+
+    release.set()
+    assert evidence.result(timeout=5.0) is None
+    assert critical.result(timeout=5.0) is None
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        metrics = writer.metrics()
+        if (metrics["unconfirmed_trade_critical_count"] == 0
+                and metrics["unconfirmed_command_count"] == 0):
+            break
+        time.sleep(0.005)
+    # Counters return exactly to zero: no residue, no negative values, no
+    # double decrements.
+    assert metrics["unconfirmed_trade_critical_count"] == 0
+    assert metrics["unconfirmed_command_count"] == 0
+    writer.close()
+    final = writer.metrics()
+    assert final["unconfirmed_trade_critical_count"] == 0
+    assert final["unconfirmed_command_count"] == 0
+
+
+def test_failed_trade_critical_command_finalizes_scoped_unconfirmed(
+        tmp_path, monkeypatch):
+    path = tmp_path / "scoped-failed.db"
+
+    def boom(_store, _rows):
+        raise ValueError("critical write failed")
+
+    monkeypatch.setattr(V4Store, "record_event_count_batch", boom)
+    writer = V4PersistenceWriter(path, sample_interval_s=0.0)
+    with pytest.raises(ValueError, match="critical write failed"):
+        writer.execute_sync(V4PersistenceCommand(
+            command_id="scoped-critical-fail-1",
+            method="record_event_count_batch",
+            args=([_event_count_batch_row()],), ordering_key="critical",
+            terminal=True,
+        ), timeout_s=5.0)
+    metrics = writer.metrics()
+    assert metrics["commands_failed"] == 1
+    # The durable FAILED finalization releases the unconfirmed hold exactly
+    # once; the engine latches the failure separately and stays fail-closed.
+    assert metrics["unconfirmed_trade_critical_count"] == 0
+    assert metrics["unconfirmed_command_count"] == 0
+    store = V4Store(path)
+    try:
+        row = store.query_one(
+            "SELECT status,payload_json FROM persistence_commands "
+            "WHERE command_id='scoped-critical-fail-1'")
+        assert row["status"] == "FAILED"
+        assert not row["payload_json"].startswith(_COMPACT_PREFIX)
+    finally:
+        store.close()
+    writer.close()

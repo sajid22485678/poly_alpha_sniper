@@ -481,6 +481,12 @@ def test_polymarket_disconnect_or_epoch_change_clears_engine_books(engine_harnes
 def test_strong_edge_routes_one_exact_five_share_shadow_entry_idempotently(
         engine_harness, monkeypatch):
     engine = engine_harness.engine
+    # This test exercises entry idempotency across back-to-back evaluations;
+    # disable the immaterial-transition rate limiter so the post-entry
+    # NO_ACTION transition persists deterministically (its suppression window
+    # is covered by dedicated materiality tests).
+    monkeypatch.setattr(
+        engine_module, "IMMATERIAL_TRANSITION_MIN_INTERVAL_MS", 0)
     current = now_ms()
     identity = _identity(current)
     state = _persist_market(engine, identity, current)
@@ -587,6 +593,102 @@ def test_strong_edge_routes_one_exact_five_share_shadow_entry_idempotently(
         engine_harness,
         "SELECT COUNT(*) AS n FROM entries WHERE maker_fill_assumed=1",
     )["n"] == 0
+
+
+def _no_edge_ensemble(regime: str = "TEST_NO_EDGE",
+                      probability: float = 0.50) -> EnsembleResult:
+    return EnsembleResult(
+        regime=regime,
+        fair_probability_yes=probability,
+        reliability=0.90,
+        outputs=(),
+        model_uncalibrated=True,
+    )
+
+
+def test_immaterial_flapping_suppresses_and_material_transitions_persist(
+        engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    current = now_ms()
+    identity = _identity(current)
+    state = _persist_market(engine, identity, current)
+    asyncio.run(_mark_source_ready(engine))
+    state.books = {
+        "YES": _book(identity, "YES", current),
+        "NO": _book(identity, "NO", current),
+    }
+    engine.cex_features.append(_observation(current))
+    monkeypatch.setattr(engine, "_advance_execution", AsyncMock())
+    monkeypatch.setattr(engine, "_manage_open_position", AsyncMock())
+
+    def evaluate(regime: str, probability: float) -> None:
+        monkeypatch.setattr(
+            engine.ensemble, "evaluate",
+            lambda _context: _no_edge_ensemble(regime, probability))
+        asyncio.run(engine._evaluate(state, EvaluationTrigger(
+            source="test-materiality",
+            receipt_ts_ms=now_ms(),
+            receipt_monotonic_ns=time.monotonic_ns(),
+        )))
+
+    def candidate_count() -> int:
+        return int(_query_one(
+            engine_harness, "SELECT COUNT(*) AS n FROM candidates")["n"])
+
+    # With YES ask 0.40 / NO ask 0.60, probabilities around 0.40 keep both
+    # sides' net edge non-positive after fees and buffers.
+    # The first evaluation of a window always persists a full bundle.
+    evaluate("TEST_NO_EDGE", 0.40)
+    assert candidate_count() == 1
+    baseline_suppressed = int(
+        engine.counters.get("suppressed_evaluations", 0))
+
+    # A no-edge side/score fluctuation does not change the coarsened
+    # fingerprint and is suppressed and counted, not journaled.
+    evaluate("TEST_NO_EDGE", 0.405)
+    assert candidate_count() == 1
+    assert int(engine.counters["suppressed_evaluations"]) == (
+        baseline_suppressed + 1)
+    evaluate("TEST_NO_EDGE", 0.395)
+    assert candidate_count() == 1
+    assert int(engine.counters["suppressed_evaluations"]) == (
+        baseline_suppressed + 2)
+
+    # A genuine transition (regime change) inside the immaterial interval is
+    # rate-limited: threshold flapping cannot journal a bundle per tick.
+    evaluate("TEST_NO_EDGE_B", 0.40)
+    assert candidate_count() == 1
+    assert int(engine.counters["suppressed_evaluations"]) == (
+        baseline_suppressed + 3)
+
+    # Once the immaterial interval has elapsed the same transition persists.
+    monkeypatch.setattr(
+        engine_module, "IMMATERIAL_TRANSITION_MIN_INTERVAL_MS", 0)
+    evaluate("TEST_NO_EDGE_C", 0.40)
+    assert candidate_count() == 2
+
+    # Material executable transitions persist immediately regardless of the
+    # interval and remain linked to full evidence bundles.
+    monkeypatch.setattr(
+        engine_module, "IMMATERIAL_TRANSITION_MIN_INTERVAL_MS", 3_600_000)
+    monkeypatch.setattr(
+        engine.ensemble, "evaluate", lambda _context: _strong_yes_ensemble())
+    asyncio.run(engine._evaluate(state, EvaluationTrigger(
+        source="test-materiality",
+        receipt_ts_ms=now_ms(),
+        receipt_monotonic_ns=time.monotonic_ns(),
+    )))
+    assert candidate_count() == 3
+    persisted = _query_one(
+        engine_harness,
+        "SELECT c.candidate_id, d.decision_id, f.fair_value_calculation_id "
+        "FROM candidates c JOIN decisions d USING(candidate_id) "
+        "JOIN fair_value_calculations f "
+        "ON f.fair_value_calculation_id=d.fair_value_calculation_id "
+        "ORDER BY c.candidate_id DESC LIMIT 1")
+    assert persisted["candidate_id"] is not None
+    assert persisted["decision_id"] is not None
+    assert persisted["fair_value_calculation_id"] is not None
 
 
 def test_recent_cex_tick_cannot_authorize_entry_after_provider_disconnect(
