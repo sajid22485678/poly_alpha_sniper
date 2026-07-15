@@ -2677,8 +2677,13 @@ class FrequencyV4Engine:
             return "critical_process_ownership_unverified"
         if int(ownership.get("orphan_processes") or 0) != 0:
             return "critical_orphan_process_detected"
-        if (int(ownership.get("exact_v4_processes") or 0) != 1
-                or int(ownership.get("owned_v4_processes") or 0) != 1):
+        # A Windows venv launcher runs the real interpreter as its child with
+        # an identical exact-module command line, so one owned launch may
+        # appear as two exact processes.  Every exact process must belong to
+        # the ownership tree (orphans are rejected above).
+        exact_count = int(ownership.get("exact_v4_processes") or 0)
+        owned_count = int(ownership.get("owned_v4_processes") or 0)
+        if exact_count < 1 or owned_count != exact_count:
             return "critical_process_count_mismatch"
         writer = self._writer_health()
         if str(writer.get("state") or "") != "HEALTHY":
