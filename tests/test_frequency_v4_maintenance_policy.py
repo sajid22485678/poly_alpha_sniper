@@ -194,6 +194,33 @@ def test_checkpoint_skip_reasons_are_deterministic(snapshot, reason):
     assert decision.reason == reason
 
 
+def test_wal_pressure_forces_passive_checkpoint_through_closed_gate():
+    # A gate-closed runtime (busy critical lane, degraded health, latency)
+    # must not be able to defer checkpoints indefinitely once the WAL passes
+    # the emergency threshold: PASSIVE never blocks the critical writer.
+    gated_variants = (
+        _snapshot(wal_bytes=400, critical_queue_depth=1),
+        _snapshot(wal_bytes=401, runtime_health="DEGRADED"),
+        _snapshot(wal_bytes=5_000, critical_commit_p95_ms=100.1),
+        _snapshot(wal_bytes=400, writer_healthy=False),
+    )
+    for snapshot in gated_variants:
+        decision = decide_checkpoint(snapshot, _policy())
+        assert decision.should_run
+        assert decision.mode is CheckpointMode.PASSIVE
+        assert decision.reason == "emergency_wal_pressure"
+
+    # Below the emergency threshold the gate still wins.
+    below = _snapshot(wal_bytes=399, critical_queue_depth=1)
+    assert not decide_checkpoint(below, _policy()).should_run
+    # The bounded min-interval still rate-limits emergency passes.
+    rate_limited = _snapshot(
+        wal_bytes=5_000, critical_queue_depth=1,
+        last_checkpoint_attempt_ts_ms=19_500,
+    )
+    assert not decide_checkpoint(rate_limited, _policy()).should_run
+
+
 def test_checkpoint_records_wal_before_after_frames_and_duration():
     store = CheckpointStore(
         response={

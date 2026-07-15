@@ -279,6 +279,15 @@ def decide_checkpoint(
             return _skip(snapshot, "checkpoint_min_interval")
     gate_reason = maintenance_gate(snapshot, policy)
     if gate_reason is not None:
+        if snapshot.wal_bytes >= policy.restart_trigger_bytes:
+            # WAL-pressure liveness: a PASSIVE checkpoint on the dedicated
+            # maintenance connection never blocks the critical writer, so a
+            # busy or degraded runtime must not be able to defer it
+            # indefinitely.  Only the bounded min-interval above rate-limits
+            # this branch; retention still honors the gate.
+            return CheckpointDecision(
+                True, CheckpointMode.PASSIVE, "emergency_wal_pressure", snapshot
+            )
         return _skip(snapshot, gate_reason)
 
     if _truncate_is_safe(snapshot, policy):

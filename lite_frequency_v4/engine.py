@@ -283,6 +283,12 @@ class FrequencyV4Engine:
         self._expected_window_keys: set[tuple[str, int]] = set()
         self._position_cache: dict[int, dict[str, Any]] = {}
         self._management_last_ts: dict[int, int] = {}
+        # Authoritative capacity rejections (exposure/position caps) latch here
+        # so saturated capacity cannot drive a full-rate retry storm of
+        # journaled entry commands.  Capacity only frees when a position
+        # closes, so every block is cleared exactly there (and on startup
+        # reconciliation).  Keys: "global" or "asset:<ASSET>".
+        self._entry_capacity_blocks: dict[str, str] = {}
         self._management_seq: dict[int, int] = {}
         self._resolution_state: dict[int, tuple[int, int]] = {}
         self._process_ownership_cache: dict[str, Any] = {
@@ -1805,17 +1811,33 @@ class FrequencyV4Engine:
             and open_position_id is not None
             and current - self._management_last_ts.get(open_position_id, 0) >= 1_000
         )
+        # Persist the full evidence bundle only for material evaluations:
+        # any state transition (fingerprint), an action that will actually
+        # advance execution, a decision affecting an active maker observation,
+        # or a due management sample.  Repeated identical no-edge/skip
+        # evaluations are counted and suppressed instead of journaled, per the
+        # telemetry aggregation contract.
+        maker_active = state.identity.window_key in self.maker_persistence
+        capacity_blocked = (
+            self._entry_capacity_block(state.identity.asset) is not None)
         important = bool(
             fingerprint != state.last_candidate_fingerprint
-            or router_decision.action in {
-                RouterAction.START_OBSERVATION,
+            or (not capacity_blocked
+                and state.window_id not in self._entered_window_ids
+                and router_decision.action in {
+                    RouterAction.START_OBSERVATION,
+                    RouterAction.CROSS_SPREAD,
+                })
+            or (maker_active and router_decision.action in {
                 RouterAction.CROSS_SPREAD,
                 RouterAction.SKIP,
                 RouterAction.SAFETY_FAIL,
-            }
+            })
             or management_due
         )
         if not important:
+            self.counters["suppressed_evaluations"] = (
+                self.counters.get("suppressed_evaluations", 0) + 1)
             return
 
         persisted = await self._persist_evaluation(
@@ -2239,12 +2261,29 @@ class FrequencyV4Engine:
             self._reject(state, "DATA_INVALID", decision.reason,
                          candidate_id=candidate_id)
 
+    def _entry_capacity_block(self, asset: str) -> Optional[str]:
+        """Latched authoritative capacity rejection for this asset, if any."""
+
+        return (self._entry_capacity_blocks.get("global")
+                or self._entry_capacity_blocks.get(f"asset:{asset}"))
+
+    def _clear_entry_capacity_blocks(self) -> None:
+        """Capacity may have freed (a position closed); allow fresh attempts."""
+
+        self._entry_capacity_blocks.clear()
+
     async def _create_shadow_entry(
         self, state: MarketState, calculation: EconomicCalculation,
         decision: RouterDecision, candidate_id: int, fair_id: int,
         decision_id: int, selected_snapshot: Optional[int], current: int,
     ) -> None:
         if state.window_id in self._entered_window_ids:
+            return
+        capacity_block = self._entry_capacity_block(state.identity.asset)
+        if capacity_block is not None:
+            # The store rejected capacity authoritatively and nothing has
+            # closed since; do not submit another doomed journaled command.
+            self._reject(state, "RISK", capacity_block, candidate_id=candidate_id)
             return
         blocked = self._execution_blocked_reason()
         committed_now = now_ms()
@@ -2388,11 +2427,19 @@ class FrequencyV4Engine:
             # no execution surface beyond this atomic shadow record.
             _ = entry_id
         except (WindowReservationConflict, ExposureLimitExceeded) as exc:
-            # Exposure/window contention can clear on a later event.  Do not
-            # suppress the next fresh evaluation with the prior fingerprint.
-            state.last_candidate_fingerprint = ""
-            reason = getattr(exc, "reason", str(exc) or type(exc).__name__)
-            self._reject(state, "RISK", str(reason), candidate_id=candidate_id)
+            reason = str(getattr(exc, "reason", None)
+                         or str(exc) or type(exc).__name__)
+            if isinstance(exc, ExposureLimitExceeded):
+                # Capacity is a function of open positions only.  Latch the
+                # rejection until any position closes instead of resubmitting
+                # a full-rate stream of journaled commands into a hard cap.
+                scope = (
+                    f"asset:{state.identity.asset}"
+                    if reason in {"per_asset_exposure_cap", "max_open_per_asset"}
+                    else "global"
+                )
+                self._entry_capacity_blocks[scope] = reason
+            self._reject(state, "RISK", reason, candidate_id=candidate_id)
         except V4StoreError as exc:
             if str(exc) != "entry commit deadline expired":
                 raise
@@ -2506,6 +2553,7 @@ class FrequencyV4Engine:
             self._position_cache.pop(position_id, None)
             self._open_position_windows.discard(state.window_id)
             self._open_positions_count = max(0, self._open_positions_count - 1)
+            self._clear_entry_capacity_blocks()
 
     async def _resolution_loop(self) -> None:
         while not self._stopping.is_set():
@@ -2646,6 +2694,7 @@ class FrequencyV4Engine:
         if window_id:
             self._open_position_windows.discard(window_id)
         self._open_positions_count = max(0, self._open_positions_count - 1)
+        self._clear_entry_capacity_blocks()
 
     async def _discovery_loop(self) -> None:
         while not self._stopping.is_set():
@@ -3113,6 +3162,7 @@ class FrequencyV4Engine:
             int(row["window_id"]) for row in positions
         }
         self._open_positions_count = len(positions)
+        self._clear_entry_capacity_blocks()
         self._management_seq = {
             int(row["position_id"]): int(row.get("next_seq") or 0)
             for row in management
