@@ -94,6 +94,51 @@ def test_nonce_correlated_lock_heartbeat_stop_and_release(tmp_path, monkeypatch)
     assert final["live_enabled"] is False
 
 
+def test_verify_ownership_accepts_venv_launcher_pair_and_rejects_orphans(
+        tmp_path, monkeypatch):
+    monkeypatch.delenv(LAUNCH_NONCE_ENV, raising=False)
+    runtime = V4RuntimeFiles(tmp_path / "runtime", repo_root=tmp_path)
+    runtime.acquire()
+    try:
+        # A Windows venv launcher runs the real interpreter as its child with
+        # an identical exact-module command line: two exact processes, both
+        # inside the ownership tree, zero orphans. This must be accepted.
+        monkeypatch.setattr(runtime, "process_ownership", lambda: {
+            "process_ownership_valid": True,
+            "exact_v4_processes": 2,
+            "owned_v4_processes": 2,
+            "orphan_processes": 0,
+            "exact_pids": [runtime.pid, runtime.pid + 1],
+        })
+        verified = runtime.verify_process_ownership()
+        assert verified["owned_v4_processes"] == 2
+
+        # Any exact process outside the ownership tree stays fail-closed.
+        monkeypatch.setattr(runtime, "process_ownership", lambda: {
+            "process_ownership_valid": True,
+            "exact_v4_processes": 3,
+            "owned_v4_processes": 2,
+            "orphan_processes": 1,
+            "exact_pids": [runtime.pid, runtime.pid + 1, runtime.pid + 2],
+        })
+        with pytest.raises(RuntimeError, match="ownership preflight"):
+            runtime.verify_process_ownership()
+        assert runtime.verified_process_ownership is None
+
+        # Zero exact processes can never validate ownership.
+        monkeypatch.setattr(runtime, "process_ownership", lambda: {
+            "process_ownership_valid": False,
+            "exact_v4_processes": 0,
+            "owned_v4_processes": 0,
+            "orphan_processes": 0,
+            "exact_pids": [],
+        })
+        with pytest.raises(RuntimeError, match="ownership preflight"):
+            runtime.verify_process_ownership()
+    finally:
+        runtime.release(None)
+
+
 def test_os_guard_and_process_lock_allow_only_one_owner(tmp_path, monkeypatch):
     monkeypatch.delenv(LAUNCH_NONCE_ENV, raising=False)
     first = V4RuntimeFiles(tmp_path / "runtime", repo_root=tmp_path)

@@ -228,10 +228,18 @@ class V4RuntimeFiles:
         """Prove the acquired lock owns the sole exact V4 module process."""
 
         result = self.process_ownership()
+        # A Windows venv launcher executes the real interpreter as its child
+        # with an identical "-m lite_frequency_v4.bot" command line, so one
+        # owned launch legitimately appears as an exact-match parent/child
+        # pair.  Ownership stays strict: at least one exact process must
+        # exist, every exact process must belong to this lock's ownership
+        # tree, and none may be orphaned.
+        exact_count = int(result.get("exact_v4_processes") or 0)
+        owned_count = int(result.get("owned_v4_processes") or 0)
         if not (
             bool(result.get("process_ownership_valid"))
-            and int(result.get("exact_v4_processes") or 0) == 1
-            and int(result.get("owned_v4_processes") or 0) == 1
+            and exact_count >= 1
+            and owned_count == exact_count
             and int(result.get("orphan_processes") or 0) == 0
         ):
             self.verified_process_ownership = None
