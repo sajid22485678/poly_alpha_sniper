@@ -94,6 +94,57 @@ def test_nonce_correlated_lock_heartbeat_stop_and_release(tmp_path, monkeypatch)
     assert final["live_enabled"] is False
 
 
+def test_clean_release_proves_prior_nonce_absent_for_next_launch(
+        tmp_path, monkeypatch):
+    nonce_one = "0123456789abcdef0123456789abcdef"
+    monkeypatch.setenv(LAUNCH_NONCE_ENV, nonce_one)
+    first = V4RuntimeFiles(tmp_path / "runtime", repo_root=tmp_path)
+    first.acquire()
+    # A brand-new runtime directory yields no proof at all.
+    assert first.proven_absent_launch_nonces == ()
+    first.release({"state": "STOPPED"})
+
+    # The releasing process in this test is the test process itself and is
+    # still alive; while it lives its nonce must NOT be proven absent.
+    same_pid = V4RuntimeFiles(tmp_path / "runtime", repo_root=tmp_path)
+    same_pid.acquire()
+    assert nonce_one not in same_pid.proven_absent_launch_nonces
+    same_pid.release(None)
+
+    # Simulate the released process having exited: the graceful release
+    # removed the lock but left the final running=false state; the next
+    # launch must still prove the prior nonce absent so recovery can finish
+    # maker observations that the stop left unfinished.
+    state_path = tmp_path / "runtime" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({"launch_nonce": nonce_one, "running": False,
+                  "pid": 999_999_999})
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    nonce_two = "fedcba9876543210fedcba9876543210"
+    monkeypatch.setenv(LAUNCH_NONCE_ENV, nonce_two)
+    second = V4RuntimeFiles(tmp_path / "runtime", repo_root=tmp_path)
+    second.acquire()
+    try:
+        assert second.proven_absent_launch_nonces == (nonce_one,)
+    finally:
+        second.release(None)
+
+    # A state that still claims running=true (no clean shutdown) proves
+    # nothing, even with a dead PID.
+    state = json.loads((tmp_path / "runtime" / "state.json").read_text(
+        encoding="utf-8"))
+    state.update({"running": True, "launch_nonce": nonce_one,
+                  "pid": 999_999_999})
+    (tmp_path / "runtime" / "state.json").write_text(
+        json.dumps(state), encoding="utf-8")
+    third = V4RuntimeFiles(tmp_path / "runtime", repo_root=tmp_path)
+    third.acquire()
+    try:
+        assert nonce_one not in third.proven_absent_launch_nonces
+    finally:
+        third.release(None)
+
+
 def test_verify_ownership_accepts_venv_launcher_pair_and_rejects_orphans(
         tmp_path, monkeypatch):
     monkeypatch.delenv(LAUNCH_NONCE_ENV, raising=False)

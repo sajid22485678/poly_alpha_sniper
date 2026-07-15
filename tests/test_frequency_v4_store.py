@@ -1234,6 +1234,64 @@ def test_startup_reconciliation_abandons_only_proven_absent_owner_makers(tmp_pat
         store.close()
 
 
+def test_startup_reconciliation_abandons_makers_of_durably_ended_sessions(
+        tmp_path):
+    """A durably journaled session end proves its makers cannot complete.
+
+    A graceful stop removes the process lock, so the next launch may hold no
+    external nonce proof at all.  The session's own terminal
+    end_runtime_session record is deterministic database-internal proof that
+    the owning process finished; without it the unfinished maker would latch
+    the execution gate fail-closed forever across every restart.
+    """
+
+    store = V4Store(tmp_path / "maker-ended-session-reconcile.db")
+    try:
+        seed_session(store, session_id="ended-session")
+        ended_context = seed_market_window(
+            store, session_id="ended-session", suffix="ended-maker")
+        ended_evidence = seed_candidate_entry_context(store, ended_context)
+        ended_maker = store.record_maker_observation({
+            "window_id": ended_context["window_id"],
+            "candidate_id": ended_evidence["candidate_id"],
+            "decision_id": ended_evidence["decision_id"],
+            "initial_fair_value_calculation_id": ended_evidence["fair_id"],
+            "initial_book_snapshot_id": ended_evidence["book_id"],
+            "maker_start_ts_ms": ended_evidence["entry_ts"],
+            "maker_deadline_ts_ms": ended_evidence["entry_ts"] + 1_000,
+            "start_monotonic_ns": ended_evidence["entry_ts"] * 1_000_000,
+            "maker_target_price": 0.48,
+            "chase_cap_price": 0.50,
+            "initial_net_edge": 0.015,
+            "maker_fill_assumed": False,
+        })
+        store.end_runtime_session("ended-session", NOW + 1_000, "graceful_stop")
+
+        # No external nonce proof at all: the recorded session end alone
+        # must finish the maker honestly, without assuming a fill.
+        result = store.reconcile_startup_state(
+            current_launch_nonce="nonce-new-session",
+            proven_absent_launch_nonces=(),
+            reconciled_ts_ms=NOW + 5_000,
+        )
+        assert result["unfinished_maker_observations"] == 1
+        assert result["reconciled_abandoned_maker_observations"] == 1
+        assert result["unfinished_makers_left_fail_closed"] == 0
+        assert store.query_one(
+            "SELECT maker_end_ts_ms,outcome,reason,maker_fill_assumed "
+            "FROM maker_observations WHERE maker_observation_id=?",
+            (ended_maker,),
+        ) == {
+            "maker_end_ts_ms": NOW + 5_000,
+            "outcome": "ABANDONED",
+            "reason": "STARTUP_RECONCILED",
+            "maker_fill_assumed": 0,
+        }
+        assert store.query_one("SELECT COUNT(*) count FROM entries") == {"count": 0}
+    finally:
+        store.close()
+
+
 def test_bounded_retention_prunes_only_nontrade_graph_and_linked_raw_evidence(tmp_path):
     store = V4Store(tmp_path / "bounded-graph-retention.db")
     try:

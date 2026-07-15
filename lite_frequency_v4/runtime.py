@@ -198,6 +198,29 @@ class V4RuntimeFiles:
                 if _valid_nonce(prior_nonce) and prior_nonce != self.launch_nonce:
                     proven_absent.append(prior_nonce)
                 self.lock_path.unlink(missing_ok=True)
+            # A clean shutdown removes the process lock, which would otherwise
+            # leave the next launch without any nonce proof and latch every
+            # maker observation that stop left unfinished as fail-closed
+            # forever.  The released final state (running=false) combined with
+            # a dead or provably reused PID meets the same standard of proof
+            # applied to stale locks above.
+            final_state = self._read_json(self.state_path)
+            state_nonce = str(final_state.get("launch_nonce") or "").lower()
+            if (_valid_nonce(state_nonce)
+                    and state_nonce != self.launch_nonce
+                    and state_nonce not in proven_absent
+                    and final_state.get("running") is False):
+                state_pid = int(final_state.get("pid") or 0)
+                recorded_create = final_state.get("process_create_time")
+                alive = pid_alive(state_pid)
+                actual_create = (
+                    process_create_time(state_pid) if alive else None)
+                reused_pid = bool(
+                    alive and actual_create is not None
+                    and recorded_create is not None
+                    and abs(float(recorded_create) - actual_create) >= 0.01)
+                if not alive or reused_pid:
+                    proven_absent.append(state_nonce)
             self.stop_path.unlink(missing_ok=True)
             payload = {
                 **immutable_safety_state(),

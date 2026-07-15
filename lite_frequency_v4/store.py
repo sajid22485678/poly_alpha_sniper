@@ -2611,6 +2611,12 @@ class V4Store:
             counts["released_proven_stale_reservations"] = released
             counts["reserved_left_fail_closed"] = max(
                 0, counts["reserved_without_entry"] - released)
+            # A maker observation cannot outlive its owning session.  Two
+            # deterministic proofs finish one as ABANDONED: the session's
+            # launch nonce is externally proven absent, or the session
+            # durably journaled its own termination (ended_ts_ms) via the
+            # terminal end_runtime_session command.  Reservation release
+            # above intentionally keeps the stricter external-nonce rule.
             abandoned_makers = conn.execute(
                 """UPDATE maker_observations SET
                    maker_end_ts_ms=MAX(maker_start_ts_ms,?),
@@ -2619,7 +2625,8 @@ class V4Store:
                    WHERE maker_end_ts_ms IS NULL AND candidate_id IN (
                      SELECT c.candidate_id FROM candidates c
                      JOIN runtime_sessions rs ON rs.session_id=c.session_id
-                     WHERE rs.launch_nonce IN ({})
+                     WHERE rs.ended_ts_ms IS NOT NULL
+                        OR rs.launch_nonce IN ({})
                    )""".format(
                     ",".join("?" for _ in absent) if absent else "NULL"
                 ),
