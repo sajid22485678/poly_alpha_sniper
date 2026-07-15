@@ -264,6 +264,15 @@ class PolymarketMarketWS:
         self._hydrated.clear()
         self._buffers.clear()
         self._last_hydration_request_mono_ns.clear()
+        # Heartbeat accounting is per transport epoch.  A stale unanswered
+        # PING inherited from a previous connection otherwise trips the
+        # pong-timeout check on the FIRST poll of the new epoch's heartbeat
+        # loop - its age already exceeds pong_timeout_s - closing the fresh
+        # socket before it ever sends its own first PING.  One genuine pong
+        # loss then poisons every later epoch into a perpetual reconnect
+        # loop with frozen heartbeat/pong timestamps.
+        self._last_ping_mono_ns = 0
+        self._last_pong_mono_ns = 0
         self.health_state.hydrated_subscriptions = 0
         self.health_state.state = "SUBSCRIBING"
 
@@ -587,9 +596,14 @@ class PolymarketMarketWS:
         self._hydrated.add(token)
         await self._flush_buffer(token)
         self.health_state.hydrated_subscriptions = len(self._hydrated)
-        self.health_state.state = (
-            "READY" if self._desired and self._hydrated == set(self._desired)
-            else "HYDRATING")
+        # Hydration progress promotes readiness only while the transport is
+        # actually connected.  REST snapshots also flow through here and can
+        # land during BACKOFF; a disconnected source must never report READY
+        # merely because REST data kept its books fresh.
+        if self.health_state.connected:
+            self.health_state.state = (
+                "READY" if self._desired and self._hydrated == set(self._desired)
+                else "HYDRATING")
         await self._publish_health()
         return decision
 

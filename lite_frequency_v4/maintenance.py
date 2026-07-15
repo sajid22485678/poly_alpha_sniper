@@ -520,10 +520,13 @@ def run_bounded_maintenance_pass(
     off_loop = _active_event_loop_reason()
     if off_loop:
         return finish(MaintenanceStatus.SKIPPED, off_loop, failure=off_loop)
-    gate_reason = maintenance_gate(snapshot, policy)
-    if gate_reason:
-        return finish(MaintenanceStatus.SKIPPED, gate_reason)
 
+    # Checkpoint gating is decided SOLELY by decide_checkpoint, which
+    # consults maintenance_gate internally and applies the WAL-pressure
+    # emergency override when the gate is closed.  It must run BEFORE the
+    # retention gate short-circuit below: a closed maintenance gate
+    # previously returned SKIPPED here first, making the emergency override
+    # unreachable and starving checkpoints while the WAL grew unbounded.
     decision = decide_checkpoint(snapshot, policy)
     checkpoint: Optional[CheckpointResult] = None
     if decision.should_run:
@@ -548,6 +551,16 @@ def run_bounded_maintenance_pass(
                 checkpoint=checkpoint,
                 failure=failure,
             )
+
+    # Retention (and only retention) honors the plain maintenance gate.
+    gate_reason = maintenance_gate(snapshot, policy)
+    if gate_reason:
+        if checkpoint is not None:
+            # An emergency checkpoint ran even though normal maintenance is
+            # gated; report the pass as PARTIAL so its result is recorded.
+            return finish(
+                MaintenanceStatus.PARTIAL, gate_reason, checkpoint=checkpoint)
+        return finish(MaintenanceStatus.SKIPPED, gate_reason)
     if snapshot.active_readers > 0 or snapshot.long_reader_count > 0:
         return finish(
             MaintenanceStatus.SKIPPED,
@@ -705,14 +718,20 @@ def _unsafe_mode_reason(
     snapshot: MaintenanceSnapshot,
     policy: MaintenancePolicy,
 ) -> Optional[str]:
+    """Execution-time revalidation of mode-specific HARD safety only.
+
+    General gating (queue depth, runtime health, latency, window guard) is
+    the sole responsibility of decide_checkpoint, which also applies the
+    WAL-pressure emergency override.  Re-running maintenance_gate here for
+    PASSIVE mode contradicted that decision and vetoed every emergency
+    checkpoint; PASSIVE never blocks the critical writer and needs no
+    quiescence, so only TRUNCATE/RESTART invariants are rechecked.
+    """
+
     if mode is CheckpointMode.TRUNCATE and not _truncate_is_safe(snapshot, policy):
         return "truncate_requires_verified_stopped_runtime"
     if mode is CheckpointMode.RESTART and not _restart_is_safe(snapshot, policy):
         return "restart_requires_quiescent_runtime"
-    if mode is CheckpointMode.PASSIVE:
-        gate = maintenance_gate(snapshot, policy)
-        if gate:
-            return gate
     return None
 
 

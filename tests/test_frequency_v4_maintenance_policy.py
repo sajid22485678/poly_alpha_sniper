@@ -398,6 +398,47 @@ def test_queue_gate_skips_all_store_work():
     assert result.status is MaintenanceStatus.SKIPPED
     assert result.reason == "critical_queue_not_empty"
     assert store.checkpoint_calls == []
+
+
+def test_wal_pressure_checkpoint_runs_before_retention_gate_short_circuit():
+    # A closed maintenance gate (busy critical lane) with the WAL over the
+    # emergency threshold must still attempt the checkpoint: the pass-level
+    # gate short-circuit previously returned SKIPPED before decide_checkpoint
+    # ever ran, making the emergency override unreachable in production and
+    # starving checkpoints while the WAL grew unbounded.
+    store = RetentionStore([10], response=(0, 20, 20))
+    result = run_bounded_maintenance_pass(
+        store,
+        snapshot=_snapshot(wal_bytes=5_000, critical_queue_depth=1),
+        policy=_policy(),
+        wall_clock_ms=_fixed_wall_clock,
+        wal_size_reader=_wal_reader(5_000, 90),
+    )
+    assert store.checkpoint_calls == ["PASSIVE"]
+    assert result.status is MaintenanceStatus.PARTIAL
+    assert result.reason == "critical_queue_not_empty"
+    assert result.checkpoint is not None
+    assert result.checkpoint.status is CheckpointStatus.SUCCESS
+    assert result.checkpoint.reason == "emergency_wal_pressure"
+    # Retention stays gated and the checkpoint result is durably recorded.
+    assert store.retention_calls == []
+    assert len(store.records) == 1
+
+
+def test_gated_low_wal_pass_still_skips_everything_without_storm():
+    # Below the emergency threshold a closed gate skips checkpoint AND
+    # retention exactly as before - no checkpoint storm from the reorder.
+    store = RetentionStore([10])
+    result = run_bounded_maintenance_pass(
+        store,
+        snapshot=_snapshot(wal_bytes=399, runtime_health="DEGRADED"),
+        policy=_policy(),
+        wall_clock_ms=_fixed_wall_clock,
+    )
+    assert result.status is MaintenanceStatus.SKIPPED
+    assert result.reason == "runtime_not_healthy"
+    assert store.checkpoint_calls == []
+    assert store.retention_calls == []
     assert store.retention_calls == []
 
 
