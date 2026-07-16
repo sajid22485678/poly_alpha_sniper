@@ -87,7 +87,9 @@ def test_initial_tiers_and_maker_timing_match_v4_mission():
     assert (cfg.maker_observation_min_ms,
             cfg.maker_observation_default_ms,
             cfg.maker_observation_max_ms) == (500, 1000, 1500)
-    assert cfg.exposure_cap_usd == 9.75
+    # Phase 1: 100% of the $13 authoritative cohort equity may be committed.
+    assert cfg.exposure_cap_pct == 1.0
+    assert cfg.exposure_cap_usd == 13.0
 
 
 def test_persistence_controls_are_explicit_bounded_and_do_not_change_strategy():

@@ -142,9 +142,13 @@ def test_additive_v1_to_v2_migration_preserves_rows(tmp_path):
         assert migrated.query_one(
             "SELECT session_id FROM runtime_sessions WHERE session_id='session-preserved'"
         ) == {"session_id": "session-preserved"}
-        assert migrated.query_one("PRAGMA user_version") == {"user_version": 2}
+        # The chain now continues additively through v3 (Phase 1 cohorts).
+        assert migrated.query_one("PRAGMA user_version") == {
+            "user_version": SCHEMA_VERSION}
         assert migrated.query_one(
             "SELECT COUNT(*) n FROM schema_migrations WHERE version=2") == {"n": 1}
+        assert migrated.query_one(
+            "SELECT COUNT(*) n FROM schema_migrations WHERE version=3") == {"n": 1}
         assert migrated.query_one(
             "SELECT COUNT(*) n FROM persistence_commands") == {"n": 0}
     finally:

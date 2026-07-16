@@ -6,6 +6,7 @@ import pytest
 
 from poly_alpha_sniper.lite_frequency_v4.contracts import CexObservation, SourceEvent
 from poly_alpha_sniper.lite_frequency_v4.store import (
+    ACTIVE_COHORT,
     EXPECTED_TABLES,
     ExposureLimitExceeded,
     V4BackgroundWriteDeferred,
@@ -18,7 +19,16 @@ from poly_alpha_sniper.lite_frequency_v4.store import (
 NOW = 2_000_000_000_000
 
 
-def seed_session(store: V4Store, *, session_id: str = "session-v4", started=NOW-7_200_000):
+def seed_session(store: V4Store, *, session_id: str = "session-v4",
+                 started=NOW-7_200_000, starting_equity=13.0):
+    store.ensure_cohort({
+        "cohort": ACTIVE_COHORT,
+        "activation_ts_ms": started,
+        "activation_commit": "a" * 40,
+        "starting_equity_usd": starting_equity,
+        "max_exposure_pct": 1.0,
+        "authoritative": 1,
+    })
     store.record_runtime_session({
         "session_id": session_id,
         "launch_nonce": f"nonce-{session_id}",
@@ -26,6 +36,7 @@ def seed_session(store: V4Store, *, session_id: str = "session-v4", started=NOW-
         "git_commit": "a" * 40,
         "config_hash": "b" * 64,
         "started_ts_ms": started,
+        "cohort": ACTIVE_COHORT,
     })
     return session_id
 
@@ -268,8 +279,10 @@ def create_entry(store: V4Store, payload: dict) -> int:
     return store.create_entry(
         payload,
         max_concurrent_positions=4,
-        global_exposure_cap_usd=10.0,
-        per_asset_exposure_cap_usd=5.0,
+        cohort=ACTIVE_COHORT,
+        starting_equity_usd=13.0,
+        max_exposure_pct=1.0,
+        exit_fee_buffer_usd=0.1075,
     )
 
 
@@ -545,19 +558,23 @@ def test_atomic_entry_race_allows_exactly_one_asset_window_entry(tmp_path):
 def test_entry_risk_limit_rolls_back_without_partial_rows(tmp_path):
     store = V4Store(tmp_path / "risk.db")
     try:
-        seed_session(store)
+        # A depleted cohort with only $2.00 of equity cannot afford one
+        # five-share entry costing gross 2.45 + fee 0.05 + exit buffer.
+        seed_session(store, starting_equity=2.0)
         context = seed_market_window(store)
         evidence = seed_candidate_entry_context(store, context)
         with pytest.raises(ValueError, match="maker fill may never be assumed"):
             store.create_entry(
                 {**entry_payload(context, evidence), "maker_fill_assumed": True},
-                max_concurrent_positions=4, global_exposure_cap_usd=10.0,
-                per_asset_exposure_cap_usd=5.0,
+                max_concurrent_positions=4, cohort=ACTIVE_COHORT,
+                starting_equity_usd=2.0, max_exposure_pct=1.0,
+                exit_fee_buffer_usd=0.1075,
             )
-        with pytest.raises(ExposureLimitExceeded, match="global_exposure_cap"):
+        with pytest.raises(ExposureLimitExceeded, match="insufficient_capital"):
             store.create_entry(
                 entry_payload(context, evidence), max_concurrent_positions=4,
-                global_exposure_cap_usd=1.0, per_asset_exposure_cap_usd=5.0,
+                cohort=ACTIVE_COHORT, starting_equity_usd=2.0,
+                max_exposure_pct=1.0, exit_fee_buffer_usd=0.1075,
             )
         assert store.query_one("SELECT COUNT(*) count FROM entries")["count"] == 0
         assert store.query_one("SELECT COUNT(*) count FROM positions")["count"] == 0
@@ -731,8 +748,10 @@ def test_atomic_per_asset_open_position_cap_across_windows(tmp_path):
                         context, evidence, idem=f"asset-cap-{contender}"
                     ),
                     max_concurrent_positions=10,
-                    global_exposure_cap_usd=100.0,
-                    per_asset_exposure_cap_usd=100.0,
+                    cohort=ACTIVE_COHORT,
+                    starting_equity_usd=13.0,
+                    max_exposure_pct=1.0,
+                    exit_fee_buffer_usd=0.1075,
                     max_open_per_asset=1,
                 )
                 return "ok", entry_id
@@ -1002,8 +1021,10 @@ def test_entry_bundle_ack_contains_committed_position_without_followup_read(tmp_
             reservation,
             entry_payload(context, evidence, idem="position-ack-entry"),
             max_concurrent_positions=4,
-            global_exposure_cap_usd=10.0,
-            per_asset_exposure_cap_usd=5.0,
+            cohort=ACTIVE_COHORT,
+            starting_equity_usd=13.0,
+            max_exposure_pct=1.0,
+            exit_fee_buffer_usd=0.1075,
         )
         assert result["entry_id"] > 0
         assert result["position_id"] == result["position"]["position_id"]
@@ -1629,8 +1650,10 @@ def test_background_gate_releases_once_per_outer_transaction(tmp_path):
         background_write_release=release,
     )
     try:
+        # seed_session performs two outer transactions (cohort + session),
+        # each admitting and releasing the gate exactly once.
         seed_session(store)
-        assert calls == {"admit": 1, "release": 1}
+        assert calls == {"admit": 2, "release": 2}
         with store.transaction(immediate=True):
             store.record_runtime_health({
                 "session_id": "session-v4",
@@ -1640,6 +1663,6 @@ def test_background_gate_releases_once_per_outer_transaction(tmp_path):
                 "state": "RUNNING",
                 "loop_lag_ms": 0,
             })
-        assert calls == {"admit": 2, "release": 2}
+        assert calls == {"admit": 3, "release": 3}
     finally:
         store.close()

@@ -44,13 +44,32 @@ def _session_start(store: Any, now_ms: int, session_id: Optional[str]) -> int:
     return min(int(now_ms), int(value)) if value is not None else int(now_ms)
 
 
+def cohort_activation_ts_ms(store: Any, cohort: str) -> Optional[int]:
+    """Persisted activation timestamp of a cohort; None before activation."""
+    try:
+        row = _one(
+            store, "SELECT activation_ts_ms FROM cohorts WHERE cohort=?",
+            (str(cohort),),
+        )
+    except Exception:
+        return None
+    value = row.get("activation_ts_ms")
+    return int(value) if value is not None else None
+
+
 def frequency_window(
     store: Any, now_ms: int, *, hours: float, session_id: Optional[str] = None,
-    full_session: bool = False,
+    full_session: bool = False, not_before_ts_ms: Optional[int] = None,
 ) -> dict[str, Any]:
-    """Return window-level funnel metrics for one observed interval."""
+    """Return window-level funnel metrics for one observed interval.
+
+    ``not_before_ts_ms`` clamps the observation start (used to exclude
+    pre-activation legacy activity from the authoritative cohort's funnel).
+    """
     now_ms = int(now_ms)
     start = _session_start(store, now_ms, session_id)
+    if not_before_ts_ms is not None:
+        start = min(now_ms, max(start, int(not_before_ts_ms)))
     if full_session:
         cutoff = start
         requested_hours = max(0.0, (now_ms - start) / 3_600_000.0)
@@ -200,15 +219,18 @@ def frequency_window(
 
 def rolling_frequency(
     store: Any, now_ms: int, *, session_id: Optional[str] = None,
+    not_before_ts_ms: Optional[int] = None,
 ) -> dict[str, dict[str, Any]]:
     result = {
         f"{hours}h": frequency_window(
-            store, now_ms, hours=hours, session_id=session_id
+            store, now_ms, hours=hours, session_id=session_id,
+            not_before_ts_ms=not_before_ts_ms,
         )
         for hours in ROLLING_HOURS
     }
     result["session"] = frequency_window(
-        store, now_ms, hours=0, session_id=session_id, full_session=True
+        store, now_ms, hours=0, session_id=session_id, full_session=True,
+        not_before_ts_ms=not_before_ts_ms,
     )
     return result
 
@@ -249,16 +271,31 @@ def _group_performance(rows: list[dict[str, Any]], field: str) -> dict[str, dict
     return {key: _performance(group) for key, group in sorted(grouped.items())}
 
 
-def performance_metrics(store: Any) -> dict[str, Any]:
+def performance_metrics(store: Any, *, cohort: Optional[str] = None) -> dict[str, Any]:
+    """Terminal-trade performance, optionally scoped to one capital cohort.
+
+    With ``cohort`` set, only trades whose owning runtime session belongs to
+    that cohort are counted — the authoritative Phase 1 view.  Without it,
+    every historical row is aggregated (legacy, non-authoritative).
+    """
+    cohort_join = (
+        "JOIN runtime_sessions rs ON rs.session_id=e.session_id "
+        if cohort is not None else ""
+    )
+    cohort_where = "WHERE rs.cohort=? " if cohort is not None else ""
+    params: tuple[Any, ...] = (str(cohort),) if cohort is not None else ()
     rows = _query(
         store,
-        """SELECT p.*,e.outcome_side,e.entry_mode,e.selected_net_edge,
+        f"""SELECT p.*,e.outcome_side,e.entry_mode,e.selected_net_edge,
            w.asset,c.dominant_model,x.exit_source
            FROM pnl_records p JOIN entries e ON e.entry_id=p.entry_id
            JOIN asset_windows w ON w.window_id=e.window_id
            JOIN candidates c ON c.candidate_id=e.candidate_id
+           {cohort_join}
            LEFT JOIN exits x ON x.entry_id=e.entry_id
+           {cohort_where}
            ORDER BY p.terminal_ts_ms,p.entry_id""",
+        params,
     )
     for row in rows:
         edge = float(row.get("selected_net_edge") or 0)
@@ -303,13 +340,22 @@ def _risk_of_ruin_estimate(values: list[float], risk_fraction: float) -> Optiona
 
 def compound_preview(
     store: Any, *, starting_equity_usd: float = 13.0,
-    fixed_risk_fraction: float = 0.02,
+    fixed_risk_fraction: float = 0.02, cohort: Optional[str] = None,
 ) -> dict[str, Any]:
+    cohort_join = (
+        "JOIN runtime_sessions rs ON rs.session_id=e.session_id "
+        if cohort is not None else ""
+    )
+    cohort_filter = "AND rs.cohort=? " if cohort is not None else ""
+    params: tuple[Any, ...] = (str(cohort),) if cohort is not None else ()
     rows = _query(
         store,
-        """SELECT p.entry_id,p.terminal_ts_ms,p.net_pnl,e.gross_cost
+        f"""SELECT p.entry_id,p.terminal_ts_ms,p.net_pnl,e.gross_cost
            FROM pnl_records p JOIN entries e ON e.entry_id=p.entry_id
-           WHERE p.verified=1 ORDER BY p.terminal_ts_ms,p.entry_id""",
+           {cohort_join}
+           WHERE p.verified=1 {cohort_filter}
+           ORDER BY p.terminal_ts_ms,p.entry_id""",
+        params,
     )
     fixed_share_equity = float(starting_equity_usd)
     fixed_risk_equity = float(starting_equity_usd)
@@ -333,7 +379,8 @@ def compound_preview(
             "fixed_risk_equity_usd": round(fixed_risk_equity, 10),
         })
     return {
-        "label": "READ_ONLY_THEORETICAL_PREVIEW_DOES_NOT_INFLUENCE_FILLS_OR_SIZING",
+        "label": "READ_ONLY_THEORETICAL_PREVIEW_DOES_NOT_INFLUENCE_EXECUTION",
+        "cohort": cohort,
         "starting_equity_usd": float(starting_equity_usd),
         "fixed_shares": 5.0,
         "fixed_share_equity_usd": round(fixed_share_equity, 10),
@@ -409,12 +456,28 @@ def reject_taxonomy(store: Any, now_ms: int) -> dict[str, Any]:
 
 def acceptance_gate(
     store: Any, frequencies: dict[str, dict[str, Any]],
-    performance: dict[str, Any],
+    performance: dict[str, Any], *, cohort: Optional[str] = None,
 ) -> dict[str, Any]:
+    """Research acceptance gate over the supplied (cohort-scoped) performance.
+
+    Trade counts and evidence-hygiene blockers are scoped to the cohort when
+    given so legacy rows can never satisfy — or permanently poison — the
+    authoritative 300-verified-terminal-trade requirement.  Window conflicts
+    stay global: a structural integrity defect anywhere blocks acceptance.
+    """
+    cohort_join = (
+        "JOIN runtime_sessions rs ON rs.session_id=e.session_id "
+        if cohort is not None else ""
+    )
+    cohort_filter = "AND rs.cohort=? " if cohort is not None else ""
+    params: tuple[Any, ...] = (str(cohort),) if cohort is not None else ()
     verified = performance["verified_terminal"]
     verified_count = int(verified["count"])
     unresolved = int(_one(
-        store, "SELECT COUNT(*) count FROM entries WHERE status='UNRESOLVED_FINAL'"
+        store,
+        f"""SELECT COUNT(*) count FROM entries e {cohort_join}
+           WHERE e.status='UNRESOLVED_FINAL' {cohort_filter}""",
+        params,
     ).get("count") or 0)
     conflicts = int(_one(
         store,
@@ -424,9 +487,12 @@ def acceptance_gate(
     duplicates = conflicts
     incomplete_evidence = int(_one(
         store,
-        """SELECT COUNT(*) count FROM pnl_records WHERE verified=0 OR
-           execution_evidence_complete=0 OR fee_evidence_complete=0 OR
-           resolution_evidence_complete=0""",
+        f"""SELECT COUNT(*) count FROM pnl_records p
+           JOIN entries e ON e.entry_id=p.entry_id {cohort_join}
+           WHERE (p.verified=0 OR execution_evidence_complete=0
+           OR fee_evidence_complete=0 OR resolution_evidence_complete=0)
+           {cohort_filter}""",
+        params,
     ).get("count") or 0)
     pf = verified.get("profit_factor")
     expectancy = verified.get("expectancy")
@@ -470,6 +536,7 @@ def acceptance_gate(
         verdict = "READY_FOR_MORE_SHADOW"
     return {
         "verdict": verdict,
+        "cohort": cohort,
         "frequency_target_status": (
             "PROVEN_OVER_REQUIRED_INTERVALS" if frequency_reached
             else "FREQUENCY_TARGET_NOT_YET_PROVEN"
@@ -488,13 +555,31 @@ def acceptance_gate(
 
 def build_metrics(
     store: Any, now_ms: int, *, session_id: Optional[str] = None,
-    starting_equity_usd: float = 13.0,
+    starting_equity_usd: float = 13.0, cohort: Optional[str] = None,
 ) -> dict[str, Any]:
-    frequencies = rolling_frequency(store, now_ms, session_id=session_id)
-    performance = performance_metrics(store)
-    acceptance = acceptance_gate(store, frequencies, performance)
+    """Build the metrics payload.
+
+    With ``cohort`` set, ``performance``, ``compound_preview``, and the
+    ``acceptance_gate`` (including the 300-verified-terminal-trade count)
+    include only post-activation trades of that cohort; the unfiltered
+    historical aggregate is returned separately, explicitly labelled
+    non-authoritative.
+    """
+    activation = cohort_activation_ts_ms(store, cohort) if cohort else None
+    frequencies = rolling_frequency(
+        store, now_ms, session_id=session_id, not_before_ts_ms=activation)
+    performance = performance_metrics(store, cohort=cohort)
+    acceptance = acceptance_gate(store, frequencies, performance, cohort=cohort)
+    legacy: Optional[dict[str, Any]] = None
+    if cohort is not None:
+        legacy = {
+            "label": "NON_AUTHORITATIVE_LEGACY_ALL_HISTORY",
+            "performance": performance_metrics(store),
+        }
     return {
         "generated_ts_ms": int(now_ms),
+        "cohort": cohort,
+        "cohort_activation_ts_ms": activation,
         "frequency": frequencies,
         "funnel": {
             key: frequencies["session"][key]
@@ -506,10 +591,11 @@ def build_metrics(
             )
         },
         "performance": performance,
+        "legacy_non_authoritative": legacy,
         "execution": execution_metrics(store, now_ms),
         "rejects": reject_taxonomy(store, now_ms),
         "compound_preview": compound_preview(
-            store, starting_equity_usd=starting_equity_usd
+            store, starting_equity_usd=starting_equity_usd, cohort=cohort
         ),
         "acceptance_gate": acceptance,
     }

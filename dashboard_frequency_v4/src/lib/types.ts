@@ -39,12 +39,41 @@ export interface RollingFrequency {
   [key: string]: unknown;
 }
 
+export interface CapitalLedger {
+  cohort?: string;
+  activation_ts_ms?: number | null;
+  activation_commit?: string | null;
+  starting_equity_usd?: number;
+  realized_net_pnl_usd?: number;
+  current_equity_usd?: number;
+  open_position_count?: number;
+  open_position_cost_usd?: number;
+  unresolved_position_count?: number;
+  unresolved_capital_usd?: number;
+  reserved_order_usd?: number;
+  exit_fee_buffer_per_position_usd?: number;
+  exit_fee_buffers_usd?: number;
+  committed_total_usd?: number;
+  available_cash_usd?: number;
+  max_exposure_pct?: number;
+  max_committed_usd?: number;
+  exposure_pct?: number;
+  peak_committed_usd?: number;
+  peak_exposure_pct?: number;
+  invariant_committed_within_equity?: boolean;
+  [key: string]: unknown;
+}
+
 export interface FrequencyV4Snapshot {
   schema_version?: number;
   generated_ts_ms?: number;
   current_commit?: string;
   strategy_id?: string;
   mode?: string;
+  runtime_label?: string;
+  cohort?: Record<string, unknown>;
+  authoritative_capital?: Record<string, unknown> & { ledger?: CapitalLedger | null };
+  legacy_non_authoritative?: Record<string, unknown> | null;
   dry_run?: boolean;
   live_enabled?: boolean;
   real_orders_possible?: boolean;

@@ -7,8 +7,11 @@ import os
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+from .config import ACTIVE_COHORT, LEGACY_COHORT, RUNTIME_LABEL
+from .ledger import compute_capital_ledger
 from .metrics import build_metrics
 from .store import FIXED_SHARES, MODE, STRATEGY_ID
+from .universe import UNIVERSE_POLICY_VERSION
 
 
 EXPORT_FILENAME = "frequency_v4_dashboard.json"
@@ -124,6 +127,7 @@ def _universe(store: Any, now_ms: int) -> dict[str, Any]:
     active = store.query(
         """SELECT w.window_id,w.asset,w.window_open_ts_ms,w.window_close_ts_ms,
            f.available,f.eligible,f.positive_edge,f.execution_attempts,f.actual_entry,
+           l.eligibility_status,l.reject_reason universe_reject_reason,
            m.polymarket_market_id,m.slug,mi.event_id,mi.condition_id,
            mi.yes_token_id,mi.no_token_id,mi.association_valid,mi.token_pair_valid,
            a.status anchor_status,a.price_to_beat
@@ -140,14 +144,57 @@ def _universe(store: Any, now_ms: int) -> dict[str, Any]:
     )
     exact_count = sum(int(row["markets"]) for row in duration_rows
                       if int(row["duration_ms"]) == 300_000)
+    discovered_assets = sorted({str(row["asset"]) for row in active})
+    eligible_rows = [
+        row for row in active
+        if str(row.get("eligibility_status") or "") == "ELIGIBLE"
+    ]
+    observed_rows = [
+        row for row in active
+        if row.get("eligibility_status") is not None
+        and str(row["eligibility_status"]) != "ELIGIBLE"
+    ]
+    rejection_details = [
+        {
+            "asset": str(row["asset"]),
+            "slug": row.get("slug"),
+            "polymarket_market_id": row.get("polymarket_market_id"),
+            "eligibility_status": row.get("eligibility_status"),
+            "reject_reason": row.get("universe_reject_reason"),
+        }
+        for row in observed_rows
+    ]
+    universe_rejects = {
+        str(row["reason"]): int(row["count"])
+        for row in store.query(
+            """SELECT reason,COUNT(*) count FROM reject_events
+               WHERE reason LIKE 'universe%' AND reject_ts_ms>=?
+               GROUP BY reason ORDER BY count DESC""",
+            (int(now_ms) - 12 * 3_600_000,),
+        )
+    }
     return {
         "exact_duration_ms": 300_000,
         "exact_five_minute_markets": exact_count,
         "active_exact_five_minute_windows": active,
         "ignored_other_durations": ignored,
+        "dynamic_universe_enabled": True,
+        "universe_policy_version": UNIVERSE_POLICY_VERSION,
         "automatic_universe": True,
+        # Required assets guarantee direct discovery queries and CEX
+        # pre-subscription only; they never restrict execution eligibility.
         "required_assets": ["BTC", "ETH", "SOL"],
         "hardcoded_to_required_assets_only": False,
+        "execution_fail_closed": True,
+        "discovered_assets_active": discovered_assets,
+        "eligible_assets_active": sorted({
+            str(row["asset"]) for row in eligible_rows}),
+        "observed_only_assets_active": sorted({
+            str(row["asset"]) for row in observed_rows}),
+        "eligible_market_count_active": len(eligible_rows),
+        "observed_only_market_count_active": len(observed_rows),
+        "universe_rejections_active": rejection_details,
+        "universe_reject_reasons_12h": universe_rejects,
     }
 
 
@@ -244,8 +291,37 @@ def build_frequency_v4_dashboard(
     ))
     metrics = build_metrics(
         store, int(now_ms), session_id=effective_session_id,
-        starting_equity_usd=starting_equity,
+        starting_equity_usd=starting_equity, cohort=ACTIVE_COHORT,
     )
+    fee_buffer = float(_value(config, "fee_buffer_usd", default=0.02))
+    fee_rate = float(_value(config, "crypto_taker_fee_rate", default=0.07))
+    try:
+        ledger = compute_capital_ledger(
+            store.query, cohort=ACTIVE_COHORT,
+            fee_rate=fee_rate, fee_buffer_usd=fee_buffer,
+        ).to_dict()
+        cohort_row = store.query_one(
+            "SELECT * FROM cohorts WHERE cohort=?", (ACTIVE_COHORT,))
+        insufficient_rejects = int((store.query_one(
+            """SELECT COUNT(*) count FROM reject_events re
+               JOIN runtime_sessions rs ON rs.session_id=re.session_id
+               WHERE re.reason IN ('insufficient_capital','cohort_equity_depleted')
+               AND rs.cohort=?""", (ACTIVE_COHORT,)) or {}).get("count") or 0)
+    except Exception:
+        # A pre-cohort read-only fixture cannot report the ledger; the
+        # authoritative runtime always can.
+        ledger, cohort_row, insufficient_rejects = None, None, 0
+    authoritative_capital = {
+        "label": RUNTIME_LABEL,
+        "cohort": ACTIVE_COHORT,
+        "legacy_cohort": LEGACY_COHORT,
+        "activation_ts_ms": (cohort_row or {}).get("activation_ts_ms"),
+        "activation_commit": (cohort_row or {}).get("activation_commit"),
+        "insufficient_capital_rejects": insufficient_rejects,
+        "fixed_shares": FIXED_SHARES,
+        "ledger": ledger,
+        "ledger_available": ledger is not None,
+    }
     # A caller that already verifies integrity off-loop passes the cached result
     # so the export never re-scans the whole database on the hot reporting path.
     integrity = store.integrity_check() if integrity is None else dict(integrity)
@@ -272,11 +348,15 @@ def build_frequency_v4_dashboard(
     heartbeat_ts_ms = runtime.get(
         "heartbeat_ts_ms", latest_health.get("heartbeat_ts_ms") if latest_health else None
     )
+    ledger_cap = (ledger or {}).get("max_committed_usd")
     positions = {
         "open": open_positions,
         "open_count": len(open_positions),
         "active_exposure_usd": round(exposure, 10),
-        "exposure_cap_usd": float(_value(config, "exposure_cap_usd", default=9.75)),
+        "exposure_cap_usd": (
+            float(ledger_cap) if ledger_cap is not None
+            else float(_value(config, "exposure_cap_usd", default=13.0))),
+        "max_exposure_pct": (ledger or {}).get("max_exposure_pct", 1.0),
         "fixed_shares": FIXED_SHARES,
     }
     pnl = {
@@ -379,11 +459,23 @@ def build_frequency_v4_dashboard(
     except Exception:  # A v1 fixture can be exported before migration tests run.
         latest_checkpoint = None
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "generated_ts_ms": int(now_ms),
         "strategy_id": STRATEGY_ID,
         "mode": MODE,
         **safety,
+        "runtime_label": RUNTIME_LABEL,
+        "cohort": {
+            "authoritative": ACTIVE_COHORT,
+            "legacy": LEGACY_COHORT,
+            "activation_ts_ms": (cohort_row or {}).get("activation_ts_ms"),
+            "activation_commit": (cohort_row or {}).get("activation_commit"),
+            "starting_equity_usd": (cohort_row or {}).get(
+                "starting_equity_usd", starting_equity),
+            "max_exposure_pct": (cohort_row or {}).get("max_exposure_pct", 1.0),
+            "legacy_metrics_are_non_authoritative": True,
+        },
+        "authoritative_capital": authoritative_capital,
         "current_commit": commit,
         "heartbeat_ts_ms": heartbeat_ts_ms,
         "fixed_shares": FIXED_SHARES,
@@ -465,6 +557,7 @@ def build_frequency_v4_dashboard(
         "recent_entries": recent_entries,
         "terminal_trades": terminal_trades,
         "performance": performance,
+        "legacy_non_authoritative": metrics.get("legacy_non_authoritative"),
         "pnl": pnl,
         "breakdowns": breakdowns,
         "compound_preview": compound,

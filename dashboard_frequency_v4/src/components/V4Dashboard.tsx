@@ -111,6 +111,12 @@ export default function V4Dashboard() {
   const pnlSummary = record(pnl);
   const integritySummary = record(integrity);
   const exposureSummary = record(data.exposure);
+  const cohortInfo = record(data.cohort);
+  const capital = record(data.authoritative_capital);
+  const ledger = record(capital.ledger);
+  const universe = record(data.market_universe);
+  const ledgerAvailable = capital.ledger_available === true;
+  const invariantOk = ledger.invariant_committed_within_equity === true;
   const persistenceSummary = record(data.persistence);
   const criticalWriter = record(persistenceSummary.critical);
   const telemetryWriter = record(persistenceSummary.telemetry);
@@ -121,9 +127,32 @@ export default function V4Dashboard() {
   return (
     <main>
       <header>
-        <div><p className="eyebrow">ISOLATED • DETERMINISTIC • SHADOW ONLY</p><h1>Frequency V4</h1><p className="subtitle">Fee-net economics outrank the 19–36 entries/hour research objective.</p></div>
-        <div><div className={`safety ${safe ? "safe" : "unsafe"}`}>{safe ? "SAFETY LOCKS VERIFIED" : "UNSAFE STATE — FAIL CLOSED"}</div><div className={`safety ${criticalReady ? "safe" : "unsafe"}`}>{criticalReady ? "CRITICAL EXECUTION READY" : "CRITICAL EXECUTION BLOCKED"}</div><div className={`safety ${persistenceReady ? "safe" : "unsafe"}`}>{persistenceReady ? "PERSISTENCE HEALTHY" : "PERSISTENCE DEGRADED — REVIEW REQUIRED"}</div></div>
+        <div><p className="eyebrow">ISOLATED • DETERMINISTIC • SHADOW ONLY</p><h1>Frequency V4</h1><p className="subtitle">{fmt(data.runtime_label)}</p><p className="subtitle">Fee-net economics outrank the 19–36 entries/hour research objective.</p></div>
+        <div><div className={`safety ${safe ? "safe" : "unsafe"}`}>{safe ? "SAFETY LOCKS VERIFIED" : "UNSAFE STATE — FAIL CLOSED"}</div><div className={`safety ${criticalReady ? "safe" : "unsafe"}`}>{criticalReady ? "CRITICAL EXECUTION READY" : "CRITICAL EXECUTION BLOCKED"}</div><div className={`safety ${persistenceReady ? "safe" : "unsafe"}`}>{persistenceReady ? "PERSISTENCE HEALTHY" : "PERSISTENCE DEGRADED — REVIEW REQUIRED"}</div><div className={`safety ${ledgerAvailable && invariantOk ? "safe" : "unsafe"}`}>{ledgerAvailable && invariantOk ? "LEDGER INVARIANT HELD" : "LEDGER UNAVAILABLE OR VIOLATED"}</div></div>
       </header>
+
+      <section className="grid hero-grid">
+        <Card label="cohort" value={cohortInfo.authoritative} tone="good" />
+        <Card label="cohort activation" value={cohortInfo.activation_ts_ms ? new Date(Number(cohortInfo.activation_ts_ms)).toISOString() : null} />
+        <Card label="starting equity USD" value={ledger.starting_equity_usd} tone={ledger.starting_equity_usd === 13 ? "good" : "bad"} />
+        <Card label="current equity USD" value={ledger.current_equity_usd} />
+        <Card label="available cash USD" value={ledger.available_cash_usd} tone={Number(ledger.available_cash_usd ?? 0) >= 0 ? "good" : "bad"} />
+        <Card label="committed USD" value={ledger.committed_total_usd} />
+        <Card label="exposure %" value={ledger.exposure_pct !== undefined ? Number(ledger.exposure_pct) * 100 : null} />
+        <Card label="max exposure %" value={ledger.max_exposure_pct !== undefined ? Number(ledger.max_exposure_pct) * 100 : null} tone={ledger.max_exposure_pct === 1 ? "good" : "warn"} />
+        <Card label="peak exposure %" value={ledger.peak_exposure_pct !== undefined ? Number(ledger.peak_exposure_pct) * 100 : null} />
+        <Card label="open position cost USD" value={ledger.open_position_cost_usd} />
+        <Card label="reserved USD" value={ledger.reserved_order_usd} />
+        <Card label="unresolved USD" value={ledger.unresolved_capital_usd} />
+        <Card label="exit fee buffers USD" value={ledger.exit_fee_buffers_usd} />
+        <Card label="realized net PnL USD" value={ledger.realized_net_pnl_usd} tone={Number(ledger.realized_net_pnl_usd ?? 0) >= 0 ? "good" : "warn"} />
+        <Card label="insufficient-capital rejects" value={capital.insufficient_capital_rejects} />
+        <Card label="eligible markets" value={universe.eligible_market_count_active} />
+        <Card label="observed-only markets" value={universe.observed_only_market_count_active} />
+        <Card label="dynamic universe" value={universe.dynamic_universe_enabled} tone={universe.dynamic_universe_enabled === true ? "good" : "bad"} />
+        <Card label="fail-closed execution" value={universe.execution_fail_closed} tone={universe.execution_fail_closed === true ? "good" : "bad"} />
+        <Card label="hardcoded BTC/ETH/SOL only" value={universe.hardcoded_to_required_assets_only} tone={universe.hardcoded_to_required_assets_only === false ? "good" : "bad"} />
+      </section>
 
       <section className="grid hero-grid">
         <Card label="mode" value={data.mode} tone={safe ? "good" : "bad"} />
@@ -164,12 +193,13 @@ export default function V4Dashboard() {
       </section>
 
       <section className="grid metrics-grid">
-        <Table title="Market universe & capacity" value={data.market_universe} />
+        <Table title="Authoritative capital ledger ($13 cohort)" value={capital} />
+        <Table title="Dynamic universe & capacity" value={data.market_universe} />
         <RollingFrequencyTable value={frequency} />
         <Table title="Execution router" value={execution} />
         <Table title="Exposure" value={data.exposure} />
-        <Table title="Fee-net PnL" value={pnl} />
-        <Table title="Compound preview (read only)" value={data.compounding_preview} />
+        <Table title="Fee-net PnL (authoritative cohort only)" value={pnl} />
+        <Table title="Compound preview (READ_ONLY_THEORETICAL_PREVIEW_DOES_NOT_INFLUENCE_EXECUTION)" value={data.compounding_preview} />
         <Table title="No-book taxonomy" value={data.no_book} />
         <Table title="Data-invalid taxonomy" value={data.data_invalid} />
         <Table title="Reject constraints" value={data.reject_reasons} />
@@ -177,8 +207,9 @@ export default function V4Dashboard() {
         <Table title="Persistence architecture" value={data.persistence} />
         <Table title="Effective persistence config" value={data.effective_config} />
         <Table title="Database / WAL" value={data.database} />
-        <Table title="300-trade forward gate" value={data.acceptance_gate} />
-        <Table title="Performance breakdowns" value={data.breakdowns} />
+        <Table title="300-trade forward gate (authoritative cohort only)" value={data.acceptance_gate} />
+        <Table title="Performance breakdowns (authoritative cohort only)" value={data.breakdowns} />
+        <Table title="Legacy performance (NON-AUTHORITATIVE, mixed universe)" value={data.legacy_non_authoritative} />
       </section>
 
       <section className="panel"><h2>Model contribution breakdown</h2><pre>{JSON.stringify(data.model_contributions ?? {}, null, 2)}</pre></section>

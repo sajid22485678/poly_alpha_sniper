@@ -86,6 +86,21 @@ def fee_per_share(sweep: Sweep,
     return sweep_taker_fee(sweep, fee_rate) / FIXED_SHARES
 
 
+def conservative_exit_fee_buffer(
+        fee_rate: float = CRYPTO_TAKER_FEE_RATE,
+        fee_buffer_usd: float = 0.0) -> float:
+    """Worst-case exit-fee reservation per open five-share position.
+
+    The taker fee curve peaks at probability 0.5, so committing
+    ``taker_fee(5, 0.5)`` plus the configured flat buffer guarantees the
+    ledger always holds enough cash to pay any possible exit fee.
+    """
+    buffer = float(fee_buffer_usd)
+    if not math.isfinite(buffer) or buffer < 0.0:
+        raise ValueError("invalid exit fee buffer")
+    return round(taker_fee(FIXED_SHARES, 0.5, fee_rate) + buffer, 10)
+
+
 def entry_commitment(
         entry_price: Optional[float] = None, *, sweep: Optional[Sweep] = None,
         shares: float = FIXED_SHARES,
@@ -169,7 +184,7 @@ def assess_shadow_exposure(
         *, committed_exposure_usd: float, open_positions: int,
         open_for_asset: int, entry_price: Optional[float] = None,
         sweep: Optional[Sweep] = None, equity_usd: float = 13.0,
-        exposure_cap_pct: float = 0.75,
+        exposure_cap_pct: float = 1.0,
         available_balance_usd: Optional[float] = None,
         max_open_positions: int = 6, max_open_per_asset: int = 1,
         fee_rate: float = CRYPTO_TAKER_FEE_RATE,

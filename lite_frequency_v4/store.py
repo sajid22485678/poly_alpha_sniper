@@ -18,11 +18,22 @@ import threading
 import time
 from typing import Any, Callable, Iterable, Iterator, Mapping, Optional
 
+from .universe import evaluate_persisted_market
+
 
 STRATEGY_ID = "lite_frequency_v4"
 MODE = "lite_frequency_v4_shadow"
 FIXED_SHARES = 5.0
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+# Conservative floor for the per-position exit-fee reservation: the locked
+# crypto taker curve 5 * 0.07 * p * (1-p) peaks at p = 0.5 -> $0.0875.
+MIN_EXIT_FEE_BUFFER_USD = 0.0875
+
+# Phase 1 cohort identity.  Kept in sync with lite_frequency_v4.config; the
+# store keeps its own copies so persistence stays import-light.
+ACTIVE_COHORT = "dynamic_universe_phase1_post_activation"
+LEGACY_COHORT = "legacy_mixed_universe"
 
 _SECRET_KEY_RE = re.compile(
     r"(?i)(private_key|api_secret|api_key|passphrase|password|bot_token|"
@@ -49,6 +60,14 @@ class WindowReservationConflict(V4StoreError):
 
 class ExposureLimitExceeded(V4StoreError):
     """Raised when an atomic shadow entry would exceed a configured cap."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+class UniverseEligibilityError(V4StoreError):
+    """Raised when the canonical universe policy rejects an entry's market."""
 
     def __init__(self, reason: str):
         super().__init__(reason)
@@ -213,7 +232,22 @@ CREATE TABLE runtime_sessions (
     live_adapter_present INTEGER NOT NULL DEFAULT 0 CHECK(live_adapter_present = 0),
     kill_switch_engaged INTEGER NOT NULL DEFAULT 1 CHECK(kill_switch_engaged = 1),
     fixed_shares REAL NOT NULL DEFAULT 5.0 CHECK(fixed_shares = 5.0),
-    stop_reason TEXT
+    stop_reason TEXT,
+    cohort TEXT NOT NULL DEFAULT 'legacy_mixed_universe'
+);
+
+CREATE TABLE cohorts (
+    cohort TEXT PRIMARY KEY,
+    activation_ts_ms INTEGER NOT NULL CHECK(activation_ts_ms >= 0),
+    activation_commit TEXT,
+    starting_equity_usd REAL NOT NULL CHECK(starting_equity_usd > 0),
+    max_exposure_pct REAL NOT NULL CHECK(max_exposure_pct > 0 AND max_exposure_pct <= 1.0),
+    fixed_shares REAL NOT NULL DEFAULT 5.0 CHECK(fixed_shares = 5.0),
+    authoritative INTEGER NOT NULL DEFAULT 0 CHECK(authoritative IN (0,1)),
+    peak_committed_usd REAL NOT NULL DEFAULT 0 CHECK(peak_committed_usd >= 0),
+    peak_exposure_pct REAL NOT NULL DEFAULT 0 CHECK(peak_exposure_pct >= 0),
+    label TEXT,
+    created_ts_ms INTEGER NOT NULL CHECK(created_ts_ms >= 0)
 );
 
 CREATE TABLE markets (
@@ -560,7 +594,8 @@ CREATE TABLE window_locks (
     candidate_id INTEGER REFERENCES candidates(candidate_id) ON DELETE SET NULL,
     decision_id INTEGER REFERENCES decisions(decision_id) ON DELETE SET NULL,
     reserved_ts_ms INTEGER NOT NULL CHECK(reserved_ts_ms >= 0),
-    updated_ts_ms INTEGER NOT NULL CHECK(updated_ts_ms >= reserved_ts_ms)
+    updated_ts_ms INTEGER NOT NULL CHECK(updated_ts_ms >= reserved_ts_ms),
+    reserved_commitment_usd REAL NOT NULL DEFAULT 0 CHECK(reserved_commitment_usd >= 0)
 );
 
 CREATE TABLE maker_observations (
@@ -844,6 +879,7 @@ CREATE INDEX ix_pnl_terminal ON pnl_records(terminal_ts_ms,verified);
 CREATE INDEX ix_rejects_time ON reject_events(reject_ts_ms,taxonomy,reason);
 CREATE INDEX ix_source_health_latest ON source_health(source,channel,sample_ts_ms);
 CREATE INDEX ix_runtime_health_latest ON runtime_health(session_id,sample_ts_ms);
+CREATE INDEX ix_runtime_sessions_cohort ON runtime_sessions(cohort);
 """ + PERSISTENCE_SCHEMA_V2_SQL
 
 
@@ -853,6 +889,33 @@ EXPECTED_TABLES = frozenset(
         SCHEMA_SQL, flags=re.MULTILINE,
     )
 )
+
+
+# Additive V2 -> V3 migration: Phase 1 cohort separation and capital-ledger
+# reservations.  Every prior row keeps its exact content; existing sessions
+# are labelled with the legacy cohort explicitly rather than deleted or
+# rewritten.
+PHASE1_SCHEMA_V3_SQL = r"""
+ALTER TABLE runtime_sessions
+    ADD COLUMN cohort TEXT NOT NULL DEFAULT 'legacy_mixed_universe';
+ALTER TABLE window_locks
+    ADD COLUMN reserved_commitment_usd REAL NOT NULL DEFAULT 0
+    CHECK(reserved_commitment_usd >= 0);
+CREATE TABLE IF NOT EXISTS cohorts (
+    cohort TEXT PRIMARY KEY,
+    activation_ts_ms INTEGER NOT NULL CHECK(activation_ts_ms >= 0),
+    activation_commit TEXT,
+    starting_equity_usd REAL NOT NULL CHECK(starting_equity_usd > 0),
+    max_exposure_pct REAL NOT NULL CHECK(max_exposure_pct > 0 AND max_exposure_pct <= 1.0),
+    fixed_shares REAL NOT NULL DEFAULT 5.0 CHECK(fixed_shares = 5.0),
+    authoritative INTEGER NOT NULL DEFAULT 0 CHECK(authoritative IN (0,1)),
+    peak_committed_usd REAL NOT NULL DEFAULT 0 CHECK(peak_committed_usd >= 0),
+    peak_exposure_pct REAL NOT NULL DEFAULT 0 CHECK(peak_exposure_pct >= 0),
+    label TEXT,
+    created_ts_ms INTEGER NOT NULL CHECK(created_ts_ms >= 0)
+);
+CREATE INDEX IF NOT EXISTS ix_runtime_sessions_cohort ON runtime_sessions(cohort)
+"""
 
 
 class V4Store:
@@ -1011,6 +1074,52 @@ class V4Store:
             self._conn.rollback()
             raise
 
+    def _apply_migration_v3(self) -> None:
+        """Apply the additive V2 -> V3 cohort/ledger migration atomically.
+
+        Historical rows are preserved exactly; pre-existing sessions receive
+        the explicit ``legacy_mixed_universe`` cohort label via the column
+        default, and a non-authoritative legacy cohorts row records the
+        historical span so reporting can label it honestly.
+        """
+
+        applied = int(time.time() * 1_000)
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            existing = {
+                (str(table), str(row[1]))
+                for table in ("runtime_sessions", "window_locks")
+                for row in self._conn.execute(f"PRAGMA table_info({table})")
+            }
+            for statement in self._migration_statements(PHASE1_SCHEMA_V3_SQL):
+                # Every V3 statement is additive; skip ALTERs whose column is
+                # already present so a partially-current database migrates
+                # idempotently instead of failing mid-transaction.
+                match = re.match(
+                    r"ALTER TABLE (\w+)\s+ADD COLUMN (\w+)", statement)
+                if match and (match.group(1), match.group(2)) in existing:
+                    continue
+                self._conn.execute(statement)
+            self._conn.execute(
+                """INSERT OR IGNORE INTO cohorts(
+                   cohort,activation_ts_ms,activation_commit,starting_equity_usd,
+                   max_exposure_pct,fixed_shares,authoritative,label,created_ts_ms)
+                   SELECT ?,COALESCE(MIN(started_ts_ms),0),NULL,13.0,0.75,5.0,0,
+                   'NON_AUTHORITATIVE_LEGACY_MIXED_UNIVERSE',?
+                   FROM runtime_sessions""",
+                (LEGACY_COHORT, applied),
+            )
+            self._conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version,applied_ts_ms,schema_hash) "
+                "VALUES(?,?,?)",
+                (3, applied, _canonical_hash(PHASE1_SCHEMA_V3_SQL)),
+            )
+            self._conn.execute("PRAGMA user_version=3")
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+
     def _initialize_fresh_schema(self) -> None:
         self._assert_owner()
         tables = {
@@ -1036,13 +1145,17 @@ class V4Store:
             version = int(row[0]) if row and row[0] is not None else 0
             if version == 1:
                 self._apply_migration_v2()
+                version = 2
+            if version == 2:
+                self._apply_migration_v3()
+                version = 3
+            if version >= 2:
                 tables = {
                     str(found[0]) for found in self._conn.execute(
                         "SELECT name FROM sqlite_master WHERE type='table' "
                         "AND name NOT LIKE 'sqlite_%'"
                     ).fetchall()
                 }
-                version = 2
             if version != SCHEMA_VERSION:
                 raise V4SchemaError(
                     f"unsupported v4 schema version {version}; expected {SCHEMA_VERSION}"
@@ -1184,6 +1297,33 @@ class V4Store:
                 "UPDATE runtime_sessions SET ended_ts_ms=?,stop_reason=? WHERE session_id=?",
                 (int(ended_ts_ms), str(reason), str(session_id)),
             )
+
+    def ensure_cohort(self, value: Any) -> dict[str, Any]:
+        """Idempotently create a cohort row; the first insert wins forever.
+
+        The activation timestamp of the authoritative forward cohort is the
+        first startup of the activating commit; later restarts return the
+        original row unchanged so the cohort boundary never drifts.
+        """
+        row = self._safe_payload(value)
+        required = ("cohort", "activation_ts_ms", "starting_equity_usd",
+                    "max_exposure_pct")
+        missing = [key for key in required if row.get(key) in (None, "")]
+        if missing:
+            raise ValueError(f"cohort row missing {missing}")
+        row.setdefault("fixed_shares", FIXED_SHARES)
+        row.setdefault("authoritative", 0)
+        row.setdefault("created_ts_ms", row["activation_ts_ms"])
+        with self.transaction(immediate=True) as conn:
+            existing = conn.execute(
+                "SELECT * FROM cohorts WHERE cohort=?", (str(row["cohort"]),)
+            ).fetchone()
+            if existing is None:
+                self._insert("cohorts", row, conn=conn)
+                existing = conn.execute(
+                    "SELECT * FROM cohorts WHERE cohort=?", (str(row["cohort"]),)
+                ).fetchone()
+        return dict(existing)
 
     def upsert_market(self, value: Any) -> int:
         row = self._safe_payload(value)
@@ -1726,10 +1866,22 @@ class V4Store:
 
     def create_entry(
         self, value: Any, *, max_concurrent_positions: int,
-        global_exposure_cap_usd: float, per_asset_exposure_cap_usd: float,
+        cohort: str = ACTIVE_COHORT,
+        starting_equity_usd: float = 13.0,
+        max_exposure_pct: float = 1.0,
+        exit_fee_buffer_usd: float = MIN_EXIT_FEE_BUFFER_USD,
         max_open_per_asset: int = 1,
     ) -> int:
-        """Atomically validate reservation, risk, and create one shadow entry."""
+        """Atomically validate universe, reservation, ledger, and create one entry.
+
+        Capital is enforced against the single authoritative cohort ledger:
+        equity = cohort starting equity + realized cohort net PnL; committed
+        capital = open-position cost (incl. entry fees) + unresolved-position
+        cost + conservative exit-fee buffers + live reservations.  The entry
+        fails closed unless the projected committed total stays within
+        ``equity * max_exposure_pct`` — with the Phase 1 cap of 100% this is
+        exactly the invariant ``total committed capital <= current equity``.
+        """
         row = self._safe_payload(value)
         if bool(row.get("maker_fill_assumed")):
             raise ValueError("maker fill may never be assumed")
@@ -1805,36 +1957,132 @@ class V4Store:
             asset = str(window[0])
             if int(row["entry_ts_ms"]) >= int(window[1]):
                 raise ValueError("cannot enter at or after window close")
-            open_count = int(conn.execute(
-                "SELECT COUNT(*) FROM positions WHERE status='OPEN'"
-            ).fetchone()[0])
+
+            # Defensive execution boundary: re-derive the canonical dynamic
+            # universe decision from previously committed market rows.  A
+            # directly injected or corrupted candidate cannot open a position
+            # for a market the policy rejects, regardless of caller claims.
+            identity_row = conn.execute(
+                "SELECT * FROM market_identities WHERE market_identity_id=?",
+                (int(row["market_identity_id"]),),
+            ).fetchone()
+            market_row = (
+                conn.execute(
+                    "SELECT * FROM markets WHERE market_id=?",
+                    (int(identity_row["market_id"]),),
+                ).fetchone()
+                if identity_row is not None else None
+            )
+            anchor_row = (
+                conn.execute(
+                    """SELECT status,price_to_beat FROM anchor_observations
+                       WHERE market_identity_id=?
+                       ORDER BY anchor_observation_id DESC LIMIT 1""",
+                    (int(row["market_identity_id"]),),
+                ).fetchone()
+                if identity_row is not None else None
+            )
+            universe_decision = evaluate_persisted_market(
+                dict(market_row) if market_row is not None else None,
+                dict(identity_row) if identity_row is not None else None,
+                dict(anchor_row) if anchor_row is not None else None,
+            )
+            if not universe_decision.eligible:
+                raise UniverseEligibilityError(
+                    universe_decision.reject_reason or "universe_not_eligible")
+
+            # Authoritative cohort ledger, all inside this transaction.  The
+            # persisted cohorts row is the source of truth; caller parameters
+            # must agree with it exactly or the entry fails closed.
+            cohort_name = str(cohort)
+            cohort_row = conn.execute(
+                """SELECT starting_equity_usd,max_exposure_pct FROM cohorts
+                   WHERE cohort=?""", (cohort_name,),
+            ).fetchone()
+            if cohort_row is None:
+                raise V4StoreError("unknown capital cohort")
+            if (abs(float(cohort_row[0]) - float(starting_equity_usd)) > 1e-9
+                    or abs(float(cohort_row[1]) - float(max_exposure_pct)) > 1e-9):
+                raise V4StoreError("cohort ledger parameters mismatch")
+            session_cohort = conn.execute(
+                "SELECT cohort FROM runtime_sessions WHERE session_id=?",
+                (str(row["session_id"]),),
+            ).fetchone()
+            if session_cohort is None or str(session_cohort[0]) != cohort_name:
+                raise V4StoreError("entry session does not belong to the cohort")
+            exit_buffer = float(exit_fee_buffer_usd)
+            if (not math.isfinite(exit_buffer)
+                    or exit_buffer < MIN_EXIT_FEE_BUFFER_USD - 1e-9):
+                raise V4StoreError("exit fee buffer below conservative floor")
+
+            open_count, open_cost = conn.execute(
+                """SELECT COUNT(*),COALESCE(SUM(p.committed_exposure_usd),0)
+                   FROM positions p JOIN entries e ON e.entry_id=p.entry_id
+                   JOIN runtime_sessions s ON s.session_id=e.session_id
+                   WHERE p.status='OPEN' AND s.cohort=?""", (cohort_name,),
+            ).fetchone()
+            open_count = int(open_count or 0)
+            open_cost = float(open_cost or 0)
             if open_count >= int(max_concurrent_positions):
                 raise ExposureLimitExceeded("max_concurrent_positions")
             asset_open_count = int(conn.execute(
-                "SELECT COUNT(*) FROM positions WHERE status='OPEN' AND asset=?",
-                (asset,),
+                """SELECT COUNT(*) FROM positions p
+                   JOIN entries e ON e.entry_id=p.entry_id
+                   JOIN runtime_sessions s ON s.session_id=e.session_id
+                   WHERE p.status='OPEN' AND p.asset=? AND s.cohort=?""",
+                (asset, cohort_name),
             ).fetchone()[0])
             if asset_open_count >= int(max_open_per_asset):
                 raise ExposureLimitExceeded("max_open_per_asset")
-            total_exposure = float(conn.execute(
-                "SELECT COALESCE(SUM(committed_exposure_usd),0) FROM positions WHERE status='OPEN'"
+            realized = float(conn.execute(
+                """SELECT COALESCE(SUM(pr.net_pnl),0) FROM pnl_records pr
+                   JOIN entries e ON e.entry_id=pr.entry_id
+                   JOIN runtime_sessions s ON s.session_id=e.session_id
+                   WHERE s.cohort=?""", (cohort_name,),
             ).fetchone()[0] or 0)
-            asset_exposure = float(conn.execute(
-                """SELECT COALESCE(SUM(committed_exposure_usd),0) FROM positions
-                   WHERE status='OPEN' AND asset=?""", (asset,)
+            unresolved_cost = float(conn.execute(
+                """SELECT COALESCE(SUM(p.committed_exposure_usd),0)
+                   FROM positions p JOIN entries e ON e.entry_id=p.entry_id
+                   JOIN runtime_sessions s ON s.session_id=e.session_id
+                   WHERE p.status='UNRESOLVED_FINAL' AND s.cohort=?""",
+                (cohort_name,),
             ).fetchone()[0] or 0)
-            proposed = float(row["gross_cost"]) + float(row.get("estimated_fee") or 0)
-            if total_exposure + proposed > float(global_exposure_cap_usd) + 1e-12:
-                raise ExposureLimitExceeded("global_exposure_cap")
-            if asset_exposure + proposed > float(per_asset_exposure_cap_usd) + 1e-12:
-                raise ExposureLimitExceeded("per_asset_exposure_cap")
+            reserved = float(conn.execute(
+                """SELECT COALESCE(SUM(l.reserved_commitment_usd),0)
+                   FROM window_locks l
+                   JOIN runtime_sessions s ON s.session_id=l.session_id
+                   WHERE l.state='RESERVED' AND s.cohort=? AND l.window_id!=?""",
+                (cohort_name, int(row["window_id"])),
+            ).fetchone()[0] or 0)
+            equity = round(float(starting_equity_usd) + realized, 10)
+            if equity <= 0.0:
+                raise ExposureLimitExceeded("cohort_equity_depleted")
+            # Position rows carry cost basis only (gross cost + entry fee);
+            # the conservative exit-fee buffer is committed per open position
+            # at check time so it is never double-counted into cost sums.
+            position_cost = round(
+                float(row["gross_cost"]) + float(row.get("estimated_fee") or 0), 10)
+            proposed = round(position_cost + exit_buffer, 10)
+            committed_existing = round(
+                open_cost + unresolved_cost + reserved
+                + open_count * exit_buffer, 10)
+            projected = round(committed_existing + proposed, 10)
+            capital_cap = round(equity * float(max_exposure_pct), 10)
+            if projected > capital_cap + 1e-9:
+                raise ExposureLimitExceeded("insufficient_capital")
             entry_id = self._insert("entries", row, conn=conn)
             conn.execute(
                 """INSERT INTO positions(entry_id,asset,outcome_side,shares,open_shares,
                    committed_exposure_usd,status,opened_ts_ms)
                    VALUES(?,?,?,?,? ,?,'OPEN',?)""",
                 (entry_id, asset, str(row["outcome_side"]), FIXED_SHARES, FIXED_SHARES,
-                 proposed, int(row["entry_ts_ms"])),
+                 position_cost, int(row["entry_ts_ms"])),
+            )
+            conn.execute(
+                """UPDATE cohorts SET
+                   peak_committed_usd=MAX(peak_committed_usd,?),
+                   peak_exposure_pct=MAX(peak_exposure_pct,?) WHERE cohort=?""",
+                (projected, round(projected / equity, 10), cohort_name),
             )
             if float(row.get("estimated_fee") or 0) > 0:
                 conn.execute(
@@ -1845,7 +2093,7 @@ class V4Store:
                 )
             conn.execute(
                 """UPDATE window_locks SET state='ENTERED',decision_id=?,candidate_id=?,
-                   updated_ts_ms=? WHERE window_id=?""",
+                   updated_ts_ms=?,reserved_commitment_usd=0 WHERE window_id=?""",
                 (int(row["decision_id"]), int(row["candidate_id"]),
                  int(row["entry_ts_ms"]), int(row["window_id"])),
             )
@@ -2420,8 +2668,10 @@ class V4Store:
     def reserve_and_create_entry_bundle(
         self, reservation: Any, entry: Optional[Any] = None, *,
         max_concurrent_positions: Optional[int] = None,
-        global_exposure_cap_usd: Optional[float] = None,
-        per_asset_exposure_cap_usd: Optional[float] = None,
+        cohort: str = ACTIVE_COHORT,
+        starting_equity_usd: float = 13.0,
+        max_exposure_pct: float = 1.0,
+        exit_fee_buffer_usd: float = MIN_EXIT_FEE_BUFFER_USD,
         max_open_per_asset: int = 1,
         commit_deadline_ts_ms: Optional[int] = None,
     ) -> dict[str, Any]:
@@ -2438,23 +2688,39 @@ class V4Store:
             entry = bundle["entry"]
             reservation = bundle["reservation"]
             max_concurrent_positions = int(bundle["max_concurrent_positions"])
-            global_exposure_cap_usd = float(bundle["global_exposure_cap_usd"])
-            per_asset_exposure_cap_usd = float(bundle["per_asset_exposure_cap_usd"])
+            cohort = str(bundle.get("cohort", cohort))
+            starting_equity_usd = float(
+                bundle.get("starting_equity_usd", starting_equity_usd))
+            max_exposure_pct = float(
+                bundle.get("max_exposure_pct", max_exposure_pct))
+            exit_fee_buffer_usd = float(
+                bundle.get("exit_fee_buffer_usd", exit_fee_buffer_usd))
             max_open_per_asset = int(bundle.get("max_open_per_asset", max_open_per_asset))
             if bundle.get("commit_deadline_ts_ms") is not None:
                 commit_deadline_ts_ms = int(bundle["commit_deadline_ts_ms"])
-        if entry is None or max_concurrent_positions is None \
-                or global_exposure_cap_usd is None or per_asset_exposure_cap_usd is None:
+        if entry is None or max_concurrent_positions is None:
             raise ValueError("entry bundle is incomplete")
+        entry_payload = self._safe_payload(entry)
+        reservation_payload = self._safe_payload(reservation)
+        # The reservation carries the full proposed commitment so that a
+        # crash between reservation and entry keeps the capital committed
+        # (released only by explicit, evidence-based reconciliation).
+        reservation_payload.setdefault("reserved_commitment_usd", round(
+            float(entry_payload.get("gross_cost") or 0)
+            + float(entry_payload.get("estimated_fee") or 0)
+            + float(exit_fee_buffer_usd), 10))
         with self.transaction(immediate=True):
             if (commit_deadline_ts_ms is not None
                     and int(time.time() * 1_000) > int(commit_deadline_ts_ms)):
                 raise V4StoreError("entry commit deadline expired")
-            reservation_result = self.reserve_window(reservation)
+            reservation_result = self.reserve_window(reservation_payload)
             entry_id = self.create_entry(
-                entry, max_concurrent_positions=int(max_concurrent_positions),
-                global_exposure_cap_usd=float(global_exposure_cap_usd),
-                per_asset_exposure_cap_usd=float(per_asset_exposure_cap_usd),
+                entry_payload,
+                max_concurrent_positions=int(max_concurrent_positions),
+                cohort=str(cohort),
+                starting_equity_usd=float(starting_equity_usd),
+                max_exposure_pct=float(max_exposure_pct),
+                exit_fee_buffer_usd=float(exit_fee_buffer_usd),
                 max_open_per_asset=int(max_open_per_asset),
             )
             position = self.query_one(
@@ -2639,11 +2905,47 @@ class V4Store:
                 counts["unfinished_maker_observations"]
                 - counts["reconciled_abandoned_maker_observations"],
             )
+            # Authoritative-cohort ledger invariant: committed capital may
+            # never exceed current cohort equity.  Balances are derived from
+            # committed rows, so recovery "restores" them by construction —
+            # this verifies no corruption slipped in while the writer was
+            # down.  A missing cohorts row (pre-activation) verifies nothing.
+            ledger_violations = 0
+            cohort_row = conn.execute(
+                """SELECT starting_equity_usd,max_exposure_pct FROM cohorts
+                   WHERE cohort=?""", (ACTIVE_COHORT,),
+            ).fetchone()
+            if cohort_row is not None:
+                realized = float(conn.execute(
+                    """SELECT COALESCE(SUM(pr.net_pnl),0) FROM pnl_records pr
+                       JOIN entries e ON e.entry_id=pr.entry_id
+                       JOIN runtime_sessions s ON s.session_id=e.session_id
+                       WHERE s.cohort=?""", (ACTIVE_COHORT,),
+                ).fetchone()[0] or 0)
+                held = float(conn.execute(
+                    """SELECT COALESCE(SUM(p.committed_exposure_usd),0)
+                       FROM positions p JOIN entries e ON e.entry_id=p.entry_id
+                       JOIN runtime_sessions s ON s.session_id=e.session_id
+                       WHERE p.status IN ('OPEN','UNRESOLVED_FINAL')
+                       AND s.cohort=?""", (ACTIVE_COHORT,),
+                ).fetchone()[0] or 0)
+                reserved = float(conn.execute(
+                    """SELECT COALESCE(SUM(l.reserved_commitment_usd),0)
+                       FROM window_locks l
+                       JOIN runtime_sessions s ON s.session_id=l.session_id
+                       WHERE l.state='RESERVED' AND s.cohort=?""",
+                    (ACTIVE_COHORT,),
+                ).fetchone()[0] or 0)
+                equity = float(cohort_row[0]) + realized
+                cap = equity * float(cohort_row[1])
+                if held + reserved > cap + 1e-6:
+                    ledger_violations = 1
+            counts["cohort_ledger_violations"] = ledger_violations
             counts["consistency_errors"] = sum(
                 counts[name] for name in (
                     "entries_without_positions", "open_entry_position_mismatch",
                     "closed_positions_without_exit", "exits_with_nonclosed_position",
-                    "duplicate_position_exits",
+                    "duplicate_position_exits", "cohort_ledger_violations",
                 ))
             counts["reconciled_ts_ms"] = timestamp
         return counts

@@ -41,7 +41,8 @@ TELEMETRY_METHODS = frozenset({
     "record_book_snapshot", "record_model_contribution",
 })
 ALLOWED_STORE_METHODS = frozenset({
-    "record_runtime_session", "end_runtime_session", "upsert_market",
+    "record_runtime_session", "end_runtime_session", "ensure_cohort",
+    "upsert_market",
     "record_market_identity", "ensure_asset_window", "link_window_market",
     "record_anchor_observation", "update_window_funnel",
     "record_event_count", "record_event_count_batch", "record_source_event",

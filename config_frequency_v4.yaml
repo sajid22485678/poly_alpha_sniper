@@ -51,7 +51,7 @@ lite_frequency_v4_shadow:
   max_open_positions: 6
   max_open_per_asset: 1
   research_equity_usd: 13
-  exposure_cap_pct: 0.75
+  exposure_cap_pct: 1.00
   fee_buffer_usd: 0.02
   crypto_taker_fee_rate: 0.07
 

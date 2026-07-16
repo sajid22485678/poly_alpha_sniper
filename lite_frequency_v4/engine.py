@@ -23,7 +23,12 @@ from .books import (
     classify_book_pair,
 )
 from .cex import OkxPublicProvider
-from .config import FrequencyV4Config, validate_frequency_v4_config
+from .config import (
+    ACTIVE_COHORT,
+    FrequencyV4Config,
+    RUNTIME_LABEL,
+    validate_frequency_v4_config,
+)
 from .contracts import (
     AnchorStatus,
     BookLevel,
@@ -56,13 +61,15 @@ from .persistence import (
 )
 from .resolver import corroborated_resolution
 from .rest import ClobPublicClient, GammaPublicClient, hydrate_market_books
-from .risk import entry_idempotency_key
+from .risk import conservative_exit_fee_buffer, entry_idempotency_key
 from .runtime import V4RuntimeFiles, immutable_safety_state, now_ms
 from .store import (
     ExposureLimitExceeded,
+    UniverseEligibilityError,
     V4StoreError,
     WindowReservationConflict,
 )
+from .universe import UNIVERSE_POLICY_VERSION, evaluate_market_identity
 from .telemetry import V4TelemetryWriter
 from .workers import V4MaintenanceWorker, V4ReadWorker, V4RuntimeIOWorker
 
@@ -132,6 +139,10 @@ class MarketState:
     last_reject_ts_ms: int = 0
     last_candidate_fingerprint: str = ""
     last_candidate_persist_ts_ms: int = 0
+    # Canonical dynamic-universe decision: an observed-only market may be
+    # discovered, persisted, and displayed but never evaluated for execution.
+    observed_only: bool = False
+    universe_reject_reason: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -658,6 +669,20 @@ class FrequencyV4Engine:
             raise
 
     async def _record_session(self) -> None:
+        # Register the authoritative forward cohort before the session joins
+        # it.  INSERT OR IGNORE semantics make the first activation timestamp
+        # permanent; restarts reuse the original row so the cohort boundary
+        # never drifts.
+        await self._critical_execute("ensure_cohort", {
+            "cohort": ACTIVE_COHORT,
+            "activation_ts_ms": self.runtime.started_ts_ms,
+            "activation_commit": self.runtime.commit,
+            "starting_equity_usd": self.cfg.research_equity_usd,
+            "max_exposure_pct": self.cfg.exposure_cap_pct,
+            "fixed_shares": self.cfg.fixed_shares,
+            "authoritative": 1,
+            "label": RUNTIME_LABEL,
+        }, idempotency_key=f"cohort-activate:{ACTIVE_COHORT}")
         await self._critical_execute("record_runtime_session", {
             "session_id": self.session_id,
             "launch_nonce": self.runtime.launch_nonce,
@@ -665,6 +690,7 @@ class FrequencyV4Engine:
             "git_commit": self.runtime.commit,
             "config_hash": self.config_hash,
             "started_ts_ms": self.runtime.started_ts_ms,
+            "cohort": ACTIVE_COHORT,
         }, idempotency_key=f"session-start:{self.session_id}")
 
     def _stream_key(self, event: SourceEvent | CexObservation) -> str:
@@ -1326,6 +1352,11 @@ class FrequencyV4Engine:
                 self._reject(existing_state, "DISCOVERY", "duplicate_market_identity")
                 return existing_state
         lifecycle = "ACTIVE" if identity.window_open_ms <= current else "UPCOMING"
+        # Canonical dynamic-universe eligibility: one policy decides, here and
+        # again at the store's execution boundary.  Non-eligible markets are
+        # persisted for research as OBSERVED_ONLY with explicit reasons and
+        # can never produce a candidate, reservation, or entry.
+        universe = evaluate_market_identity(identity)
         persisted = await self._critical_execute(
             "persist_market_bundle", {
             "market": {
@@ -1362,8 +1393,9 @@ class FrequencyV4Engine:
                 "updated_ts_ms": current,
             },
             "link": {
-                "eligibility_status": "ELIGIBLE",
-                "reject_reason": None,
+                "eligibility_status": (
+                    "ELIGIBLE" if universe.eligible else "OBSERVED_ONLY"),
+                "reject_reason": universe.reject_reason,
                 "selected": 1,
                 "linked_ts_ms": current,
             },
@@ -1381,10 +1413,12 @@ class FrequencyV4Engine:
                 "now_ms": current,
                 "changes": {
                     "available": 1,
-                    "eligible": 1,
+                    "eligible": 1 if universe.eligible else 0,
                     "available_ts_ms": current,
-                    "eligible_ts_ms": current,
-                    "final_blocker": None,
+                    "eligible_ts_ms": current if universe.eligible else None,
+                    "final_blocker": (
+                        None if universe.eligible
+                        else f"universe_not_eligible:{universe.reject_reason}"),
                     "no_book_reason": None,
                     "data_invalid_reason": None,
                 },
@@ -1407,6 +1441,14 @@ class FrequencyV4Engine:
         else:
             existing_state.identity = identity
             state = existing_state
+        state.observed_only = not universe.eligible
+        state.universe_reject_reason = universe.reject_reason or ""
+        if state.observed_only:
+            self._reject(
+                state, "DISCOVERY",
+                f"universe_not_eligible:{universe.reject_reason}",
+                recoverable=False,
+            )
         self.token_to_window[identity.yes_token_id] = identity.window_key
         self.token_to_window[identity.no_token_id] = identity.window_key
         return state
@@ -1672,6 +1714,11 @@ class FrequencyV4Engine:
         if not (identity.window_open_ms <= current < identity.window_close_ms):
             return
         if identity.window_close_ms - current < int(self.cfg.minimum_remaining_s * 1_000):
+            return
+        if state.observed_only:
+            # Canonical universe policy: observed-only markets are persisted
+            # research evidence and must never create an executable candidate,
+            # reserve capital, consume a slot, or start a maker observation.
             return
         self.counters["evaluations"] += 1
         state.evaluation_seq += 1
@@ -2312,6 +2359,12 @@ class FrequencyV4Engine:
     ) -> None:
         if state.window_id in self._entered_window_ids:
             return
+        if state.observed_only:
+            self._reject(
+                state, "DISCOVERY",
+                f"universe_not_eligible:{state.universe_reject_reason}",
+                candidate_id=candidate_id)
+            return
         capacity_block = self._entry_capacity_block(state.identity.asset)
         if capacity_block is not None:
             # The store rejected capacity authoritatively and nothing has
@@ -2416,8 +2469,11 @@ class FrequencyV4Engine:
                         "status": "OPEN",
                     },
                     "max_concurrent_positions": self.cfg.max_open_positions,
-                    "global_exposure_cap_usd": self.cfg.exposure_cap_usd,
-                    "per_asset_exposure_cap_usd": self.cfg.exposure_cap_usd,
+                    "cohort": ACTIVE_COHORT,
+                    "starting_equity_usd": self.cfg.research_equity_usd,
+                    "max_exposure_pct": self.cfg.exposure_cap_pct,
+                    "exit_fee_buffer_usd": conservative_exit_fee_buffer(
+                        self.cfg.crypto_taker_fee_rate, self.cfg.fee_buffer_usd),
                     "max_open_per_asset": self.cfg.max_open_per_asset,
                     "commit_deadline_ts_ms": commit_deadline,
                 },
@@ -2459,16 +2515,28 @@ class FrequencyV4Engine:
             # The entry ID is deliberately not passed to any adapter: there is
             # no execution surface beyond this atomic shadow record.
             _ = entry_id
+        except UniverseEligibilityError as exc:
+            # The store's defensive execution boundary rejected the market.
+            # This is unreachable through the normal path (observed-only
+            # markets never evaluate); reaching it means an injected or
+            # corrupted candidate was stopped fail-closed.
+            reason = str(getattr(exc, "reason", None) or str(exc))
+            state.observed_only = True
+            state.universe_reject_reason = reason
+            self._reject(state, "DISCOVERY",
+                         f"universe_boundary_rejected:{reason}",
+                         candidate_id=candidate_id)
         except (WindowReservationConflict, ExposureLimitExceeded) as exc:
             reason = str(getattr(exc, "reason", None)
                          or str(exc) or type(exc).__name__)
             if isinstance(exc, ExposureLimitExceeded):
-                # Capacity is a function of open positions only.  Latch the
-                # rejection until any position closes instead of resubmitting
-                # a full-rate stream of journaled commands into a hard cap.
+                # Capacity is a function of open positions and cohort equity
+                # only.  Latch the rejection until any position closes instead
+                # of resubmitting a full-rate stream of journaled commands
+                # into a hard cap.
                 scope = (
                     f"asset:{state.identity.asset}"
-                    if reason in {"per_asset_exposure_cap", "max_open_per_asset"}
+                    if reason == "max_open_per_asset"
                     else "global"
                 )
                 self._entry_capacity_blocks[scope] = reason

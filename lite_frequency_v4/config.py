@@ -12,6 +12,16 @@ STRATEGY_ID = "lite_frequency_v4"
 MODE = "lite_frequency_v4_shadow"
 FIXED_SHARES = 5.0
 
+# Phase 1 forward-cohort identity.  The active cohort owns the authoritative
+# $13 shadow ledger; every earlier row remains under the legacy cohort and is
+# reported as non-authoritative.
+ACTIVE_COHORT = "dynamic_universe_phase1_post_activation"
+LEGACY_COHORT = "legacy_mixed_universe"
+RUNTIME_LABEL = (
+    "DYNAMIC_MULTI_ASSET_ULTRA_AGGRESSIVE_13_USD_100_PERCENT_EXPOSURE_"
+    "SHADOW_PHASE1"
+)
+
 FREQUENCY_V4_DB_PATH = str(
     FREQUENCY_V4_ROOT / "data" / "poly_alpha_frequency_v4.db")
 FREQUENCY_V4_RUNTIME_DIR = str(
@@ -92,7 +102,7 @@ class FrequencyV4Config:
     max_open_positions: int = 6
     max_open_per_asset: int = 1
     research_equity_usd: float = 13.0
-    exposure_cap_pct: float = 0.75
+    exposure_cap_pct: float = 1.0
     fee_buffer_usd: float = 0.02
     crypto_taker_fee_rate: float = 0.07
 
@@ -205,7 +215,7 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "exact_window_seconds": 300,
         "crypto_taker_fee_rate": 0.07,
         "research_equity_usd": 13.0,
-        "exposure_cap_pct": 0.75,
+        "exposure_cap_pct": 1.0,
         "max_open_per_asset": 1,
     }
     for name, value in expected.items():
@@ -345,7 +355,7 @@ def _reassert_safety(cfg: FrequencyV4Config) -> None:
     cfg.exact_window_seconds = 300
     cfg.crypto_taker_fee_rate = 0.07
     cfg.research_equity_usd = 13.0
-    cfg.exposure_cap_pct = 0.75
+    cfg.exposure_cap_pct = 1.0
     cfg.max_open_per_asset = 1
 
 
