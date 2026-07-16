@@ -70,7 +70,9 @@ lite_frequency_v4_shadow:
   checkpoint_min_interval_s: 60
   retention_chunk_size: 250
   retention_time_budget_ms: 1000
-  reporting_worker_timeout_s: 120.0
+  # The full-database integrity scan outgrew 120s once the evidence store
+  # crossed ~3 GB; a timed-out scan latches UNKNOWN and fail-closes entries.
+  reporting_worker_timeout_s: 480.0
   maintenance_worker_timeout_s: 30.0
   reporting_queue_capacity: 16
   maintenance_queue_capacity: 8
