@@ -673,6 +673,11 @@ class FrequencyV4Engine:
         # it.  INSERT OR IGNORE semantics make the first activation timestamp
         # permanent; restarts reuse the original row so the cohort boundary
         # never drifts.
+        # The journal idempotency key must be session-scoped: each launch
+        # submits a different payload (its own start timestamp/commit), and a
+        # constant key would raise a payload-hash idempotency conflict on
+        # every restart.  True cohort idempotency (first activation wins) is
+        # enforced by the store's INSERT OR IGNORE inside ensure_cohort.
         await self._critical_execute("ensure_cohort", {
             "cohort": ACTIVE_COHORT,
             "activation_ts_ms": self.runtime.started_ts_ms,
@@ -682,7 +687,7 @@ class FrequencyV4Engine:
             "fixed_shares": self.cfg.fixed_shares,
             "authoritative": 1,
             "label": RUNTIME_LABEL,
-        }, idempotency_key=f"cohort-activate:{ACTIVE_COHORT}")
+        }, idempotency_key=f"cohort-activate:{ACTIVE_COHORT}:{self.session_id}")
         await self._critical_execute("record_runtime_session", {
             "session_id": self.session_id,
             "launch_nonce": self.runtime.launch_nonce,

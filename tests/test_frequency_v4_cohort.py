@@ -17,6 +17,11 @@ from poly_alpha_sniper.lite_frequency_v4.metrics import (
     performance_metrics,
     rolling_frequency,
 )
+from poly_alpha_sniper.lite_frequency_v4.persistence import (
+    V4PersistenceCommand,
+    V4PersistenceIdempotencyConflict,
+    V4PersistenceWriter,
+)
 from poly_alpha_sniper.lite_frequency_v4.store import V4Store
 
 from tests.test_frequency_v4_store import (
@@ -220,6 +225,62 @@ def test_safety_locks_remain_engaged_and_shadow_only(tmp_path):
                        'lite_frequency_v4_shadow','x',1,'c','h',1,0,1,1,1,0,10.0)""")
     finally:
         store.close()
+
+
+# Regression: every launch journals ensure_cohort with a fresh payload (its
+# own start timestamp/commit), so the journal idempotency key must be
+# session-scoped.  A constant key made the second launch fail fatally with a
+# payload-hash idempotency conflict; the cohort row itself stays idempotent
+# via the store's INSERT OR IGNORE.
+def test_restart_cohort_registration_journals_cleanly_across_sessions(tmp_path):
+    path = tmp_path / "cohort-journal.db"
+
+    def cohort_command(session_id, started_ts_ms, *, idempotency_key=None):
+        return V4PersistenceCommand(
+            command_id=f"{session_id}:000000000001:ensure-cohort",
+            method="ensure_cohort",
+            args=({
+                "cohort": ACTIVE_COHORT,
+                "activation_ts_ms": started_ts_ms,
+                "activation_commit": "a" * 40,
+                "starting_equity_usd": 13.0,
+                "max_exposure_pct": 1.0,
+                "authoritative": 1,
+            },),
+            ordering_key="global",
+            idempotency_key=(
+                idempotency_key
+                or f"cohort-activate:{ACTIVE_COHORT}:{session_id}"),
+        )
+
+    first = V4PersistenceWriter(path)
+    first.execute_sync(cohort_command("session-one", NOW - 60_000), timeout_s=5.0)
+    first.close()
+    # A later launch with a different payload must journal cleanly under its
+    # own session-scoped key and must not move the original activation.
+    second = V4PersistenceWriter(path)
+    second.execute_sync(cohort_command("session-two", NOW), timeout_s=5.0)
+    second.close()
+    verifier = V4Store(path)
+    try:
+        rows = verifier.query("SELECT * FROM cohorts WHERE cohort=?",
+                              (ACTIVE_COHORT,))
+        assert len(rows) == 1
+        assert rows[0]["activation_ts_ms"] == NOW - 60_000
+    finally:
+        verifier.close()
+    # The constant-key form is exactly what the journal must refuse: same key,
+    # different payload is an integrity conflict, never a silent overwrite.
+    conflicting = V4PersistenceWriter(path)
+    constant = f"cohort-activate:{ACTIVE_COHORT}"
+    conflicting.execute_sync(
+        cohort_command("session-three", NOW + 60_000,
+                       idempotency_key=constant), timeout_s=5.0)
+    with pytest.raises(V4PersistenceIdempotencyConflict):
+        conflicting.execute_sync(
+            cohort_command("session-four", NOW + 120_000,
+                           idempotency_key=constant), timeout_s=5.0)
+    conflicting.close()
 
 
 # Recovery: cohort identity and activation survive restart untouched.
