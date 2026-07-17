@@ -24,7 +24,7 @@ from .universe import evaluate_persisted_market
 STRATEGY_ID = "lite_frequency_v4"
 MODE = "lite_frequency_v4_shadow"
 FIXED_SHARES = 5.0
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Conservative floor for the per-position exit-fee reservation: the locked
 # crypto taker curve 5 * 0.07 * p * (1-p) peaks at p = 0.5 -> $0.0875.
@@ -247,7 +247,10 @@ CREATE TABLE cohorts (
     peak_committed_usd REAL NOT NULL DEFAULT 0 CHECK(peak_committed_usd >= 0),
     peak_exposure_pct REAL NOT NULL DEFAULT 0 CHECK(peak_exposure_pct >= 0),
     label TEXT,
-    created_ts_ms INTEGER NOT NULL CHECK(created_ts_ms >= 0)
+    created_ts_ms INTEGER NOT NULL CHECK(created_ts_ms >= 0),
+    parent_cohort TEXT,
+    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','FROZEN')),
+    config_hash TEXT
 );
 
 CREATE TABLE markets (
@@ -918,6 +921,25 @@ CREATE INDEX IF NOT EXISTS ix_runtime_sessions_cohort ON runtime_sessions(cohort
 """
 
 
+# Additive V3 -> V4 migration (Phase 2A, Step A): successor-cohort schema
+# support only.  Adds cohort lineage columns (parent_cohort, status,
+# config_hash) without inserting or activating any successor cohort.  The
+# authoritative Phase 1 cohort stays ACTIVE via the column default; the only
+# backfill is the non-authoritative legacy cohort's FROZEN status, which no
+# runtime read path consumes yet.
+PHASE2A_SCHEMA_V4_SQL = r"""
+ALTER TABLE cohorts
+    ADD COLUMN parent_cohort TEXT;
+ALTER TABLE cohorts
+    ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'
+    CHECK(status IN ('ACTIVE','FROZEN'));
+ALTER TABLE cohorts
+    ADD COLUMN config_hash TEXT;
+UPDATE cohorts SET status='FROZEN'
+    WHERE cohort='legacy_mixed_universe' AND authoritative=0
+"""
+
+
 class V4Store:
     """V4 SQLite store with explicit and nestable atomic transactions.
 
@@ -1120,6 +1142,43 @@ class V4Store:
             self._conn.rollback()
             raise
 
+    def _apply_migration_v4(self) -> None:
+        """Apply the additive V3 -> V4 successor-cohort schema migration.
+
+        Step 2A-A adds cohort lineage columns only.  Historical rows keep
+        their exact content: the authoritative Phase 1 cohort remains
+        ACTIVE and authoritative via the column default, no successor
+        cohort is inserted, and only the non-authoritative legacy cohort
+        is deterministically backfilled to FROZEN.
+        """
+
+        applied = int(time.time() * 1_000)
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            existing = {
+                str(row[1])
+                for row in self._conn.execute("PRAGMA table_info(cohorts)")
+            }
+            for statement in self._migration_statements(PHASE2A_SCHEMA_V4_SQL):
+                # Every V4 statement is additive; skip ALTERs whose column is
+                # already present so a partially-current database migrates
+                # idempotently instead of failing mid-transaction.
+                match = re.match(
+                    r"ALTER TABLE cohorts\s+ADD COLUMN (\w+)", statement)
+                if match and match.group(1) in existing:
+                    continue
+                self._conn.execute(statement)
+            self._conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version,applied_ts_ms,schema_hash) "
+                "VALUES(?,?,?)",
+                (4, applied, _canonical_hash(PHASE2A_SCHEMA_V4_SQL)),
+            )
+            self._conn.execute("PRAGMA user_version=4")
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+
     def _initialize_fresh_schema(self) -> None:
         self._assert_owner()
         tables = {
@@ -1149,6 +1208,9 @@ class V4Store:
             if version == 2:
                 self._apply_migration_v3()
                 version = 3
+            if version == 3:
+                self._apply_migration_v4()
+                version = 4
             if version >= 2:
                 tables = {
                     str(found[0]) for found in self._conn.execute(
@@ -1314,6 +1376,9 @@ class V4Store:
         row.setdefault("fixed_shares", FIXED_SHARES)
         row.setdefault("authoritative", 0)
         row.setdefault("created_ts_ms", row["activation_ts_ms"])
+        status = row.get("status")
+        if status is not None and str(status) not in ("ACTIVE", "FROZEN"):
+            raise ValueError("cohort status must be ACTIVE or FROZEN")
         with self.transaction(immediate=True) as conn:
             existing = conn.execute(
                 "SELECT * FROM cohorts WHERE cohort=?", (str(row["cohort"]),)
