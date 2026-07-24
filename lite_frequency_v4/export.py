@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from .config import ACTIVE_COHORT, LEGACY_COHORT, RUNTIME_LABEL
+from .config import FREQUENCY_V4_ROOT
 from .ledger import compute_capital_ledger
 from .metrics import build_metrics
 from .store import FIXED_SHARES, MODE, STRATEGY_ID
@@ -19,6 +20,79 @@ WARNING = (
     "LITE FREQUENCY V4 SHADOW ONLY - RESEARCH CANDIDATE - "
     "NO REAL ORDERS OR CANCELLATIONS"
 )
+
+
+def canonical_export_dir() -> Path:
+    """The canonical, source-root-derived export directory.
+
+    Re-derived from ``FREQUENCY_V4_ROOT`` so it tracks whichever checkout
+    the module was imported from.  When the source root is the live
+    deployment this is the existing live path
+    ``D:/claude/agent_readonly/poly_alpha_frequency_v4``; when the source
+    root is an isolated staging checkout it is isolated under that
+    staging parent.
+
+    This is the **single source of truth** for the canonical export path.
+    C1.H mandates strict canonical containment (design a): the export
+    writer accepts writes only under this directory and refuses every
+    other path.  Tests repoint the canonical root at ``tmp_path`` by
+    monkeypatching this one function rather than loosening the guard, so
+    no test-only override flag lives in production code.
+    """
+    return Path(FREQUENCY_V4_ROOT).parent / "agent_readonly" / "poly_alpha_frequency_v4"
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    """True if ``path`` is ``root`` itself or a descendant of ``root``.
+
+    Uses string comparison on case-normalized, separator-normalized parts
+    so it is robust on Windows (case-insensitive, both ``\\`` and ``/``)
+    and does not dereference symlinks/junctions (a reparse point whose
+    target lies outside the canonical root is treated as outside).
+    """
+    path_parts = tuple(_normalize_part(p) for p in path.parts)
+    root_parts = tuple(_normalize_part(p) for p in root.parts)
+    if len(path_parts) < len(root_parts):
+        return False
+    return path_parts[:len(root_parts)] == root_parts
+
+
+def _normalize_part(part: str) -> str:
+    # Drive letters and directory names are case-insensitive on Windows;
+    # collapse separators so ``/`` and ``\\`` compare equal.
+    return part.replace("\\", "/").lower()
+
+
+def assert_canonical_export_path(output_path: str | Path) -> Path:
+    """Fail closed unless ``output_path`` is inside the canonical export dir.
+
+    C1.H isolation guard (strict canonical containment, design a): the
+    Frequency V4 export writer accepts writes **only** under
+    :func:`canonical_export_dir` and refuses every other path -- the
+    production live export directory, the live production source tree,
+    arbitrary temp directories, sibling/parent directories, and any
+    path-normalization or relative-escape variant.  Tests that need to
+    write under ``tmp_path`` monkeypatch :func:`canonical_export_dir` to
+    return their temp root; no production-code override flag exists.
+
+    A directory input resolves to ``<dir>/EXPORT_FILENAME``; a non-``.json``
+    file input likewise.  The resolved (absolute, normalized) path must
+    be the canonical dir or a descendant of it.
+    """
+    target = Path(output_path)
+    if target.exists() and target.is_dir():
+        target = target / EXPORT_FILENAME
+    elif target.suffix.lower() != ".json":
+        target = target / EXPORT_FILENAME
+    resolved = Path(os.path.normpath(str(target.resolve())))
+    canonical = Path(os.path.normpath(str(canonical_export_dir().resolve())))
+
+    if not _is_within(resolved, canonical):
+        raise ValueError(
+            "frequency v4 export refused: path is outside the canonical "
+            f"export directory {canonical}: {resolved}"
+        )
+    return resolved
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -604,11 +678,9 @@ def write_frequency_v4_dashboard(
     config: Any = None, runtime_state: Any = None,
     session_id: Optional[str] = None, integrity: Any = None,
 ) -> dict[str, Any]:
-    path = Path(output_path)
-    if path.exists() and path.is_dir():
-        path = path / EXPORT_FILENAME
-    elif path.suffix.lower() != ".json":
-        path = path / EXPORT_FILENAME
+    # C1 isolation guard: refuse any path outside the canonical source-root-
+    # derived export directory before building or writing anything.
+    path = assert_canonical_export_path(output_path)
     payload = build_frequency_v4_dashboard(
         store, now_ms=int(now_ms), config=config,
         runtime_state=runtime_state, session_id=session_id,

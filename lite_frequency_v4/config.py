@@ -26,7 +26,16 @@ FREQUENCY_V4_DB_PATH = str(
     FREQUENCY_V4_ROOT / "data" / "poly_alpha_frequency_v4.db")
 FREQUENCY_V4_RUNTIME_DIR = str(
     FREQUENCY_V4_ROOT / "runtime" / MODE)
-FREQUENCY_V4_EXPORT_DIR = "D:/claude/agent_readonly/poly_alpha_frequency_v4"
+# Phase 2B C1 isolation: the dashboard export directory is derived from the
+# source root, not hardcoded.  When the source root is the live deployment
+# (FREQUENCY_V4_ROOT = .../poly_alpha_sniper) this resolves to the existing
+# live path D:/claude/agent_readonly/poly_alpha_frequency_v4, preserving the
+# deployed path exactly.  When the source root is an isolated staging
+# checkout, the export is isolated under that staging parent so tests and
+# staging runs never write to the production export directory.
+FREQUENCY_V4_EXPORT_DIR = str(
+    FREQUENCY_V4_ROOT.parent / "agent_readonly" / "poly_alpha_frequency_v4"
+)
 
 GAMMA_BASE_URL = "https://gamma-api.polymarket.com"
 CLOB_BASE_URL = "https://clob.polymarket.com"

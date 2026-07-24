@@ -24,7 +24,7 @@ from .universe import evaluate_persisted_market
 STRATEGY_ID = "lite_frequency_v4"
 MODE = "lite_frequency_v4_shadow"
 FIXED_SHARES = 5.0
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Conservative floor for the per-position exit-fee reservation: the locked
 # crypto taker curve 5 * 0.07 * p * (1-p) peaks at p = 0.5 -> $0.0875.
@@ -940,6 +940,571 @@ UPDATE cohorts SET status='FROZEN'
 """
 
 
+# Phase 2B C1: additive V4 -> V5 managed-schema migration.  All eight
+# managed objects (four tables, four indexes) are CREATE IF NOT EXISTS, so
+# the migration is additive and idempotent.  No existing row, column,
+# constraint, index, or economic value is changed.  The four managed tables
+# and four managed indexes constitute the entire schema-v5 managed set; the
+# managed-fingerprint contract below verifies exactly these eight objects.
+PHASE2B_SCHEMA_V5_SQL = r"""
+CREATE TABLE IF NOT EXISTS cluster_arbitrations (
+    cohort TEXT NOT NULL REFERENCES cohorts(cohort),
+    cluster_open_ts_ms INTEGER NOT NULL CHECK(cluster_open_ts_ms >= 0),
+    arbitration_started_ts_ms INTEGER NOT NULL CHECK(arbitration_started_ts_ms >= 0),
+    arbitration_cutoff_ts_ms INTEGER NOT NULL
+        CHECK(arbitration_cutoff_ts_ms >= arbitration_started_ts_ms),
+    ranking_version INTEGER NOT NULL CHECK(ranking_version >= 1),
+    candidate_set_fingerprint TEXT,
+    selected_candidate_key TEXT,
+    selected_window_id INTEGER REFERENCES asset_windows(window_id),
+    selected_asset TEXT,
+    selected_rank INTEGER CHECK(selected_rank IS NULL OR selected_rank >= 1),
+    status TEXT NOT NULL CHECK(status IN (
+        'COLLECTING','SELECTED','RESERVING',
+        'ENTERED','EXHAUSTED','CANCELLED'
+    )),
+    exhausted_reason TEXT,
+    entered_entry_id INTEGER REFERENCES entries(entry_id),
+    created_session_id TEXT NOT NULL REFERENCES runtime_sessions(session_id),
+    created_ts_ms INTEGER NOT NULL CHECK(created_ts_ms >= 0),
+    updated_ts_ms INTEGER NOT NULL CHECK(updated_ts_ms >= created_ts_ms),
+    PRIMARY KEY(cohort, cluster_open_ts_ms)
+);
+
+CREATE TABLE IF NOT EXISTS cluster_arbitration_events (
+    event_id INTEGER PRIMARY KEY,
+    cohort TEXT NOT NULL,
+    cluster_open_ts_ms INTEGER NOT NULL CHECK(cluster_open_ts_ms >= 0),
+    seq INTEGER NOT NULL CHECK(seq >= 1),
+    from_status TEXT NOT NULL CHECK(from_status IN (
+        'NONE','COLLECTING','SELECTED','RESERVING'
+    )),
+    to_status TEXT NOT NULL CHECK(to_status IN (
+        'COLLECTING','SELECTED','RESERVING',
+        'ENTERED','EXHAUSTED','CANCELLED'
+    )),
+    candidate_key TEXT,
+    candidate_rank INTEGER CHECK(candidate_rank IS NULL OR candidate_rank >= 1),
+    reason TEXT NOT NULL,
+    actor TEXT NOT NULL CHECK(actor IN (
+        'ENGINE','RECOVERY','OPERATOR_TOOL'
+    )),
+    session_id TEXT NOT NULL REFERENCES runtime_sessions(session_id),
+    event_ts_ms INTEGER NOT NULL CHECK(event_ts_ms >= 0),
+    CHECK(
+        (seq = 1 AND from_status = 'NONE' AND to_status = 'COLLECTING')
+        OR (seq > 1 AND from_status <> 'NONE')
+    ),
+    CHECK(
+        (from_status='NONE' AND to_status='COLLECTING')
+        OR (from_status='COLLECTING'
+            AND to_status IN ('SELECTED','CANCELLED'))
+        OR (from_status='SELECTED'
+            AND to_status IN ('RESERVING','EXHAUSTED','CANCELLED'))
+        OR (from_status='RESERVING'
+            AND to_status IN ('ENTERED','SELECTED'))
+    ),
+    FOREIGN KEY(cohort, cluster_open_ts_ms)
+        REFERENCES cluster_arbitrations(cohort, cluster_open_ts_ms),
+    UNIQUE(cohort, cluster_open_ts_ms, seq)
+);
+
+CREATE TABLE IF NOT EXISTS cluster_locks (
+    cohort TEXT NOT NULL REFERENCES cohorts(cohort),
+    cluster_open_ts_ms INTEGER NOT NULL,
+    window_id INTEGER NOT NULL REFERENCES asset_windows(window_id),
+    candidate_key TEXT NOT NULL,
+    session_id TEXT NOT NULL REFERENCES runtime_sessions(session_id),
+    owner_launch_nonce TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('RESERVED','ENTERED')),
+    idempotency_key TEXT NOT NULL UNIQUE,
+    reserved_ts_ms INTEGER NOT NULL CHECK(reserved_ts_ms >= 0),
+    updated_ts_ms INTEGER NOT NULL CHECK(updated_ts_ms >= reserved_ts_ms),
+    PRIMARY KEY(cohort, cluster_open_ts_ms),
+    FOREIGN KEY(cohort, cluster_open_ts_ms)
+        REFERENCES cluster_arbitrations(cohort, cluster_open_ts_ms)
+);
+
+CREATE TABLE IF NOT EXISTS cohort_pilot_starts (
+    cohort TEXT PRIMARY KEY REFERENCES cohorts(cohort),
+    pilot_started_ts_ms INTEGER NOT NULL CHECK(pilot_started_ts_ms >= 0),
+    pilot_started_commit TEXT NOT NULL CHECK(length(pilot_started_commit) = 40),
+    pilot_started_config_hash TEXT NOT NULL
+        CHECK(length(pilot_started_config_hash) > 0),
+    pilot_started_session_id TEXT NOT NULL REFERENCES runtime_sessions(session_id),
+    journal_idempotency_key TEXT NOT NULL UNIQUE,
+    created_ts_ms INTEGER NOT NULL CHECK(created_ts_ms >= 0)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ix_cohorts_single_authoritative
+    ON cohorts(authoritative)
+    WHERE authoritative = 1;
+
+CREATE INDEX IF NOT EXISTS ix_cluster_arbitrations_status
+    ON cluster_arbitrations(status, cluster_open_ts_ms);
+
+CREATE INDEX IF NOT EXISTS ix_cluster_events_cluster
+    ON cluster_arbitration_events(cohort, cluster_open_ts_ms, seq);
+
+CREATE INDEX IF NOT EXISTS ix_cluster_locks_state
+    ON cluster_locks(state);
+"""
+
+
+# ---- Phase 2B C1 managed-fingerprint contract (runbook reference) ----
+# One shared normalizer for fresh v5, genuine v3->v4->v5, genuine v4->v5,
+# and exact-v5 verification.  Tables before indexes, then name order; quoted
+# SQL tokens preserved; comments and insignificant whitespace removed; the
+# terminal semicolon removed; compact UTF-8 JSON records of {type,name,sql};
+# lowercase SHA-256.
+MANAGED_V5_TYPES: Mapping[str, str] = {
+    "cluster_arbitrations": "table",
+    "cluster_arbitration_events": "table",
+    "cluster_locks": "table",
+    "cohort_pilot_starts": "table",
+    "ix_cohorts_single_authoritative": "index",
+    "ix_cluster_arbitrations_status": "index",
+    "ix_cluster_events_cluster": "index",
+    "ix_cluster_locks_state": "index",
+}
+
+# The authoritative expected normalized SQL is derived once from the exact
+# managed DDL above (the runbook's canonical text), so fresh-v5 creation,
+# migration, and exact-v5 verification all compare against one digest.
+_MANAGED_V5_DDL_BY_NAME: Mapping[str, str] = {
+    "cluster_arbitrations": (
+        "CREATE TABLE cluster_arbitrations (\n"
+        "    cohort TEXT NOT NULL REFERENCES cohorts(cohort),\n"
+        "    cluster_open_ts_ms INTEGER NOT NULL CHECK(cluster_open_ts_ms >= 0),\n"
+        "    arbitration_started_ts_ms INTEGER NOT NULL CHECK(arbitration_started_ts_ms >= 0),\n"
+        "    arbitration_cutoff_ts_ms INTEGER NOT NULL\n"
+        "        CHECK(arbitration_cutoff_ts_ms >= arbitration_started_ts_ms),\n"
+        "    ranking_version INTEGER NOT NULL CHECK(ranking_version >= 1),\n"
+        "    candidate_set_fingerprint TEXT,\n"
+        "    selected_candidate_key TEXT,\n"
+        "    selected_window_id INTEGER REFERENCES asset_windows(window_id),\n"
+        "    selected_asset TEXT,\n"
+        "    selected_rank INTEGER CHECK(selected_rank IS NULL OR selected_rank >= 1),\n"
+        "    status TEXT NOT NULL CHECK(status IN (\n"
+        "        'COLLECTING','SELECTED','RESERVING',\n"
+        "        'ENTERED','EXHAUSTED','CANCELLED'\n"
+        "    )),\n"
+        "    exhausted_reason TEXT,\n"
+        "    entered_entry_id INTEGER REFERENCES entries(entry_id),\n"
+        "    created_session_id TEXT NOT NULL REFERENCES runtime_sessions(session_id),\n"
+        "    created_ts_ms INTEGER NOT NULL CHECK(created_ts_ms >= 0),\n"
+        "    updated_ts_ms INTEGER NOT NULL CHECK(updated_ts_ms >= created_ts_ms),\n"
+        "    PRIMARY KEY(cohort, cluster_open_ts_ms)\n"
+        ");"
+    ),
+    "cluster_arbitration_events": (
+        "CREATE TABLE cluster_arbitration_events (\n"
+        "    event_id INTEGER PRIMARY KEY,\n"
+        "    cohort TEXT NOT NULL,\n"
+        "    cluster_open_ts_ms INTEGER NOT NULL CHECK(cluster_open_ts_ms >= 0),\n"
+        "    seq INTEGER NOT NULL CHECK(seq >= 1),\n"
+        "    from_status TEXT NOT NULL CHECK(from_status IN (\n"
+        "        'NONE','COLLECTING','SELECTED','RESERVING'\n"
+        "    )),\n"
+        "    to_status TEXT NOT NULL CHECK(to_status IN (\n"
+        "        'COLLECTING','SELECTED','RESERVING',\n"
+        "        'ENTERED','EXHAUSTED','CANCELLED'\n"
+        "    )),\n"
+        "    candidate_key TEXT,\n"
+        "    candidate_rank INTEGER CHECK(candidate_rank IS NULL OR candidate_rank >= 1),\n"
+        "    reason TEXT NOT NULL,\n"
+        "    actor TEXT NOT NULL CHECK(actor IN (\n"
+        "        'ENGINE','RECOVERY','OPERATOR_TOOL'\n"
+        "    )),\n"
+        "    session_id TEXT NOT NULL REFERENCES runtime_sessions(session_id),\n"
+        "    event_ts_ms INTEGER NOT NULL CHECK(event_ts_ms >= 0),\n"
+        "    CHECK(\n"
+        "        (seq = 1 AND from_status = 'NONE' AND to_status = 'COLLECTING')\n"
+        "        OR (seq > 1 AND from_status <> 'NONE')\n"
+        "    ),\n"
+        "    CHECK(\n"
+        "        (from_status='NONE' AND to_status='COLLECTING')\n"
+        "        OR (from_status='COLLECTING'\n"
+        "            AND to_status IN ('SELECTED','CANCELLED'))\n"
+        "        OR (from_status='SELECTED'\n"
+        "            AND to_status IN ('RESERVING','EXHAUSTED','CANCELLED'))\n"
+        "        OR (from_status='RESERVING'\n"
+        "            AND to_status IN ('ENTERED','SELECTED'))\n"
+        "    ),\n"
+        "    FOREIGN KEY(cohort, cluster_open_ts_ms)\n"
+        "        REFERENCES cluster_arbitrations(cohort, cluster_open_ts_ms),\n"
+        "    UNIQUE(cohort, cluster_open_ts_ms, seq)\n"
+        ");"
+    ),
+    "cluster_locks": (
+        "CREATE TABLE cluster_locks (\n"
+        "    cohort TEXT NOT NULL REFERENCES cohorts(cohort),\n"
+        "    cluster_open_ts_ms INTEGER NOT NULL,\n"
+        "    window_id INTEGER NOT NULL REFERENCES asset_windows(window_id),\n"
+        "    candidate_key TEXT NOT NULL,\n"
+        "    session_id TEXT NOT NULL REFERENCES runtime_sessions(session_id),\n"
+        "    owner_launch_nonce TEXT NOT NULL,\n"
+        "    state TEXT NOT NULL CHECK(state IN ('RESERVED','ENTERED')),\n"
+        "    idempotency_key TEXT NOT NULL UNIQUE,\n"
+        "    reserved_ts_ms INTEGER NOT NULL CHECK(reserved_ts_ms >= 0),\n"
+        "    updated_ts_ms INTEGER NOT NULL CHECK(updated_ts_ms >= reserved_ts_ms),\n"
+        "    PRIMARY KEY(cohort, cluster_open_ts_ms),\n"
+        "    FOREIGN KEY(cohort, cluster_open_ts_ms)\n"
+        "        REFERENCES cluster_arbitrations(cohort, cluster_open_ts_ms)\n"
+        ");"
+    ),
+    "cohort_pilot_starts": (
+        "CREATE TABLE cohort_pilot_starts (\n"
+        "    cohort TEXT PRIMARY KEY REFERENCES cohorts(cohort),\n"
+        "    pilot_started_ts_ms INTEGER NOT NULL CHECK(pilot_started_ts_ms >= 0),\n"
+        "    pilot_started_commit TEXT NOT NULL CHECK(length(pilot_started_commit) = 40),\n"
+        "    pilot_started_config_hash TEXT NOT NULL\n"
+        "        CHECK(length(pilot_started_config_hash) > 0),\n"
+        "    pilot_started_session_id TEXT NOT NULL REFERENCES runtime_sessions(session_id),\n"
+        "    journal_idempotency_key TEXT NOT NULL UNIQUE,\n"
+        "    created_ts_ms INTEGER NOT NULL CHECK(created_ts_ms >= 0)\n"
+        ");"
+    ),
+    "ix_cohorts_single_authoritative": (
+        "CREATE UNIQUE INDEX ix_cohorts_single_authoritative\n"
+        "    ON cohorts(authoritative)\n"
+        "    WHERE authoritative = 1;"
+    ),
+    "ix_cluster_arbitrations_status": (
+        "CREATE INDEX ix_cluster_arbitrations_status\n"
+        "    ON cluster_arbitrations(status, cluster_open_ts_ms);"
+    ),
+    "ix_cluster_events_cluster": (
+        "CREATE INDEX ix_cluster_events_cluster\n"
+        "    ON cluster_arbitration_events(cohort, cluster_open_ts_ms, seq);"
+    ),
+    "ix_cluster_locks_state": (
+        "CREATE INDEX ix_cluster_locks_state\n"
+        "    ON cluster_locks(state);"
+    ),
+}
+
+
+def normalize_managed_sql(sql: str) -> str:
+    """Tokenizing normalizer that preserves quoted SQL tokens.
+
+    Removes ``--`` and ``/* */`` comments and insignificant whitespace while
+    keeping quoted identifiers/strings byte-exact, joins tokens with one
+    ASCII space, and drops a single trailing semicolon.  Never uses a
+    whitespace-only regex that could alter quoted SQL.
+    """
+    if not isinstance(sql, str) or not sql.strip():
+        raise ValueError("managed sqlite_master.sql is empty")
+    tokens: list[str] = []
+    index = 0
+    length = len(sql)
+    punctuation = set("(),;=<>+-*/%")
+    while index < length:
+        char = sql[index]
+        if char.isspace():
+            index += 1
+            continue
+        if sql.startswith("--", index):
+            newline = sql.find("\n", index + 2)
+            index = length if newline < 0 else newline + 1
+            continue
+        if sql.startswith("/*", index):
+            end = sql.find("*/", index + 2)
+            if end < 0:
+                raise ValueError("unterminated SQL block comment")
+            index = end + 2
+            continue
+        if char in {"'", '"', "`"}:
+            quote = char
+            start = index
+            index += 1
+            while index < length:
+                if sql[index] == quote:
+                    if index + 1 < length and sql[index + 1] == quote:
+                        index += 2
+                        continue
+                    index += 1
+                    break
+                index += 1
+            else:
+                raise ValueError("unterminated quoted SQL token")
+            tokens.append(sql[start:index])
+            continue
+        if char == "[":
+            start = index
+            end = sql.find("]", index + 1)
+            if end < 0:
+                raise ValueError("unterminated bracketed SQL token")
+            index = end + 1
+            tokens.append(sql[start:index])
+            continue
+        if char in punctuation:
+            pair = sql[index:index + 2]
+            if pair in {"<=", ">=", "<>", "!=", "==", "||", "<<", ">>"}:
+                tokens.append(pair)
+                index += 2
+            else:
+                tokens.append(char)
+                index += 1
+            continue
+        start = index
+        while index < length:
+            current = sql[index]
+            if current.isspace() or current in punctuation or current in {"'", '"', "`", "["}:
+                break
+            if sql.startswith("--", index) or sql.startswith("/*", index):
+                break
+            index += 1
+        if start == index:
+            raise ValueError(f"unrecognized SQL token at offset {index}")
+        tokens.append(sql[start:index])
+    if tokens and tokens[-1] == ";":
+        tokens.pop()
+    if not tokens:
+        raise ValueError("managed SQL normalized to empty text")
+    return " ".join(tokens)
+
+
+def managed_v5_expected_normalized() -> Mapping[str, str]:
+    """Expected normalized SQL for each managed object, keyed by name."""
+    return {name: normalize_managed_sql(ddl) for name, ddl in _MANAGED_V5_DDL_BY_NAME.items()}
+
+
+def managed_v5_records(
+    connection: sqlite3.Connection,
+    expected_normalized_sql: Optional[Mapping[str, str]] = None,
+) -> list[dict[str, str]]:
+    """Select exactly the eight managed sqlite_master rows and verify them.
+
+    Excludes ``sqlite_autoindex_*``.  Requires the eight managed names, the
+    exact managed type for each, and that each normalized SQL equals the
+    expected normalized SQL.  Tables are ordered before indexes, then by
+    name.  Any missing, extra, renamed, substituted, type-mismatched, or
+    normalized-SQL-mismatched object raises before a mutation.
+    """
+    expected = expected_normalized_sql or managed_v5_expected_normalized()
+    names = tuple(sorted(MANAGED_V5_TYPES))
+    placeholders = ",".join("?" for _ in names)
+    rows = connection.execute(
+        f"select type,name,sql from sqlite_master where name in ({placeholders})",
+        names,
+    ).fetchall()
+    if len(rows) != len(names):
+        found = {str(row[1]) for row in rows}
+        missing = sorted(set(names) - found)
+        raise ValueError(f"missing managed objects: {missing!r}")
+    records: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for object_type, name, sql in rows:
+        object_name = str(name)
+        if object_name in seen:
+            raise ValueError(f"duplicate managed object: {object_name}")
+        seen.add(object_name)
+        required_type = MANAGED_V5_TYPES.get(object_name)
+        if required_type is None or str(object_type) != required_type:
+            raise ValueError(f"managed object type mismatch: {object_name}")
+        normalized = normalize_managed_sql(str(sql))
+        exp = expected.get(object_name)
+        if exp is None or normalized != exp:
+            raise ValueError(f"managed object SQL mismatch: {object_name}")
+        records.append({
+            "type": required_type,
+            "name": object_name,
+            "sql": normalized,
+        })
+    order = {"table": 0, "index": 1}
+    records.sort(key=lambda item: (order[item["type"]], item["name"]))
+    return records
+
+
+def managed_v5_fingerprint(
+    connection: sqlite3.Connection,
+    expected_normalized_sql: Optional[Mapping[str, str]] = None,
+) -> str:
+    """Lowercase SHA-256 over the ordered, normalized managed records."""
+    records = managed_v5_records(connection, expected_normalized_sql)
+    encoded = json.dumps(
+        records,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def escape_sqlite_like_literal(value: str) -> str:
+    """Escape ``value`` for use as a literal inside SQLite ``LIKE ? ESCAPE '\\'``.
+
+    SQLite ``LIKE`` treats ``%`` and ``_`` as wildcards and ``\\`` (under the
+    chosen ``ESCAPE '\\'`` clause) as the escape introducer.  To match a
+    literal string verbatim, all three metacharacters must be escaped in a
+    fixed order so the escapes themselves are not re-interpreted:
+
+    1. ``\\`` -> ``\\\\``  (must run first, else later escapes are doubled)
+    2. ``%``  -> ``\\%``
+    3. ``_``  -> ``\\_``
+
+    The returned string contains no unescaped ``%`` or ``_``, so a caller can
+    safely append an escaped separator plus an unescaped wildcard such as
+    ``\\_%`` to build a "literal prefix followed by anything" pattern.  This
+    is intentionally SQLite-specific and is not a generic regex escaper.
+    """
+    escaped = value.replace("\\", "\\\\")
+    escaped = escaped.replace("%", "\\%")
+    escaped = escaped.replace("_", "\\_")
+    return escaped
+
+
+def managed_v5_object_census(connection: sqlite3.Connection) -> list[dict[str, str]]:
+    """Return the fail-closed managed-object census for schema v5.
+
+    This is a **separate** check from :func:`managed_v5_fingerprint`.  The
+    fingerprint algorithm (runbook reference) selects only the eight
+    managed objects by name, so it is structurally blind to a *ninth*
+    object attached to a managed table (C1.B probes D/E in the read-only
+    review).  This census enumerates exactly the user-authored schema
+    objects in the managed namespace and fails closed if the set is not
+    precisely the eight canonical managed objects.
+
+    Census boundary (Human Authority Ruling 2, STORE-DE Option B; boundary
+    form confirmed by human authority as "strict prefix + tbl_name"):
+
+    - user-authored SQLite schema objects of type ``table``, ``index``,
+      ``trigger``, or ``view``;
+    - excluding SQLite internal objects whose names begin with
+      ``sqlite_`` (covers ``sqlite_autoindex_*`` from PRIMARY KEY /
+      UNIQUE constraints, and any other internal object);
+    - excluding implicit SQLite autoindexes where ``sql IS NULL``;
+    - AND one of the following namespace-membership tests holds:
+
+      1. the object ``name`` is exactly one of the eight canonical
+         managed names (then its type and SQL are verified by the
+         fingerprint path; the census asserts type);
+      2. the object ``tbl_name`` is exactly one of the four managed
+         tables (this catches an extra explicit index, trigger, or view
+         attached to a managed table, including an index such as
+         ``ix_cohorts_single_authoritative`` whose own ``tbl_name`` is
+         the non-managed ``cohorts`` table — that one is caught by test
+         1 because its name is canonical);
+      3. the object ``name`` begins with a managed-table prefix followed
+         by an underscore (``cluster_arbitrations_``,
+         ``cluster_arbitration_events_``, ``cluster_locks_``,
+         ``cohort_pilot_starts_``).  This catches a same-namespace
+         object intended to imitate or shadow a managed table (e.g. a
+         ``cluster_arbitrations_shadow_probe`` table).
+
+    A view whose ``name`` carries no managed prefix and whose
+    ``tbl_name`` is not a managed table is **out of namespace** and is
+    not refused (e.g. ``v_cluster_arbitrations_probe``).  SQL-text
+    scanning of view bodies is deliberately not performed; the namespace
+    is defined by object name and ``tbl_name`` only.
+
+    The canonical allowed census is derived from the authoritative
+    managed-v5 inventory (:data:`MANAGED_V5_TYPES`); it is not duplicated
+    as a loose unrelated list.  Returns the census records ordered like
+    the fingerprint (tables before indexes, then by name; any trigger or
+    view would sort after).  Raises :class:`ValueError` on any divergence
+    without mutating the database.
+    """
+    managed_names = tuple(sorted(MANAGED_V5_TYPES))
+    managed_tables = tuple(sorted(
+        name for name, kind in MANAGED_V5_TYPES.items() if kind == "table"
+    ))
+    # Prefix patterns for shadow/imitation detection: a managed-table name
+    # followed by a literal separator underscore.  Example (conceptually):
+    # 'cluster_arbitrations_%'.  SQLite LIKE treats '_' and '%' as wildcards,
+    # so we must escape EVERY metacharacter in the literal table name (not
+    # only the appended separator underscore) before appending the escaped
+    # separator and the wildcard.  Otherwise the internal underscores of a
+    # managed name such as 'cluster_arbitrations' stay as single-char
+    # wildcards and the pattern 'cluster_arbitrations\_%' would wrongly
+    # accept an unrelated 'clusterXarbitrations_probe'.  Using
+    # escape_sqlite_like_literal the whole name is escaped, then the literal
+    # separator '_' is escaped and a single '%' wildcard is appended, so the
+    # pattern matches only names beginning with '<exact managed table>_'.
+    managed_prefixes = tuple(
+        escape_sqlite_like_literal(t) + "\\_%" for t in managed_tables
+    )
+    sqlite_internal_prefix = escape_sqlite_like_literal("sqlite_") + "%"
+    name_placeholders = ",".join("?" for _ in managed_names)
+    tbl_placeholders = ",".join("?" for _ in managed_tables)
+    prefix_placeholders = " OR ".join("name LIKE ? ESCAPE '\\'" for _ in managed_prefixes)
+    # NOTE on autoindex handling: SQLite represents an implicit index
+    # created by PRIMARY KEY / UNIQUE as a row whose name starts with
+    # ``sqlite_autoindex_*`` and whose ``sql`` column is NULL.  The
+    # escaped ``name NOT LIKE ? ESCAPE '\'`` predicate excludes only that
+    # literal internal-name family; the ``sql IS NOT NULL`` clause excludes
+    # any implicit autoindex that might (now or later) carry a non-internal
+    # name.
+    query = (
+        "SELECT type, name, tbl_name, sql FROM sqlite_master "
+        "WHERE type IN ('table','index','trigger','view') "
+        "AND name NOT LIKE ? ESCAPE '\\' "
+        "AND sql IS NOT NULL "
+        "AND (name IN (" + name_placeholders + ") "
+        "OR tbl_name IN (" + tbl_placeholders + ") "
+        "OR " + prefix_placeholders + ")"
+    )
+    rows = connection.execute(
+        query,
+        (sqlite_internal_prefix,) + managed_names + managed_tables + managed_prefixes,
+    ).fetchall()
+    census: list[dict[str, str]] = []
+    found_names: set[str] = set()
+    for object_type, name, tbl_name, sql in rows:
+        object_name = str(name)
+        table_name = str(tbl_name)
+        if object_name in found_names:
+            raise ValueError(f"duplicate census object: {object_name}")
+        found_names.add(object_name)
+        expected_type = MANAGED_V5_TYPES.get(object_name)
+        if expected_type is None:
+            # An object in the managed namespace (attached to a managed
+            # table by tbl_name, or shadowing a managed-table name by
+            # prefix) that is not one of the eight canonical objects.
+            # Refuse any explicit extra index, trigger, table, or view.
+            raise ValueError(
+                f"unexpected managed-namespace object: type={object_type} "
+                f"name={object_name} tbl_name={table_name}")
+        if str(object_type) != expected_type:
+            raise ValueError(
+                f"managed object type mismatch: name={object_name} "
+                f"expected={expected_type} actual={object_type}")
+        # The fingerprint already verifies normalized SQL for each of the
+        # eight; the census does not re-normalize (a SQL/body mismatch on
+        # a canonical managed object is already caught by
+        # ``managed_v5_records``).  Here we only assert the census count.
+        census.append({
+            "type": expected_type,
+            "name": object_name,
+            "tbl_name": table_name,
+        })
+    # Missing or renamed canonical managed object.
+    missing = sorted(set(managed_names) - found_names)
+    if missing:
+        raise ValueError(f"missing managed-namespace objects: {missing}")
+    # Exactly eight; any ninth was already raised above as an unexpected
+    # object, but assert the invariant explicitly.
+    if len(census) != len(managed_names):
+        raise ValueError(
+            f"managed-object census size mismatch: expected {len(managed_names)} "
+            f"got {len(census)}")
+    order = {"table": 0, "index": 1, "trigger": 2, "view": 3}
+    census.sort(key=lambda item: (order[item["type"]], item["name"]))
+    return census
+
+
+def verify_managed_v5_census(connection: sqlite3.Connection) -> None:
+    """Fail-closed managed-object census check (no mutation).
+
+    Raises :class:`ValueError` if the user-authored managed-namespace
+    schema objects are not exactly the eight canonical managed objects.
+    Read-only: issues only ``SELECT`` against ``sqlite_master``.
+    """
+    managed_v5_object_census(connection)
+
+
 class V4Store:
     """V4 SQLite store with explicit and nestable atomic transactions.
 
@@ -1179,6 +1744,60 @@ class V4Store:
             self._conn.rollback()
             raise
 
+    def _apply_migration_v5(self) -> None:
+        """Apply the additive V4 -> V5 managed-schema migration.
+
+        Phase 2B C1 adds exactly the eight managed objects (four tables +
+        four indexes) with CREATE IF NOT EXISTS.  Every statement is
+        additive and idempotent: no existing row, column, constraint,
+        index, or economic value changes.  The version-5 schema_migrations
+        row records the lowercase managed-v5 fingerprint as schema_hash,
+        and the migration verifies the managed set against that digest
+        before committing.  Partial, hybrid, malformed, wrong-SQL, missing,
+        or extra managed-object state raises before any write completes.
+        """
+
+        applied = int(time.time() * 1_000)
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            # Verify nothing managed already exists in a noncanonical form
+            # before writing; this fails closed on a hybrid or partial state
+            # whose managed objects diverge from the expected DDL.
+            expected = managed_v5_expected_normalized()
+            pre_existing = {
+                str(row[0])
+                for row in self._conn.execute(
+                    "SELECT name FROM sqlite_master WHERE name IN ("
+                    + ",".join("?" for _ in sorted(MANAGED_V5_TYPES))
+                    + ")",
+                    tuple(sorted(MANAGED_V5_TYPES)),
+                ).fetchall()
+            }
+            if pre_existing:
+                # Some managed objects already exist: they must already match
+                # the exact expected normalized SQL or we refuse to touch them.
+                managed_v5_records(self._conn, expected)
+            for statement in self._migration_statements(PHASE2B_SCHEMA_V5_SQL):
+                self._conn.execute(statement)
+            # Post-write verification: the managed set must fingerprint to the
+            # canonical digest recorded below.  Raises on any divergence.
+            fingerprint = managed_v5_fingerprint(self._conn, expected)
+            # Defense-in-depth: the fingerprint's named selection is blind
+            # to a ninth object attached to a managed table (C1.B probes
+            # D/E).  The separate census check refuses any extra index,
+            # trigger, table, or view in the managed namespace.
+            verify_managed_v5_census(self._conn)
+            self._conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version,applied_ts_ms,schema_hash) "
+                "VALUES(?,?,?)",
+                (5, applied, fingerprint),
+            )
+            self._conn.execute("PRAGMA user_version=5")
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+
     def _initialize_fresh_schema(self) -> None:
         self._assert_owner()
         tables = {
@@ -1191,12 +1810,18 @@ class V4Store:
                 "refusing non-v4 database: fresh schema or v4 schema_migrations required"
             )
         if not tables:
+            # Fresh schema: create the v4 base schema, record its hash at v4,
+            # then immediately apply the additive v5 migration so a fresh
+            # database lands on exact managed v5 with the managed fingerprint
+            # recorded as the version-5 schema_hash.
             self._conn.executescript(SCHEMA_SQL)
             self._conn.execute(
                 "INSERT INTO schema_migrations(version,applied_ts_ms,schema_hash) VALUES(?,?,?)",
-                (SCHEMA_VERSION, 0, _canonical_hash(SCHEMA_SQL)),
+                (4, 0, _canonical_hash(SCHEMA_SQL)),
             )
-            self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+            self._conn.execute("PRAGMA user_version=4")
+            self._conn.commit()
+            self._apply_migration_v5()
         else:
             row = self._conn.execute(
                 "SELECT MAX(version) FROM schema_migrations"
@@ -1211,6 +1836,9 @@ class V4Store:
             if version == 3:
                 self._apply_migration_v4()
                 version = 4
+            if version == 4:
+                self._apply_migration_v5()
+                version = 5
             if version >= 2:
                 tables = {
                     str(found[0]) for found in self._conn.execute(
@@ -1220,11 +1848,49 @@ class V4Store:
                 }
             if version != SCHEMA_VERSION:
                 raise V4SchemaError(
-                    f"unsupported v4 schema version {version}; expected {SCHEMA_VERSION}"
+                    f"unsupported schema version {version}; expected {SCHEMA_VERSION}"
                 )
             missing = EXPECTED_TABLES - tables
             if missing:
                 raise V4SchemaError(f"incomplete v4 schema; missing {sorted(missing)}")
+            # Final guard: the managed v5 set must fingerprint to the digest
+            # recorded in schema_migrations for version 5.
+            row = self._conn.execute(
+                "SELECT schema_hash FROM schema_migrations WHERE version=5"
+            ).fetchone()
+            if row is None:
+                raise V4SchemaError("managed v5 schema_migrations row missing")
+            recorded = str(row[0])
+            actual = managed_v5_fingerprint(self._conn)
+            if recorded != actual:
+                raise V4SchemaError(
+                    "managed v5 fingerprint mismatch: schema is not exact managed v5"
+                )
+            # Separate fail-closed census: the fingerprint's named
+            # selection cannot see a ninth managed-namespace object
+            # (C1.B probes D/E).  Refuses any extra index, trigger, table,
+            # or view in the managed namespace without mutating the DB.
+            verify_managed_v5_census(self._conn)
+            # Reconcile the user_version pragma.  Authority derives from
+            # MAX(schema_migrations.version), not from user_version, so the
+            # pragma is only a cache: never an input to the version decision.
+            # - If the pragma lags the terminal migration record (e.g. an
+            #   explicit _apply_migration_v4 call set it to 4 while a
+            #   version-5 record exists), advance it to SCHEMA_VERSION.  This
+            #   never lowers user_version and never mutates rows.
+            # - If the pragma is AHEAD of SCHEMA_VERSION, the database claims
+            #   a future schema and must not be silently accepted as exact
+            #   managed v5 (C1.B probe F): fail closed.
+            pragma_version = int(
+                self._conn.execute("PRAGMA user_version").fetchone()[0]
+            )
+            if pragma_version > SCHEMA_VERSION:
+                raise V4SchemaError(
+                    f"user_version {pragma_version} is ahead of "
+                    f"SCHEMA_VERSION {SCHEMA_VERSION}; refusing future-schema "
+                    f"database")
+            if pragma_version < SCHEMA_VERSION:
+                self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     @contextmanager
     def transaction(self, *, immediate: bool = False) -> Iterator[sqlite3.Connection]:

@@ -20,6 +20,7 @@ from typing import Any, AsyncIterator, Callable
 import pytest
 
 from poly_alpha_sniper.lite_frequency_v4 import engine as engine_module
+from poly_alpha_sniper.lite_frequency_v4 import export as export_module
 from poly_alpha_sniper.lite_frequency_v4.config import FrequencyV4Config
 from poly_alpha_sniper.lite_frequency_v4.contracts import (
     BookLevel,
@@ -153,6 +154,18 @@ def _build_engine(
         engine_module, "validate_frequency_v4_config", lambda _cfg: None
     )
     cfg = _test_config(tmp_path)
+    # C1.H strict canonical containment: the export writer accepts writes only
+    # under canonical_export_dir().  This integration test writes the dashboard
+    # to a tmp_path-derived cfg.export_dir, so repoint the single canonical
+    # derivation at that tmp root -- the same test-only seam used by
+    # test_frequency_v4_export.py.  No production guard is loosened and no
+    # cfg.export_dir override is added; production still requires canonical-
+    # only export.  (This file is outside the original 12-path C1 allowlist;
+    # this adaptation is required solely by the new C1.H invariant and is
+    # strictly test-only.)
+    monkeypatch.setattr(
+        export_module, "canonical_export_dir", lambda: Path(cfg.export_dir)
+    )
     runtime = V4RuntimeFiles(cfg.runtime_dir, repo_root=tmp_path)
     runtime.acquire()
     monkeypatch.setattr(runtime, "process_ownership", lambda: {
@@ -805,3 +818,86 @@ def test_persistence_refactor_preserves_permanent_shadow_safety() -> None:
         "wallet_sign", "authenticated_trading_client = True",
     ):
         assert forbidden not in source
+
+
+# --- C1.H canonical/config divergence coverage (Human Authority Ruling 7) -
+#
+# The integration helper ``_build_engine`` monkeypatches
+# ``canonical_export_dir`` to return ``cfg.export_dir`` so the strict
+# canonical-containment guard permits the dashboard write under
+# ``tmp_path``.  These focused assertions prove:
+#
+# 1. WITHOUT the monkeypatch, a real divergence between the unpatched
+#    ``canonical_export_dir()`` and the test's ``cfg.export_dir`` IS
+#    refused -- so the monkeypatch cannot be silently dropped without
+#    the test catching it.  This keeps canonical/config divergence
+#    visible rather than hidden by the helper.
+# 2. WITH the test-only monkeypatch, the same ``cfg.export_dir`` path is
+#    accepted, and the canonical root really was repointed (not bypassed).
+#
+# These cover the divergence class even though the helper monkeypatches
+# the canonical derivation: the helper is the authorized test-only seam,
+# and these tests prove that seam is doing what it claims.
+
+def test_C1H_unpatched_canonical_refuses_tmp_export_dir(tmp_path):
+    """A tmp-derived cfg.export_dir differs from the real canonical
+    export dir, so the UNPATCHED export guard must refuse it.
+
+    This proves the monkeypatch in ``_build_engine`` is load-bearing:
+    if it were removed, the integration test's dashboard write would
+    fail closed here.  The production guard is strict canonical
+    containment; it does not accept an arbitrary cfg.export_dir.
+    """
+    cfg = _test_config(tmp_path)
+    real_canonical = export_module.canonical_export_dir()
+    # Precondition: the test config's export dir really is outside the
+    # real canonical dir (they live under different tmp roots).
+    assert Path(cfg.export_dir).resolve() != Path(real_canonical).resolve()
+    # The unpatched guard refuses the divergent cfg.export_dir.
+    with pytest.raises(ValueError, match="outside the canonical export directory"):
+        export_module.assert_canonical_export_path(cfg.export_dir)
+
+
+def test_C1H_monkeypatch_repoints_canonical_root_for_tmp_export_dir(
+        tmp_path, monkeypatch):
+    """The test-only monkeypatch repoints ``canonical_export_dir`` at
+    ``cfg.export_dir``, after which the same path is accepted -- proving
+    the seam repoints the canonical root rather than bypassing the guard.
+
+    This mirrors exactly what ``_build_engine`` does (Phase 10
+    JUSTIFIED_TEST_ONLY_ADAPTATION): it monkeypatches the single
+    canonical derivation symbol that the guard resolves, so production
+    canonical-containment stays intact and only the test environment's
+    canonical root moves.
+    """
+    cfg = _test_config(tmp_path)
+    # Before the monkeypatch, the divergent path is refused.
+    with pytest.raises(ValueError, match="outside the canonical export directory"):
+        export_module.assert_canonical_export_path(cfg.export_dir)
+    # Apply the same test-only seam as _build_engine.
+    monkeypatch.setattr(
+        export_module, "canonical_export_dir", lambda: Path(cfg.export_dir)
+    )
+    # After repointing, the canonical derivation really was changed.
+    assert export_module.canonical_export_dir() == Path(cfg.export_dir)
+    # The same path is now accepted by the (unchanged) guard.
+    resolved = export_module.assert_canonical_export_path(cfg.export_dir)
+    assert resolved == (Path(cfg.export_dir) / export_module.EXPORT_FILENAME).resolve()
+
+
+def test_C1H_guard_does_not_inspect_cfg_export_dir_directly(tmp_path, monkeypatch):
+    """Defense-in-depth: the export guard resolves only
+    ``canonical_export_dir()`` -- it never reads ``cfg.export_dir``.  So a
+    divergent ``cfg.export_dir`` cannot smuggle a path past the guard; the
+    only way to relocate the accepted root is to repoint the canonical
+    derivation itself (which is what the authorized test seam does).
+
+    Confirmed by source inspection: ``assert_canonical_export_path`` must
+    not reference a config object or an ``export_dir`` attribute.
+    """
+    import inspect as _inspect
+    src = _inspect.getsource(export_module.assert_canonical_export_path)
+    # The guard must be agnostic of the config's export_dir attribute.
+    assert "cfg.export_dir" not in src
+    assert ".export_dir" not in src
+    assert "config" not in src.lower()

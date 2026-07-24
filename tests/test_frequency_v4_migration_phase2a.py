@@ -22,9 +22,11 @@ from poly_alpha_sniper.lite_frequency_v4.export import build_frequency_v4_dashbo
 from poly_alpha_sniper.lite_frequency_v4.ledger import compute_capital_ledger
 from poly_alpha_sniper.lite_frequency_v4.replay import replay_entries
 from poly_alpha_sniper.lite_frequency_v4.store import (
+    MANAGED_V5_TYPES,
     PHASE2A_SCHEMA_V4_SQL,
     SCHEMA_VERSION,
     V4Store,
+    managed_v5_fingerprint,
 )
 from tests.test_frequency_v4_cohort import seed_legacy_closed_trade
 from tests.test_frequency_v4_store import (
@@ -38,6 +40,14 @@ from tests.test_frequency_v4_store import (
 
 
 SUCCESSOR_COHORT = "shadow_survivor_phase2a"
+# C1 moves the terminal managed schema to v5.  The v3->v4 step these tests
+# exercise is unchanged; opening a genuine v3 database now runs v3->v4->v5,
+# so the terminal user_version and MAX(schema_migrations.version) are 5, and
+# a version-5 migration record carries the authoritative managed-v5
+# fingerprint.
+MANAGED_V5_FINGERPRINT = (
+    "6448f0dc66225f55cbe2a5b395f14fc9e193bf8556a713caf896846574bdc715"
+)
 NEW_COLUMNS = ("parent_cohort", "status", "config_hash")
 V3_COHORT_COLUMNS = (
     "cohort", "activation_ts_ms", "activation_commit", "starting_equity_usd",
@@ -59,18 +69,41 @@ def _v3_cohorts_ddl() -> str:
 
 
 def downgrade_to_v3(path) -> None:
-    """Rebuild the cohorts table into its exact v3 shape for migration tests."""
+    """Rebuild the cohorts table into its exact v3 shape for migration tests.
+
+    C1 made a fresh store create the full managed-v5 schema, so to land on a
+    genuine v3 origin (no v4 lineage columns, no v5 managed objects) this
+    helper also drops the C1 managed-v5 tables and indexes before reverting
+    the cohorts table and the migration record.  The seeded historical rows
+    (sessions, markets, windows, entries, cohorts) are preserved.
+    """
     conn = sqlite3.connect(path)
     try:
         conn.execute("PRAGMA foreign_keys=OFF")
         conn.execute("BEGIN IMMEDIATE")
+        # Drop C1 managed-v5 objects so the origin is a genuine v3 (the v5
+        # migration will recreate them when the store reopens).
+        for index in (
+            "ix_cluster_locks_state",
+            "ix_cluster_events_cluster",
+            "ix_cluster_arbitrations_status",
+            "ix_cohorts_single_authoritative",
+        ):
+            conn.execute(f"DROP INDEX IF EXISTS {index}")
+        for table in (
+            "cohort_pilot_starts",
+            "cluster_locks",
+            "cluster_arbitration_events",
+            "cluster_arbitrations",
+        ):
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
         conn.execute(_v3_cohorts_ddl())
         columns = ",".join(V3_COHORT_COLUMNS)
         conn.execute(
             f"INSERT INTO cohorts_v3({columns}) SELECT {columns} FROM cohorts")
         conn.execute("DROP TABLE cohorts")
         conn.execute("ALTER TABLE cohorts_v3 RENAME TO cohorts")
-        conn.execute("DELETE FROM schema_migrations WHERE version=4")
+        conn.execute("DELETE FROM schema_migrations WHERE version>=4")
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations("
             "version,applied_ts_ms,schema_hash) VALUES(3,0,'phase2a-test-v3')")
@@ -133,17 +166,28 @@ def _raw(path):
     return conn
 
 
-# A. Fresh v4 database creation carries the complete lineage schema.
+# A. Fresh database creation carries the complete lineage schema and lands on
+# the C1 managed-v5 terminal.  (C1: terminal moved from v4 to v5; the v4
+# lineage columns and ACTIVE/FROZEN status behavior are unchanged.)
 def test_fresh_v4_schema_has_lineage_columns_and_closed_status(tmp_path):
-    assert SCHEMA_VERSION == 4
+    assert SCHEMA_VERSION == 5
     store = V4Store(tmp_path / "fresh.db")
     try:
         columns = [row["name"] for row in store.query("PRAGMA table_info(cohorts)")]
         for column in NEW_COLUMNS:
             assert columns.count(column) == 1
-        assert store.query_one("PRAGMA user_version")["user_version"] == 4
+        assert store.query_one("PRAGMA user_version")["user_version"] == 5
         assert store.query_one(
-            "SELECT MAX(version) v FROM schema_migrations")["v"] == 4
+            "SELECT MAX(version) v FROM schema_migrations")["v"] == 5
+        # Both the v4 lineage migration record and the v5 managed-schema
+        # migration record exist; the v5 record carries the authoritative
+        # managed-v5 fingerprint.
+        assert store.query_one(
+            "SELECT COUNT(*) n FROM schema_migrations WHERE version=4")["n"] == 1
+        v5 = store.query_one(
+            "SELECT schema_hash h FROM schema_migrations WHERE version=5")
+        assert v5["h"] == MANAGED_V5_FINGERPRINT
+        assert managed_v5_fingerprint(store.connection) == MANAGED_V5_FINGERPRINT
         row = store.ensure_cohort({
             "cohort": ACTIVE_COHORT,
             "activation_ts_ms": NOW,
@@ -191,9 +235,16 @@ def test_genuine_v3_database_migrates_additively(tmp_path):
 
     store = V4Store(path)
     try:
-        assert store.query_one("PRAGMA user_version")["user_version"] == 4
+        # C1: opening a genuine v3 database runs v3->v4->v5, so the terminal
+        # user_version and MAX(version) are 5; the v4 lineage step these
+        # tests verify still runs first and remains present.
+        assert store.query_one("PRAGMA user_version")["user_version"] == 5
         assert store.query_one(
-            "SELECT MAX(version) v FROM schema_migrations")["v"] == 4
+            "SELECT MAX(version) v FROM schema_migrations")["v"] == 5
+        assert store.query_one(
+            "SELECT COUNT(*) n FROM schema_migrations WHERE version=4")["n"] == 1
+        assert store.query_one(
+            "SELECT schema_hash h FROM schema_migrations WHERE version=5")["h"] == MANAGED_V5_FINGERPRINT
         columns = [row["name"] for row in store.query("PRAGMA table_info(cohorts)")]
         for column in NEW_COLUMNS:
             assert columns.count(column) == 1
@@ -294,7 +345,12 @@ def test_migration_double_apply_and_reopen_are_idempotent(tmp_path):
 
     reopened = V4Store(path)
     try:
-        assert reopened.query_one("PRAGMA user_version")["user_version"] == 4
+        # C1: reopen advances to the managed-v5 terminal; the v4 record the
+        # double-apply above established is still exactly one, and the cohorts
+        # are unchanged by the additive v5 migration.
+        assert reopened.query_one("PRAGMA user_version")["user_version"] == 5
+        assert reopened.query_one(
+            "SELECT COUNT(*) n FROM schema_migrations WHERE version=4")["n"] == 1
         assert reopened.query(
             "SELECT * FROM cohorts ORDER BY cohort") == cohorts_before
     finally:
@@ -376,8 +432,11 @@ def test_migration_fault_injection_rolls_back_every_statement(tmp_path):
     assert exercised >= 8
 
     # The pristine copy still migrates cleanly after all injected faults.
+    # C1: opening it runs v3->v4->v5, so the terminal user_version is 5.
     store = V4Store(pristine)
     try:
-        assert store.query_one("PRAGMA user_version")["user_version"] == 4
+        assert store.query_one("PRAGMA user_version")["user_version"] == 5
+        assert store.query_one(
+            "SELECT schema_hash h FROM schema_migrations WHERE version=5")["h"] == MANAGED_V5_FINGERPRINT
     finally:
         store.close()

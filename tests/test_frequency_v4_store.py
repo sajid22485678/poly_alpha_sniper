@@ -315,6 +315,55 @@ def test_non_v4_database_is_refused_without_migration(tmp_path):
         V4Store(path)
 
 
+def test_user_version_ahead_of_schema_version_is_refused(tmp_path):
+    """STORE-F: a database claiming a future schema version must fail closed.
+
+    Authority derives from MAX(schema_migrations.version), not from
+    user_version; a pragma ahead of SCHEMA_VERSION must not be silently
+    accepted as exact managed v5 (C1.B probe F).
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import SCHEMA_VERSION
+    path = tmp_path / "v4.db"
+    store = V4Store(path)
+    store.close()
+    conn = sqlite3.connect(path)
+    conn.execute(f"PRAGMA user_version={SCHEMA_VERSION + 3}")
+    conn.commit()
+    conn.close()
+    with pytest.raises(V4SchemaError, match="ahead of SCHEMA_VERSION"):
+        V4Store(path)
+    # The pragma must not have been silently lowered.
+    conn = sqlite3.connect(path)
+    assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == SCHEMA_VERSION + 3
+    conn.close()
+
+
+def test_user_version_behind_is_reconciled_after_fingerprint_gate(tmp_path):
+    """STORE-G: a lagging user_version is advanced to SCHEMA_VERSION, but
+    only after the full managed-fingerprint gate has passed.  Safe, not
+    masking: authority is MAX(schema_migrations.version), never user_version.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import SCHEMA_VERSION
+    path = tmp_path / "v4.db"
+    store = V4Store(path)
+    store.close()
+    # Lower the pragma to simulate a stale cache while the v5 migration
+    # record (and the full managed fingerprint) remain authoritative.
+    conn = sqlite3.connect(path)
+    conn.execute(f"PRAGMA user_version={SCHEMA_VERSION - 1}")
+    conn.commit()
+    conn.close()
+    reopened = V4Store(path)
+    try:
+        cur = reopened.query_one("PRAGMA user_version")
+        assert int(cur["user_version"]) == SCHEMA_VERSION
+        # The fingerprint gate must still pass on the reconciled store.
+        ic = reopened.integrity_check()
+        assert ic == {"integrity": "ok", "foreign_key_violations": []}
+    finally:
+        reopened.close()
+
+
 def test_source_event_dedup_future_regression_and_unchanged_fresh_tick(tmp_path):
     store = V4Store(tmp_path / "v4.db")
     try:
@@ -1666,3 +1715,649 @@ def test_background_gate_releases_once_per_outer_transaction(tmp_path):
         assert calls == {"admit": 3, "release": 3}
     finally:
         store.close()
+
+
+# --- STORE-DE managed-object census (Human Authority Ruling 2) -----------
+#
+# The managed-v5 fingerprint selects only the eight managed objects by
+# name, so it is structurally blind to a ninth object attached to a
+# managed table (C1.B probes D/E in the read-only review).  The separate
+# fail-closed census check refuses any extra index, trigger, table, or
+# view in the managed namespace without mutating the database.
+
+# The authoritative literals the census must preserve:
+_STORE_DE_FINGERPRINT = (
+    "6448f0dc66225f55cbe2a5b395f14fc9e193bf8556a713caf896846574bdc715"
+)
+_STORE_DE_PAYLOAD_BYTES = 4603
+_STORE_DE_MANAGED_COUNT = 8
+
+
+def _fresh_v5_db(tmp_path):
+    """Build a fresh managed-v5 database and return its path.
+
+    Construction through V4Store lands on exact managed v5 (v4 base then
+    the additive v5 migration).  Returns the path; the caller reopens
+    directly with sqlite3 for the probe.
+    """
+    path = tmp_path / "v5.db"
+    store = V4Store(path)
+    store.close()
+    return path
+
+
+def test_STORE_DE_valid_eight_object_schema_is_accepted(tmp_path):
+    """The canonical eight-object schema passes the census, and the
+    fingerprint, payload, and managed count remain the authority literals.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_fingerprint, managed_v5_records, managed_v5_object_census,
+    )
+    import json
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        # The census accepts the valid schema.
+        census = managed_v5_object_census(conn)
+        assert len(census) == _STORE_DE_MANAGED_COUNT
+        # The fingerprint remains the authority literal.
+        assert managed_v5_fingerprint(conn) == _STORE_DE_FINGERPRINT
+        # The payload remains the authority byte count.
+        records = managed_v5_records(conn)
+        payload = json.dumps(
+            records, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+            allow_nan=False).encode("utf-8")
+        assert len(payload) == _STORE_DE_PAYLOAD_BYTES
+        # integrity_check / foreign_key_check stay clean.
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_extra_explicit_index_on_managed_table_is_refused(tmp_path):
+    """C1.B probe D: a ninth explicit index on a managed table is refused
+    by the census (the named-selection fingerprint alone would miss it).
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census, verify_managed_v5_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE INDEX ix_extra_probe_d "
+                     "ON cluster_arbitration_events(seq)")
+        conn.commit()
+        with pytest.raises(ValueError, match="unexpected managed-namespace object"):
+            managed_v5_object_census(conn)
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_extra_trigger_on_managed_table_is_refused(tmp_path):
+    """C1.B probe E: a trigger on a managed table is refused by the census.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            "CREATE TRIGGER tr_extra_probe_e AFTER INSERT ON cluster_locks "
+            "BEGIN SELECT 1; END")
+        conn.commit()
+        with pytest.raises(ValueError, match="unexpected managed-namespace object"):
+            managed_v5_object_census(conn)
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_unrelated_app_table_outside_namespace_not_rejected(tmp_path):
+    """A user-authored table OUTSIDE the managed namespace (different name
+    AND different tbl_name) is not falsely rejected by the census.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE app_unrelated_log("
+                     "id INTEGER PRIMARY KEY, note TEXT)")
+        conn.execute("CREATE INDEX ix_app_unrelated_note "
+                     "ON app_unrelated_log(note)")
+        conn.commit()
+        # Census still sees exactly the eight managed objects.
+        census = managed_v5_object_census(conn)
+        assert len(census) == _STORE_DE_MANAGED_COUNT
+        assert {row["name"] for row in census} == {
+            "cluster_arbitrations", "cluster_arbitration_events",
+            "cluster_locks", "cohort_pilot_starts",
+            "ix_cohorts_single_authoritative", "ix_cluster_arbitrations_status",
+            "ix_cluster_events_cluster", "ix_cluster_locks_state"}
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_sqlite_internal_and_implicit_autoindexes_excluded(tmp_path):
+    """SQLite internal objects (sqlite_*) and implicit autoindexes
+    (sql IS NULL) are excluded from the census even though they attach to
+    managed tables.  The canonical schema carries several such implicit
+    indexes (PRIMARY KEY / UNIQUE autoindexes); the census must see 8, not
+    more.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        # Sanity: the fresh v5 schema DOES contain implicit autoindexes
+        # (sqlite_autoindex_*) on the managed tables.  These must be
+        # excluded by name prefix and by sql IS NULL.
+        auto = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master "
+            "WHERE name LIKE 'sqlite_autoindex_%' AND sql IS NULL").fetchone()[0]
+        assert auto >= 1, "expected implicit autoindexes in the canonical schema"
+        census = managed_v5_object_census(conn)
+        assert len(census) == _STORE_DE_MANAGED_COUNT
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_sqlite_literal_prefix_does_not_hide_managed_object(tmp_path):
+    """Only the literal ``sqlite_`` internal namespace is excluded.
+
+    An explicit object named ``sqliteX...`` is user-authored, so the ``X``
+    must not satisfy an unescaped underscore wildcard and hide an otherwise
+    forbidden index attached to a managed table.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            "CREATE INDEX sqliteXmanaged_probe "
+            "ON cluster_locks(updated_ts_ms)")
+        conn.commit()
+        with pytest.raises(
+                ValueError,
+                match="unexpected managed-namespace object",
+        ) as exc_info:
+            managed_v5_object_census(conn)
+        assert "sqliteXmanaged_probe" in str(exc_info.value)
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_refusal_does_not_modify_user_version_or_schema(tmp_path):
+    """A census refusal must not mutate user_version, schema_migrations,
+    or any managed object.  The check is read-only.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census, SCHEMA_VERSION,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE INDEX ix_refuse_probe "
+                     "ON cluster_arbitrations(created_ts_ms)")
+        conn.commit()
+        uv_before = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        sm_before = conn.execute(
+            "SELECT version, schema_hash FROM schema_migrations "
+            "ORDER BY version").fetchall()
+        with pytest.raises(ValueError):
+            managed_v5_object_census(conn)
+        uv_after = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        sm_after = conn.execute(
+            "SELECT version, schema_hash FROM schema_migrations "
+            "ORDER BY version").fetchall()
+        assert uv_before == uv_after == SCHEMA_VERSION
+        assert sm_before == sm_after
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_integrity_and_fk_check_ok_after_refusal(tmp_path):
+    """After a census refusal, the database still passes integrity_check
+    and foreign_key_check (the check must not corrupt anything).
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE INDEX ix_integrity_probe "
+                     "ON cluster_locks(updated_ts_ms)")
+        conn.commit()
+        with pytest.raises(ValueError):
+            managed_v5_object_census(conn)
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_store_open_refuses_extra_managed_object(tmp_path):
+    """End-to-end: a database carrying a ninth managed-namespace object
+    must be refused when reopened through V4Store (not just by the bare
+    census helper).  This proves the census is wired into the open path.
+
+    The census raises ``ValueError`` (the same exception family the
+    fingerprint's ``managed_v5_records`` raises); V4Store does not
+    swallow it.
+    """
+    path = _fresh_v5_db(tmp_path)
+    # Add the extra object via a direct connection, then reopen via V4Store.
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE INDEX ix_e2e_probe ON cluster_arbitrations(updated_ts_ms)")
+    conn.commit()
+    conn.close()
+    with pytest.raises(ValueError, match="unexpected managed-namespace object"):
+        V4Store(path)
+
+
+def test_STORE_DE_shadow_table_with_managed_prefix_is_refused(tmp_path):
+    """A standalone table whose name shadows a managed-table prefix
+    (e.g. 'cluster_arbitrations_shadow_probe') is refused by the census
+    as a same-namespace imitation, even though its tbl_name is itself
+    and it is not one of the eight canonical names.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE cluster_arbitrations_shadow_probe("
+                     "id INTEGER PRIMARY KEY)")
+        conn.commit()
+        with pytest.raises(ValueError, match="unexpected managed-namespace object"):
+            managed_v5_object_census(conn)
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_out_of_namespace_view_is_not_falsely_rejected(tmp_path):
+    """Boundary check: a view whose name carries no managed prefix and
+    whose tbl_name is not a managed table is OUT of the managed
+    namespace and must NOT be falsely rejected, even if its body
+    references a managed table.  The namespace is defined by object name
+    and tbl_name only (SQL-text scanning is deliberately not performed).
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE VIEW v_cluster_arbitrations_probe "
+                     "AS SELECT cohort FROM cluster_arbitrations")
+        conn.commit()
+        # Out-of-namespace -> census still sees exactly the eight.
+        census = managed_v5_object_census(conn)
+        assert len(census) == _STORE_DE_MANAGED_COUNT
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_app_table_with_cluster_prefix_not_falsely_rejected(tmp_path):
+    """Boundary check: an application table whose name shares a broader
+    prefix (e.g. 'cluster_app_log') but is NOT a managed-table prefix
+    ('cluster_arbitrations', etc.) is OUT of the managed namespace and
+    must not be falsely rejected.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE cluster_app_log("
+                     "id INTEGER PRIMARY KEY, note TEXT)")
+        conn.commit()
+        census = managed_v5_object_census(conn)
+        assert len(census) == _STORE_DE_MANAGED_COUNT
+    finally:
+        conn.close()
+
+
+# --- STORE-DE regression: SQLite LIKE false positive ---------------------
+#
+# The managed-object census builds a SQLite ``LIKE ? ESCAPE '\\'`` prefix
+# pattern for shadow detection.  The original implementation escaped only
+# the appended separator underscore, leaving the underscores already present
+# inside managed table names (e.g. the '_' in 'cluster_arbitrations') as
+# unescaped single-char wildcards.  As a result a pattern meant to represent
+# ``cluster_arbitrations_%`` could wrongly accept an unrelated
+# ``clusterXarbitrations_probe`` (the internal '_' matched the 'X').
+#
+# The fix escapes the whole literal table name before appending the escaped
+# separator underscore and the wildcard, so the pattern matches only names
+# beginning with ``<exact managed table>_``.  These tests pin the fix.
+
+
+@pytest.mark.parametrize("probe_table", [
+    "clusterXarbitrations_probe",      # would match if internal '_' were a wildcard
+    "clusterXlocks_probe",
+    "cohortXpilotXstarts_probe",
+    "clusterXarbitrationXevents_probe",
+])
+def test_STORE_DE_false_positive_like_pattern_accepts_unrelated_probe(
+        tmp_path, probe_table):
+    """STORE-DE false-positive regression: an unrelated application table
+    whose name differs from a managed table only by characters that an
+    unescaped '_' wildcard could absorb must be ACCEPTED (not refused).
+
+    Before the fix, the LIKE pattern 'cluster_arbitrations\\_%' treated the
+    internal underscores as wildcards and matched 'clusterXarbitrations_probe',
+    falsely refusing an unrelated object.  The escaped pattern must match
+    only names beginning with the exact literal 'cluster_arbitrations_'.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            f"CREATE TABLE {probe_table}(id INTEGER PRIMARY KEY, note TEXT)")
+        conn.commit()
+        census = managed_v5_object_census(conn)
+        assert len(census) == _STORE_DE_MANAGED_COUNT
+        assert probe_table not in {row["name"] for row in census}
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("probe_table,managed_table", [
+    ("cluster_arbitrations_probe", "cluster_arbitrations"),
+    ("cluster_locks_probe", "cluster_locks"),
+    ("cohort_pilot_starts_probe", "cohort_pilot_starts"),
+    ("cluster_arbitration_events_probe", "cluster_arbitration_events"),
+])
+def test_STORE_DE_exact_managed_prefix_shadow_is_refused(
+        tmp_path, probe_table, managed_table):
+    """STORE-DE regression: a table whose name begins with an exact managed
+    table name followed by a literal underscore ('<table>_...') IS in the
+    managed namespace and must be REFUSED as a same-namespace shadow.
+
+    This is the positive side of the same fix: after escaping the whole
+    table name, the literal prefix still matches a genuine shadow object.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            f"CREATE TABLE {probe_table}(id INTEGER PRIMARY KEY)")
+        conn.commit()
+        with pytest.raises(ValueError,
+                           match="unexpected managed-namespace object"):
+            managed_v5_object_census(conn)
+        # Managed table name referenced only to anchor intent; assert it is
+        # present so the test cannot silently pass against a renamed schema.
+        assert managed_table in {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_escape_helper_produces_no_unescaped_metachars():
+    """Unit coverage for the SQLite LIKE literal escaper used by the census.
+
+    The escaped output must contain no unescaped ``%`` or ``_`` so it can be
+    used verbatim before appending an escaped separator and wildcard.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        escape_sqlite_like_literal,
+    )
+    # Backslash must be doubled FIRST so it does not double the later escapes.
+    assert escape_sqlite_like_literal("\\") == "\\\\"
+    assert escape_sqlite_like_literal("%") == "\\%"
+    assert escape_sqlite_like_literal("_") == "\\_"
+    # A real managed table name: every internal '_' is escaped.
+    assert escape_sqlite_like_literal("cluster_arbitrations") == (
+        "cluster\\_arbitrations")
+    # Order independence: a string mixing all three metacharacters.
+    assert escape_sqlite_like_literal("a%_\\b") == "a\\%\\_\\\\b"
+    # Append the escaped separator + wildcard to build the census pattern.
+    assert (escape_sqlite_like_literal("cluster_arbitrations") + "\\_%") == (
+        "cluster\\_arbitrations\\_%")
+
+
+def test_STORE_DE_missing_canonical_object_is_refused(tmp_path):
+    """STORE-DE regression: removing one canonical managed object from an
+    isolated scratch schema is refused, with a deterministic error reason
+    that identifies the missing canonical object by name.
+
+    The census's namespace query only returns managed-namespace objects, so a
+    missing canonical object surfaces from the set-difference check that names
+    the missing objects explicitly.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        # Drop the canonical index ix_cluster_locks_state (and its rows) to
+        # model a missing canonical managed object on an otherwise-correct
+        # schema.  SQLite permits DROP INDEX on an explicit index.
+        conn.execute("DROP INDEX ix_cluster_locks_state")
+        conn.commit()
+        with pytest.raises(
+                ValueError,
+                match="missing managed-namespace objects",
+        ) as exc_info:
+            managed_v5_object_census(conn)
+        assert "ix_cluster_locks_state" in str(exc_info.value)
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_missing_canonical_table_is_refused(tmp_path):
+    """STORE-DE regression: a missing canonical managed TABLE is refused
+    with a deterministic error reason naming the missing table.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        # cluster_locks is referenced by an index; drop dependent index first.
+        conn.execute("DROP INDEX IF EXISTS ix_cluster_locks_state")
+        conn.execute("DROP TABLE cluster_locks")
+        conn.commit()
+        with pytest.raises(
+                ValueError,
+                match="missing managed-namespace objects",
+        ) as exc_info:
+            managed_v5_object_census(conn)
+        assert "cluster_locks" in str(exc_info.value)
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_missing_canonical_object_refused_through_store_open(tmp_path):
+    """STORE-DE regression: V4Store open also refuses a database missing a
+    canonical managed object.  The open path runs the managed-v5 fingerprint
+    (managed_v5_records) before the census, so a missing canonical object is
+    reported by whichever check runs first; both messages deterministically
+    name the missing object.
+    """
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    conn.execute("DROP INDEX ix_cluster_locks_state")
+    conn.commit()
+    conn.close()
+    with pytest.raises(ValueError, match="missing managed") as exc_info:
+        V4Store(path)
+    assert "ix_cluster_locks_state" in str(exc_info.value)
+
+
+def test_STORE_DE_renamed_canonical_object_is_refused(tmp_path):
+    """STORE-DE regression: a canonical managed object that has been RENAMED
+    (recreated under a non-canonical name) is refused.  The original name is
+    then reported as missing, and the new non-canonical name is reported as
+    an unexpected namespace object (it carries the managed-table prefix).
+
+    This catches a schema where an attacker keeps the column shape but moves
+    a managed object out of its canonical name.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        # Recreate the canonical index under a non-canonical name beginning
+        # with the managed-table prefix, then drop the canonical one.  The
+        # non-canonical name shares the 'cluster_locks_' prefix, so it is in
+        # the managed namespace and must be refused as unexpected; the
+        # canonical name is simultaneously missing.
+        conn.execute(
+            "CREATE INDEX cluster_locks_state_renamed_probe "
+            "ON cluster_locks(state)")
+        conn.execute("DROP INDEX ix_cluster_locks_state")
+        conn.commit()
+        with pytest.raises(
+                ValueError,
+                match="unexpected managed-namespace object",
+        ) as exc_info:
+            managed_v5_object_census(conn)
+        assert "cluster_locks_state_renamed_probe" in str(exc_info.value)
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_renamed_canonical_object_refused_through_store_open(tmp_path):
+    """V4Store's actual open gate refuses a renamed canonical object.
+
+    The named-object fingerprint runs before the census on an exact-v5 open,
+    so this path reports the missing canonical name.  The failed open must not
+    change user_version, schema_migrations, or sqlite_master.
+    """
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE INDEX cluster_locks_state_renamed_probe "
+        "ON cluster_locks(state)")
+    conn.execute("DROP INDEX ix_cluster_locks_state")
+    conn.commit()
+    uv_before = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    sm_before = conn.execute(
+        "SELECT version, schema_hash FROM schema_migrations "
+        "ORDER BY version").fetchall()
+    master_before = conn.execute(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master "
+        "ORDER BY type, name").fetchall()
+    conn.close()
+
+    with pytest.raises(ValueError, match="missing managed") as exc_info:
+        V4Store(path)
+    assert "ix_cluster_locks_state" in str(exc_info.value)
+
+    conn = sqlite3.connect(path)
+    try:
+        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == uv_before
+        assert conn.execute(
+            "SELECT version, schema_hash FROM schema_migrations "
+            "ORDER BY version").fetchall() == sm_before
+        assert conn.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_master "
+            "ORDER BY type, name").fetchall() == master_before
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_false_positive_acceptance_is_read_only(tmp_path):
+    """STORE-DE regression: acceptance under the corrected LIKE pattern does
+    not mutate user_version, schema_migrations, or any managed object;
+    integrity/FK checks stay clean.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census, SCHEMA_VERSION,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE clusterXarbitrations_probe("
+                     "id INTEGER PRIMARY KEY, note TEXT)")
+        conn.commit()
+        uv_before = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        sm_before = conn.execute(
+            "SELECT version, schema_hash FROM schema_migrations "
+            "ORDER BY version").fetchall()
+        master_before = conn.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_master "
+            "ORDER BY type, name").fetchall()
+        # Accepted (out of namespace) -> no raise, read-only.
+        census = managed_v5_object_census(conn)
+        assert len(census) == _STORE_DE_MANAGED_COUNT
+        uv_after = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        sm_after = conn.execute(
+            "SELECT version, schema_hash FROM schema_migrations "
+            "ORDER BY version").fetchall()
+        master_after = conn.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_master "
+            "ORDER BY type, name").fetchall()
+        assert uv_before == uv_after == SCHEMA_VERSION
+        assert sm_before == sm_after
+        assert master_before == master_after
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        conn.close()
+
+
+def test_STORE_DE_exact_prefix_refusal_is_read_only(tmp_path):
+    """STORE-DE regression: an exact-prefix shadow refusal is read-only.
+    user_version, schema_migrations, and all managed objects are unchanged;
+    sqlite_master differs ONLY by the intentionally-created probe object.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.store import (
+        managed_v5_object_census,
+    )
+    path = _fresh_v5_db(tmp_path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE cluster_arbitrations_probe("
+                     "id INTEGER PRIMARY KEY)")
+        conn.commit()
+        uv_before = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        sm_before = conn.execute(
+            "SELECT version, schema_hash FROM schema_migrations "
+            "ORDER BY version").fetchall()
+        managed_before = conn.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_master "
+            "WHERE name NOT LIKE 'sqlite_%' "
+            "ORDER BY type, name").fetchall()
+        with pytest.raises(ValueError):
+            managed_v5_object_census(conn)
+        uv_after = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        sm_after = conn.execute(
+            "SELECT version, schema_hash FROM schema_migrations "
+            "ORDER BY version").fetchall()
+        managed_after = conn.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_master "
+            "WHERE name NOT LIKE 'sqlite_%' "
+            "ORDER BY type, name").fetchall()
+        assert uv_before == uv_after
+        assert sm_before == sm_after
+        assert managed_before == managed_after
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        conn.close()

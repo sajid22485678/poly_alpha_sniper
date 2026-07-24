@@ -209,7 +209,13 @@ def test_partial_config_cannot_inherit_safe_defaults_silently():
         assert_v4_safety({})
 
 
-def test_atomic_export_writes_only_caller_v4_json_and_no_temp_file(tmp_path):
+def test_atomic_export_writes_only_caller_v4_json_and_no_temp_file(tmp_path, monkeypatch):
+    # C1.H uses strict canonical containment: the guard accepts writes only
+    # under canonical_export_dir().  Tests repoint the canonical root at
+    # tmp_path via the single monkeypatchable derivation rather than
+    # loosening the guard.
+    from poly_alpha_sniper.lite_frequency_v4 import export as export_mod
+    monkeypatch.setattr(export_mod, "canonical_export_dir", lambda: tmp_path)
     store, session, _ = _store_with_health(tmp_path)
     output = tmp_path / "readonly_v4"
     try:
@@ -238,3 +244,170 @@ def test_export_module_has_no_legacy_store_or_execution_imports():
         "place_order", "cancel_order", "polymarket_clob_private",
     ):
         assert forbidden not in source
+
+
+# --- C1.H export guard regression suite -----------------------------------
+# Strict canonical containment (design a).  The guard must accept writes only
+# under canonical_export_dir() and refuse every other path.  Tests repoint
+# the canonical root at tmp_path via the single monkeypatchable derivation.
+
+from poly_alpha_sniper.lite_frequency_v4 import export as _export_mod  # noqa: E402
+
+
+def _point_canonical_at(monkeypatch, root: Path) -> None:
+    """Repoint canonical_export_dir() at ``root`` for hermetic testing."""
+    monkeypatch.setattr(_export_mod, "canonical_export_dir", lambda: root)
+
+
+def test_c1h_canonical_destination_accepted(tmp_path, monkeypatch):
+    # A path directly under the canonical dir is accepted.
+    canon = tmp_path / "canon"
+    canon.mkdir()
+    _point_canonical_at(monkeypatch, canon)
+    resolved = _export_mod.assert_canonical_export_path(canon / "out.json")
+    assert resolved == (canon / "out.json").resolve()
+
+
+def test_c1h_canonical_subdirectory_accepted(tmp_path, monkeypatch):
+    canon = tmp_path / "canon"
+    _point_canonical_at(monkeypatch, canon)
+    nested = canon / "sub" / "deep"
+    resolved = _export_mod.assert_canonical_export_path(nested)
+    # Directory input appends EXPORT_FILENAME.
+    assert resolved == (nested / _export_mod.EXPORT_FILENAME).resolve()
+
+
+def test_c1h_canonical_dir_root_itself_accepted(tmp_path, monkeypatch):
+    # The canonical dir itself is accepted (path is root or descendant).
+    canon = tmp_path / "canon"
+    canon.mkdir()
+    _point_canonical_at(monkeypatch, canon)
+    resolved = _export_mod.assert_canonical_export_path(canon)
+    assert resolved == (canon / _export_mod.EXPORT_FILENAME).resolve()
+
+
+def test_c1h_live_production_source_tree_refused(tmp_path, monkeypatch):
+    """The live production repo root must be refused from a staging test."""
+    _point_canonical_at(monkeypatch, tmp_path)
+    live_repo = Path(r"D:\claude\poly_alpha_sniper")
+    with pytest.raises(ValueError, match="outside the canonical export directory"):
+        _export_mod.assert_canonical_export_path(live_repo)
+
+
+def test_c1h_live_production_source_subdir_refused(tmp_path, monkeypatch):
+    _point_canonical_at(monkeypatch, tmp_path)
+    live_sub = Path(r"D:\claude\poly_alpha_sniper\lite_frequency_v4")
+    with pytest.raises(ValueError, match="outside the canonical export directory"):
+        _export_mod.assert_canonical_export_path(live_sub)
+
+
+def test_c1h_arbitrary_path_refused(tmp_path, monkeypatch):
+    _point_canonical_at(monkeypatch, tmp_path)
+    arbitrary = Path(r"C:\Windows\Temp\anywhere")
+    with pytest.raises(ValueError, match="outside the canonical export directory"):
+        _export_mod.assert_canonical_export_path(arbitrary)
+
+
+def test_c1h_sibling_directory_refused(tmp_path, monkeypatch):
+    canon = tmp_path / "canon"
+    canon.mkdir()
+    _point_canonical_at(monkeypatch, canon)
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    with pytest.raises(ValueError, match="outside the canonical export directory"):
+        _export_mod.assert_canonical_export_path(sibling)
+
+
+def test_c1h_parent_directory_refused(tmp_path, monkeypatch):
+    canon = tmp_path / "canon"
+    canon.mkdir()
+    _point_canonical_at(monkeypatch, canon)
+    # tmp_path is the PARENT of the canonical dir; must be refused.
+    with pytest.raises(ValueError, match="outside the canonical export directory"):
+        _export_mod.assert_canonical_export_path(tmp_path)
+
+
+def test_c1h_nested_unauthorized_directory_refused(tmp_path, monkeypatch):
+    canon = tmp_path / "canon"
+    canon.mkdir()
+    _point_canonical_at(monkeypatch, canon)
+    nested_unauth = tmp_path / "other_root" / "deep" / "tree"
+    nested_unauth.mkdir(parents=True)
+    with pytest.raises(ValueError, match="outside the canonical export directory"):
+        _export_mod.assert_canonical_export_path(nested_unauth)
+
+
+def test_c1h_dotdot_relative_escape_refused(tmp_path, monkeypatch):
+    canon = tmp_path / "canon"
+    canon.mkdir()
+    _point_canonical_at(monkeypatch, canon)
+    # A path that uses .. to climb ABOVE the canonical dir resolves outside
+    # it and must be refused (relative-path escape).
+    escape = canon / ".." / "escaped.json"
+    with pytest.raises(ValueError, match="outside the canonical export directory"):
+        _export_mod.assert_canonical_export_path(escape)
+
+
+def test_c1h_absolute_path_with_traversal_refused(tmp_path, monkeypatch):
+    canon = tmp_path / "canon"
+    canon.mkdir()
+    _point_canonical_at(monkeypatch, canon)
+    # An absolute path that embeds .. to leave the canonical dir.
+    escape = (canon / "sub" / ".." / ".." / "escape.json").resolve()
+    with pytest.raises(ValueError, match="outside the canonical export directory"):
+        _export_mod.assert_canonical_export_path(escape)
+
+
+def test_c1h_case_and_separator_normalization_handled(tmp_path, monkeypatch):
+    # Windows: drive letter and path comparison are case-insensitive; both
+    # / and \ must compare equal.  The canonical path with different case
+    # and separators is still recognized as canonical.
+    canon = tmp_path / "canon"
+    canon.mkdir()
+    _point_canonical_at(monkeypatch, canon)
+    # Build a path under canon but with mixed separators/case on the drive.
+    resolved_canon = str(canon.resolve())
+    mixed = resolved_canon.replace("\\", "/") + "/report.JSON"
+    resolved = _export_mod.assert_canonical_export_path(mixed)
+    # .JSON (uppercase) is treated as a .json file (suffix check is case-insensitive)
+    assert resolved.name == "report.JSON"
+
+
+def test_c1h_write_path_uses_guard(tmp_path, monkeypatch):
+    """write_frequency_v4_dashboard routes through the guard and refuses."""
+    canon = tmp_path / "canon"
+    canon.mkdir()
+    _point_canonical_at(monkeypatch, canon)
+    store, session, _ = _store_with_health(tmp_path)
+    try:
+        # Writing outside the canonical dir must fail before any file is built.
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        with pytest.raises(ValueError, match="outside the canonical export directory"):
+            write_frequency_v4_dashboard(
+                store, outside, now_ms=NOW, config=FrequencyV4Config(),
+                session_id=session,
+                runtime_state={"session_id": session, "heartbeat_ts_ms": NOW},
+            )
+        # And no file may have been written there.
+        assert not list(outside.iterdir())
+    finally:
+        store.close()
+
+
+def test_c1h_no_hardcoded_production_path_in_module():
+    """C1.H exists to remove hardcoded production paths; none may survive."""
+    source = (Path(__file__).resolve().parent.parent /
+              "lite_frequency_v4" / "export.py").read_text(encoding="utf-8")
+    # The live production path must not be hardcoded anywhere in export.py.
+    assert r"D:\claude\poly_alpha_sniper" not in source
+    assert "poly_alpha_sniper" not in source
+
+
+def test_c1h_canonical_dir_is_single_source_of_truth():
+    """canonical_export_dir() is the only canonical-path derivation; no
+    dead _CANONICAL_EXPORT_DIR import or _production_live_export_dir()."""
+    source = (Path(__file__).resolve().parent.parent /
+              "lite_frequency_v4" / "export.py").read_text(encoding="utf-8")
+    assert "_production_live_export_dir" not in source
+    assert "_CANONICAL_EXPORT_DIR" not in source
