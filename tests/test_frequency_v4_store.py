@@ -4,11 +4,13 @@ import time
 
 import pytest
 
+from poly_alpha_sniper.lite_frequency_v4 import store as store_module
 from poly_alpha_sniper.lite_frequency_v4.contracts import CexObservation, SourceEvent
 from poly_alpha_sniper.lite_frequency_v4.store import (
     ACTIVE_COHORT,
     EXPECTED_TABLES,
     ExposureLimitExceeded,
+    MANAGED_V5_TYPES,
     V4BackgroundWriteDeferred,
     V4SchemaError,
     V4Store,
@@ -353,6 +355,92 @@ def _create_foreign_table(path, name):
         conn.close()
 
 
+def _create_incomplete_v4_like_database(path, *, foreign_parent_shells=False):
+    """Create the audit's canonical-metadata but non-authoritative V4 shell."""
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_ts_ms INTEGER NOT NULL CHECK(applied_ts_ms >= 0),
+                schema_hash TEXT NOT NULL
+            );
+            INSERT INTO schema_migrations(version,applied_ts_ms,schema_hash)
+            VALUES(4,0,'foreign-v4-shell');
+            PRAGMA user_version=0;
+            """
+        )
+        if foreign_parent_shells:
+            # These are just sufficient for the old V5 DDL to run to
+            # completion: all referenced parent keys exist and the partial
+            # cohorts index can be created.  They are deliberately not the
+            # authoritative V4 base tables.
+            conn.executescript(
+                """
+                CREATE TABLE cohorts(
+                    cohort TEXT PRIMARY KEY,
+                    authoritative INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE asset_windows(window_id INTEGER PRIMARY KEY);
+                CREATE TABLE entries(entry_id INTEGER PRIMARY KEY);
+                CREATE TABLE runtime_sessions(session_id TEXT PRIMARY KEY);
+                """
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _downgrade_fresh_store_to_v4(path, *, user_version=4):
+    """Build a complete genuine V4 base by removing only managed V5 state."""
+    V4Store(path).close()
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("BEGIN IMMEDIATE")
+        for name, object_type in MANAGED_V5_TYPES.items():
+            if object_type == "index":
+                conn.execute(f'DROP INDEX IF EXISTS "{name}"')
+        for name, object_type in MANAGED_V5_TYPES.items():
+            if object_type == "table":
+                conn.execute(f'DROP TABLE IF EXISTS "{name}"')
+        conn.execute("DELETE FROM schema_migrations WHERE version=5")
+        conn.execute(f"PRAGMA user_version={int(user_version)}")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _rewrite_table_definition(path, table_name, old, new):
+    """Change one scratch-table definition while preserving its indexes."""
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        table_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,),
+        ).fetchone()[0]
+        rewritten = str(table_sql).replace(old, new, 1)
+        assert rewritten != table_sql
+        index_sql = [
+            row[0] for row in conn.execute(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type='index' AND tbl_name=? AND sql IS NOT NULL "
+                "ORDER BY name",
+                (table_name,),
+            )
+        ]
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(f'DROP TABLE "{table_name}"')
+        conn.execute(rewritten)
+        for statement in index_sql:
+            conn.execute(statement)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def test_fresh_schema_has_all_normalized_tables_wal_fk_and_integrity(tmp_path):
     sentinel = tmp_path / "advanced.db"
     sentinel.write_bytes(b"advanced-sentinel")
@@ -557,6 +645,152 @@ def test_malformed_schema_migrations_is_refused_without_mutation(
         conn.close()
 
     _assert_schema_refusal_is_read_only(path, match="schema_migrations")
+
+
+def test_v4_base_incomplete_canonical_metadata_refuses_before_v5_mutation(
+        tmp_path,
+):
+    path = tmp_path / "incomplete-canonical-v4-like.db"
+    _create_incomplete_v4_like_database(path)
+
+    after = _assert_schema_refusal_is_read_only(
+        path, match=r"incomplete v4 base schema: missing table ")
+
+    names = {row[1] for row in after["inventory"]}
+    assert set(MANAGED_V5_TYPES).isdisjoint(names)
+    assert after["schema_migrations_rows"] == (
+        (4, 0, "foreign-v4-shell"),
+    )
+    assert after["user_version"] == 0
+
+
+def test_v4_base_foreign_parent_shells_refuse_before_v5_mutation(tmp_path):
+    path = tmp_path / "foreign-parent-shells-v4-like.db"
+    _create_incomplete_v4_like_database(path, foreign_parent_shells=True)
+
+    after = _assert_schema_refusal_is_read_only(
+        path, match=r"incomplete v4 base schema: missing table ")
+
+    names = {row[1] for row in after["inventory"]}
+    assert {
+        "schema_migrations", "cohorts", "asset_windows",
+        "entries", "runtime_sessions",
+    } <= names
+    assert set(MANAGED_V5_TYPES).isdisjoint(names)
+    assert after["schema_migrations_rows"] == (
+        (4, 0, "foreign-v4-shell"),
+    )
+    assert after["user_version"] == 0
+
+
+def test_v4_base_missing_required_table_is_named_and_read_only(tmp_path):
+    path = tmp_path / "missing-base-table.db"
+    _downgrade_fresh_store_to_v4(path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("DROP TABLE anchor_observations")
+        conn.commit()
+    finally:
+        conn.close()
+
+    _assert_schema_refusal_is_read_only(
+        path,
+        match=r"incomplete v4 base schema: missing table anchor_observations",
+    )
+
+
+def test_v4_base_missing_required_column_is_named_and_read_only(tmp_path):
+    path = tmp_path / "missing-base-column.db"
+    _downgrade_fresh_store_to_v4(path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("ALTER TABLE retention_runs DROP COLUMN integrity_result")
+        conn.commit()
+    finally:
+        conn.close()
+
+    _assert_schema_refusal_is_read_only(
+        path,
+        match=r"missing column retention_runs\.integrity_result",
+    )
+
+
+def test_v4_base_incompatible_column_shape_is_named_and_read_only(tmp_path):
+    path = tmp_path / "incompatible-base-column.db"
+    _downgrade_fresh_store_to_v4(path)
+    _rewrite_table_definition(
+        path,
+        "runtime_health",
+        "loop_lag_ms REAL",
+        "loop_lag_ms TEXT",
+    )
+
+    _assert_schema_refusal_is_read_only(
+        path,
+        match=r"incompatible v4 base column runtime_health\.loop_lag_ms",
+    )
+
+
+def test_v4_base_user_version_ahead_of_recorded_v4_is_refused_read_only(
+        tmp_path,
+):
+    path = tmp_path / "v4-user-version-ahead.db"
+    _downgrade_fresh_store_to_v4(path, user_version=5)
+
+    _assert_schema_refusal_is_read_only(
+        path,
+        match=r"user_version 5 is ahead of recorded schema version 4",
+    )
+
+
+@pytest.mark.parametrize("user_version", [0, 4])
+def test_complete_v4_base_migrates_with_reconcilable_user_version(
+        tmp_path, user_version,
+):
+    path = tmp_path / f"complete-v4-user-version-{user_version}.db"
+    _downgrade_fresh_store_to_v4(path, user_version=user_version)
+
+    store = V4Store(path)
+    try:
+        assert store.query_one("PRAGMA user_version") == {"user_version": 5}
+        assert [
+            row["version"] for row in store.query(
+                "SELECT version FROM schema_migrations ORDER BY version")
+        ] == [4, 5]
+        assert len(store_module.managed_v5_records(store.connection)) == 8
+    finally:
+        store.close()
+
+
+def test_complete_v5_reopen_preserves_exact_schema_state(tmp_path):
+    path = tmp_path / "complete-v5-reopen.db"
+    V4Store(path).close()
+    before = _sqlite_schema_snapshot(path)
+
+    V4Store(path).close()
+
+    assert _sqlite_schema_snapshot(path) == before
+
+
+def test_v5_post_ddl_validation_failure_rolls_back_every_mutation(
+        tmp_path, monkeypatch,
+):
+    path = tmp_path / "v5-post-ddl-failure.db"
+    _downgrade_fresh_store_to_v4(path)
+
+    def injected_failure(_connection):
+        raise V4SchemaError("injected post-DDL V5 validation failure")
+
+    monkeypatch.setattr(
+        store_module, "verify_managed_v5_census", injected_failure)
+    after = _assert_schema_refusal_is_read_only(
+        path, match="injected post-DDL V5 validation failure")
+
+    names = {row[1] for row in after["inventory"]}
+    assert set(MANAGED_V5_TYPES).isdisjoint(names)
+    assert [row[0] for row in after["schema_migrations_rows"]] == [4]
+    assert after["user_version"] == 4
 
 
 def test_truly_empty_database_still_initializes_after_literal_prefix_fix(tmp_path):

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, is_dataclass
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -1580,6 +1581,257 @@ def _validate_schema_migrations_shape(
         )
 
 
+def _pragma_schema_rows(
+    connection: sqlite3.Connection,
+    pragma: str,
+    object_name: str,
+) -> tuple[tuple[Any, ...], ...]:
+    """Return deterministic PRAGMA metadata for one canonical schema object."""
+    escaped = object_name.replace("'", "''")
+    return tuple(
+        tuple(row)
+        for row in connection.execute(f"PRAGMA main.{pragma}('{escaped}')")
+    )
+
+
+def _normalized_v4_object_sql(
+    sql: Optional[str],
+    *,
+    object_type: str,
+    object_name: str,
+) -> str:
+    """Normalize canonical V4 SQL while tolerating SQLite's table-name quoting.
+
+    ``ALTER TABLE ... RENAME TO cohorts`` can leave the rebuilt table name
+    quoted in ``sqlite_master.sql`` even though its schema is otherwise
+    byte-for-byte equivalent to the fresh V4 definition.  Only that leading
+    identifier quoting is canonicalized; the remaining columns, constraints,
+    and SQL tokens still have to match the authoritative DDL.
+    """
+    if sql is None:
+        raise ValueError(f"{object_type} {object_name} has no SQL")
+    normalized = normalize_managed_sql(sql)
+    if object_type == "table":
+        canonical = f"CREATE TABLE {object_name}"
+        for prefix in (
+            canonical,
+            f'CREATE TABLE "{object_name}"',
+            f"CREATE TABLE `{object_name}`",
+            f"CREATE TABLE [{object_name}]",
+        ):
+            if normalized == prefix or normalized.startswith(prefix + " "):
+                return canonical + normalized[len(prefix):]
+    return normalized
+
+
+def _v4_table_contract(
+    connection: sqlite3.Connection,
+    table_name: str,
+    sql: Optional[str],
+) -> dict[str, Any]:
+    columns = tuple(
+        (
+            str(row[1]),
+            str(row[2]).upper(),
+            int(row[3]),
+            None if row[4] is None else str(row[4]),
+            int(row[5]),
+            int(row[6]),
+        )
+        for row in _pragma_schema_rows(connection, "table_xinfo", table_name)
+    )
+    foreign_keys = tuple(
+        (
+            int(row[0]),
+            int(row[1]),
+            str(row[2]),
+            str(row[3]),
+            None if row[4] is None else str(row[4]),
+            str(row[5]).upper(),
+            str(row[6]).upper(),
+            str(row[7]).upper(),
+        )
+        for row in _pragma_schema_rows(connection, "foreign_key_list", table_name)
+    )
+    return {
+        "columns": columns,
+        "foreign_keys": foreign_keys,
+        "sql": _normalized_v4_object_sql(
+            sql, object_type="table", object_name=table_name),
+    }
+
+
+def _v4_index_contract(
+    connection: sqlite3.Connection,
+    index_name: str,
+    table_name: str,
+    sql: Optional[str],
+) -> dict[str, Any]:
+    matches = [
+        row for row in _pragma_schema_rows(connection, "index_list", table_name)
+        if str(row[1]) == index_name
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"index metadata missing for {index_name}")
+    index_row = matches[0]
+    return {
+        "table": table_name,
+        "unique": int(index_row[2]),
+        "origin": str(index_row[3]),
+        "partial": int(index_row[4]),
+        "columns": tuple(
+            (
+                int(row[0]),
+                int(row[1]),
+                None if row[2] is None else str(row[2]),
+                int(row[3]),
+                str(row[4]),
+                int(row[5]),
+            )
+            for row in _pragma_schema_rows(connection, "index_xinfo", index_name)
+        ),
+        "sql": _normalized_v4_object_sql(
+            sql, object_type="index", object_name=index_name),
+    }
+
+
+@lru_cache(maxsize=1)
+def _canonical_v4_schema_contract() -> dict[str, Mapping[str, Any]]:
+    """Derive the authoritative migratable-V4 contract from ``SCHEMA_SQL``."""
+    canonical = sqlite3.connect(":memory:")
+    try:
+        canonical.executescript(SCHEMA_SQL)
+        objects = _persistent_user_schema_objects(canonical)
+        tables: dict[str, Any] = {}
+        indexes: dict[str, Any] = {}
+        for object_type, name, table_name, sql in objects:
+            if object_type == "table":
+                tables[name] = _v4_table_contract(canonical, name, sql)
+            elif object_type == "index":
+                indexes[name] = _v4_index_contract(
+                    canonical, name, table_name, sql)
+        return {"tables": tables, "indexes": indexes}
+    finally:
+        canonical.close()
+
+
+def _validate_v4_base_schema(connection: sqlite3.Connection) -> None:
+    """Refuse an incomplete or foreign V4-like database before V5 mutation.
+
+    Migration authority comes from the canonical ``schema_migrations`` table
+    and its terminal version-4 row.  ``user_version`` is a lagging cache and
+    may be reconciled only when it is within [0, 4] *and* the complete V4 base
+    schema matches the contract derived from ``SCHEMA_SQL``.  Required tables,
+    explicit indexes, columns, defaults, primary-key metadata, constraints,
+    and foreign keys are all inspected read-only before the first V5 DDL.
+    """
+    try:
+        migration_rows = connection.execute(
+            "SELECT version,applied_ts_ms,schema_hash "
+            "FROM schema_migrations ORDER BY version"
+        ).fetchall()
+        if not migration_rows:
+            raise V4SchemaError(
+                "inconsistent v4 migration state: version 4 row missing")
+        versions: list[int] = []
+        for row in migration_rows:
+            version = row[0]
+            applied_ts_ms = row[1]
+            schema_hash = row[2]
+            if (type(version) is not int or version not in {1, 2, 3, 4}
+                    or type(applied_ts_ms) is not int or applied_ts_ms < 0
+                    or not isinstance(schema_hash, str) or not schema_hash.strip()):
+                raise V4SchemaError(
+                    "inconsistent v4 migration state: invalid "
+                    "schema_migrations row")
+            versions.append(version)
+        if max(versions) != 4 or 4 not in versions:
+            raise V4SchemaError(
+                "inconsistent v4 migration state: terminal version is not 4")
+
+        pragma_version = int(
+            connection.execute("PRAGMA user_version").fetchone()[0])
+        if pragma_version < 0 or pragma_version > 4:
+            raise V4SchemaError(
+                f"inconsistent v4 migration state: user_version "
+                f"{pragma_version} is ahead of recorded schema version 4")
+
+        expected = _canonical_v4_schema_contract()
+        actual_objects = {
+            name: (object_type, table_name, sql)
+            for object_type, name, table_name, sql
+            in _persistent_user_schema_objects(connection)
+        }
+
+        for table_name in sorted(expected["tables"]):
+            found = actual_objects.get(table_name)
+            if found is None:
+                raise V4SchemaError(
+                    f"incomplete v4 base schema: missing table {table_name}")
+            if found[0] != "table":
+                raise V4SchemaError(
+                    f"incompatible v4 base object {table_name}: "
+                    f"expected table, got {found[0]}")
+
+        for table_name, table_expected in expected["tables"].items():
+            found = actual_objects[table_name]
+            table_actual = _v4_table_contract(
+                connection, table_name, found[2])
+            expected_columns = {
+                row[0]: row for row in table_expected["columns"]
+            }
+            actual_columns = {
+                row[0]: row for row in table_actual["columns"]
+            }
+            for column_name in expected_columns:
+                if column_name not in actual_columns:
+                    raise V4SchemaError(
+                        f"incomplete v4 base schema: missing column "
+                        f"{table_name}.{column_name}")
+                if actual_columns[column_name] != expected_columns[column_name]:
+                    raise V4SchemaError(
+                        f"incompatible v4 base column "
+                        f"{table_name}.{column_name}")
+            extra_columns = sorted(set(actual_columns) - set(expected_columns))
+            if extra_columns:
+                raise V4SchemaError(
+                    f"incompatible v4 base schema: unexpected column "
+                    f"{table_name}.{extra_columns[0]}")
+            if table_actual["columns"] != table_expected["columns"]:
+                raise V4SchemaError(
+                    f"incompatible v4 base schema: column order mismatch "
+                    f"for table {table_name}")
+            if table_actual["foreign_keys"] != table_expected["foreign_keys"]:
+                raise V4SchemaError(
+                    f"incompatible v4 base schema: foreign keys mismatch "
+                    f"for table {table_name}")
+            if table_actual["sql"] != table_expected["sql"]:
+                raise V4SchemaError(
+                    f"incompatible v4 base schema: canonical SQL mismatch "
+                    f"for table {table_name}")
+
+        for index_name in sorted(expected["indexes"]):
+            found = actual_objects.get(index_name)
+            if found is None:
+                raise V4SchemaError(
+                    f"incomplete v4 base schema: missing index {index_name}")
+            if found[0] != "index":
+                raise V4SchemaError(
+                    f"incompatible v4 base object {index_name}: "
+                    f"expected index, got {found[0]}")
+            index_actual = _v4_index_contract(
+                connection, index_name, found[1], found[2])
+            if index_actual != expected["indexes"][index_name]:
+                raise V4SchemaError(
+                    f"incompatible v4 base schema: index mismatch "
+                    f"for {index_name}")
+    except V4SchemaError:
+        raise
+    except (sqlite3.DatabaseError, TypeError, ValueError, OverflowError) as exc:
+        raise V4SchemaError(
+            "unable to validate authoritative v4 base schema metadata") from exc
+
+
 class V4Store:
     """V4 SQLite store with explicit and nestable atomic transactions.
 
@@ -1835,6 +2087,11 @@ class V4Store:
         applied = int(time.time() * 1_000)
         try:
             self._conn.execute("BEGIN IMMEDIATE")
+            # The version-4 migration row is necessary but not sufficient
+            # authority.  Prove the complete canonical base schema before any
+            # V5 table, index, migration row, pragma, or existing object can
+            # be changed.
+            _validate_v4_base_schema(self._conn)
             # Verify nothing managed already exists in a noncanonical form
             # before writing; this fails closed on a hybrid or partial state
             # whose managed objects diverge from the expected DDL.
