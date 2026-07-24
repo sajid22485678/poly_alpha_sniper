@@ -643,9 +643,10 @@ def mark_entered(
 ) -> ArbitrationState:
     """RESERVING -> ENTERED (permanent occupancy).
 
-    Requires an existing cluster lock (RESERVED or ENTERED) for the
-    cluster: ENTERED occupancy is permanent and must rest on occupancy
-    evidence, never on the absence of a lock row (C1.E).
+    Requires the cluster's authoritative lock to have already been promoted
+    to ENTERED and to match the selected candidate/window.  ENTERED occupancy
+    is permanent and must rest on exact occupancy evidence, never merely on
+    the presence of some lock row (C1.E).
 
     ``entered_entry_id`` is nullable in the authoritative DDL
     (``cluster_arbitrations.entered_entry_id INTEGER REFERENCES
@@ -656,10 +657,23 @@ def mark_entered(
     arbitration contract; the production writer supplies the real id once
     the entries row exists.
     """
+    state = _require_current(conn, identity)
     lock = _load_lock(conn, identity)
     if lock is None:
         raise ClusterArbitrationError(
             "cannot mark ENTERED: no cluster lock exists for the cluster")
+    if lock.state != LOCK_ENTERED:
+        raise ClusterArbitrationError(
+            f"cannot mark ENTERED: lock.state must be ENTERED "
+            f"(got {lock.state})")
+    if lock.window_id != state.selected_window_id:
+        raise ClusterArbitrationError(
+            "cannot mark ENTERED: lock.window_id does not match "
+            "arbitration.selected_window_id")
+    if lock.candidate_key != state.selected_candidate_key:
+        raise ClusterArbitrationError(
+            "cannot mark ENTERED: lock.candidate_key does not match "
+            "arbitration.selected_candidate_key")
     return _advance(
         conn, identity, to_status=ENTERED, reason=reason, actor=actor,
         session_id=session_id, event_ts_ms=event_ts_ms,

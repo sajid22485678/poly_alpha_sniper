@@ -73,6 +73,34 @@ def _begin(store, identity, *, fp, ts=1):
             actor=C.ACTOR_ENGINE, session_id=SESSION, event_ts_ms=ts)
 
 
+def _prepare_mark_entered(
+        store, identity, selected, *, lock_candidate=None,
+        lock_window_id=None, promote=True,
+):
+    """Persist the select -> reserve -> lock path used by ENTERED tests."""
+    lock_candidate = selected if lock_candidate is None else lock_candidate
+    lock_window_id = (
+        selected.window_id if lock_window_id is None else lock_window_id
+    )
+    _begin(store, identity, fp=_fp([selected]))
+    with store.transaction() as conn:
+        C.select_candidate(
+            conn, identity, candidate=selected, candidate_rank=1, reason="selected",
+            actor=C.ACTOR_ENGINE, session_id=SESSION, event_ts_ms=2,
+        )
+        C.begin_reserving(
+            conn, identity, reason="reserving", actor=C.ACTOR_ENGINE,
+            session_id=SESSION, event_ts_ms=3,
+        )
+        C.reserve_cluster_lock(
+            conn, identity, window_id=lock_window_id, candidate=lock_candidate,
+            session_id=SESSION, owner_launch_nonce=NONCE,
+            idempotency_key="mark-entered-lock", now_ms=4,
+        )
+        if promote:
+            C.promote_lock_to_entered(conn, identity, now_ms=5)
+
+
 # --- candidate identity / ranking ----------------------------------------
 
 def test_candidate_key_is_content_derived_and_deterministic():
@@ -639,6 +667,149 @@ def test_regression_C1E_05_mark_entered_requires_lock(tmp_path):
             # Status must remain RESERVING (not ENTERED).
             state = C.load_arbitration(conn, identity)
             assert state.status == C.RESERVING
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize(
+    "case,expected_error",
+    [
+        (
+            "different_candidate_and_window",
+            "cannot mark ENTERED: lock.window_id does not match "
+            "arbitration.selected_window_id",
+        ),
+        (
+            "same_window_different_candidate",
+            "cannot mark ENTERED: lock.candidate_key does not match "
+            "arbitration.selected_candidate_key",
+        ),
+        (
+            "same_candidate_different_window",
+            "cannot mark ENTERED: lock.window_id does not match "
+            "arbitration.selected_window_id",
+        ),
+    ],
+)
+def test_mark_entered_refuses_mismatched_lock_without_mutation(
+        tmp_path, case, expected_error,
+):
+    selected = _candidate("ETH", 1)
+    if case == "different_candidate_and_window":
+        lock_candidate = _candidate("BTC", 2)
+        lock_window_id = 2
+    elif case == "same_window_different_candidate":
+        lock_candidate = _candidate("BTC", 1)
+        lock_window_id = 1
+    else:
+        # reserve_cluster_lock accepts window_id separately, so this represents
+        # the same candidate key incorrectly attached to another window.
+        lock_candidate = selected
+        lock_window_id = 2
+
+    store = _store(tmp_path)
+    try:
+        identity = _id()
+        _prepare_mark_entered(
+            store, identity, selected, lock_candidate=lock_candidate,
+            lock_window_id=lock_window_id, promote=True,
+        )
+        with store.transaction() as conn:
+            before_state = C.load_arbitration(conn, identity)
+            before_lock = C._load_lock(conn, identity)
+            assert before_state is not None
+            assert before_lock is not None
+            assert before_state.status == C.RESERVING
+            assert before_state.selected_candidate_key == C.candidate_key(selected)
+            assert before_state.selected_window_id == selected.window_id
+            assert before_lock.state == C.LOCK_ENTERED
+            assert before_lock.candidate_key == C.candidate_key(lock_candidate)
+            assert before_lock.window_id == lock_window_id
+            before_event_count = len(before_state.events)
+
+            with pytest.raises(C.ClusterArbitrationError) as exc_info:
+                C.mark_entered(
+                    conn, identity, entered_entry_id=None, reason="entered",
+                    actor=C.ACTOR_ENGINE, session_id=SESSION, event_ts_ms=6,
+                )
+            assert str(exc_info.value) == expected_error
+
+            after_state = C.load_arbitration(conn, identity)
+            after_lock = C._load_lock(conn, identity)
+            assert after_state == before_state
+            assert after_lock == before_lock
+            assert after_state.status == C.RESERVING
+            assert after_state.selected_candidate_key == C.candidate_key(selected)
+            assert after_state.selected_window_id == selected.window_id
+            assert len(after_state.events) == before_event_count
+            assert not any(
+                event.to_status == C.ENTERED for event in after_state.events
+            )
+    finally:
+        store.close()
+
+
+def test_mark_entered_refuses_reserved_lock_state_without_mutation(tmp_path):
+    store = _store(tmp_path)
+    try:
+        identity = _id()
+        selected = _candidate("ETH", 1)
+        _prepare_mark_entered(store, identity, selected, promote=False)
+        with store.transaction() as conn:
+            before_state = C.load_arbitration(conn, identity)
+            before_lock = C._load_lock(conn, identity)
+            assert before_state is not None
+            assert before_lock is not None
+            assert before_state.status == C.RESERVING
+            assert before_lock.state == C.LOCK_RESERVED
+            before_event_count = len(before_state.events)
+
+            with pytest.raises(C.ClusterArbitrationError) as exc_info:
+                C.mark_entered(
+                    conn, identity, entered_entry_id=None, reason="entered",
+                    actor=C.ACTOR_ENGINE, session_id=SESSION, event_ts_ms=6,
+                )
+            assert str(exc_info.value) == (
+                "cannot mark ENTERED: lock.state must be ENTERED (got RESERVED)"
+            )
+
+            after_state = C.load_arbitration(conn, identity)
+            after_lock = C._load_lock(conn, identity)
+            assert after_state == before_state
+            assert after_lock == before_lock
+            assert len(after_state.events) == before_event_count
+            assert not any(
+                event.to_status == C.ENTERED for event in after_state.events
+            )
+    finally:
+        store.close()
+
+
+def test_mark_entered_accepts_matching_entered_lock(tmp_path):
+    store = _store(tmp_path)
+    try:
+        identity = _id()
+        selected = _candidate("ETH", 1)
+        _prepare_mark_entered(store, identity, selected, promote=True)
+        with store.transaction() as conn:
+            before_state = C.load_arbitration(conn, identity)
+            before_lock = C._load_lock(conn, identity)
+            assert before_state is not None
+            assert before_lock is not None
+            assert before_lock.state == C.LOCK_ENTERED
+
+            entered = C.mark_entered(
+                conn, identity, entered_entry_id=None, reason="entered",
+                actor=C.ACTOR_ENGINE, session_id=SESSION, event_ts_ms=6,
+            )
+
+            assert entered.status == C.ENTERED
+            assert entered.selected_candidate_key == C.candidate_key(selected)
+            assert entered.selected_window_id == selected.window_id
+            assert len(entered.events) == len(before_state.events) + 1
+            assert entered.events[-1].from_status == C.RESERVING
+            assert entered.events[-1].to_status == C.ENTERED
+            assert C._load_lock(conn, identity) == before_lock
     finally:
         store.close()
 

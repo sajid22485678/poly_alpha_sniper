@@ -1800,9 +1800,15 @@ class V4Store:
 
     def _initialize_fresh_schema(self) -> None:
         self._assert_owner()
+        # SQLite LIKE treats ``_`` as a single-character wildcard.  Escape the
+        # reserved ``sqlite_`` prefix so only literal SQLite internal names are
+        # excluded and user objects such as ``sqliteXmanaged_probe`` fail closed.
+        sqlite_internal_prefix = escape_sqlite_like_literal("sqlite_") + "%"
         tables = {
             str(row[0]) for row in self._conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE ? ESCAPE '\\'",
+                (sqlite_internal_prefix,),
             ).fetchall()
         }
         if tables and "schema_migrations" not in tables:
@@ -1843,7 +1849,8 @@ class V4Store:
                 tables = {
                     str(found[0]) for found in self._conn.execute(
                         "SELECT name FROM sqlite_master WHERE type='table' "
-                        "AND name NOT LIKE 'sqlite_%'"
+                        "AND name NOT LIKE ? ESCAPE '\\'",
+                        (sqlite_internal_prefix,),
                     ).fetchall()
                 }
             if version != SCHEMA_VERSION:

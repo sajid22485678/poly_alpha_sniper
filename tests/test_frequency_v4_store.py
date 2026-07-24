@@ -286,6 +286,38 @@ def create_entry(store: V4Store, payload: dict) -> int:
     )
 
 
+def _sqlite_schema_snapshot(path):
+    """Capture the logical schema bytes and safety pragmas for refusal tests."""
+    conn = sqlite3.connect(path)
+    try:
+        inventory = tuple(
+            tuple(row) for row in conn.execute(
+                "SELECT type,name,tbl_name,rootpage,sql "
+                "FROM sqlite_master ORDER BY type,name"
+            ).fetchall()
+        )
+        return {
+            "inventory": inventory,
+            "inventory_bytes": repr(inventory).encode("utf-8"),
+            "user_version": int(conn.execute("PRAGMA user_version").fetchone()[0]),
+            "integrity": conn.execute("PRAGMA integrity_check").fetchone()[0],
+            "foreign_key_violations": tuple(
+                tuple(row) for row in conn.execute("PRAGMA foreign_key_check").fetchall()
+            ),
+        }
+    finally:
+        conn.close()
+
+
+def _create_foreign_table(path, name):
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(f'CREATE TABLE "{name}"(id INTEGER)')
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def test_fresh_schema_has_all_normalized_tables_wal_fk_and_integrity(tmp_path):
     sentinel = tmp_path / "advanced.db"
     sentinel.write_bytes(b"advanced-sentinel")
@@ -313,6 +345,118 @@ def test_non_v4_database_is_refused_without_migration(tmp_path):
     conn.close()
     with pytest.raises(V4SchemaError, match="refusing non-v4"):
         V4Store(path)
+
+
+def test_sqliteX_foreign_database_is_refused_without_mutation(tmp_path):
+    """A LIKE ``_`` wildcard must not hide a non-empty foreign database."""
+    path = tmp_path / "sqliteX-foreign.db"
+    object_name = "sqliteXmanaged_probe"
+    _create_foreign_table(path, object_name)
+    before = _sqlite_schema_snapshot(path)
+
+    with pytest.raises(V4SchemaError, match="refusing non-v4"):
+        V4Store(path)
+
+    after = _sqlite_schema_snapshot(path)
+    names = {row[1] for row in after["inventory"]}
+    assert after == before
+    assert after["inventory_bytes"] == before["inventory_bytes"]
+    assert names == {object_name}
+    assert object_name in names
+    assert EXPECTED_TABLES.isdisjoint(names)
+    assert "schema_migrations" not in names
+    assert after["user_version"] == before["user_version"] == 0
+    assert after["integrity"] == "ok"
+    assert after["foreign_key_violations"] == ()
+
+
+@pytest.mark.parametrize("object_name", ["sqliteAprobe", "sqlite1managed_probe"])
+def test_false_wildcard_foreign_database_is_refused_without_mutation(
+        tmp_path, object_name,
+):
+    """Other seventh-character LIKE matches are user objects, not internals."""
+    path = tmp_path / f"{object_name}.db"
+    _create_foreign_table(path, object_name)
+    before = _sqlite_schema_snapshot(path)
+
+    with pytest.raises(V4SchemaError, match="refusing non-v4"):
+        V4Store(path)
+
+    after = _sqlite_schema_snapshot(path)
+    names = {row[1] for row in after["inventory"]}
+    assert after == before
+    assert names == {object_name}
+    assert EXPECTED_TABLES.isdisjoint(names)
+    assert "schema_migrations" not in names
+    assert after["user_version"] == 0
+    assert after["integrity"] == "ok"
+    assert after["foreign_key_violations"] == ()
+
+
+def test_truly_empty_database_still_initializes_after_literal_prefix_fix(tmp_path):
+    path = tmp_path / "truly-empty.db"
+    sqlite3.connect(path).close()
+    assert _sqlite_schema_snapshot(path)["inventory"] == ()
+
+    store = V4Store(path)
+    try:
+        names = {
+            row["name"] for row in store.query(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert EXPECTED_TABLES <= names
+        assert store.integrity_check() == {
+            "integrity": "ok", "foreign_key_violations": [],
+        }
+    finally:
+        store.close()
+
+
+def test_existing_valid_v4_database_reopens_after_literal_prefix_fix(tmp_path):
+    path = tmp_path / "existing-v4.db"
+    V4Store(path).close()
+
+    reopened = V4Store(path)
+    try:
+        assert reopened.integrity_check() == {
+            "integrity": "ok", "foreign_key_violations": [],
+        }
+    finally:
+        reopened.close()
+
+
+def test_sqlite_internal_table_only_database_still_initializes(tmp_path):
+    """A literal ``sqlite_`` internal table remains excluded by classification."""
+    path = tmp_path / "internal-only.db"
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            "CREATE TABLE scratch_autoincrement("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT)"
+        )
+        conn.execute("DROP TABLE scratch_autoincrement")
+        conn.commit()
+        assert conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall() == [("sqlite_sequence",)]
+    finally:
+        conn.close()
+
+    store = V4Store(path)
+    try:
+        names = {
+            row["name"] for row in store.query(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert "sqlite_sequence" in names
+        assert EXPECTED_TABLES <= names
+        assert store.integrity_check() == {
+            "integrity": "ok", "foreign_key_violations": [],
+        }
+    finally:
+        store.close()
 
 
 def test_user_version_ahead_of_schema_version_is_refused(tmp_path):
