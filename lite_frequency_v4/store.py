@@ -1505,6 +1505,81 @@ def verify_managed_v5_census(connection: sqlite3.Connection) -> None:
     managed_v5_object_census(connection)
 
 
+_SCHEMA_MIGRATIONS_TABLE_XINFO = (
+    ("version", "INTEGER", 0, None, 1, 0),
+    ("applied_ts_ms", "INTEGER", 1, None, 0, 0),
+    ("schema_hash", "TEXT", 1, None, 0, 0),
+)
+
+
+def _persistent_user_schema_objects(
+    connection: sqlite3.Connection,
+) -> tuple[tuple[str, str, str, Optional[str]], ...]:
+    """Inventory persistent user-authored objects in the main schema.
+
+    Fresh-database classification must not equate "no user tables" with an
+    empty database.  Views, explicit indexes, and triggers are persistent
+    user schema too.  Exclude only literal ``sqlite_`` internal names and
+    implicit autoindexes (``type='index' AND sql IS NULL``).
+    """
+    sqlite_internal_prefix = escape_sqlite_like_literal("sqlite_") + "%"
+    rows = connection.execute(
+        "SELECT type,name,tbl_name,sql FROM main.sqlite_master "
+        "WHERE type IN ('table','view','index','trigger') "
+        "AND name NOT LIKE ? ESCAPE '\\' "
+        "AND NOT (type='index' AND sql IS NULL) "
+        "ORDER BY type,name",
+        (sqlite_internal_prefix,),
+    ).fetchall()
+    return tuple(
+        (
+            str(row[0]),
+            str(row[1]),
+            str(row[2]),
+            None if row[3] is None else str(row[3]),
+        )
+        for row in rows
+    )
+
+
+def _validate_schema_migrations_shape(
+    connection: sqlite3.Connection,
+    objects: tuple[tuple[str, str, str, Optional[str]], ...],
+) -> None:
+    """Require the canonical migration-metadata table before querying it."""
+    matches = [row for row in objects if row[1] == "schema_migrations"]
+    if len(matches) != 1 or matches[0][0] != "table":
+        actual = "missing" if not matches else matches[0][0]
+        raise V4SchemaError(
+            "invalid schema_migrations object: expected one table "
+            f"(got {actual})"
+        )
+    try:
+        rows = connection.execute(
+            "PRAGMA main.table_xinfo('schema_migrations')"
+        ).fetchall()
+    except sqlite3.DatabaseError as exc:
+        raise V4SchemaError(
+            "invalid schema_migrations table: metadata inspection failed"
+        ) from exc
+    actual = tuple(
+        (
+            str(row[1]),
+            str(row[2]).upper(),
+            int(row[3]),
+            row[4],
+            int(row[5]),
+            int(row[6]),
+        )
+        for row in rows
+    )
+    if actual != _SCHEMA_MIGRATIONS_TABLE_XINFO:
+        raise V4SchemaError(
+            "invalid schema_migrations table shape: expected canonical "
+            "version/applied_ts_ms/schema_hash columns"
+        )
+
+
 class V4Store:
     """V4 SQLite store with explicit and nestable atomic transactions.
 
@@ -1800,22 +1875,12 @@ class V4Store:
 
     def _initialize_fresh_schema(self) -> None:
         self._assert_owner()
-        # SQLite LIKE treats ``_`` as a single-character wildcard.  Escape the
-        # reserved ``sqlite_`` prefix so only literal SQLite internal names are
-        # excluded and user objects such as ``sqliteXmanaged_probe`` fail closed.
-        sqlite_internal_prefix = escape_sqlite_like_literal("sqlite_") + "%"
-        tables = {
-            str(row[0]) for row in self._conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' "
-                "AND name NOT LIKE ? ESCAPE '\\'",
-                (sqlite_internal_prefix,),
-            ).fetchall()
-        }
-        if tables and "schema_migrations" not in tables:
+        objects = _persistent_user_schema_objects(self._conn)
+        if objects and not any(row[1] == "schema_migrations" for row in objects):
             raise V4SchemaError(
                 "refusing non-v4 database: fresh schema or v4 schema_migrations required"
             )
-        if not tables:
+        if not objects:
             # Fresh schema: create the v4 base schema, record its hash at v4,
             # then immediately apply the additive v5 migration so a fresh
             # database lands on exact managed v5 with the managed fingerprint
@@ -1829,10 +1894,16 @@ class V4Store:
             self._conn.commit()
             self._apply_migration_v5()
         else:
-            row = self._conn.execute(
-                "SELECT MAX(version) FROM schema_migrations"
-            ).fetchone()
-            version = int(row[0]) if row and row[0] is not None else 0
+            _validate_schema_migrations_shape(self._conn, objects)
+            try:
+                row = self._conn.execute(
+                    "SELECT MAX(version) FROM schema_migrations"
+                ).fetchone()
+                version = int(row[0]) if row and row[0] is not None else 0
+            except (sqlite3.DatabaseError, TypeError, ValueError, OverflowError) as exc:
+                raise V4SchemaError(
+                    "invalid schema_migrations version metadata"
+                ) from exc
             if version == 1:
                 self._apply_migration_v2()
                 version = 2
@@ -1846,6 +1917,9 @@ class V4Store:
                 self._apply_migration_v5()
                 version = 5
             if version >= 2:
+                sqlite_internal_prefix = (
+                    escape_sqlite_like_literal("sqlite_") + "%"
+                )
                 tables = {
                     str(found[0]) for found in self._conn.execute(
                         "SELECT name FROM sqlite_master WHERE type='table' "

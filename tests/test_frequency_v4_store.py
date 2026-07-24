@@ -13,6 +13,7 @@ from poly_alpha_sniper.lite_frequency_v4.store import (
     V4SchemaError,
     V4Store,
     WindowReservationConflict,
+    _persistent_user_schema_objects,
 )
 
 
@@ -296,9 +297,28 @@ def _sqlite_schema_snapshot(path):
                 "FROM sqlite_master ORDER BY type,name"
             ).fetchall()
         )
+        migration_object = next(
+            (row for row in inventory if row[1] == "schema_migrations"),
+            None,
+        )
+        migration_columns = ()
+        migration_rows = ()
+        if migration_object is not None and migration_object[0] == "table":
+            migration_columns = tuple(
+                tuple(row) for row in conn.execute(
+                    "PRAGMA table_xinfo('schema_migrations')"
+                ).fetchall()
+            )
+            migration_rows = tuple(
+                tuple(row) for row in conn.execute(
+                    "SELECT * FROM schema_migrations ORDER BY rowid"
+                ).fetchall()
+            )
         return {
             "inventory": inventory,
             "inventory_bytes": repr(inventory).encode("utf-8"),
+            "schema_migrations_columns": migration_columns,
+            "schema_migrations_rows": migration_rows,
             "user_version": int(conn.execute("PRAGMA user_version").fetchone()[0]),
             "integrity": conn.execute("PRAGMA integrity_check").fetchone()[0],
             "foreign_key_violations": tuple(
@@ -307,6 +327,21 @@ def _sqlite_schema_snapshot(path):
         }
     finally:
         conn.close()
+
+
+def _assert_schema_refusal_is_read_only(path, *, match):
+    before = _sqlite_schema_snapshot(path)
+    with pytest.raises(V4SchemaError, match=match):
+        V4Store(path)
+    after = _sqlite_schema_snapshot(path)
+    assert after == before
+    assert after["inventory_bytes"] == before["inventory_bytes"]
+    assert after["user_version"] == before["user_version"]
+    assert after["schema_migrations_columns"] == before["schema_migrations_columns"]
+    assert after["schema_migrations_rows"] == before["schema_migrations_rows"]
+    assert after["integrity"] == "ok"
+    assert after["foreign_key_violations"] == ()
+    return after
 
 
 def _create_foreign_table(path, name):
@@ -347,6 +382,90 @@ def test_non_v4_database_is_refused_without_migration(tmp_path):
         V4Store(path)
 
 
+@pytest.mark.parametrize(
+    "view_name",
+    ["cluster_arbitrations_probe", "application_report"],
+)
+def test_foreign_view_database_is_refused_before_mutation(tmp_path, view_name):
+    path = tmp_path / f"{view_name}.db"
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(f'CREATE VIEW "{view_name}" AS SELECT 1 AS value')
+        conn.commit()
+    finally:
+        conn.close()
+
+    after = _assert_schema_refusal_is_read_only(path, match="refusing non-v4")
+    assert {row[1] for row in after["inventory"]} == {view_name}
+    assert "schema_migrations" not in {row[1] for row in after["inventory"]}
+
+
+@pytest.mark.parametrize("object_kind", ["table", "index", "trigger"])
+def test_foreign_persistent_schema_object_is_refused_before_mutation(
+        tmp_path, object_kind,
+):
+    path = tmp_path / f"foreign-{object_kind}.db"
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE application_data(id INTEGER PRIMARY KEY)")
+        if object_kind == "index":
+            conn.execute(
+                "CREATE INDEX application_data_explicit_idx "
+                "ON application_data(id)"
+            )
+        elif object_kind == "trigger":
+            conn.execute(
+                "CREATE TRIGGER application_data_explicit_trigger "
+                "AFTER INSERT ON application_data BEGIN SELECT 1; END"
+            )
+        conn.commit()
+        inventoried_names = {
+            row[1] for row in _persistent_user_schema_objects(conn)
+        }
+    finally:
+        conn.close()
+
+    assert "application_data" in inventoried_names
+    if object_kind == "index":
+        assert "application_data_explicit_idx" in inventoried_names
+    elif object_kind == "trigger":
+        assert "application_data_explicit_trigger" in inventoried_names
+    after = _assert_schema_refusal_is_read_only(path, match="refusing non-v4")
+    names = {row[1] for row in after["inventory"]}
+    assert "application_data" in names
+    if object_kind == "index":
+        assert "application_data_explicit_idx" in names
+    elif object_kind == "trigger":
+        assert "application_data_explicit_trigger" in names
+
+
+def test_fresh_classifier_excludes_internal_objects_and_implicit_autoindexes(
+        tmp_path,
+):
+    path = tmp_path / "classifier-exclusions.db"
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            "CREATE TABLE application_data("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, external_id TEXT UNIQUE)"
+        )
+        conn.commit()
+        sqlite_names = {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master ORDER BY name"
+            )
+        }
+        inventoried_names = {
+            row[1] for row in _persistent_user_schema_objects(conn)
+        }
+    finally:
+        conn.close()
+
+    assert "sqlite_sequence" in sqlite_names
+    assert any(name.startswith("sqlite_autoindex_") for name in sqlite_names)
+    assert inventoried_names == {"application_data"}
+
+
 def test_sqliteX_foreign_database_is_refused_without_mutation(tmp_path):
     """A LIKE ``_`` wildcard must not hide a non-empty foreign database."""
     path = tmp_path / "sqliteX-foreign.db"
@@ -370,7 +489,10 @@ def test_sqliteX_foreign_database_is_refused_without_mutation(tmp_path):
     assert after["foreign_key_violations"] == ()
 
 
-@pytest.mark.parametrize("object_name", ["sqliteAprobe", "sqlite1managed_probe"])
+@pytest.mark.parametrize(
+    "object_name",
+    ["sqliteXprobe", "sqliteAprobe", "sqlite1managed_probe"],
+)
 def test_false_wildcard_foreign_database_is_refused_without_mutation(
         tmp_path, object_name,
 ):
@@ -391,6 +513,50 @@ def test_false_wildcard_foreign_database_is_refused_without_mutation(
     assert after["user_version"] == 0
     assert after["integrity"] == "ok"
     assert after["foreign_key_violations"] == ()
+
+
+@pytest.mark.parametrize(
+    "case,setup_sql",
+    [
+        (
+            "missing_version",
+            "CREATE TABLE schema_migrations("
+            "applied_ts_ms INTEGER NOT NULL, schema_hash TEXT NOT NULL);"
+            "INSERT INTO schema_migrations VALUES(7,'foreign-hash');",
+        ),
+        (
+            "wrong_object_type",
+            "CREATE VIEW schema_migrations AS "
+            "SELECT 1 AS version, 0 AS applied_ts_ms, 'foreign-hash' AS schema_hash;",
+        ),
+        (
+            "incompatible_columns",
+            "CREATE TABLE schema_migrations("
+            "revision INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL, "
+            "fingerprint TEXT NOT NULL);"
+            "INSERT INTO schema_migrations VALUES(4,7,'foreign-hash');",
+        ),
+        (
+            "version_not_primary_key",
+            "CREATE TABLE schema_migrations("
+            "version INTEGER NOT NULL, applied_ts_ms INTEGER NOT NULL, "
+            "schema_hash TEXT NOT NULL);"
+            "INSERT INTO schema_migrations VALUES(4,7,'foreign-hash');",
+        ),
+    ],
+)
+def test_malformed_schema_migrations_is_refused_without_mutation(
+        tmp_path, case, setup_sql,
+):
+    path = tmp_path / f"malformed-schema-migrations-{case}.db"
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript(setup_sql)
+        conn.commit()
+    finally:
+        conn.close()
+
+    _assert_schema_refusal_is_read_only(path, match="schema_migrations")
 
 
 def test_truly_empty_database_still_initializes_after_literal_prefix_fix(tmp_path):
