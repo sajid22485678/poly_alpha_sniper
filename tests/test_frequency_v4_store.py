@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+from pathlib import Path
 import sqlite3
 import time
 
@@ -318,6 +319,15 @@ def _sqlite_schema_snapshot(path):
                     "SELECT * FROM schema_migrations ORDER BY rowid"
                 ).fetchall()
             )
+        try:
+            foreign_key_violations = tuple(
+                tuple(row)
+                for row in conn.execute("PRAGMA foreign_key_check").fetchall()
+            )
+        except sqlite3.DatabaseError as exc:
+            foreign_key_violations = (
+                ("ERROR", type(exc).__name__, str(exc)),
+            )
         return {
             "inventory": inventory,
             "inventory_bytes": repr(inventory).encode("utf-8"),
@@ -325,12 +335,133 @@ def _sqlite_schema_snapshot(path):
             "schema_migrations_rows": migration_rows,
             "user_version": int(conn.execute("PRAGMA user_version").fetchone()[0]),
             "integrity": conn.execute("PRAGMA integrity_check").fetchone()[0],
-            "foreign_key_violations": tuple(
-                tuple(row) for row in conn.execute("PRAGMA foreign_key_check").fetchall()
+            "foreign_key_violations": foreign_key_violations,
+        }
+    finally:
+        conn.close()
+
+
+def _physical_sqlite_files(path):
+    """Capture exact database and sidecar bytes without opening SQLite."""
+    path = Path(path)
+    return {
+        suffix: (
+            candidate.exists(),
+            candidate.read_bytes() if candidate.exists() else None,
+        )
+        for suffix in ("", "-wal", "-shm")
+        for candidate in (Path(f"{path}{suffix}"),)
+    }
+
+
+def _read_only_sqlite_state(path):
+    """Inspect a cleanly closed database without permitting sidecar creation."""
+    path = Path(path)
+    uri = f"{path.resolve().as_uri()}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        inventory = tuple(
+            tuple(row) for row in conn.execute(
+                "SELECT type,name,tbl_name,rootpage,sql "
+                "FROM sqlite_master ORDER BY type,name"
+            ).fetchall()
+        )
+        has_migrations = any(
+            row[0] == "table" and row[1] == "schema_migrations"
+            for row in inventory
+        )
+        return {
+            "journal_mode": str(
+                conn.execute("PRAGMA journal_mode").fetchone()[0]
+            ).lower(),
+            "inventory": inventory,
+            "schema_migrations_rows": (
+                tuple(
+                    tuple(row) for row in conn.execute(
+                        "SELECT * FROM schema_migrations ORDER BY version"
+                    ).fetchall()
+                )
+                if has_migrations else ()
+            ),
+            "user_version": int(
+                conn.execute("PRAGMA user_version").fetchone()[0]
             ),
         }
     finally:
         conn.close()
+
+
+def _malformed_sqlite_state(path):
+    """Inspect intentionally corrupt sqlite_master rows without repairing them."""
+    path = Path(path)
+    uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        conn.execute("PRAGMA writable_schema=ON")
+        inventory = tuple(
+            tuple(row) for row in conn.execute(
+                "SELECT type,name,tbl_name,rootpage,sql "
+                "FROM sqlite_master ORDER BY type,name"
+            ).fetchall()
+        )
+        migrations = tuple(
+            tuple(row) for row in conn.execute(
+                "SELECT version,applied_ts_ms,schema_hash "
+                "FROM schema_migrations ORDER BY version"
+            ).fetchall()
+        )
+        managed_names = tuple(sorted(MANAGED_V5_TYPES))
+        managed_count = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name IN ("
+                + ",".join("?" for _ in managed_names)
+                + ")",
+                managed_names,
+            ).fetchone()[0]
+        )
+        try:
+            integrity = tuple(
+                str(row[0])
+                for row in conn.execute("PRAGMA integrity_check").fetchall()
+            )
+        except sqlite3.DatabaseError as exc:
+            integrity = (type(exc).__name__, str(exc))
+        return {
+            "inventory": inventory,
+            "migrations": migrations,
+            "user_version": int(
+                conn.execute("PRAGMA user_version").fetchone()[0]
+            ),
+            "managed_v5_count": managed_count,
+            "integrity_behavior": integrity,
+        }
+    finally:
+        conn.close()
+
+
+def _assert_authority_refusal_precedes_all_sqlite_connects(
+        path, monkeypatch,
+):
+    """Force exact source drift and prove no target or in-memory connect runs."""
+    original_connect = sqlite3.connect
+    connect_calls = []
+
+    def tracking_connect(database, *args, **kwargs):
+        connect_calls.append(str(database))
+        return original_connect(database, *args, **kwargs)
+
+    with monkeypatch.context() as drift:
+        drift.setattr(
+            store_module, "V4_BASE_SCHEMA_AUTHORITY_RAW_SHA256", "0" * 64
+        )
+        drift.setattr(store_module.sqlite3, "connect", tracking_connect)
+        with pytest.raises(
+            V4SchemaError, match="SCHEMA_SQL raw SHA-256"
+        ) as raised:
+            V4Store(path)
+
+    assert "new human authority resolution required" in str(raised.value)
+    assert connect_calls == []
 
 
 def _assert_schema_refusal_is_read_only(path, *, match):
@@ -344,7 +475,8 @@ def _assert_schema_refusal_is_read_only(path, *, match):
     assert after["schema_migrations_columns"] == before["schema_migrations_columns"]
     assert after["schema_migrations_rows"] == before["schema_migrations_rows"]
     assert after["integrity"] == "ok"
-    assert after["foreign_key_violations"] == ()
+    if before["foreign_key_violations"] == ():
+        assert after["foreign_key_violations"] == ()
     return after
 
 
@@ -416,6 +548,11 @@ def _downgrade_fresh_store_to_v4(path, *, user_version=4):
 
 def _rewrite_table_definition(path, table_name, old, new):
     """Change one scratch-table definition while preserving its indexes."""
+    _rewrite_table_definitions(path, table_name, [(old, new)])
+
+
+def _rewrite_table_definitions(path, table_name, replacements):
+    """Apply exact scratch-table SQL replacements and preserve its indexes."""
     conn = sqlite3.connect(path)
     try:
         conn.execute("PRAGMA foreign_keys=OFF")
@@ -423,7 +560,10 @@ def _rewrite_table_definition(path, table_name, old, new):
             "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
             (table_name,),
         ).fetchone()[0]
-        rewritten = str(table_sql).replace(old, new, 1)
+        rewritten = str(table_sql)
+        for old, new in replacements:
+            assert rewritten.count(old) == 1
+            rewritten = rewritten.replace(old, new, 1)
         assert rewritten != table_sql
         index_sql = [
             row[0] for row in conn.execute(
@@ -875,6 +1015,160 @@ def test_v4_base_contract_authority_drift_preserves_existing_database(
     assert _sqlite_schema_snapshot(path) == before
 
 
+def test_authority_drift_leaves_nonexistent_target_and_parent_absent(
+        tmp_path, monkeypatch,
+):
+    path = tmp_path / "missing-authority-parent" / "authority.db"
+    assert not path.parent.exists()
+    before = _physical_sqlite_files(path)
+
+    _assert_authority_refusal_precedes_all_sqlite_connects(
+        path, monkeypatch
+    )
+
+    assert _physical_sqlite_files(path) == before
+    assert not path.parent.exists()
+    assert not path.exists()
+    assert not Path(f"{path}-wal").exists()
+    assert not Path(f"{path}-shm").exists()
+
+
+def test_authority_drift_preserves_existing_zero_byte_file(
+        tmp_path, monkeypatch,
+):
+    path = tmp_path / "authority-zero-byte.db"
+    path.write_bytes(b"")
+    before = _physical_sqlite_files(path)
+    assert before[""] == (True, b"")
+    assert not path.read_bytes().startswith(b"SQLite format 3")
+
+    _assert_authority_refusal_precedes_all_sqlite_connects(
+        path, monkeypatch
+    )
+
+    assert _physical_sqlite_files(path) == before
+    assert path.stat().st_size == 0
+    assert path.read_bytes() == b""
+
+
+def test_authority_drift_preserves_foreign_delete_journal_database(
+        tmp_path, monkeypatch,
+):
+    path = tmp_path / "authority-foreign-delete.db"
+    conn = sqlite3.connect(path)
+    try:
+        assert conn.execute("PRAGMA journal_mode=DELETE").fetchone()[0] == "delete"
+        conn.execute(
+            "CREATE TABLE foreign_object("
+            "id INTEGER PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO foreign_object(value) VALUES('foreign-sentinel')"
+        )
+        conn.execute("PRAGMA user_version=17")
+        conn.commit()
+    finally:
+        conn.close()
+    before = _read_only_sqlite_state(path)
+    before_files = _physical_sqlite_files(path)
+    assert before["journal_mode"] == "delete"
+    assert before["user_version"] == 17
+    assert {row[1] for row in before["inventory"]} == {"foreign_object"}
+
+    _assert_authority_refusal_precedes_all_sqlite_connects(
+        path, monkeypatch
+    )
+
+    assert _physical_sqlite_files(path) == before_files
+    assert _read_only_sqlite_state(path) == before
+    assert not Path(f"{path}-wal").exists()
+    assert not Path(f"{path}-shm").exists()
+
+
+def test_authority_drift_preserves_valid_v5_wal_database_and_reopens(
+        tmp_path, monkeypatch,
+):
+    path = tmp_path / "authority-valid-v5-wal.db"
+    V4Store(path).close()
+    checkpoint = sqlite3.connect(path)
+    try:
+        checkpoint.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+    finally:
+        checkpoint.close()
+    before = _read_only_sqlite_state(path)
+    before_files = _physical_sqlite_files(path)
+    assert before["journal_mode"] == "wal"
+    assert [row[0] for row in before["schema_migrations_rows"]] == [4, 5]
+    assert before["user_version"] == 5
+
+    _assert_authority_refusal_precedes_all_sqlite_connects(
+        path, monkeypatch
+    )
+
+    assert _physical_sqlite_files(path) == before_files
+    assert _read_only_sqlite_state(path) == before
+    reopened = V4Store(path)
+    reopened.close()
+
+
+def test_genuinely_malformed_sqlite_master_is_translated_without_mutation(
+        tmp_path,
+):
+    path = tmp_path / "malformed-sqlite-master.db"
+    _downgrade_fresh_store_to_v4(path)
+    setup = sqlite3.connect(path)
+    try:
+        original_sql = setup.execute(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type='table' AND name='runtime_health'"
+        ).fetchone()[0]
+        assert str(original_sql).startswith("CREATE TABLE runtime_health")
+        setup.execute("PRAGMA writable_schema=ON")
+        setup.execute(
+            "UPDATE sqlite_master "
+            "SET sql='CREATE TABLE runtime_health (' "
+            "WHERE type='table' AND name='runtime_health'"
+        )
+        setup.execute("PRAGMA writable_schema=OFF")
+        setup.commit()
+    finally:
+        setup.close()
+
+    uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
+    raw = sqlite3.connect(uri, uri=True)
+    try:
+        with pytest.raises(
+            sqlite3.DatabaseError,
+            match=r"malformed database schema .*incomplete input",
+        ):
+            raw.execute(
+                "SELECT type,name,sql FROM sqlite_master ORDER BY type,name"
+            ).fetchall()
+    finally:
+        raw.close()
+
+    before_files = _physical_sqlite_files(path)
+    before = _malformed_sqlite_state(path)
+    assert [row[0] for row in before["migrations"]] == [4]
+    assert before["user_version"] == 4
+    assert before["managed_v5_count"] == 0
+    assert not Path(f"{path}-wal").exists()
+    assert not Path(f"{path}-shm").exists()
+
+    with pytest.raises(
+        V4SchemaError,
+        match="malformed or unreadable SQLite schema",
+    ) as raised:
+        V4Store(path)
+
+    assert isinstance(raised.value.__cause__, sqlite3.DatabaseError)
+    assert _physical_sqlite_files(path) == before_files
+    assert _malformed_sqlite_state(path) == before
+    assert [row[0] for row in before["migrations"]] == [4]
+    assert before["user_version"] == 4
+    assert before["managed_v5_count"] == 0
+
+
 def test_v4_base_incomplete_canonical_metadata_refuses_before_v5_mutation(
         tmp_path,
 ):
@@ -1029,22 +1323,92 @@ def test_v4_base_explicit_index_uniqueness_mismatch_is_read_only(tmp_path):
     )
 
 
-def test_v4_base_foreign_key_action_mismatch_names_table_and_is_read_only(
-        tmp_path,
+@pytest.mark.parametrize(
+    "case,replacements",
+    [
+        (
+            "source-column",
+            (
+                (
+                    "market_identity_id INTEGER NOT NULL "
+                    "REFERENCES market_identities(market_identity_id) "
+                    "ON DELETE CASCADE",
+                    "market_identity_id INTEGER NOT NULL",
+                ),
+                (
+                    "receipt_ts_ms INTEGER NOT NULL "
+                    "CHECK(receipt_ts_ms >= 0)",
+                    "receipt_ts_ms INTEGER NOT NULL "
+                    "REFERENCES market_identities(market_identity_id) "
+                    "ON DELETE CASCADE CHECK(receipt_ts_ms >= 0)",
+                ),
+            ),
+        ),
+        (
+            "target-table",
+            (
+                (
+                    "REFERENCES market_identities(market_identity_id) "
+                    "ON DELETE CASCADE",
+                    "REFERENCES markets(market_identity_id) "
+                    "ON DELETE CASCADE",
+                ),
+            ),
+        ),
+        (
+            "target-column",
+            (
+                (
+                    "REFERENCES market_identities(market_identity_id) "
+                    "ON DELETE CASCADE",
+                    "REFERENCES market_identities(market_id) "
+                    "ON DELETE CASCADE",
+                ),
+            ),
+        ),
+        (
+            "on-update",
+            (
+                (
+                    "REFERENCES market_identities(market_identity_id) "
+                    "ON DELETE CASCADE",
+                    "REFERENCES market_identities(market_identity_id) "
+                    "ON UPDATE CASCADE ON DELETE CASCADE",
+                ),
+            ),
+        ),
+        (
+            "on-delete",
+            (
+                (
+                    "REFERENCES market_identities(market_identity_id) "
+                    "ON DELETE CASCADE",
+                    "REFERENCES market_identities(market_identity_id) "
+                    "ON DELETE RESTRICT",
+                ),
+            ),
+        ),
+    ],
+)
+def test_v4_base_foreign_key_drift_names_table_and_is_physically_read_only(
+        tmp_path, case, replacements,
 ):
-    path = tmp_path / "v4-foreign-key-mismatch.db"
+    path = tmp_path / f"v4-foreign-key-{case}.db"
     _downgrade_fresh_store_to_v4(path)
-    _rewrite_table_definition(
+    _rewrite_table_definitions(
         path,
         "anchor_observations",
-        "REFERENCES market_identities(market_identity_id) ON DELETE CASCADE",
-        "REFERENCES market_identities(market_identity_id) ON DELETE RESTRICT",
+        replacements,
     )
+    before_files = _physical_sqlite_files(path)
 
-    _assert_schema_refusal_is_read_only(
+    after = _assert_schema_refusal_is_read_only(
         path,
         match=r"foreign keys mismatch for table anchor_observations",
     )
+    assert _physical_sqlite_files(path) == before_files
+    assert [row[0] for row in after["schema_migrations_rows"]] == [4]
+    assert after["user_version"] == 4
 
 
 def test_v4_base_plausible_parent_shell_is_named_and_read_only(tmp_path):
@@ -1086,9 +1450,11 @@ def test_v4_base_actual_database_sql_mismatch_is_named_and_read_only(tmp_path):
     )
 
 
-def test_v4_contract_preserves_ordered_composite_foreign_key_components():
-    def contract_for(foreign_key_sql):
-        conn = sqlite3.connect(":memory:")
+def test_v4_contract_preserves_real_target_composite_foreign_key_order(
+        tmp_path,
+):
+    def contract_for(path, foreign_key_sql):
+        conn = sqlite3.connect(path)
         try:
             conn.executescript(
                 """
@@ -1107,21 +1473,35 @@ def test_v4_contract_preserves_ordered_composite_foreign_key_components():
                 );
                 """
             )
+            conn.execute("PRAGMA user_version=4")
+            conn.commit()
+        finally:
+            conn.close()
+
+        before = _physical_sqlite_files(path)
+        uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
+        conn = sqlite3.connect(uri, uri=True)
+        try:
             sql = conn.execute(
                 "SELECT sql FROM sqlite_master "
                 "WHERE type='table' AND name='synthetic_child'"
             ).fetchone()[0]
-            return store_module._v4_table_contract(
+            contract = store_module._v4_table_contract(
                 conn, "synthetic_child", sql)
+            assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 4
+            return contract
         finally:
             conn.close()
+            assert _physical_sqlite_files(path) == before
 
     ordered = contract_for(
+        tmp_path / "composite-ordered.db",
         "(left_id, right_id) "
         "REFERENCES synthetic_parent(left_id, right_id) "
         "ON UPDATE CASCADE ON DELETE RESTRICT"
     )
     reordered = contract_for(
+        tmp_path / "composite-reordered.db",
         "(right_id, left_id) "
         "REFERENCES synthetic_parent(left_id, right_id) "
         "ON UPDATE CASCADE ON DELETE RESTRICT"

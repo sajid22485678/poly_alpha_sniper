@@ -160,9 +160,8 @@ def _build_engine(
     # derivation at that tmp root -- the same test-only seam used by
     # test_frequency_v4_export.py.  No production guard is loosened and no
     # cfg.export_dir override is added; production still requires canonical-
-    # only export.  (This file is outside the authoritative ten-path primary
-    # C1 commit inventory; this adaptation is required solely by the new C1.H
-    # invariant and is strictly test-only.)
+    # only export.  (This file is part of the authoritative ten-path primary
+    # C1 commit inventory; the adaptation remains strictly test-only.)
     monkeypatch.setattr(
         export_module, "canonical_export_dir", lambda: Path(cfg.export_dir)
     )

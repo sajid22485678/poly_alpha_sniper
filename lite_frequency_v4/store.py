@@ -79,6 +79,19 @@ class V4BackgroundWriteDeferred(V4StoreError):
     """Raised when a critical-first gate declines a background write."""
 
 
+@contextmanager
+def _translate_sqlite_schema_errors(context: str) -> Iterator[None]:
+    """Translate only SQLite metadata-read failures at schema boundaries."""
+    try:
+        yield
+    except V4SchemaError:
+        raise
+    except sqlite3.DatabaseError as exc:
+        raise V4SchemaError(
+            f"malformed or unreadable SQLite schema while {context}"
+        ) from exc
+
+
 def _record(value: Any) -> dict[str, Any]:
     """Return a plain mapping for dicts, dataclasses, and simple objects."""
     if value is None:
@@ -1304,10 +1317,12 @@ def managed_v5_records(
     expected = expected_normalized_sql or managed_v5_expected_normalized()
     names = tuple(sorted(MANAGED_V5_TYPES))
     placeholders = ",".join("?" for _ in names)
-    rows = connection.execute(
-        f"select type,name,sql from sqlite_master where name in ({placeholders})",
-        names,
-    ).fetchall()
+    with _translate_sqlite_schema_errors("reading managed sqlite_master rows"):
+        rows = connection.execute(
+            f"select type,name,sql from sqlite_master "
+            f"where name in ({placeholders})",
+            names,
+        ).fetchall()
     if len(rows) != len(names):
         found = {str(row[1]) for row in rows}
         missing = sorted(set(names) - found)
@@ -1465,10 +1480,18 @@ def managed_v5_object_census(connection: sqlite3.Connection) -> list[dict[str, s
         "OR tbl_name IN (" + tbl_placeholders + ") "
         "OR " + prefix_placeholders + ")"
     )
-    rows = connection.execute(
-        query,
-        (sqlite_internal_prefix,) + managed_names + managed_tables + managed_prefixes,
-    ).fetchall()
+    with _translate_sqlite_schema_errors(
+        "reading the managed sqlite_master census"
+    ):
+        rows = connection.execute(
+            query,
+            (
+                (sqlite_internal_prefix,)
+                + managed_names
+                + managed_tables
+                + managed_prefixes
+            ),
+        ).fetchall()
     census: list[dict[str, str]] = []
     found_names: set[str] = set()
     for object_type, name, tbl_name, sql in rows:
@@ -1542,14 +1565,15 @@ def _persistent_user_schema_objects(
     implicit autoindexes (``type='index' AND sql IS NULL``).
     """
     sqlite_internal_prefix = escape_sqlite_like_literal("sqlite_") + "%"
-    rows = connection.execute(
-        "SELECT type,name,tbl_name,sql FROM main.sqlite_master "
-        "WHERE type IN ('table','view','index','trigger') "
-        "AND name NOT LIKE ? ESCAPE '\\' "
-        "AND NOT (type='index' AND sql IS NULL) "
-        "ORDER BY type,name",
-        (sqlite_internal_prefix,),
-    ).fetchall()
+    with _translate_sqlite_schema_errors("reading sqlite_master inventory"):
+        rows = connection.execute(
+            "SELECT type,name,tbl_name,sql FROM main.sqlite_master "
+            "WHERE type IN ('table','view','index','trigger') "
+            "AND name NOT LIKE ? ESCAPE '\\' "
+            "AND NOT (type='index' AND sql IS NULL) "
+            "ORDER BY type,name",
+            (sqlite_internal_prefix,),
+        ).fetchall()
     return tuple(
         (
             str(row[0]),
@@ -1606,10 +1630,13 @@ def _pragma_schema_rows(
 ) -> tuple[tuple[Any, ...], ...]:
     """Return deterministic PRAGMA metadata for one canonical schema object."""
     escaped = object_name.replace("'", "''")
-    return tuple(
-        tuple(row)
-        for row in connection.execute(f"PRAGMA main.{pragma}('{escaped}')")
-    )
+    with _translate_sqlite_schema_errors(
+        f"reading PRAGMA {pragma} for {object_name}"
+    ):
+        return tuple(
+            tuple(row)
+            for row in connection.execute(f"PRAGMA main.{pragma}('{escaped}')")
+        )
 
 
 def _normalized_v4_object_sql(
@@ -1827,6 +1854,42 @@ def verify_v4_base_contract_authority() -> None:
     _canonical_v4_schema_contract()
 
 
+def _preflight_existing_sqlite_schema(
+    path: Path,
+    *,
+    busy_timeout_ms: int,
+) -> None:
+    """Parse an existing target schema without permitting target mutation.
+
+    ``immutable=1`` prevents SQLite from creating journal, WAL, or shared-memory
+    sidecars during this syntax/readability gate.  The authoritative admission
+    checks still run on the writable connection after this preflight; this
+    narrow read only ensures a corrupt ``sqlite_master.sql`` entry cannot reach
+    persistent connection PRAGMAs or migration logic first.
+    """
+    if not path.exists():
+        return
+    try:
+        uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
+        connection = sqlite3.connect(
+            uri,
+            uri=True,
+            timeout=busy_timeout_ms / 1000.0,
+            isolation_level=None,
+        )
+        try:
+            connection.execute(
+                "SELECT type,name,tbl_name,sql "
+                "FROM main.sqlite_master ORDER BY type,name"
+            ).fetchall()
+        finally:
+            connection.close()
+    except sqlite3.DatabaseError as exc:
+        raise V4SchemaError(
+            "malformed or unreadable SQLite schema during pre-open inspection"
+        ) from exc
+
+
 def _validate_v4_base_schema(connection: sqlite3.Connection) -> None:
     """Refuse an incomplete or foreign V4-like database before V5 mutation.
 
@@ -1941,7 +2004,8 @@ def _validate_v4_base_schema(connection: sqlite3.Connection) -> None:
         raise
     except (sqlite3.DatabaseError, TypeError, ValueError, OverflowError) as exc:
         raise V4SchemaError(
-            "unable to validate authoritative v4 base schema metadata") from exc
+            "malformed or unreadable SQLite schema while validating "
+            "authoritative v4 base metadata") from exc
 
 
 class V4Store:
@@ -1974,7 +2038,15 @@ class V4Store:
                 and (not callable(background_write_admission)
                      or not callable(background_write_release))):
             raise ValueError("background write gate callbacks must be callable")
+        # Source authority depends only on trusted in-memory constants and
+        # SCHEMA_SQL.  It must succeed before resolving or creating the target
+        # directory, opening the target, or applying any connection PRAGMA.
+        verify_v4_base_contract_authority()
         self.path = Path(db_path)
+        _preflight_existing_sqlite_schema(
+            self.path,
+            busy_timeout_ms=self.busy_timeout_ms,
+        )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._closed = False
@@ -2001,20 +2073,27 @@ class V4Store:
             check_same_thread=enforce_thread_ownership, isolation_level=None,
         )
         self._conn.row_factory = sqlite3.Row
-        with self._lock:
-            self._conn.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
-            self._conn.execute("PRAGMA foreign_keys=ON")
-            self._conn.execute("PRAGMA synchronous=NORMAL")
-            # Only the dedicated persistence owner may decide when a checkpoint
-            # is safe.  SQLite must never checkpoint implicitly on a hot path.
-            self._conn.execute("PRAGMA wal_autocheckpoint=0")
-            self._conn.execute("PRAGMA journal_size_limit=67108864")
-            journal = str(self._conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]).lower()
-            if journal != "wal":
-                self._conn.close()
-                raise V4SchemaError(f"WAL unavailable for v4 database: {journal}")
-            self._initialize_fresh_schema()
-            self._ensure_performance_indexes()
+        try:
+            with self._lock:
+                self._conn.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
+                self._conn.execute("PRAGMA foreign_keys=ON")
+                self._conn.execute("PRAGMA synchronous=NORMAL")
+                # Only the dedicated persistence owner may decide when a checkpoint
+                # is safe.  SQLite must never checkpoint implicitly on a hot path.
+                self._conn.execute("PRAGMA wal_autocheckpoint=0")
+                self._conn.execute("PRAGMA journal_size_limit=67108864")
+                journal = str(
+                    self._conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+                ).lower()
+                if journal != "wal":
+                    raise V4SchemaError(
+                        f"WAL unavailable for v4 database: {journal}")
+                self._initialize_fresh_schema()
+                self._ensure_performance_indexes()
+        except Exception:
+            self._conn.close()
+            self._closed = True
+            raise
 
     # Additive, idempotent performance indexes.  These carry no schema-contract
     # change (no new columns/tables), so they are created with IF NOT EXISTS on
@@ -2208,15 +2287,18 @@ class V4Store:
             # before writing; this fails closed on a hybrid or partial state
             # whose managed objects diverge from the expected DDL.
             expected = managed_v5_expected_normalized()
-            pre_existing = {
-                str(row[0])
-                for row in self._conn.execute(
-                    "SELECT name FROM sqlite_master WHERE name IN ("
-                    + ",".join("?" for _ in sorted(MANAGED_V5_TYPES))
-                    + ")",
-                    tuple(sorted(MANAGED_V5_TYPES)),
-                ).fetchall()
-            }
+            with _translate_sqlite_schema_errors(
+                "reading pre-migration managed sqlite_master rows"
+            ):
+                pre_existing = {
+                    str(row[0])
+                    for row in self._conn.execute(
+                        "SELECT name FROM sqlite_master WHERE name IN ("
+                        + ",".join("?" for _ in sorted(MANAGED_V5_TYPES))
+                        + ")",
+                        tuple(sorted(MANAGED_V5_TYPES)),
+                    ).fetchall()
+                }
             if pre_existing:
                 # Some managed objects already exist: they must already match
                 # the exact expected normalized SQL or we refuse to touch them.
@@ -2244,10 +2326,6 @@ class V4Store:
 
     def _initialize_fresh_schema(self) -> None:
         self._assert_owner()
-        # This is deliberately the first schema-admission operation.  A source,
-        # hash, or inventory drift must be refused before SCHEMA_SQL or any
-        # migration DDL can mutate the target database.
-        verify_v4_base_contract_authority()
         objects = _persistent_user_schema_objects(self._conn)
         if objects and not any(row[1] == "schema_migrations" for row in objects):
             raise V4SchemaError(
@@ -2293,13 +2371,16 @@ class V4Store:
                 sqlite_internal_prefix = (
                     escape_sqlite_like_literal("sqlite_") + "%"
                 )
-                tables = {
-                    str(found[0]) for found in self._conn.execute(
-                        "SELECT name FROM sqlite_master WHERE type='table' "
-                        "AND name NOT LIKE ? ESCAPE '\\'",
-                        (sqlite_internal_prefix,),
-                    ).fetchall()
-                }
+                with _translate_sqlite_schema_errors(
+                    "reading admitted sqlite_master tables"
+                ):
+                    tables = {
+                        str(found[0]) for found in self._conn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table' "
+                            "AND name NOT LIKE ? ESCAPE '\\'",
+                            (sqlite_internal_prefix,),
+                        ).fetchall()
+                    }
             if version != SCHEMA_VERSION:
                 raise V4SchemaError(
                     f"unsupported schema version {version}; expected {SCHEMA_VERSION}"
@@ -2309,9 +2390,12 @@ class V4Store:
                 raise V4SchemaError(f"incomplete v4 schema; missing {sorted(missing)}")
             # Final guard: the managed v5 set must fingerprint to the digest
             # recorded in schema_migrations for version 5.
-            row = self._conn.execute(
-                "SELECT schema_hash FROM schema_migrations WHERE version=5"
-            ).fetchone()
+            with _translate_sqlite_schema_errors(
+                "reading managed schema migration authority"
+            ):
+                row = self._conn.execute(
+                    "SELECT schema_hash FROM schema_migrations WHERE version=5"
+                ).fetchone()
             if row is None:
                 raise V4SchemaError("managed v5 schema_migrations row missing")
             recorded = str(row[0])
@@ -2335,9 +2419,12 @@ class V4Store:
             # - If the pragma is AHEAD of SCHEMA_VERSION, the database claims
             #   a future schema and must not be silently accepted as exact
             #   managed v5 (C1.B probe F): fail closed.
-            pragma_version = int(
-                self._conn.execute("PRAGMA user_version").fetchone()[0]
-            )
+            with _translate_sqlite_schema_errors(
+                "reading admitted PRAGMA user_version"
+            ):
+                pragma_version = int(
+                    self._conn.execute("PRAGMA user_version").fetchone()[0]
+                )
             if pragma_version > SCHEMA_VERSION:
                 raise V4SchemaError(
                     f"user_version {pragma_version} is ahead of "
