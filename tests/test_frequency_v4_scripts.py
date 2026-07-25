@@ -50,3 +50,45 @@ def test_restart_and_batch_wrappers_delegate_only_to_v4_scripts():
     assert "start_lite_frequency_v4_shadow.ps1" in restart
     assert "start_lite_frequency_v4_shadow.ps1" in batch
     assert "lite_shadow" not in restart.replace("lite_frequency_v4_shadow", "")
+
+# C1 launcher readiness timeout regressions
+def test_launcher_allows_long_integrity_startup_without_force_kill():
+    start = read("start_lite_frequency_v4_shadow.ps1")
+    lowered = start.lower()
+    compact = "".join(lowered.split())
+
+    assert "[validaterange(5,1800)]" in compact
+    assert "$readytimeoutseconds=600" in compact
+    assert "stop-process" not in lowered
+    assert "[bool]$state.integrity_ok" in lowered
+    assert "was not killed" in lowered
+    assert "no process was killed" in lowered
+    assert "exit 3" in lowered
+
+
+def test_launcher_readiness_requires_correlated_safe_fresh_heartbeat():
+    start = read("start_lite_frequency_v4_shadow.ps1").lower()
+
+    required = (
+        "$lock.launch_nonce",
+        "$state.launch_nonce",
+        "$heartbeat.launch_nonce",
+        "$state.pid",
+        "$heartbeat.pid",
+        "$heartbeatagems",
+        "$state.current_commit",
+        "$heartbeat.current_commit",
+        "$state.db_path",
+        "$state.integrity_ok",
+        "$state.dry_run",
+        "$state.live_enabled",
+        "$state.real_orders_possible",
+        "$state.kill_switch_engaged",
+        "$state.fixed_shares",
+    )
+
+    for token in required:
+        assert token in start
+
+    assert "$heartbeatagems -le 15000" in start
+    assert "refusing a duplicate" in start
