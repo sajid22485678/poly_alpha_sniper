@@ -1,4 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
+import json
 import sqlite3
 import time
 
@@ -441,6 +443,19 @@ def _rewrite_table_definition(path, table_name, old, new):
         conn.close()
 
 
+def _independent_schema_sql_canonical_hash(schema_sql):
+    """Test-local reproduction of the ratified canonical string hash."""
+    raw = json.dumps(
+        schema_sql,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def test_fresh_schema_has_all_normalized_tables_wal_fk_and_integrity(tmp_path):
     sentinel = tmp_path / "advanced.db"
     sentinel.write_bytes(b"advanced-sentinel")
@@ -647,6 +662,219 @@ def test_malformed_schema_migrations_is_refused_without_mutation(
     _assert_schema_refusal_is_read_only(path, match="schema_migrations")
 
 
+def test_v4_base_contract_human_authority_literals_match_schema_sql():
+    assert store_module.V4_BASE_SCHEMA_AUTHORITY_UTF8_BYTES == 38_801
+    assert store_module.V4_BASE_SCHEMA_AUTHORITY_RAW_SHA256 == (
+        "1383cd04b6134b950d8b69de90596dc045ca4539f0a79674e14d3e94d2b4a2f7"
+    )
+    assert store_module.V4_BASE_SCHEMA_AUTHORITY_CANONICAL_HASH == (
+        "892892b417c4ea22fa929bbcb28b478760620dbd77c564ca4ecc3453b09d0b8a"
+    )
+    assert (
+        store_module.V4_BASE_SCHEMA_AUTHORITY_TABLES,
+        store_module.V4_BASE_SCHEMA_AUTHORITY_EXPLICIT_INDEXES,
+        store_module.V4_BASE_SCHEMA_AUTHORITY_IMPLICIT_AUTOINDEXES,
+        store_module.V4_BASE_SCHEMA_AUTHORITY_VIEWS,
+        store_module.V4_BASE_SCHEMA_AUTHORITY_TRIGGERS,
+    ) == (40, 27, 32, 0, 0)
+
+    encoded = store_module.SCHEMA_SQL.encode("utf-8")
+    assert len(encoded) == 38_801
+    assert hashlib.sha256(encoded).hexdigest() == (
+        "1383cd04b6134b950d8b69de90596dc045ca4539f0a79674e14d3e94d2b4a2f7"
+    )
+    assert _independent_schema_sql_canonical_hash(store_module.SCHEMA_SQL) == (
+        "892892b417c4ea22fa929bbcb28b478760620dbd77c564ca4ecc3453b09d0b8a"
+    )
+
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.executescript(store_module.SCHEMA_SQL)
+        rows = tuple(
+            tuple(row) for row in conn.execute(
+                "SELECT type,name,sql FROM sqlite_master ORDER BY type,name"
+            ).fetchall()
+        )
+    finally:
+        conn.close()
+    implicit_autoindexes = tuple(
+        name for object_type, name, sql in rows
+        if object_type == "index" and sql is None
+    )
+    assert all(
+        name.startswith("sqlite_autoindex_") for name in implicit_autoindexes
+    )
+    assert (
+        sum(
+            object_type == "table" and not name.startswith("sqlite_")
+            for object_type, name, _sql in rows
+        ),
+        sum(
+            object_type == "index"
+            and sql is not None
+            and not name.startswith("sqlite_")
+            for object_type, name, sql in rows
+        ),
+        len(implicit_autoindexes),
+        sum(
+            object_type == "view" and not name.startswith("sqlite_")
+            for object_type, name, _sql in rows
+        ),
+        sum(
+            object_type == "trigger" and not name.startswith("sqlite_")
+            for object_type, name, _sql in rows
+        ),
+    ) == (40, 27, 32, 0, 0)
+    store_module.verify_v4_base_contract_authority()
+
+
+@pytest.mark.parametrize(
+    "attribute,replacement,reason",
+    [
+        ("V4_BASE_SCHEMA_AUTHORITY_UTF8_BYTES", 38_802, "UTF-8 byte length"),
+        ("V4_BASE_SCHEMA_AUTHORITY_RAW_SHA256", "0" * 64, "raw SHA-256"),
+        ("V4_BASE_SCHEMA_AUTHORITY_CANONICAL_HASH", "f" * 64, "canonical hash"),
+        ("V4_BASE_SCHEMA_AUTHORITY_TABLES", 41, "tables"),
+        ("V4_BASE_SCHEMA_AUTHORITY_EXPLICIT_INDEXES", 28, "explicit indexes"),
+        (
+            "V4_BASE_SCHEMA_AUTHORITY_IMPLICIT_AUTOINDEXES",
+            33,
+            "implicit autoindexes",
+        ),
+        ("V4_BASE_SCHEMA_AUTHORITY_VIEWS", 1, "views"),
+        ("V4_BASE_SCHEMA_AUTHORITY_TRIGGERS", 1, "triggers"),
+    ],
+)
+def test_v4_base_contract_authority_literal_drift_refuses_before_mutation(
+        tmp_path, monkeypatch, attribute, replacement, reason,
+):
+    path = tmp_path / f"authority-{attribute.lower()}.db"
+    sqlite3.connect(path).close()
+    before = _sqlite_schema_snapshot(path)
+    assert before["inventory"] == ()
+
+    monkeypatch.setattr(store_module, attribute, replacement)
+    with pytest.raises(V4SchemaError) as raised:
+        V4Store(path)
+
+    assert reason in str(raised.value)
+    assert "new human authority resolution required" in str(raised.value)
+    after = _sqlite_schema_snapshot(path)
+    assert after == before
+    assert after["inventory"] == ()
+    assert after["user_version"] == 0
+    assert after["integrity"] == "ok"
+    assert after["foreign_key_violations"] == ()
+
+
+@pytest.mark.parametrize(
+    "changed_schema,reason",
+    [
+        (
+            store_module.SCHEMA_SQL + "\n",
+            "SCHEMA_SQL UTF-8 byte length",
+        ),
+        (
+            store_module.SCHEMA_SQL.replace(
+                "loop_lag_ms REAL NOT NULL DEFAULT 0",
+                "loop_lag_ms REAL NOT NULL DEFAULT 1",
+                1,
+            ),
+            "SCHEMA_SQL raw SHA-256",
+        ),
+    ],
+    ids=["byte-length", "raw-hash"],
+)
+def test_v4_base_contract_schema_sql_drift_refuses_before_mutation(
+        tmp_path, monkeypatch, changed_schema, reason,
+):
+    path = tmp_path / f"authority-schema-sql-{reason.split()[-1].lower()}.db"
+    sqlite3.connect(path).close()
+    before = _sqlite_schema_snapshot(path)
+    assert before["inventory"] == ()
+
+    monkeypatch.setattr(store_module, "SCHEMA_SQL", changed_schema)
+    with pytest.raises(V4SchemaError) as raised:
+        V4Store(path)
+
+    assert reason in str(raised.value)
+    assert "new human authority resolution required" in str(raised.value)
+    after = _sqlite_schema_snapshot(path)
+    assert after == before
+    assert after["inventory"] == ()
+    assert after["user_version"] == 0
+    assert after["integrity"] == "ok"
+    assert after["foreign_key_violations"] == ()
+
+
+@pytest.mark.parametrize(
+    "object_type,added_sql,reason",
+    [
+        (
+            "view",
+            "\nCREATE VIEW authority_inventory_probe AS SELECT 1 AS id;\n",
+            "views",
+        ),
+        (
+            "trigger",
+            "\nCREATE TRIGGER authority_inventory_probe "
+            "AFTER INSERT ON runtime_health BEGIN SELECT 1; END;\n",
+            "triggers",
+        ),
+    ],
+)
+def test_v4_base_contract_added_view_or_trigger_fails_inventory_authority(
+        tmp_path, monkeypatch, object_type, added_sql, reason,
+):
+    changed_schema = store_module.SCHEMA_SQL + added_sql
+    encoded = changed_schema.encode("utf-8")
+    monkeypatch.setattr(store_module, "SCHEMA_SQL", changed_schema)
+    monkeypatch.setattr(
+        store_module, "V4_BASE_SCHEMA_AUTHORITY_UTF8_BYTES", len(encoded))
+    monkeypatch.setattr(
+        store_module,
+        "V4_BASE_SCHEMA_AUTHORITY_RAW_SHA256",
+        hashlib.sha256(encoded).hexdigest(),
+    )
+    monkeypatch.setattr(
+        store_module,
+        "V4_BASE_SCHEMA_AUTHORITY_CANONICAL_HASH",
+        _independent_schema_sql_canonical_hash(changed_schema),
+    )
+
+    path = tmp_path / f"authority-added-{object_type}.db"
+    sqlite3.connect(path).close()
+    before = _sqlite_schema_snapshot(path)
+    with pytest.raises(V4SchemaError) as raised:
+        V4Store(path)
+
+    assert reason in str(raised.value)
+    assert "expected 0, got 1" in str(raised.value)
+    assert "new human authority resolution required" in str(raised.value)
+    assert _sqlite_schema_snapshot(path) == before
+
+
+@pytest.mark.parametrize("database_kind", ["v4", "v5", "foreign"])
+def test_v4_base_contract_authority_drift_preserves_existing_database(
+        tmp_path, monkeypatch, database_kind,
+):
+    path = tmp_path / f"authority-existing-{database_kind}.db"
+    if database_kind == "v4":
+        _downgrade_fresh_store_to_v4(path)
+    elif database_kind == "v5":
+        V4Store(path).close()
+    else:
+        _create_foreign_table(path, "application_data")
+    before = _sqlite_schema_snapshot(path)
+
+    monkeypatch.setattr(
+        store_module, "V4_BASE_SCHEMA_AUTHORITY_RAW_SHA256", "0" * 64)
+    with pytest.raises(V4SchemaError, match="SCHEMA_SQL raw SHA-256"):
+        V4Store(path)
+
+    assert _sqlite_schema_snapshot(path) == before
+
+
 def test_v4_base_incomplete_canonical_metadata_refuses_before_v5_mutation(
         tmp_path,
 ):
@@ -730,6 +958,186 @@ def test_v4_base_incompatible_column_shape_is_named_and_read_only(tmp_path):
         path,
         match=r"incompatible v4 base column runtime_health\.loop_lag_ms",
     )
+
+
+def test_v4_base_nullability_mismatch_is_named_and_read_only(tmp_path):
+    path = tmp_path / "v4-nullability-mismatch.db"
+    _downgrade_fresh_store_to_v4(path)
+    _rewrite_table_definition(
+        path,
+        "runtime_health",
+        "loop_lag_ms REAL NOT NULL DEFAULT 0",
+        "loop_lag_ms REAL DEFAULT 0",
+    )
+
+    _assert_schema_refusal_is_read_only(
+        path,
+        match=r"incompatible v4 base column runtime_health\.loop_lag_ms",
+    )
+
+
+def test_v4_base_default_mismatch_is_named_and_read_only(tmp_path):
+    path = tmp_path / "v4-default-mismatch.db"
+    _downgrade_fresh_store_to_v4(path)
+    _rewrite_table_definition(
+        path,
+        "runtime_health",
+        "loop_lag_ms REAL NOT NULL DEFAULT 0",
+        "loop_lag_ms REAL NOT NULL DEFAULT 1",
+    )
+
+    _assert_schema_refusal_is_read_only(
+        path,
+        match=r"incompatible v4 base column runtime_health\.loop_lag_ms",
+    )
+
+
+def test_v4_base_primary_key_metadata_mismatch_is_named_and_read_only(tmp_path):
+    path = tmp_path / "v4-primary-key-mismatch.db"
+    _downgrade_fresh_store_to_v4(path)
+    _rewrite_table_definition(
+        path,
+        "retention_runs",
+        "retention_run_id INTEGER PRIMARY KEY",
+        "retention_run_id INTEGER NOT NULL UNIQUE",
+    )
+
+    _assert_schema_refusal_is_read_only(
+        path,
+        match=r"incompatible v4 base column retention_runs\.retention_run_id",
+    )
+
+
+def test_v4_base_explicit_index_uniqueness_mismatch_is_read_only(tmp_path):
+    path = tmp_path / "v4-index-uniqueness-mismatch.db"
+    _downgrade_fresh_store_to_v4(path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("DROP INDEX ix_runtime_sessions_cohort")
+        conn.execute(
+            "CREATE UNIQUE INDEX ix_runtime_sessions_cohort "
+            "ON runtime_sessions(cohort)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _assert_schema_refusal_is_read_only(
+        path,
+        match=r"index mismatch for ix_runtime_sessions_cohort",
+    )
+
+
+def test_v4_base_foreign_key_action_mismatch_names_table_and_is_read_only(
+        tmp_path,
+):
+    path = tmp_path / "v4-foreign-key-mismatch.db"
+    _downgrade_fresh_store_to_v4(path)
+    _rewrite_table_definition(
+        path,
+        "anchor_observations",
+        "REFERENCES market_identities(market_identity_id) ON DELETE CASCADE",
+        "REFERENCES market_identities(market_identity_id) ON DELETE RESTRICT",
+    )
+
+    _assert_schema_refusal_is_read_only(
+        path,
+        match=r"foreign keys mismatch for table anchor_observations",
+    )
+
+
+def test_v4_base_plausible_parent_shell_is_named_and_read_only(tmp_path):
+    path = tmp_path / "v4-plausible-parent-shell.db"
+    _downgrade_fresh_store_to_v4(path)
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("DROP TABLE cohorts")
+        conn.execute(
+            "CREATE TABLE cohorts("
+            "cohort TEXT PRIMARY KEY, "
+            "authoritative INTEGER NOT NULL DEFAULT 0)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _assert_schema_refusal_is_read_only(
+        path,
+        match=r"missing column cohorts\.activation_ts_ms",
+    )
+
+
+def test_v4_base_actual_database_sql_mismatch_is_named_and_read_only(tmp_path):
+    path = tmp_path / "v4-actual-sql-mismatch.db"
+    _downgrade_fresh_store_to_v4(path)
+    _rewrite_table_definition(
+        path,
+        "runtime_health",
+        "last_error TEXT",
+        "last_error TEXT CHECK(1 = 1)",
+    )
+
+    _assert_schema_refusal_is_read_only(
+        path,
+        match=r"canonical SQL mismatch for table runtime_health",
+    )
+
+
+def test_v4_contract_preserves_ordered_composite_foreign_key_components():
+    def contract_for(foreign_key_sql):
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE synthetic_parent(
+                    left_id INTEGER NOT NULL,
+                    right_id INTEGER NOT NULL,
+                    PRIMARY KEY(left_id, right_id)
+                );
+                CREATE TABLE synthetic_child(
+                    child_id INTEGER PRIMARY KEY,
+                    left_id INTEGER NOT NULL,
+                    right_id INTEGER NOT NULL,
+                    FOREIGN KEY """
+                + foreign_key_sql
+                + """
+                );
+                """
+            )
+            sql = conn.execute(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type='table' AND name='synthetic_child'"
+            ).fetchone()[0]
+            return store_module._v4_table_contract(
+                conn, "synthetic_child", sql)
+        finally:
+            conn.close()
+
+    ordered = contract_for(
+        "(left_id, right_id) "
+        "REFERENCES synthetic_parent(left_id, right_id) "
+        "ON UPDATE CASCADE ON DELETE RESTRICT"
+    )
+    reordered = contract_for(
+        "(right_id, left_id) "
+        "REFERENCES synthetic_parent(left_id, right_id) "
+        "ON UPDATE CASCADE ON DELETE RESTRICT"
+    )
+
+    assert ordered["foreign_keys"] == (
+        (
+            0, 0, "synthetic_parent", "left_id", "left_id",
+            "CASCADE", "RESTRICT", "NONE",
+        ),
+        (
+            0, 1, "synthetic_parent", "right_id", "right_id",
+            "CASCADE", "RESTRICT", "NONE",
+        ),
+    )
+    assert reordered["foreign_keys"] != ordered["foreign_keys"]
 
 
 def test_v4_base_user_version_ahead_of_recorded_v4_is_refused_read_only(

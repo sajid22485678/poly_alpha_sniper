@@ -45,10 +45,11 @@ def canonical_export_dir() -> Path:
 def _is_within(path: Path, root: Path) -> bool:
     """True if ``path`` is ``root`` itself or a descendant of ``root``.
 
-    Uses string comparison on case-normalized, separator-normalized parts
-    so it is robust on Windows (case-insensitive, both ``\\`` and ``/``)
-    and does not dereference symlinks/junctions (a reparse point whose
-    target lies outside the canonical root is treated as outside).
+    Callers pass already-resolved absolute paths.  This helper compares their
+    case-normalized, separator-normalized parts so the containment check is
+    robust on Windows (case-insensitive, both ``\\`` and ``/``).  Any symlink
+    or junction dereferencing has therefore already occurred in the caller's
+    ``Path.resolve()`` step.
     """
     path_parts = tuple(_normalize_part(p) for p in path.parts)
     root_parts = tuple(_normalize_part(p) for p in root.parts)

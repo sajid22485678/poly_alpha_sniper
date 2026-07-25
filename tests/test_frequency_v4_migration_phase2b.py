@@ -12,10 +12,11 @@ only and never touch the production export directory.  They verify:
 * the seven-column ordered ``cohort_pilot_starts`` schema (no observability);
 * fresh-v5 creation, genuine v3->v4->v5, genuine v4->v5, exact-v5 no-op;
 * the authoritative managed-v5 fingerprint;
-* partial / hybrid / wrong-SQL / missing-object / extra-managed-object
-  refusal before any write;
+* exact normalized SQL, expected-map mismatch, and missing-object refusal;
+* unrelated out-of-namespace objects leaving the managed set unchanged;
 * deterministic, order-independent fingerprinting;
-* historical rows and economics unchanged; integrity and foreign keys.
+* one historical cohort/session pair surviving genuine v4->v5 migration;
+* post-migration integrity and foreign-key checks.
 """
 import sqlite3
 
@@ -277,12 +278,11 @@ def test_missing_managed_object_refused(tmp_path):
         st.close()
 
 
-def test_extra_managed_object_refused_as_unknown_to_managed_set(tmp_path):
+def test_unrelated_out_of_namespace_object_does_not_change_managed_set(tmp_path):
     store = _open_store(tmp_path)
     try:
-        # An object outside the managed set does not change the managed
-        # fingerprint, but managed_v5_records must select EXACTLY the eight
-        # managed names (no extras counted).
+        # This unrelated table is outside the managed namespace.  It remains
+        # allowed and does not alter the exact eight-object managed selection.
         store.connection.execute(
             "CREATE TABLE extra_not_managed(id INTEGER PRIMARY KEY)")
         store.connection.commit()
@@ -306,14 +306,74 @@ def test_v5_migration_preserves_historical_rows_and_integrity(tmp_path):
     path = tmp_path / "hist.db"
     s = V4Store(path)
     s.close()
-    # seed a runtime session and cohort at v4, then downgrade to v4 and
-    # confirm v4->v5 keeps the row and integrity intact.
+
+    # Remove only the managed V5 objects/metadata, seed actual V4 base rows,
+    # and then prove that a genuine V4->V5 migration preserves them exactly.
     c = _raw(path)
-    pre_sessions = c.execute("SELECT COUNT(*) FROM runtime_sessions").fetchone()[0]
-    c.close()
-    assert pre_sessions >= 0
+    try:
+        c.execute("PRAGMA foreign_keys=OFF")
+        c.execute("BEGIN IMMEDIATE")
+        for idx in EXPECTED_INDEXES:
+            c.execute(f"DROP INDEX IF EXISTS {idx}")
+        for tbl in EXPECTED_TABLES:
+            c.execute(f"DROP TABLE IF EXISTS {tbl}")
+        c.execute("DELETE FROM schema_migrations WHERE version=5")
+        c.execute("PRAGMA user_version=4")
+        c.execute(
+            "INSERT INTO cohorts("
+            "cohort,activation_ts_ms,activation_commit,starting_equity_usd,"
+            "max_exposure_pct,authoritative,label,created_ts_ms,parent_cohort,"
+            "status,config_hash"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "historical_phase2b", 1_000, "a" * 40, 13.0, 0.5, 0,
+                "historical migration evidence", 1_000, None, "ACTIVE",
+                "b" * 64,
+            ),
+        )
+        c.execute(
+            "INSERT INTO runtime_sessions("
+            "session_id,strategy_id,mode,launch_nonce,pid,git_commit,"
+            "config_hash,started_ts_ms,ended_ts_ms,stop_reason,cohort"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "historical-session", "lite_frequency_v4",
+                "lite_frequency_v4_shadow", "historical-launch-nonce", 12345,
+                "c" * 40, "d" * 64, 1_100, 1_200, "historical-complete",
+                "historical_phase2b",
+            ),
+        )
+        c.commit()
+        pre_cohort = dict(c.execute(
+            "SELECT * FROM cohorts WHERE cohort='historical_phase2b'"
+        ).fetchone())
+        pre_session = dict(c.execute(
+            "SELECT * FROM runtime_sessions "
+            "WHERE session_id='historical-session'"
+        ).fetchone())
+        assert int(c.execute("PRAGMA user_version").fetchone()[0]) == 4
+        assert [
+            row[0] for row in c.execute(
+                "SELECT version FROM schema_migrations ORDER BY version")
+        ] == [4]
+        assert c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert c.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        c.close()
+
     store = V4Store(path)
     try:
+        assert dict(store.connection.execute(
+            "SELECT * FROM cohorts WHERE cohort='historical_phase2b'"
+        ).fetchone()) == pre_cohort
+        assert dict(store.connection.execute(
+            "SELECT * FROM runtime_sessions "
+            "WHERE session_id='historical-session'"
+        ).fetchone()) == pre_session
+        assert [
+            row[0] for row in store.connection.execute(
+                "SELECT version FROM schema_migrations ORDER BY version")
+        ] == [4, 5]
         assert managed_v5_fingerprint(store.connection) == MANAGED_V5_FINGERPRINT
         integrity = store.connection.execute(
             "PRAGMA integrity_check").fetchone()[0]

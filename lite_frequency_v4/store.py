@@ -887,6 +887,24 @@ CREATE INDEX ix_runtime_sessions_cohort ON runtime_sessions(cohort);
 """ + PERSISTENCE_SCHEMA_V2_SQL
 
 
+# Human-ratified C1 V4 base-schema authority (2026-07-25).  These literals
+# deliberately pin both representations of SCHEMA_SQL and the independently
+# derived SQLite inventory.  Any change requires a new human authority
+# resolution; updating generated expectations alone is not sufficient.
+V4_BASE_SCHEMA_AUTHORITY_UTF8_BYTES = 38_801
+V4_BASE_SCHEMA_AUTHORITY_RAW_SHA256 = (
+    "1383cd04b6134b950d8b69de90596dc045ca4539f0a79674e14d3e94d2b4a2f7"
+)
+V4_BASE_SCHEMA_AUTHORITY_CANONICAL_HASH = (
+    "892892b417c4ea22fa929bbcb28b478760620dbd77c564ca4ecc3453b09d0b8a"
+)
+V4_BASE_SCHEMA_AUTHORITY_TABLES = 40
+V4_BASE_SCHEMA_AUTHORITY_EXPLICIT_INDEXES = 27
+V4_BASE_SCHEMA_AUTHORITY_IMPLICIT_AUTOINDEXES = 32
+V4_BASE_SCHEMA_AUTHORITY_VIEWS = 0
+V4_BASE_SCHEMA_AUTHORITY_TRIGGERS = 0
+
+
 EXPECTED_TABLES = frozenset(
     match.group(1) for match in re.finditer(
         r"^CREATE TABLE(?: IF NOT EXISTS)? ([a-z_][a-z0-9_]*)",
@@ -1695,13 +1713,88 @@ def _v4_index_contract(
     }
 
 
+def _validate_v4_schema_sql_authority() -> None:
+    """Require SCHEMA_SQL to match the exact human-ratified C1 literals."""
+    encoded = SCHEMA_SQL.encode("utf-8")
+    actual = (
+        (
+            "SCHEMA_SQL UTF-8 byte length",
+            len(encoded),
+            V4_BASE_SCHEMA_AUTHORITY_UTF8_BYTES,
+        ),
+        (
+            "SCHEMA_SQL raw SHA-256",
+            hashlib.sha256(encoded).hexdigest(),
+            V4_BASE_SCHEMA_AUTHORITY_RAW_SHA256,
+        ),
+        (
+            "SCHEMA_SQL canonical hash",
+            _canonical_hash(SCHEMA_SQL),
+            V4_BASE_SCHEMA_AUTHORITY_CANONICAL_HASH,
+        ),
+    )
+    for label, observed, expected in actual:
+        if observed != expected:
+            raise V4SchemaError(
+                f"v4 base contract authority mismatch: {label} expected "
+                f"{expected}, got {observed}; new human authority resolution "
+                "required"
+            )
+
+
+def _v4_schema_authority_inventory(
+    connection: sqlite3.Connection,
+) -> dict[str, int]:
+    """Measure the ratified inventory without counting implicit autoindexes."""
+    objects = _persistent_user_schema_objects(connection)
+    counts = {
+        "tables": sum(row[0] == "table" for row in objects),
+        "explicit indexes": sum(row[0] == "index" for row in objects),
+        "views": sum(row[0] == "view" for row in objects),
+        "triggers": sum(row[0] == "trigger" for row in objects),
+    }
+    counts["implicit autoindexes"] = int(
+        connection.execute(
+            "SELECT COUNT(*) FROM main.sqlite_master "
+            "WHERE type='index' AND sql IS NULL"
+        ).fetchone()[0]
+    )
+    return counts
+
+
+def _validate_v4_schema_authority_inventory(
+    inventory: Mapping[str, int],
+) -> None:
+    expected = (
+        ("tables", V4_BASE_SCHEMA_AUTHORITY_TABLES),
+        ("explicit indexes", V4_BASE_SCHEMA_AUTHORITY_EXPLICIT_INDEXES),
+        (
+            "implicit autoindexes",
+            V4_BASE_SCHEMA_AUTHORITY_IMPLICIT_AUTOINDEXES,
+        ),
+        ("views", V4_BASE_SCHEMA_AUTHORITY_VIEWS),
+        ("triggers", V4_BASE_SCHEMA_AUTHORITY_TRIGGERS),
+    )
+    for label, required in expected:
+        observed = inventory.get(label)
+        if observed != required:
+            raise V4SchemaError(
+                f"v4 base contract authority mismatch: {label} expected "
+                f"{required}, got {observed}; new human authority resolution "
+                "required"
+            )
+
+
 @lru_cache(maxsize=1)
-def _canonical_v4_schema_contract() -> dict[str, Mapping[str, Any]]:
-    """Derive the authoritative migratable-V4 contract from ``SCHEMA_SQL``."""
+def _derive_canonical_v4_schema_contract(
+    schema_sql: str,
+) -> tuple[dict[str, Mapping[str, Any]], Mapping[str, int]]:
+    """Derive a V4 contract and inventory from already-pinned schema SQL."""
     canonical = sqlite3.connect(":memory:")
     try:
-        canonical.executescript(SCHEMA_SQL)
+        canonical.executescript(schema_sql)
         objects = _persistent_user_schema_objects(canonical)
+        inventory = _v4_schema_authority_inventory(canonical)
         tables: dict[str, Any] = {}
         indexes: dict[str, Any] = {}
         for object_type, name, table_name, sql in objects:
@@ -1710,9 +1803,28 @@ def _canonical_v4_schema_contract() -> dict[str, Mapping[str, Any]]:
             elif object_type == "index":
                 indexes[name] = _v4_index_contract(
                     canonical, name, table_name, sql)
-        return {"tables": tables, "indexes": indexes}
+        return {"tables": tables, "indexes": indexes}, inventory
+    except V4SchemaError:
+        raise
+    except (sqlite3.DatabaseError, TypeError, ValueError, OverflowError) as exc:
+        raise V4SchemaError(
+            "unable to derive human-ratified v4 base schema contract"
+        ) from exc
     finally:
         canonical.close()
+
+
+def _canonical_v4_schema_contract() -> dict[str, Mapping[str, Any]]:
+    """Return the exact human-ratified, authoritative migratable-V4 contract."""
+    _validate_v4_schema_sql_authority()
+    contract, inventory = _derive_canonical_v4_schema_contract(SCHEMA_SQL)
+    _validate_v4_schema_authority_inventory(inventory)
+    return contract
+
+
+def verify_v4_base_contract_authority() -> None:
+    """Fail closed unless the complete human-pinned C1 contract still matches."""
+    _canonical_v4_schema_contract()
 
 
 def _validate_v4_base_schema(connection: sqlite3.Connection) -> None:
@@ -2132,6 +2244,10 @@ class V4Store:
 
     def _initialize_fresh_schema(self) -> None:
         self._assert_owner()
+        # This is deliberately the first schema-admission operation.  A source,
+        # hash, or inventory drift must be refused before SCHEMA_SQL or any
+        # migration DDL can mutate the target database.
+        verify_v4_base_contract_authority()
         objects = _persistent_user_schema_objects(self._conn)
         if objects and not any(row[1] == "schema_migrations" for row in objects):
             raise V4SchemaError(
