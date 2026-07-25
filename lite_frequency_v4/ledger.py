@@ -75,7 +75,7 @@ def compute_capital_ledger(
            max_exposure_pct,peak_committed_usd,peak_exposure_pct
            FROM cohorts WHERE cohort=?""", (str(cohort),),
     )
-    starting = float(cohort_row.get("starting_equity_usd") or 13.0)
+    starting = float(cohort_row.get("starting_equity_usd") or 130.0)
     max_pct = float(cohort_row.get("max_exposure_pct") or 1.0)
     realized = float(_one(
         query,

@@ -183,7 +183,7 @@ class ExposureDecision:
 def assess_shadow_exposure(
         *, committed_exposure_usd: float, open_positions: int,
         open_for_asset: int, entry_price: Optional[float] = None,
-        sweep: Optional[Sweep] = None, equity_usd: float = 13.0,
+        sweep: Optional[Sweep] = None, equity_usd: float = 130.0,
         exposure_cap_pct: float = 1.0,
         available_balance_usd: Optional[float] = None,
         max_open_positions: int = 6, max_open_per_asset: int = 1,

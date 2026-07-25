@@ -26,7 +26,7 @@ NOW = 2_000_000_000_000
 
 
 def seed_session(store: V4Store, *, session_id: str = "session-v4",
-                 started=NOW-7_200_000, starting_equity=13.0):
+                 started=NOW-7_200_000, starting_equity=130.0):
     store.ensure_cohort({
         "cohort": ACTIVE_COHORT,
         "activation_ts_ms": started,
@@ -286,7 +286,7 @@ def create_entry(store: V4Store, payload: dict) -> int:
         payload,
         max_concurrent_positions=4,
         cohort=ACTIVE_COHORT,
-        starting_equity_usd=13.0,
+        starting_equity_usd=130.0,
         max_exposure_pct=1.0,
         exit_fee_buffer_usd=0.1075,
     )
@@ -2130,7 +2130,7 @@ def test_atomic_per_asset_open_position_cap_across_windows(tmp_path):
                     ),
                     max_concurrent_positions=10,
                     cohort=ACTIVE_COHORT,
-                    starting_equity_usd=13.0,
+                    starting_equity_usd=130.0,
                     max_exposure_pct=1.0,
                     exit_fee_buffer_usd=0.1075,
                     max_open_per_asset=1,
@@ -2403,7 +2403,7 @@ def test_entry_bundle_ack_contains_committed_position_without_followup_read(tmp_
             entry_payload(context, evidence, idem="position-ack-entry"),
             max_concurrent_positions=4,
             cohort=ACTIVE_COHORT,
-            starting_equity_usd=13.0,
+            starting_equity_usd=130.0,
             max_exposure_pct=1.0,
             exit_fee_buffer_usd=0.1075,
         )

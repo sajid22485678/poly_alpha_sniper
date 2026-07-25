@@ -1,4 +1,4 @@
-"""Phase 1 authoritative $13 capital-ledger regression tests (requirements 13-26)."""
+"""Authoritative capital-ledger regression tests (requirements 13-26)."""
 import pytest
 
 from poly_alpha_sniper.lite_frequency_v4.config import ACTIVE_COHORT
@@ -64,15 +64,15 @@ def _close(store, context, entry_id, *, net_pnl, payout):
     })
 
 
-# Requirement 13: the new cohort begins with exactly 13.00 USD.
-def test_new_cohort_begins_with_exactly_thirteen_dollars(tmp_path):
-    store = V4Store(tmp_path / "thirteen.db")
+# Requirement 13: the new cohort begins with exactly 130.00 USD.
+def test_new_cohort_begins_with_exactly_130_dollars(tmp_path):
+    store = V4Store(tmp_path / "one-hundred-thirty.db")
     try:
         seed_session(store)
         ledger = _ledger(store)
-        assert ledger.starting_equity_usd == 13.0
-        assert ledger.current_equity_usd == 13.0
-        assert ledger.available_cash_usd == 13.0
+        assert ledger.starting_equity_usd == 130.0
+        assert ledger.current_equity_usd == 130.0
+        assert ledger.available_cash_usd == 130.0
         assert ledger.committed_total_usd == 0.0
     finally:
         store.close()
@@ -133,7 +133,7 @@ def test_all_assets_share_one_global_ledger(tmp_path):
         per_entry = round(2.45 + 0.05 + BUFFER, 10)
         assert after_one.committed_total_usd == pytest.approx(per_entry)
         assert after_two.committed_total_usd == pytest.approx(2 * per_entry)
-        assert after_two.available_cash_usd == pytest.approx(13.0 - 2 * per_entry)
+        assert after_two.available_cash_usd == pytest.approx(130.0 - 2 * per_entry)
         # The bundle path uses the same ledger and the same cohort scope.
         third = seed_market_window(store, asset="DOGE", suffix="c")
         third_evidence = seed_candidate_entry_context(store, third, seq=3)
@@ -143,7 +143,7 @@ def test_all_assets_share_one_global_ledger(tmp_path):
         result = store.reserve_and_create_entry_bundle(
             reservation, entry_payload(third, third_evidence, idem="bundle"),
             max_concurrent_positions=6, cohort=ACTIVE_COHORT,
-            starting_equity_usd=13.0, max_exposure_pct=1.0,
+            starting_equity_usd=130.0, max_exposure_pct=1.0,
             exit_fee_buffer_usd=BUFFER,
         )
         assert result["entry_id"] > 0
@@ -198,7 +198,7 @@ def test_reservations_hold_and_release_capital_exactly_once(tmp_path):
                 (held, context["window_id"]))
         ledger = _ledger(store)
         assert ledger.reserved_order_usd == pytest.approx(held)
-        assert ledger.available_cash_usd == pytest.approx(13.0 - held)
+        assert ledger.available_cash_usd == pytest.approx(130.0 - held)
         lock = store.query_one(
             "SELECT * FROM window_locks WHERE window_id=?",
             (context["window_id"],))
@@ -207,10 +207,10 @@ def test_reservations_hold_and_release_capital_exactly_once(tmp_path):
             owner_launch_nonce=lock["owner_launch_nonce"],
             idempotency_key=lock["idempotency_key"])
         assert store.release_window_reservation(**release) is True
-        assert _ledger(store).available_cash_usd == pytest.approx(13.0)
+        assert _ledger(store).available_cash_usd == pytest.approx(130.0)
         # Releasing again is a no-op: capital cannot be freed twice.
         assert store.release_window_reservation(**release) is False
-        assert _ledger(store).available_cash_usd == pytest.approx(13.0)
+        assert _ledger(store).available_cash_usd == pytest.approx(130.0)
         _ = evidence
     finally:
         store.close()
@@ -231,7 +231,7 @@ def test_unresolved_positions_retain_committed_capital(tmp_path):
         # unresolvable position can never spend) is released.
         assert after.committed_total_usd == pytest.approx(
             before.committed_total_usd - BUFFER)
-        assert after.current_equity_usd == 13.0  # no fabricated outcome
+        assert after.current_equity_usd == 130.0  # no fabricated outcome
     finally:
         store.close()
 
@@ -256,7 +256,7 @@ def test_restart_restores_ledger_exactly(tmp_path):
     try:
         after = _ledger(reopened)
         assert after == before
-        assert after.current_equity_usd == pytest.approx(15.50)
+        assert after.current_equity_usd == pytest.approx(132.50)
         assert after.realized_net_pnl_usd == pytest.approx(2.50)
     finally:
         reopened.close()
@@ -271,8 +271,8 @@ def test_losses_shrink_equity_without_negative_cash_or_synthetic_topups(tmp_path
         context, _, entry_id = _open_entry(store)
         _close(store, context, entry_id, net_pnl=-2.50, payout=0.0)
         ledger = _ledger(store)
-        assert ledger.current_equity_usd == pytest.approx(10.50)
-        assert ledger.available_cash_usd == pytest.approx(10.50)
+        assert ledger.current_equity_usd == pytest.approx(127.50)
+        assert ledger.available_cash_usd == pytest.approx(127.50)
         assert ledger.available_cash_usd >= 0
         assert ledger.committed_total_usd == 0.0
         # The shrunken equity is now the hard cap for new commitments.

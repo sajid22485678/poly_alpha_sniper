@@ -339,7 +339,7 @@ def _risk_of_ruin_estimate(values: list[float], risk_fraction: float) -> Optiona
 
 
 def compound_preview(
-    store: Any, *, starting_equity_usd: float = 13.0,
+    store: Any, *, starting_equity_usd: float = 130.0,
     fixed_risk_fraction: float = 0.02, cohort: Optional[str] = None,
 ) -> dict[str, Any]:
     cohort_join = (
@@ -555,7 +555,7 @@ def acceptance_gate(
 
 def build_metrics(
     store: Any, now_ms: int, *, session_id: Optional[str] = None,
-    starting_equity_usd: float = 13.0, cohort: Optional[str] = None,
+    starting_equity_usd: float = 130.0, cohort: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build the metrics payload.
 

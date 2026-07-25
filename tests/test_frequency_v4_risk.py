@@ -80,19 +80,21 @@ def test_shadow_exposure_enforces_global_cap_without_claiming_live_authority():
         entry_price=0.50, committed_exposure_usd=0,
         open_positions=0, open_for_asset=0, fee_buffer_usd=0.02)
     assert allowed.allowed and allowed.live_order_allowed is False
-    # Phase 1 permits exactly 100% of equity; committed capital may never
-    # exceed the $13 cohort equity even by one cent.
+    # Exactly 100% of equity may be committed; committed capital may never
+    # exceed the $130 cohort equity even by one cent.  The proposed entry
+    # commitment at price 0.50 is 2.50 + 0.0875 fee + 0.02 buffer = 2.6075,
+    # so the cap boundary sits at 130 - 2.6075 = 127.3925.
     blocked = assess_shadow_exposure(
-        entry_price=0.50, committed_exposure_usd=11,
+        entry_price=0.50, committed_exposure_usd=128,
         open_positions=2, open_for_asset=0, fee_buffer_usd=0.02)
     assert blocked.allowed is False
     assert blocked.reason == "global_exposure_cap"
-    assert blocked.exposure_cap_usd == 13.0
+    assert blocked.exposure_cap_usd == 130.0
     full_commit = assess_shadow_exposure(
-        entry_price=0.50, committed_exposure_usd=10.3,
+        entry_price=0.50, committed_exposure_usd=127,
         open_positions=2, open_for_asset=0, fee_buffer_usd=0.02)
     assert full_commit.allowed is True
-    assert full_commit.projected_exposure_usd <= 13.0
+    assert full_commit.projected_exposure_usd <= 130.0
 
 
 def test_one_open_position_per_asset_and_global_concurrency_are_hard_guards():

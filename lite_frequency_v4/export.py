@@ -362,7 +362,7 @@ def build_frequency_v4_dashboard(
     runtime = _mapping(runtime_state)
     effective_session_id = session_id or runtime.get("session_id")
     starting_equity = float(_value(
-        config, "starting_equity_usd", "research_equity_usd", default=13.0
+        config, "starting_equity_usd", "research_equity_usd", default=130.0
     ))
     metrics = build_metrics(
         store, int(now_ms), session_id=effective_session_id,
@@ -430,7 +430,7 @@ def build_frequency_v4_dashboard(
         "active_exposure_usd": round(exposure, 10),
         "exposure_cap_usd": (
             float(ledger_cap) if ledger_cap is not None
-            else float(_value(config, "exposure_cap_usd", default=13.0))),
+            else float(_value(config, "exposure_cap_usd", default=130.0))),
         "max_exposure_pct": (ledger or {}).get("max_exposure_pct", 1.0),
         "fixed_shares": FIXED_SHARES,
     }

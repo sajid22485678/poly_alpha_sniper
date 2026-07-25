@@ -12,14 +12,16 @@ STRATEGY_ID = "lite_frequency_v4"
 MODE = "lite_frequency_v4_shadow"
 FIXED_SHARES = 5.0
 
-# Phase 1 forward-cohort identity.  The active cohort owns the authoritative
-# $13 shadow ledger; every earlier row remains under the legacy cohort and is
-# reported as non-authoritative.
-ACTIVE_COHORT = "dynamic_universe_phase1_post_activation"
+# Active forward-cohort identity.  The active cohort owns the authoritative
+# shadow ledger; every earlier row remains historical/non-authoritative.
+# Phase 2 successor: the Phase 1 cohort (dynamic_universe_phase1_post_activation)
+# is retired to authoritative=0/FROZEN with its full $13 history preserved, and
+# this isolated $130 successor cohort starts clean from exactly 130.00 USD.
+ACTIVE_COHORT = "dynamic_universe_phase2_130usd_successor"
 LEGACY_COHORT = "legacy_mixed_universe"
 RUNTIME_LABEL = (
-    "DYNAMIC_MULTI_ASSET_ULTRA_AGGRESSIVE_13_USD_100_PERCENT_EXPOSURE_"
-    "SHADOW_PHASE1"
+    "DYNAMIC_MULTI_ASSET_130_USD_100_PERCENT_EXPOSURE_"
+    "SHADOW_PHASE2_SUCCESSOR"
 )
 
 FREQUENCY_V4_DB_PATH = str(
@@ -110,7 +112,7 @@ class FrequencyV4Config:
 
     max_open_positions: int = 6
     max_open_per_asset: int = 1
-    research_equity_usd: float = 13.0
+    research_equity_usd: float = 130.0
     exposure_cap_pct: float = 1.0
     fee_buffer_usd: float = 0.02
     crypto_taker_fee_rate: float = 0.07
@@ -223,7 +225,7 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "primary_cex_provider": "okx",
         "exact_window_seconds": 300,
         "crypto_taker_fee_rate": 0.07,
-        "research_equity_usd": 13.0,
+        "research_equity_usd": 130.0,
         "exposure_cap_pct": 1.0,
         "max_open_per_asset": 1,
     }
@@ -363,7 +365,7 @@ def _reassert_safety(cfg: FrequencyV4Config) -> None:
     cfg.discover_additional_assets = True
     cfg.exact_window_seconds = 300
     cfg.crypto_taker_fee_rate = 0.07
-    cfg.research_equity_usd = 13.0
+    cfg.research_equity_usd = 130.0
     cfg.exposure_cap_pct = 1.0
     cfg.max_open_per_asset = 1
 

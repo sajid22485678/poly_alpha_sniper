@@ -31,9 +31,9 @@ SCHEMA_VERSION = 5
 # crypto taker curve 5 * 0.07 * p * (1-p) peaks at p = 0.5 -> $0.0875.
 MIN_EXIT_FEE_BUFFER_USD = 0.0875
 
-# Phase 1 cohort identity.  Kept in sync with lite_frequency_v4.config; the
+# Active cohort identity.  Kept in sync with lite_frequency_v4.config; the
 # store keeps its own copies so persistence stays import-light.
-ACTIVE_COHORT = "dynamic_universe_phase1_post_activation"
+ACTIVE_COHORT = "dynamic_universe_phase2_130usd_successor"
 LEGACY_COHORT = "legacy_mixed_universe"
 
 _SECRET_KEY_RE = re.compile(
@@ -3139,7 +3139,7 @@ class V4Store:
     def create_entry(
         self, value: Any, *, max_concurrent_positions: int,
         cohort: str = ACTIVE_COHORT,
-        starting_equity_usd: float = 13.0,
+        starting_equity_usd: float = 130.0,
         max_exposure_pct: float = 1.0,
         exit_fee_buffer_usd: float = MIN_EXIT_FEE_BUFFER_USD,
         max_open_per_asset: int = 1,
@@ -3941,7 +3941,7 @@ class V4Store:
         self, reservation: Any, entry: Optional[Any] = None, *,
         max_concurrent_positions: Optional[int] = None,
         cohort: str = ACTIVE_COHORT,
-        starting_equity_usd: float = 13.0,
+        starting_equity_usd: float = 130.0,
         max_exposure_pct: float = 1.0,
         exit_fee_buffer_usd: float = MIN_EXIT_FEE_BUFFER_USD,
         max_open_per_asset: int = 1,

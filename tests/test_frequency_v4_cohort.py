@@ -125,9 +125,9 @@ def test_legacy_pnl_never_enters_new_cohort_equity(tmp_path):
     try:
         ledger = compute_capital_ledger(store.query, cohort=ACTIVE_COHORT,
                                         fee_rate=0.07, fee_buffer_usd=0.02)
-        assert ledger.starting_equity_usd == 13.0
+        assert ledger.starting_equity_usd == 130.0
         assert ledger.realized_net_pnl_usd == 0.0
-        assert ledger.current_equity_usd == 13.0
+        assert ledger.current_equity_usd == 130.0
         legacy = compute_capital_ledger(store.query, cohort=LEGACY_COHORT,
                                         fee_rate=0.07, fee_buffer_usd=0.02)
         assert legacy.realized_net_pnl_usd == pytest.approx(2.50)
@@ -156,7 +156,7 @@ def test_legacy_trades_excluded_from_authoritative_gate_and_metrics(tmp_path):
         metrics = build_metrics(store, NOW, cohort=ACTIVE_COHORT)
         assert metrics["performance"]["verified_terminal"]["count"] == 0
         assert metrics["compound_preview"]["sample_size"] == 0
-        assert metrics["compound_preview"]["starting_equity_usd"] == 13.0
+        assert metrics["compound_preview"]["starting_equity_usd"] == 130.0
         assert metrics["compound_preview"]["label"] == (
             "READ_ONLY_THEORETICAL_PREVIEW_DOES_NOT_INFLUENCE_EXECUTION")
         assert metrics["compound_preview"]["influences_sizing"] is False
@@ -168,7 +168,7 @@ def test_legacy_trades_excluded_from_authoritative_gate_and_metrics(tmp_path):
 
 
 # Requirement 31 + reporting: the dashboard payload separates the cohorts and
-# carries the authoritative runtime label and $13 ledger.
+# carries the authoritative runtime label and $130 ledger.
 def test_dashboard_payload_separates_cohorts(tmp_path):
     store, _ = _seed_mixed_history(tmp_path)
     try:
@@ -181,8 +181,8 @@ def test_dashboard_payload_separates_cohorts(tmp_path):
         assert payload["cohort"]["legacy_metrics_are_non_authoritative"] is True
         capital = payload["authoritative_capital"]
         assert capital["ledger_available"] is True
-        assert capital["ledger"]["starting_equity_usd"] == 13.0
-        assert capital["ledger"]["current_equity_usd"] == 13.0
+        assert capital["ledger"]["starting_equity_usd"] == 130.0
+        assert capital["ledger"]["current_equity_usd"] == 130.0
         assert capital["ledger"]["max_exposure_pct"] == 1.0
         assert capital["fixed_shares"] == 5.0
         assert payload["performance"]["verified_terminal"]["count"] == 0
@@ -205,7 +205,7 @@ def test_safety_locks_remain_engaged_and_shadow_only(tmp_path):
     assert cfg.kill_switch_engaged is True            # 35
     assert cfg.fixed_shares == 5.0                    # 36
     assert cfg.live_adapter_present is False          # 37
-    assert cfg.research_equity_usd == 13.0
+    assert cfg.research_equity_usd == 130.0
     assert cfg.exposure_cap_pct == 1.0
     validate_frequency_v4_config(cfg)
 
