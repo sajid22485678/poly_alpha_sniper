@@ -498,11 +498,18 @@ class V4TelemetryWriter:
                 self._state_seen.pop(pending.state_key, None)
 
     # Fraction of the sink's transaction budget one chunk may be sized to use.
-    # The remainder absorbs ordinary variance in per-row cost, so the steady
-    # state sits below the deadline instead of oscillating across it.
-    _BUDGET_SAFETY_FRACTION = 0.5
-    # EWMA weight for newly observed per-row cost.
-    _COST_SMOOTHING = 0.25
+    # The remainder absorbs variance in per-row cost, so the steady state sits
+    # below the deadline instead of oscillating across it.
+    _BUDGET_SAFETY_FRACTION = 0.4
+    # Per-row cost is tracked as a slowly DECAYING MAXIMUM, not a mean.  The
+    # cost distribution has a heavy tail -- page-cache misses, WAL index
+    # growth, write-lock hand-off -- and a mean sits far below that tail.
+    # Sizing from the mean let the chunk climb straight back into the failure
+    # zone as soon as a few cheap batches landed, producing a sawtooth that
+    # missed the deadline indefinitely instead of settling.  Tracking the tail
+    # and decaying it slowly makes the size shrink immediately on a spike and
+    # recover only after a sustained stretch of genuinely cheap batches.
+    _COST_DECAY = 0.9995
 
     def _resolve_budget_locked(self) -> Optional[float]:
         if self._budget_ms is not None:
@@ -524,8 +531,7 @@ class V4TelemetryWriter:
         observed = max(elapsed_ms / rows, 1e-3)
         self._ms_per_row = (
             observed if self._ms_per_row is None
-            else (self._COST_SMOOTHING * observed
-                  + (1.0 - self._COST_SMOOTHING) * self._ms_per_row)
+            else max(observed, self._ms_per_row * self._COST_DECAY)
         )
 
     def _recompute_ceiling_locked(self) -> None:

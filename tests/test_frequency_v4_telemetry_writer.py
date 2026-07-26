@@ -491,20 +491,73 @@ def test_chunk_size_is_computed_from_measured_cost_not_from_losses():
     assert writer.flush(timeout_s=30.0)
     slow = writer.snapshot()
     assert slow["transaction_budget_ms"] == 200.0
-    # 200 ms budget, half of it usable, ~20 ms per row -> about five rows.
-    assert 2 <= slow["physical_batch_ceiling"] <= 8
+    # 200 ms budget, 40% of it usable, ~20 ms per row -> about four rows.
+    assert 1 <= slow["physical_batch_ceiling"] <= 8
     assert slow["observed_ms_per_row"] is not None
 
-    # The database gets faster (WAL truncated); the size must climb back.
-    sink.ms_per_row = 1.0
-    for index in range(120, 900):
+    # The database gets faster (WAL truncated); the size must climb back, but
+    # only gradually -- the estimate tracks the tail and decays slowly.
+    sink.ms_per_row = 0.05
+    for index in range(120, 4_000):
         writer.submit(TelemetryCommand("record", (index,), {"value": index}))
-    assert writer.flush(timeout_s=30.0)
+    assert writer.flush(timeout_s=60.0)
     fast = writer.snapshot()
     assert fast["physical_batch_ceiling"] > slow["physical_batch_ceiling"]
     assert fast["physical_batch_ceiling"] <= 32
+    assert fast["observed_ms_per_row"] < slow["observed_ms_per_row"]
     assert fast["failed_batches"] == 0
     assert fast["dropped"] == 0
+    assert writer.stop(drain=True, timeout_s=10.0)
+
+
+def test_cost_estimate_tracks_the_tail_not_the_mean():
+    """One expensive batch must not be averaged away by cheap neighbours.
+
+    Per-row cost is heavy-tailed.  A mean-based estimate sits far below the
+    tail, so the chunk size climbs back into the deadline as soon as a few
+    cheap batches land -- a sawtooth that keeps failing forever instead of
+    settling.
+    """
+
+    class VariableSink:
+        budget_ms = 200.0
+
+        def __init__(self) -> None:
+            self.next_ms_per_row = 0.05
+
+        def telemetry_transaction_budget_ms(self) -> float:
+            return self.budget_ms
+
+        def submit_telemetry_batch(self, commands, *, timeout_s):
+            del timeout_s
+            time.sleep(len(commands) * self.next_ms_per_row / 1000.0)
+            return len(commands)
+
+    sink = VariableSink()
+    writer = _writer(sink, capacity=4_096, batch_size=64,
+                     physical_batch_size=32)
+    writer.start()
+    for index in range(200):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    assert writer.flush(timeout_s=30.0)
+    cheap = writer.snapshot()["observed_ms_per_row"]
+
+    # One expensive stretch.
+    sink.next_ms_per_row = 6.0
+    for index in range(200, 260):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    assert writer.flush(timeout_s=30.0)
+    spiked = writer.snapshot()
+    assert spiked["observed_ms_per_row"] > cheap * 10
+
+    # Cheap batches resume; the estimate must NOT snap straight back down.
+    sink.next_ms_per_row = 0.05
+    for index in range(260, 320):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    assert writer.flush(timeout_s=30.0)
+    after = writer.snapshot()
+    assert after["observed_ms_per_row"] > spiked["observed_ms_per_row"] * 0.8
+    assert after["failed_batches"] == 0
     assert writer.stop(drain=True, timeout_s=10.0)
 
 
