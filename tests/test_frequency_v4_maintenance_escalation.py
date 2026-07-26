@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from lite_frequency_v4.maintenance import (
-    LIVE_RECLAIM_REASON, CheckpointDecision, CheckpointMode, CheckpointResult,
+    EMERGENCY_WAL_REASON, LIVE_RECLAIM_REASON, CheckpointDecision, CheckpointMode, CheckpointResult,
     CheckpointStatus, MaintenancePolicy, MaintenanceSnapshot,
     _invoke_reclaiming_checkpoint, decide_checkpoint, perform_checkpoint,
 )
@@ -312,6 +312,28 @@ def test_gate_retry_gives_up_at_the_bounded_deadline():
     assert type(excinfo.value).__name__ == "V4BackgroundWriteDeferred"
     # Bounded: it never spins indefinitely against a gate that stays held.
     assert store.attempts <= 8
+
+
+def test_emergency_passive_retries_the_gate_so_no_progress_can_advance():
+    """A deferred emergency PASSIVE never runs, so it never proves anything.
+
+    The escalation arms only after PASSIVE demonstrably fails to reclaim
+    bytes.  If the gate keeps refusing the emergency pass, the counter stalls
+    below its threshold and the reclamation never fires while the WAL grows.
+    """
+    store = _GatedStore(refusals=4)
+    decision = CheckpointDecision(
+        True, CheckpointMode.PASSIVE, EMERGENCY_WAL_REASON, _snapshot())
+    clock = {"t": 0.0}
+    _invoke_reclaiming_checkpoint(
+        store, decision, MaintenancePolicy(live_reclaim_gate_wait_ms=1_000),
+        monotonic_clock=lambda: clock["t"],
+        sleep=lambda seconds: clock.__setitem__("t", clock["t"] + seconds),
+    )
+    assert store.attempts == 5
+    # An emergency PASSIVE keeps the connection's own busy timeout; only the
+    # escalated reclamation narrows it.
+    assert store.busy_timeouts == [None]
 
 
 def test_ordinary_passive_pass_never_retries_the_gate():

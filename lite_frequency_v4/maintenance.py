@@ -330,6 +330,13 @@ _STOPPED_HEALTH = frozenset({"OFFLINE", "STOPPED"})
 # perform_checkpoint so the hard-safety recheck knows this TRUNCATE was
 # authorized by the live invariants rather than the stopped-runtime ones.
 LIVE_RECLAIM_REASON = "passive_no_progress_live_reclaim"
+EMERGENCY_WAL_REASON = "emergency_wal_pressure"
+# Checkpoint reasons urgent enough to retry a refused background-write gate.
+# Both mean the WAL is already past its restart trigger.  A routine pass has no
+# urgency and keeps yielding immediately; these do, because yielding is exactly
+# what let the WAL grow -- a deferred PASSIVE never runs, so the no-progress
+# counter never advances, so the reclamation escalation never arms.
+_GATE_RETRY_REASONS = frozenset({LIVE_RECLAIM_REASON, EMERGENCY_WAL_REASON})
 
 
 def decide_checkpoint(
@@ -376,7 +383,7 @@ def decide_checkpoint(
             # indefinitely.  Only the bounded min-interval above rate-limits
             # this branch; retention still honors the gate.
             return CheckpointDecision(
-                True, CheckpointMode.PASSIVE, "emergency_wal_pressure", snapshot
+                True, CheckpointMode.PASSIVE, EMERGENCY_WAL_REASON, snapshot
             )
         return _skip(snapshot, gate_reason)
 
@@ -911,7 +918,7 @@ def _invoke_reclaiming_checkpoint(
     """
 
     assert decision.mode is not None
-    if decision.reason != LIVE_RECLAIM_REASON:
+    if decision.reason not in _GATE_RETRY_REASONS:
         return _invoke_checkpoint(store, decision.mode, decision.reason)
     pause = sleep or time.sleep
     deadline = monotonic_clock() + policy.live_reclaim_gate_wait_ms / 1_000.0
@@ -919,7 +926,10 @@ def _invoke_reclaiming_checkpoint(
         try:
             return _invoke_checkpoint(
                 store, decision.mode, decision.reason,
-                busy_timeout_ms=policy.live_reclaim_busy_timeout_ms,
+                busy_timeout_ms=(
+                    policy.live_reclaim_busy_timeout_ms
+                    if decision.reason == LIVE_RECLAIM_REASON else None
+                ),
             )
         except Exception as exc:  # noqa: BLE001 - only gate refusals retry
             if not _is_background_write_deferred(exc):
