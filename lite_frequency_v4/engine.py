@@ -3283,6 +3283,7 @@ class FrequencyV4Engine:
                 ),
                 consecutive_no_progress_passive=(
                     self._consecutive_no_progress_passive),
+                integrity_ok=bool(self._last_integrity_ok),
                 last_checkpoint_attempt_ts_ms=(
                     self._checkpoint_state.get("started_ts_ms")
                     or self._checkpoint_state.get("completed_ts_ms")
@@ -3647,6 +3648,7 @@ class FrequencyV4Engine:
             self._background_tasks.clear()
 
             self._flush_event_counts()
+            telemetry_stop_failure: Optional[str] = None
             if self.telemetry is not None:
                 drained = bool(await asyncio.to_thread(
                     self.telemetry.stop,
@@ -3666,10 +3668,18 @@ class FrequencyV4Engine:
                     ))
                     self._last_error = "telemetry_shutdown_forced_after_drain_timeout"
                     if not forced:
-                        self._critical_failure_reason = "telemetry_shutdown_timeout"
-                        raise V4PersistenceError(
+                        # Record it, but do NOT abort the shutdown here.  The
+                        # lossy lane must never outrank critical evidence:
+                        # raising before end_runtime_session left the session
+                        # row open forever, which in turn made every later
+                        # startup unable to reconcile that session's unfinished
+                        # maker observations and permanently fail-closed the
+                        # engine.  The failure is re-raised after the session
+                        # is durably terminated.
+                        telemetry_stop_failure = (
                             "telemetry owner thread did not stop before verification"
                         )
+                        self._critical_failure_reason = "telemetry_shutdown_timeout"
 
             if self.persistence is not None:
                 await self._critical_execute(
@@ -3714,6 +3724,11 @@ class FrequencyV4Engine:
                     self._last_error = (
                         f"stopped_publish:{type(exc).__name__}:{exc}"
                     )[:240]
+            if telemetry_stop_failure is not None:
+                # Surfaced only now: the session is durably ended and the final
+                # state published, so the failure is observable without having
+                # cost the runtime its session termination.
+                raise V4PersistenceError(telemetry_stop_failure)
         finally:
             await self.gamma.close()
             await self.clob.close()

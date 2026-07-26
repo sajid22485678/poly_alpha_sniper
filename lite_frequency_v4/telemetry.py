@@ -931,6 +931,14 @@ class V4TelemetryWriter:
             if not self._stop_requested:
                 self._stop_requested = True
                 self._drain_on_stop = drain
+            elif not drain:
+                # An explicit non-draining stop must be able to escalate a
+                # draining stop that is already in progress.  Without this the
+                # caller's forced second attempt silently keeps draining and
+                # times out exactly like the first, so the shutdown path could
+                # never actually force the lane to stop -- and its caller then
+                # aborted before durably ending the runtime session.
+                self._drain_on_stop = False
             self._health = "STOPPING"
             if not self._drain_on_stop:
                 discarded = sum(row.logical_count for row in self._pending.values())

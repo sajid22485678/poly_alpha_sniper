@@ -170,12 +170,11 @@ def test_escalation_runs_even_when_the_maintenance_gate_is_closed():
         {"long_reader_count": 1},
         {"critical_queue_depth": 1},
         {"writer_healthy": False},
-        {"runtime_health": "DEGRADED_INTEGRITY"},
-        {"runtime_health": "DEGRADED_PERSISTENCE"},
+        {"integrity_ok": False},
     ],
     ids=[
         "long_reader", "critical_queued", "writer_unhealthy",
-        "integrity_degraded", "persistence_degraded",
+        "integrity_not_ok",
     ],
 )
 def test_live_reclamation_requires_database_level_safety(unsafe):
@@ -188,14 +187,18 @@ def test_live_reclamation_requires_database_level_safety(unsafe):
 @pytest.mark.parametrize(
     "health",
     ["DEGRADED_PARTIAL_CEX", "DEGRADED_NO_FRESH_CEX",
-     "DEGRADED_EVENT_LOOP_LAG"],
+     "DEGRADED_EVENT_LOOP_LAG", "DEGRADED_PERSISTENCE"],
 )
-def test_market_data_degradation_does_not_starve_reclamation(health):
-    """A live runtime is rarely in a pristine health state.
+def test_trade_gating_health_does_not_starve_reclamation(health):
+    """A live runtime is rarely in a pristine overall health state.
 
-    Gating reclamation on general runtime health means an exchange feed hiccup
-    -- which says nothing about database safety -- suspends WAL reclamation
-    indefinitely.  That is how the WAL grew unbounded in production.
+    ``runtime_health`` folds in trade-gating conditions: a partial exchange
+    feed, event-loop lag, and DEGRADED_PERSISTENCE (which the engine reports
+    for any critical_* execution block, including unreconciled maker evidence
+    and exposure limits).  None of them describe the database.  Every attempt
+    to gate reclamation on this signal made reclamation unreachable in a live
+    run and let the WAL grow without bound; the writer and integrity flags are
+    the only health inputs that belong here.
     """
     policy = MaintenancePolicy()
     snap = _snapshot(consecutive_no_progress_passive=3, runtime_health=health)

@@ -151,6 +151,13 @@ class MaintenanceSnapshot:
     # shrink; this counter lets the policy escalate to RESTART, which briefly
     # waits for readers to drain, instead of looping on PASSIVE forever.
     consecutive_no_progress_passive: int = 0
+    # Whether the last database integrity scan passed.  This is the only
+    # health signal WAL reclamation consults, because it is the only one that
+    # describes the database.  ``runtime_health`` folds in trade-gating
+    # conditions (unreconciled maker evidence, exposure limits, market-data
+    # freshness) that say nothing about whether a checkpoint is safe, and
+    # gating on it suspended reclamation indefinitely in a live soak.
+    integrity_ok: bool = True
 
     def __post_init__(self) -> None:
         for name in (
@@ -168,6 +175,8 @@ class MaintenanceSnapshot:
             raise TypeError("runtime_active must be bool")
         if not isinstance(self.writer_healthy, bool):
             raise TypeError("writer_healthy must be bool")
+        if not isinstance(self.integrity_ok, bool):
+            raise TypeError("integrity_ok must be bool")
         if not isinstance(self.runtime_health, str) or not self.runtime_health.strip():
             raise ValueError("runtime_health must be a non-empty string")
         for name in (
@@ -321,14 +330,6 @@ _STOPPED_HEALTH = frozenset({"OFFLINE", "STOPPED"})
 # perform_checkpoint so the hard-safety recheck knows this TRUNCATE was
 # authorized by the live invariants rather than the stopped-runtime ones.
 LIVE_RECLAIM_REASON = "passive_no_progress_live_reclaim"
-# Runtime health values that make WAL reclamation unsafe: a database whose
-# integrity is unknown or degraded, and a persistence/ownership fault.  Nothing
-# else qualifies.  A degraded or partial market-data feed says nothing about
-# whether a checkpoint is safe, and gating reclamation on general runtime
-# health is precisely what made the previous escalation unreachable -- a live
-# runtime is almost never in a pristine health state, so the WAL grew unbounded
-# while the policy waited for a condition that does not occur.
-_RECLAIM_UNSAFE_HEALTH_PREFIXES = ("DEGRADED_INTEGRITY", "DEGRADED_PERSISTENCE")
 
 
 def decide_checkpoint(
@@ -808,11 +809,13 @@ def _live_reclaim_is_safe(
     if not snapshot.runtime_active:
         # The stopped path keeps its own stricter invariants below.
         return False
-    # Writer and database/ownership health only.  Market-data degradation is
-    # deliberately not consulted; see _RECLAIM_UNSAFE_HEALTH_PREFIXES.
-    if snapshot.normalized_health.startswith(_RECLAIM_UNSAFE_HEALTH_PREFIXES):
-        return False
-    return snapshot.writer_healthy
+    # Database health only.  ``runtime_health`` is deliberately NOT consulted:
+    # it folds in trade-gating conditions -- a partial market-data feed,
+    # unreconciled maker evidence, exposure limits -- none of which describe
+    # the database.  Every previous attempt to gate reclamation on it made
+    # reclamation unreachable in a live run, because a live runtime is almost
+    # never in a pristine overall health state.
+    return snapshot.writer_healthy and snapshot.integrity_ok
 
 
 def _restart_is_safe(snapshot: MaintenanceSnapshot, policy: MaintenancePolicy) -> bool:

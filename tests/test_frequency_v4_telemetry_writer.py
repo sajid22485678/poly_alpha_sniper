@@ -627,6 +627,46 @@ def test_deadline_backoff_actually_defers_the_next_dispatch():
     assert writer.snapshot()["deadline_backoff_s"] > 0.0
 
 
+def test_forced_stop_escalates_an_in_progress_draining_stop():
+    """A second stop(drain=False) must actually stop draining.
+
+    The shutdown path calls stop(drain=True) and, on timeout, stop(drain=False)
+    to force the owner thread down.  Because the drain flag was only recorded
+    on the first stop, the forced call silently kept draining and timed out
+    exactly like the first -- and its caller then aborted shutdown before
+    durably ending the runtime session, leaving the session open forever.
+    """
+
+    release = threading.Event()
+
+    class WedgedSink:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def submit_telemetry_batch(self, commands, *, timeout_s):
+            del commands, timeout_s
+            self.calls += 1
+            release.wait(30.0)
+            return 0
+
+    sink = WedgedSink()
+    writer = _writer(sink, batch_size=4, physical_batch_size=1)
+    writer.start()
+    for index in range(50):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    # The sink is wedged, so the draining stop cannot complete in time.
+    assert writer.stop(drain=True, timeout_s=0.5) is False
+    assert writer.snapshot()["queue_depth"] > 0
+
+    # The forced stop must discard the backlog rather than keep draining.
+    release.set()
+    assert writer.stop(drain=False, timeout_s=5.0) is True
+    metrics = writer.snapshot()
+    assert metrics["health"] == "STOPPED"
+    assert metrics["queue_depth"] == 0
+    assert metrics["dropped"] > 0
+
+
 def test_graceful_stop_drains_every_accepted_command_and_rejects_late_submit():
     sink = RecordingSink(delay_s=0.002)
     writer = _writer(sink, batch_size=5)
