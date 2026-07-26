@@ -684,6 +684,104 @@ def test_deadline_backoff_actually_defers_the_next_dispatch():
     assert writer.snapshot()["deadline_backoff_s"] > 0.0
 
 
+def test_transient_deadline_miss_on_a_safe_chunk_is_requeued_not_lost():
+    """A deadline miss caused by transient contention must not lose evidence.
+
+    When the failing chunk was within the deadline-safe size the controller had
+    certified (the real-world seven-row failure under SQLite contention), the
+    transaction rolled back without committing anything, so the evidence is
+    still valid.  The rows are requeued with the same bounded retry budget a
+    cooperative priority skip uses and committed on the next dispatch, instead
+    of being dropped as unexpected DEADLINE_EXPIRED loss.  This is the fix for
+    the seven unexpected telemetry rows observed in the fatal soak.
+    """
+
+    class DeadlineExceeded(RuntimeError):
+        telemetry_deadline_exceeded = True
+
+    class TransientContentionSink:
+        """Misses the deadline once on a small batch, then always commits."""
+
+        def __init__(self) -> None:
+            self.misses = 0
+            self.written = 0
+            self._lock = threading.Lock()
+
+        def submit_telemetry_batch(self, commands, *, timeout_s):
+            del timeout_s
+            # Miss exactly once: a transient contention spike on a small batch.
+            with self._lock:
+                already_missed = self.misses > 0
+                if not already_missed:
+                    self.misses += 1
+            if not already_missed:
+                raise DeadlineExceeded(
+                    "telemetry transaction exceeded cooperative deadline")
+            with self._lock:
+                self.written += len(commands)
+            return {"ok": True, "rows_written": len(commands)}
+
+    sink = TransientContentionSink()
+    writer = _writer(sink, capacity=2_048, batch_size=64,
+                     physical_batch_size=32, flush_interval_s=0.05)
+    writer.start()
+    # Submit a small set so the first dispatch is a safe-sized chunk that hits
+    # the one-shot contention miss, then requeues and commits on retry.
+    for index in range(7):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    assert writer.flush(timeout_s=20.0)
+    metrics = writer.snapshot()
+    # The transient miss was observed exactly once...
+    assert sink.misses == 1
+    assert metrics["deadline_exceeded_batches"] >= 1
+    # ...but every row was eventually committed (no unexpected loss).
+    assert sink.written == 7
+    assert metrics["dropped"] == 0
+    assert metrics["loss_by_category"]["DEADLINE_EXPIRED"] == 0
+    assert metrics["health"] == "HEALTHY"
+    assert writer.stop(drain=True, timeout_s=5.0)
+
+
+def test_oversize_deadline_miss_is_still_dropped_not_requeued():
+    """A deadline miss on a genuinely oversize batch must still drop.
+
+    The requeue applies only to transient contention on a controller-certified
+    chunk size.  An oversize batch that can never meet the deadline is honest
+    loss and must be dropped (and shrink the ceiling), exactly as before, so the
+    fix does not turn a real size defect into an unbounded retry loop.
+    """
+
+    class DeadlineExceeded(RuntimeError):
+        telemetry_deadline_exceeded = True
+
+    class CapacitySink:
+        def __init__(self, capacity: int) -> None:
+            self.capacity = int(capacity)
+            self.misses = 0
+
+        def submit_telemetry_batch(self, commands, *, timeout_s):
+            del timeout_s
+            if len(commands) > self.capacity:
+                self.misses += 1
+                raise DeadlineExceeded("exceeded")
+            return len(commands)
+
+    sink = CapacitySink(capacity=2)
+    writer = _writer(sink, capacity=2_048, batch_size=64,
+                     physical_batch_size=32, flush_interval_s=0.05)
+    writer.start()
+    # Oversize: 32-row chunk against a 2-row capacity can never commit.
+    for index in range(40):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    writer.flush(timeout_s=10.0)
+    metrics = writer.snapshot()
+    writer.stop(drain=False, timeout_s=2.0)
+    # The oversize batch missed, shrank the ceiling, and was dropped as loss --
+    # not requeued forever.
+    assert sink.misses >= 1
+    assert metrics["deadline_shrink_events"] >= 1
+
+
 def test_forced_stop_escalates_an_in_progress_draining_stop():
     """A second stop(drain=False) must actually stop draining.
 

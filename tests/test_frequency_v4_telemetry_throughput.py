@@ -795,6 +795,100 @@ def test_current_health_recovers_without_erasing_lifetime_loss():
     assert decision.current_operational_healthy is True
 
 
+def test_rapid_policy_sampling_transitions_do_not_block_recovery():
+    """Chunk changes during safe policy sampling must not reset the settle timer.
+
+    Previously any ``selected_chunk != prior_selected`` re-armed the 20s settle,
+    which made recovery unreachable whenever the controller legitimately adapted
+    the physical chunk up/down while every safety invariant held.  Now only a
+    genuine deadline-safe capacity shrink re-arms; healthy growth/floor-driven
+    changes are tolerated.  This drives rapid chunk fluctuation with zero loss,
+    zero failures, and a bounded queue, then asserts recovery still certifies.
+    """
+    controller = _controller(maximum=8)
+    decision = None
+    # Alternate the offered load every other tick so the throughput floor and
+    # growth probes move the selected chunk around, but keep the queue bounded
+    # and never introduce loss/failures/deadline-misses.
+    for tick in range(1, 60):
+        offered = 4 if tick % 2 == 0 else 8
+        controller.add(
+            float(tick), queue_depth=2, offered=offered, admitted=offered)
+        controller.observe_commit(
+            now=float(tick), rows=offered, logical_rows=offered,
+            transaction_ms=8.0, total_ms=8.0, queue_depth=2)
+        decision = controller.decide(
+            now=float(tick), queue_depth=2, transaction_budget_ms=250.0)
+    assert decision is not None
+    assert decision.view.lost == 0
+    assert decision.view.failed_batches == 0
+    assert decision.view.deadline_failures == 0
+    # Settle must elapse and recovery must certify despite the fluctuation.
+    assert "settling" not in decision.recovery_blockers
+    assert decision.current_operational_healthy is True
+
+
+def test_overload_toggle_while_safe_does_not_reset_settle():
+    """An overload toggle with all safety invariants healthy is recoverable.
+
+    HEALTHY_WITH_POLICY_SAMPLING -- overload active while queues are bounded
+    and loss/failures are zero -- is a valid state.  Resetting settle on every
+    overload toggle made recovery impossible whenever load fluctuated around
+    the capacity boundary.  Now only entering overload via the hard
+    queue-capacity (queue_high_water) path re-arms settle.
+    """
+    controller = _controller(maximum=4)
+    decision = None
+    # Sustained offered load above deadline-safe capacity puts the lane into
+    # controlled overload (policy sampling) with zero loss.
+    for tick in range(1, 50):
+        controller.add(
+            float(tick), queue_depth=0,
+            incoming=200, offered=200, admitted=1, sampled=199,
+            overload_handled=199)
+        controller.observe_commit(
+            now=float(tick), rows=1, logical_rows=1,
+            transaction_ms=20.0, total_ms=20.0, queue_depth=0)
+        decision = controller.decide(
+            now=float(tick), queue_depth=0, transaction_budget_ms=100.0)
+    assert decision is not None
+    assert decision.overload_active is True
+    assert decision.controlled_overload is True
+    assert decision.view.lost == 0
+    # Once settle elapses the lane certifies even though overload is active:
+    # this is HEALTHY_WITH_POLICY_SAMPLING, not a permanent latch.
+    assert "settling" not in decision.recovery_blockers
+    assert decision.current_operational_healthy is True
+
+
+def test_high_water_overload_entry_still_re_arms_settle():
+    """Entering overload via hard queue capacity remains a genuine setback.
+
+    The transition-aware fix must not weaken safety: a queue_high_water entry
+    is real capacity pressure and must still reset the settle timer so a fresh
+    recovery window is required after it.
+    """
+    controller = _controller(maximum=4)
+    # Drive the queue to the hard high-water mark to enter overload via
+    # queue_high_water, with zero loss.
+    for tick in range(1, 6):
+        controller.add(
+            float(tick), queue_depth=controller.high_water,
+            offered=20, admitted=20)
+        controller.observe_commit(
+            now=float(tick), rows=4, logical_rows=4,
+            transaction_ms=20.0, total_ms=20.0,
+            queue_depth=controller.high_water)
+        decision = controller.decide(
+            now=float(tick), queue_depth=controller.high_water,
+            transaction_budget_ms=100.0)
+    assert decision is not None
+    assert decision.overload_active is True
+    assert decision.overload_reason == "queue_high_water"
+    # A fresh high-water entry must re-arm the settle timer.
+    assert "settling" in decision.recovery_blockers
+
+
 def test_critical_command_acknowledges_during_sustained_telemetry(tmp_path):
     db_path = tmp_path / "critical-ack-under-telemetry.db"
     persistence = V4PersistenceWriter(

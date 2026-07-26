@@ -998,6 +998,7 @@ class _AdaptiveTelemetryController:
             queue_depth=queue_depth,
             queue_target=self.queue_target,
         )
+        prior_safe_chunk = self.deadline_safe_chunk
         self.deadline_safe_chunk = max(
             1, min(self.physical_max_chunk, safe))
         self.throughput_required_chunk = max(1, int(required))
@@ -1080,7 +1081,18 @@ class _AdaptiveTelemetryController:
                 self.selected_chunk = required_floor
                 self._headroom_streak = 0
                 self._successes_at_selected = 0
-            if self.selected_chunk != prior_selected:
+            # The settle timer is reset only by a genuinely unsafe transition,
+            # not by routine controller adaptation.  Chunk-size changes that
+            # follow from a fresh shrink of the deadline-safe capacity mean
+            # the sink measured slower (a real capacity change), so that path
+            # re-arms recovery.  A chunk change driven by the throughput floor
+            # or a healthy upward growth probe is exactly the policy-sampling
+            # adaptation recovery must tolerate: resetting settle on every
+            # such change made the 20s interval unreachable under fluctuating
+            # but safe load.  Deadline misses and any loss/overflow already
+            # call ``_reset_settle`` directly through their own paths.
+            if (self.selected_chunk < prior_selected
+                    and self.deadline_safe_chunk < prior_safe_chunk):
                 self._reset_settle(now)
 
             if capacity_pressure:
@@ -1111,7 +1123,19 @@ class _AdaptiveTelemetryController:
                     self._overload_active = False
                     self._overload_reason = None
                     self._overload_exit_streak = 0
-            if self._overload_active != prior_overload:
+            # A toggle of ``overload_active`` is not inherently unsafe.
+            # HEALTHY_WITH_POLICY_SAMPLING -- overload active while the policy
+            # is sampling, queues are bounded, and loss/failures are zero -- is
+            # a valid recoverable state.  Resetting settle on every toggle made
+            # the recovery window unreachable whenever load fluctuated around
+            # the capacity boundary even while every safety invariant held.
+            # Only a transition *into* overload via the hard queue-capacity
+            # path (queue_high_water) is a genuine capacity setback; the
+            # throughput-exceeds-deadline-safe-capacity path is the steady
+            # state the shedding policy exists to absorb, and exiting overload
+            # is recovery progress, not a setback.
+            if (self._overload_active and not prior_overload
+                    and self._overload_reason == "queue_high_water"):
                 self._reset_settle(now)
 
             service_balanced = _service_balanced(
@@ -2387,6 +2411,12 @@ class V4TelemetryWriter:
                             and float(budget_hint) > 0):
                         self._budget_ms = float(budget_hint)
                     prior_ceiling = self._physical_batch_ceiling
+                    # Capture the chunk size the controller had certified as
+                    # deadline-safe *before* this miss shrinks it.  A miss on a
+                    # chunk at or below that size was unexpected given the
+                    # controller's cost model -- i.e. transient contention, not
+                    # an oversize batch -- so its rows are requeued below.
+                    prior_selected = self._controller.selected_chunk
                     self._controller.observe_deadline_miss(
                         now=completed,
                         failed_rows=failed_chunk_rows,
@@ -2405,18 +2435,47 @@ class V4TelemetryWriter:
                                  if previous > 0.0 else self.flush_interval_s))
                     self._deadline_backoff_until = (
                         time.monotonic() + self._deadline_backoff_s)
+                    # A deadline miss under transient contention -- the failing
+                    # chunk was within the deadline-safe size the controller had
+                    # certified -- rolled its transaction back without committing
+                    # anything, so the evidence is still valid.  Requeue it with
+                    # the same bounded retry budget a cooperative priority skip
+                    # uses, rather than dropping it immediately.  The controller
+                    # has already shrunk the chunk above, so the next dispatch is
+                    # smaller and more likely to commit under the same load.
+                    # Only rows that exhaust the retry budget (or are abandoned
+                    # at shutdown) become honest DEADLINE_EXPIRED loss; the
+                    # requeue helper rolls back admission for those itself.
+                    deadline_chunk_safe = (
+                        failed_chunk_rows <= max(1, prior_selected))
+                    if deadline_chunk_safe:
+                        abandoned = self._requeue_locked(failed_rows)
+                        if abandoned:
+                            self._drop_locked(
+                                abandoned,
+                                "telemetry_deadline_retry_exhausted",
+                                category=TelemetryLossCategory.DEADLINE_EXPIRED,
+                                health=health)
+                    else:
+                        self._drop_locked(
+                            logical_unwritten,
+                            error or "telemetry_batch_failed",
+                            category=TelemetryLossCategory.DEADLINE_EXPIRED,
+                            health=health)
+                        for pending in failed_rows:
+                            self._rollback_admission_locked(pending)
                 else:
                     health = "DEGRADED_WRITER"
                     self._controller.add(
                         completed, queue_depth=len(self._queue),
                         failed_batches=1)
-                self._drop_locked(
-                    logical_unwritten, error or "telemetry_batch_failed",
-                    category=_classify_batch_failure(
-                        error, deadline_exceeded=deadline_exceeded),
-                    health=health)
-                for pending in failed_rows:
-                    self._rollback_admission_locked(pending)
+                    self._drop_locked(
+                        logical_unwritten, error or "telemetry_batch_failed",
+                        category=_classify_batch_failure(
+                            error, deadline_exceeded=deadline_exceeded),
+                        health=health)
+                    for pending in failed_rows:
+                        self._rollback_admission_locked(pending)
             self._sync_controller_locked(completed)
             self._last_heartbeat_ts_ms = int(time.time() * 1_000)
             self._condition.notify_all()
