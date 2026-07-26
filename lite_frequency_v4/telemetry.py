@@ -860,6 +860,21 @@ class _AdaptiveTelemetryController:
                     self._last_increase_ts = float(now)
                     self._headroom_streak = 0
                     self._successes_at_selected = 0
+            # Honour the throughput floor.  Unlike a growth probe this is not
+            # speculative: it is the minimum rows per dispatch needed for
+            # committed throughput to keep pace with admitted load plus a
+            # bounded backlog drain, and it is clamped by the deadline-safe
+            # capacity, so meeting it can never risk a deadline miss.
+            # Computing the floor without ever applying it left the controller
+            # selecting below its own stated requirement -- the queue then grew
+            # under sustained load and current health could never certify,
+            # because controller_safe requires selected >= required.
+            required_floor = min(
+                self.throughput_required_chunk, self.deadline_safe_chunk)
+            if self.selected_chunk < required_floor:
+                self.selected_chunk = required_floor
+                self._headroom_streak = 0
+                self._successes_at_selected = 0
             if self.selected_chunk != prior_selected:
                 self._reset_settle(now)
 

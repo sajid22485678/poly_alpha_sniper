@@ -511,6 +511,64 @@ def test_headroom_gap_allowance_is_expressed_in_control_ticks():
     assert slow._up_max_headroom_gap_ticks == 1
 
 
+def test_throughput_floor_is_applied_not_merely_reported():
+    """The computed floor must actually raise the selected chunk.
+
+    A floor that is calculated, published and validated against but never
+    enforced leaves the controller selecting below its own requirement: the
+    queue then grows under sustained load and current health can never
+    certify, because controller_safe requires selected >= required.
+    """
+
+    controller = _controller()
+    bootstrap = controller.selected_chunk
+    decision = None
+    # Sustained admitted load above what the bootstrap chunk can commit, but
+    # still within reach of a cheap sink's deadline-safe capacity.
+    for index in range(40):
+        now = 1.0 + index * 0.25
+        rows = controller.selected_chunk
+        controller.add(now, queue_depth=20, incoming=6, offered=6, admitted=6)
+        controller.observe_commit(
+            now=now, rows=rows, logical_rows=rows,
+            transaction_ms=2.0, total_ms=2.0, queue_depth=20)
+        decision = controller.decide(
+            now=now, queue_depth=20, transaction_budget_ms=250.0)
+
+    assert decision is not None
+    # The requirement is real: it exceeds the conservative bootstrap size and
+    # is genuinely meetable within the deadline budget.
+    assert decision.throughput_required_chunk > bootstrap
+    assert decision.throughput_required_chunk <= decision.deadline_safe_chunk
+    # The floor is honoured ...
+    assert decision.selected_chunk >= decision.throughput_required_chunk
+    # ... and never at the cost of deadline safety.
+    assert decision.selected_chunk <= decision.deadline_safe_chunk
+
+
+def test_throughput_floor_never_exceeds_deadline_safe_capacity():
+    """An unmeetable floor must clamp, not push past the deadline budget."""
+
+    controller = _controller(maximum=4)
+    decision = None
+    for index in range(20):
+        now = 1.0 + index * 0.25
+        controller.add(now, queue_depth=500, incoming=400, offered=400,
+                       admitted=400)
+        controller.observe_commit(
+            now=now, rows=1, logical_rows=1,
+            transaction_ms=90.0, total_ms=90.0, queue_depth=500)
+        decision = controller.decide(
+            now=now, queue_depth=500, transaction_budget_ms=100.0)
+
+    assert decision is not None
+    # Demand exceeds what the budget allows, so overload is declared rather
+    # than the chunk being pushed past its deadline-safe bound.
+    assert decision.throughput_required_chunk > decision.deadline_safe_chunk
+    assert decision.selected_chunk <= decision.deadline_safe_chunk
+    assert decision.overload_active is True
+
+
 def test_offered_load_remains_visible_while_admission_is_sampled():
     controller = _controller(maximum=4)
     decision = None
