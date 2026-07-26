@@ -1271,10 +1271,24 @@ class FrequencyV4Engine:
                 # (source, classification).  Counts are summed, so the observed
                 # event volume is conserved exactly; only channel/asset/event
                 # attribution is coarsened, and that coarsening is declared by
-                # the AGGREGATED sentinels below.  The reserved buckets are
-                # bounded by |source| x |classification|, so admitting them past
-                # the soft cap cannot make the buffer grow without bound.
-                key = (
+                # the AGGREGATED sentinels below.
+                #
+                # An existing coarse bucket is reused whatever its second.
+                # Keying on the current second instead would mint a fresh
+                # reserved bucket every second, so during a prolonged flush
+                # outage the buffer would grow without bound -- the opposite of
+                # what the capacity cap is for.  Reuse bounds the reserved set
+                # to |source| x |classification|; its timestamp is the first
+                # second it covered, which the AGGREGATED sentinels already
+                # mark as coarsened.
+                coarse = next((
+                    existing for existing in self._event_count_buffer
+                    if (existing[1], existing[2], existing[3], existing[4],
+                        existing[5]) == (
+                        str(source), _AGGREGATED_CHANNEL, _AGGREGATED_ASSET,
+                        _AGGREGATED_EVENT_TYPE, disposition)
+                ), None)
+                key = coarse if coarse is not None else (
                     bucket_start, str(source), _AGGREGATED_CHANNEL,
                     _AGGREGATED_ASSET, _AGGREGATED_EVENT_TYPE, disposition,
                 )

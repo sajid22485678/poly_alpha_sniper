@@ -431,9 +431,11 @@ def test_event_count_buffer_coarsens_instead_of_losing_counts(engine_harness):
     assert len(engine._event_count_buffer) >= engine.cfg.telemetry_queue_capacity
 
     before_overflow = engine.counters["telemetry_event_bucket_overflow"]
+    # Spread across many distinct seconds: a reserved bucket keyed on the
+    # current second would mint a new one each time and grow without bound.
     for index in range(25):
         event = _observation(
-            now_ms() + 500 + index, asset=f"OVER{index}",
+            now_ms() + 5_000 * index, asset=f"OVER{index}",
             event_id=f"over-{index}")
         engine._buffer_event_count(event, _accepted(event))
 
@@ -449,8 +451,10 @@ def test_event_count_buffer_coarsens_instead_of_losing_counts(engine_harness):
     assert all(key[3] == engine_module._AGGREGATED_ASSET
                and key[4] == engine_module._AGGREGATED_EVENT_TYPE
                for key in coarse)
-    # The reserved coarse buckets are bounded, so the buffer cannot grow without
-    # bound just because overflow keeps arriving.
+    # The reserved coarse buckets are bounded by |source| x |classification|,
+    # not by elapsed time, so a prolonged flush outage cannot grow the buffer
+    # without bound.  25 events across 25 distinct seconds share one bucket.
+    assert len(coarse) == 1, coarse
     assert len(engine._event_count_buffer) <= (
         engine.cfg.telemetry_queue_capacity + 8)
 
