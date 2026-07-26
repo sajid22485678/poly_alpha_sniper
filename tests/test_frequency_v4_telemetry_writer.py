@@ -457,6 +457,109 @@ def test_deadline_miss_shrinks_the_physical_chunk_and_stops_failing():
     assert writer.stop(drain=True, timeout_s=5.0)
 
 
+def test_chunk_size_is_computed_from_measured_cost_not_from_losses():
+    """The size must recover when the database gets faster again.
+
+    Learning only by failure pins the chunk at its worst observed value for
+    the life of the process: one bad stretch (an oversized WAL) leaves the
+    lane writing a single row per transaction forever, even after the
+    condition clears.
+    """
+
+    class BudgetedSink:
+        budget_ms = 200.0
+
+        def __init__(self) -> None:
+            self.ms_per_row = 20.0
+            self.sizes: list[int] = []
+
+        def telemetry_transaction_budget_ms(self) -> float:
+            return self.budget_ms
+
+        def submit_telemetry_batch(self, commands, *, timeout_s):
+            del timeout_s
+            self.sizes.append(len(commands))
+            time.sleep(len(commands) * self.ms_per_row / 1000.0)
+            return len(commands)
+
+    sink = BudgetedSink()
+    writer = _writer(sink, capacity=4_096, batch_size=64,
+                     physical_batch_size=32)
+    writer.start()
+    for index in range(120):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    assert writer.flush(timeout_s=30.0)
+    slow = writer.snapshot()
+    assert slow["transaction_budget_ms"] == 200.0
+    # 200 ms budget, half of it usable, ~20 ms per row -> about five rows.
+    assert 2 <= slow["physical_batch_ceiling"] <= 8
+    assert slow["observed_ms_per_row"] is not None
+
+    # The database gets faster (WAL truncated); the size must climb back.
+    sink.ms_per_row = 1.0
+    for index in range(120, 900):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    assert writer.flush(timeout_s=30.0)
+    fast = writer.snapshot()
+    assert fast["physical_batch_ceiling"] > slow["physical_batch_ceiling"]
+    assert fast["physical_batch_ceiling"] <= 32
+    assert fast["failed_batches"] == 0
+    assert fast["dropped"] == 0
+    assert writer.stop(drain=True, timeout_s=10.0)
+
+
+def test_deadline_miss_teaches_the_cost_floor_from_the_budget():
+    """A miss proves per-row cost is at least budget/rows; use that."""
+
+    class DeadlineExceeded(RuntimeError):
+        telemetry_deadline_exceeded = True
+        telemetry_deadline_ms = 120.0
+
+    class LinearCostSink:
+        """Cost grows with rows and the deadline bites past the budget."""
+
+        budget_ms = 120.0
+        ms_per_row = 12.0
+
+        def __init__(self) -> None:
+            self.sizes: list[int] = []
+
+        def submit_telemetry_batch(self, commands, *, timeout_s):
+            del timeout_s
+            self.sizes.append(len(commands))
+            cost_ms = len(commands) * self.ms_per_row
+            if cost_ms > self.budget_ms:
+                time.sleep(self.budget_ms / 1000.0)
+                raise DeadlineExceeded("exceeded")
+            time.sleep(cost_ms / 1000.0)
+            return len(commands)
+
+    sink = LinearCostSink()
+    writer = _writer(sink, capacity=1_024, batch_size=32,
+                     physical_batch_size=16)
+    writer.start()
+    for index in range(40):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    assert writer.flush(timeout_s=30.0)
+    warm = writer.snapshot()
+    assert warm["transaction_budget_ms"] == 120.0
+    # 16 rows missed a 120 ms budget -> at least 7.5 ms per row.
+    assert warm["observed_ms_per_row"] >= 120.0 / 16
+    assert warm["physical_batch_ceiling"] < 16
+
+    # Once the size reflects measured cost it settles below the deadline and
+    # stops producing new failures.
+    failures = warm["failed_batches"]
+    for index in range(40, 160):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    assert writer.flush(timeout_s=60.0)
+    steady = writer.snapshot()
+    assert steady["failed_batches"] == failures
+    assert steady["health"] == "HEALTHY"
+    assert max(sink.sizes) <= 16
+    assert writer.stop(drain=True, timeout_s=10.0)
+
+
 def test_one_failed_chunk_never_destroys_rows_it_did_not_attempt():
     """A dispatch carries one physical chunk, so loss is bounded by it."""
 

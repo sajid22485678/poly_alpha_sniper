@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any, Mapping, Optional
@@ -606,7 +607,7 @@ def build_frequency_v4_dashboard(
     heartbeat_age_ms = (
         max(0, int(now_ms) - int(heartbeat_ts_ms or 0))
         if heartbeat_ts_ms else None)
-    return {
+    return _json_safe({
         "schema_version": 3,
         "generated_ts_ms": int(now_ms),
         "export_age_ms": export_age_ms,
@@ -752,10 +753,33 @@ def build_frequency_v4_dashboard(
             "legacy_data_included": False,
         },
         "acceptance_gate": metrics["acceptance_gate"],
-    }
+    })
 
 
 build_v4_dashboard = build_frequency_v4_dashboard
+
+
+def _json_safe(value: Any) -> Any:
+    """Replace non-finite floats with ``None`` throughout the payload.
+
+    The export is written with ``allow_nan=False`` because ``Infinity`` and
+    ``NaN`` are not valid JSON and no browser will parse them.  A single
+    non-finite number anywhere therefore aborted the whole write, leaving the
+    dashboard frozen on its last good file while the runtime kept running --
+    the operator sees a stale page with no indication that anything failed.
+
+    Non-finite values are legitimate here (a model with no losing trade has an
+    infinite profit factor), so they are exported as ``null`` rather than
+    allowed to blank the entire view.
+    """
+
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Mapping):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def _atomic_write(path: Path, content: str) -> None:

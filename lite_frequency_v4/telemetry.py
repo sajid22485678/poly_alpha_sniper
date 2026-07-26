@@ -41,13 +41,16 @@ retry loop:
 for an exponentially growing window (capped at 2 s).  Admission keeps running;
 only dispatch waits.  A clean commit clears it.
 
-*Learned physical-chunk ceiling* — the sink enforces a short cooperative
+*Measured physical-chunk sizing* — the sink enforces a short cooperative
 transaction deadline.  A chunk larger than that budget allows, at the current
-per-row database cost, is guaranteed to miss it.  Each miss halves the ceiling,
-which never grows again within one process lifetime (the database only grows,
-so per-row cost only rises); it is re-learned at each launch.  Deadline
-failures are therefore self-limiting: at most ``log2(physical_batch_size)``
-misses per process, after which the lane stops producing new failures.
+per-row database cost, is guaranteed to miss it.  Rather than discovering the
+limit by losing a batch to it, the aggregator asks the sink for its budget,
+tracks per-row cost from successful commits, and sizes each chunk to use only
+half the budget.  A miss additionally proves the true cost is at least
+``budget/rows`` and halves the size immediately.  Because the size is computed
+from measurement it recovers when the database gets faster again -- right
+after a WAL truncation, for example -- instead of staying pinned at its worst
+observed value for the life of the process.
 """
 from __future__ import annotations
 
@@ -305,6 +308,14 @@ class V4TelemetryWriter:
         self._consecutive_successful_batches = 0
         self._last_priority_skip_ts_ms = 0
         self._requeued_rows = 0
+        # Measured cost control.  Once the sink's transaction budget is known,
+        # the chunk size is computed from the observed per-row cost with a
+        # safety margin rather than discovered by losing a batch to the
+        # deadline.  This lets the size recover when the database gets faster
+        # again (for example right after a WAL truncation) instead of being
+        # permanently pinned at its worst observed value.
+        self._budget_ms: Optional[float] = None
+        self._ms_per_row: Optional[float] = None
 
     @staticmethod
     def _command(
@@ -486,6 +497,45 @@ class V4TelemetryWriter:
                     and current[1] == pending.state_admitted_monotonic):
                 self._state_seen.pop(pending.state_key, None)
 
+    # Fraction of the sink's transaction budget one chunk may be sized to use.
+    # The remainder absorbs ordinary variance in per-row cost, so the steady
+    # state sits below the deadline instead of oscillating across it.
+    _BUDGET_SAFETY_FRACTION = 0.5
+    # EWMA weight for newly observed per-row cost.
+    _COST_SMOOTHING = 0.25
+
+    def _resolve_budget_locked(self) -> Optional[float]:
+        if self._budget_ms is not None:
+            return self._budget_ms
+        getter = getattr(
+            self._persistence_writer, "telemetry_transaction_budget_ms", None)
+        if callable(getter):
+            try:
+                value = float(getter())
+            except Exception:  # noqa: BLE001 - budget discovery is best effort
+                return None
+            if math.isfinite(value) and value > 0:
+                self._budget_ms = value
+        return self._budget_ms
+
+    def _observe_cost_locked(self, rows: int, elapsed_ms: float) -> None:
+        if rows <= 0 or not math.isfinite(elapsed_ms) or elapsed_ms < 0:
+            return
+        observed = max(elapsed_ms / rows, 1e-3)
+        self._ms_per_row = (
+            observed if self._ms_per_row is None
+            else (self._COST_SMOOTHING * observed
+                  + (1.0 - self._COST_SMOOTHING) * self._ms_per_row)
+        )
+
+    def _recompute_ceiling_locked(self) -> None:
+        budget = self._resolve_budget_locked()
+        if budget is None or self._ms_per_row is None:
+            return
+        target = int(budget * self._BUDGET_SAFETY_FRACTION / self._ms_per_row)
+        self._physical_batch_ceiling = max(
+            1, min(self.physical_batch_size, target))
+
     def _requeue_locked(self, rows: list[_Pending]) -> int:
         """Return unattempted rows to the front of the queue, preserving order.
 
@@ -651,6 +701,7 @@ class V4TelemetryWriter:
         deadline_exceeded = False
         failed_rows: list[_Pending] = []
         failed_chunk_rows = 0
+        deadline_budget_ms: Optional[float] = None
         cursor = 0
         with self._condition:
             chunk_limit = max(1, self._physical_batch_ceiling)
@@ -674,6 +725,10 @@ class V4TelemetryWriter:
                     getattr(exc, "telemetry_priority_skip", False))
                 deadline_exceeded = bool(
                     getattr(exc, "telemetry_deadline_exceeded", False))
+                budget_attr = getattr(exc, "telemetry_deadline_ms", None)
+                if isinstance(budget_attr, (int, float)) and not isinstance(
+                        budget_attr, bool):
+                    deadline_budget_ms = float(budget_attr)
                 # The failing sink transaction rolled this chunk back.  Stop
                 # immediately; all later chunks remain unwritten and are
                 # explicitly accounted as dropped below.
@@ -712,6 +767,8 @@ class V4TelemetryWriter:
                 self._deadline_backoff_until = 0.0
                 self._deadline_backoff_s = 0.0
                 self._consecutive_successful_batches += successful_batches
+                self._observe_cost_locked(cursor, batch_ms)
+                self._recompute_ceiling_locked()
             elif priority_skip:
                 # A cooperative yield to critical persistence is designed
                 # behaviour, not a telemetry fault.  The sink rolled its
@@ -748,6 +805,19 @@ class V4TelemetryWriter:
                     # current per-row cost, so resubmitting the same size is a
                     # guaranteed future miss.  Halving bounds the number of
                     # deadline failures per process to log2(physical_batch_size).
+                    # A miss proves the true per-row cost is at least
+                    # budget/rows.  Feeding that lower bound into the cost
+                    # estimate makes the next size computation react
+                    # immediately, and the halving below guarantees progress
+                    # even before any budget is known.
+                    budget_hint = deadline_budget_ms or self._budget_ms
+                    if (budget_hint and failed_chunk_rows > 0
+                            and math.isfinite(float(budget_hint))):
+                        self._budget_ms = float(budget_hint)
+                        floor_cost = float(budget_hint) / failed_chunk_rows
+                        self._ms_per_row = (
+                            floor_cost if self._ms_per_row is None
+                            else max(self._ms_per_row, floor_cost))
                     if failed_chunk_rows > 1:
                         self._physical_batch_ceiling = max(
                             1,
@@ -755,6 +825,7 @@ class V4TelemetryWriter:
                                 failed_chunk_rows) // 2,
                         )
                         self._deadline_shrink_events += 1
+                    self._recompute_ceiling_locked()
                     # Exponential backoff (capped at 2 s) so a WAL-pinned slow
                     # commit does not cause a tight resubmit-and-miss loop.
                     # The queue keeps accepting; only the next flush is deferred.
@@ -923,6 +994,10 @@ class V4TelemetryWriter:
                 "physical_batch_size": self.physical_batch_size,
                 "physical_batch_ceiling": self._physical_batch_ceiling,
                 "deadline_shrink_events": self._deadline_shrink_events,
+                "transaction_budget_ms": self._budget_ms,
+                "observed_ms_per_row": (
+                    round(self._ms_per_row, 4)
+                    if self._ms_per_row is not None else None),
                 "consecutive_successful_batches": (
                     self._consecutive_successful_batches),
                 "physical_batch_high_water": self._physical_batch_high_water,

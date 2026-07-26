@@ -507,19 +507,27 @@ async def test_slow_telemetry_batch_is_lossy_and_loop_safe(
         telemetry = engine.telemetry.snapshot()
         assert telemetry["submitted"] >= 100
         assert telemetry["coalesced"] + telemetry["deduplicated"] >= 90
-        # A dispatched slow batch must fail closed in one of two explicit,
-        # separately counted ways: yielding to newly pending critical
-        # persistence, or exceeding the cooperative per-transaction deadline
-        # that stops telemetry from holding the shared write gate.  Either
-        # way the loss is accounted exactly, never silently.
+        # A slow sink must never make the lane lose data silently, and it must
+        # never make it lose data it did not have to.  The lane adapts its
+        # physical chunk to the measured cost, so a slow row is written rather
+        # than dropped; whatever loss does occur stays exactly accounted.
         assert telemetry["overflow_count"] == 0
-        assert telemetry["dropped"] >= 1
-        assert telemetry["dropped"] == (
+        # Nothing vanishes: every admitted row is written, coalesced, dropped,
+        # or still pending.
+        assert telemetry["submitted"] == (
+            telemetry["logical_written"] + telemetry["coalesced"]
+            + telemetry["dropped"] + telemetry["queue_depth"])
+        # Loss, if any, is only ever these two accounted causes.
+        assert telemetry["dropped"] <= (
             telemetry["priority_skipped_rows"]
             + telemetry["deadline_exceeded_rows"])
+        # A cooperative yield defers rather than destroys: skipped rows are
+        # requeued, and only an exhausted retry budget turns into a drop.
+        assert telemetry["requeued_rows"] >= (
+            telemetry["priority_skipped_rows"] - telemetry["dropped"])
+        # Only genuine faults count as batch failures; a yield does not.
         assert telemetry["failed_batches"] == (
-            telemetry["priority_skipped_batches"]
-            + telemetry["deadline_exceeded_batches"])
+            telemetry["deadline_exceeded_batches"])
         assert telemetry["batches"] >= 1
         assert telemetry["batch_latency_max_ms"] >= 120.0
         count = await engine.read_worker.query_one(

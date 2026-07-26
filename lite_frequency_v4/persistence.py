@@ -445,6 +445,7 @@ class V4PersistenceWriter:
         }
         self._telemetry_sink: Optional[V4TelemetryStoreSink] = None
         self._telemetry_sink_lock = threading.Lock()
+        self.telemetry_max_transaction_ms = 250.0
         # Trade-critical commands accepted by the scheduler but not yet
         # journal-admitted.  Guarded by _metrics_lock; the exposed
         # unconfirmed_trade_critical_count is this queue-side hold plus the
@@ -552,12 +553,18 @@ class V4PersistenceWriter:
                     # timeout prevents an unrelated external lock from making
                     # a newly-arrived critical command wait behind telemetry.
                     busy_timeout_ms=100,
+                    max_transaction_ms=self.telemetry_max_transaction_ms,
                     write_gate=self._write_gate)
             sink = self._telemetry_sink
         return sink.submit_telemetry_batch(
             calls, command_id=command_id, timeout_s=timeout_s)
 
     submit_telemetry_batch_sync = submit_telemetry_batch
+
+    def telemetry_transaction_budget_ms(self) -> float:
+        """Expose the physical sink's cooperative transaction budget."""
+
+        return self.telemetry_max_transaction_ms
 
     def critical_write_pending(self) -> bool:
         """Thread-safe callback for non-critical worker admission checks."""
@@ -1130,7 +1137,14 @@ class V4TelemetryStoreSink:
     def __init__(self, db_path: str | Path, *, busy_timeout_ms: int = 10_000,
                  write_gate: Optional[_CriticalFirstWriteGate] = None,
                  max_batch_calls: int = 32,
-                 max_transaction_ms: float = 100.0):
+                 # The budget bounds how long telemetry may hold the shared
+                 # write lock while nothing critical is waiting.  A newly
+                 # arrived critical command still preempts at the next row
+                 # boundary, so the real contention a critical write can see is
+                 # one row, not this budget.  100 ms left no headroom at all on
+                 # a multi-GB database: a single row could exceed it, making
+                 # deadline misses unavoidable even at a chunk size of one.
+                 max_transaction_ms: float = 250.0):
         if (isinstance(max_batch_calls, bool)
                 or not isinstance(max_batch_calls, int)
                 or not 1 <= max_batch_calls <= 512):
@@ -1311,6 +1325,15 @@ class V4TelemetryStoreSink:
             self._write_gate.release_telemetry()
 
     submit_telemetry_batch_sync = submit_telemetry_batch
+
+    def telemetry_transaction_budget_ms(self) -> float:
+        """Cooperative transaction budget one physical batch must fit inside.
+
+        Published so the aggregator can size its chunks from measured per-row
+        cost instead of discovering the limit by losing a batch to it.
+        """
+
+        return self.max_transaction_ms
 
     def health(self) -> dict[str, Any]:
         return dict(self._metrics)

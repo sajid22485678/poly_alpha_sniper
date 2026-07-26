@@ -80,6 +80,52 @@ def _healthy_runtime_state(session: str) -> dict:
     }
 
 
+def test_non_finite_values_never_blank_the_whole_export(tmp_path):
+    """One infinite number must not freeze the operator's only view.
+
+    The export is written with allow_nan=False, so a single non-finite float
+    aborted the entire write and left the dashboard serving its last good file
+    while the runtime kept running -- a stale page with no failure indication.
+    A model with no losing trade has an infinite profit factor, so this is a
+    legitimate value that must be exported as null instead.
+    """
+    store, session, _ = _store_with_health(tmp_path)
+    try:
+        state = _healthy_runtime_state(session)
+        state["model_health"] = {
+            "enabled": True,
+            "quarantined_models": [],
+            "model_statistics": {
+                "no_losses_yet": {
+                    "model_name": "no_losses_yet",
+                    "observations": 12,
+                    "profit_factor": float("inf"),
+                    "loss_asymmetry": float("inf"),
+                    "expectancy": 1.25,
+                    "net_pnl": 15.0,
+                    "quarantined": False,
+                    "reason": "",
+                },
+            },
+        }
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(), session_id=session,
+            runtime_state=state,
+        )
+        stats = payload["model_health"]["model_statistics"]["no_losses_yet"]
+        assert stats["profit_factor"] is None
+        assert stats["loss_asymmetry"] is None
+        # Finite neighbours are untouched.
+        assert stats["expectancy"] == 1.25
+        assert stats["observations"] == 12
+        # The payload is now strictly encodable, which is what the writer does.
+        encoded = json.dumps(payload, allow_nan=False)
+        assert "Infinity" not in encoded
+        assert "NaN" not in encoded
+    finally:
+        store.close()
+
+
 def test_inflight_critical_command_does_not_block_operational_ready(tmp_path):
     """An outstanding command inside its deadline is pipelining, not a fault."""
     store, session, _ = _store_with_health(tmp_path)
