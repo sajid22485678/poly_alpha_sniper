@@ -82,6 +82,12 @@ export interface FrequencyV4Snapshot {
   fixed_shares?: number;
   heartbeat_ts_ms?: number;
   export_age_ms?: number;
+  // Runtime heartbeat age computed at export generation from the freshest
+  // writer/runtime-health signal.  Independent of export freshness so a stale
+  // export does not make a live runtime heartbeat appear stale.
+  runtime_heartbeat_age_ms?: number;
+  runtime_heartbeat_ts_ms?: number;
+  heartbeat_age_ms?: number;
   runtime?: Record<string, unknown>;
   effective_config?: Record<string, unknown>;
   persistence?: Record<string, unknown>;

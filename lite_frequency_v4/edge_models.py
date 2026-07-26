@@ -367,7 +367,10 @@ class DeterministicEdgeEnsemble:
         return self._output(name=name, family=family, group=group, score=score,
                             confidence=confidence, reliability=reliability, ctx=ctx)
 
-    def evaluate(self, ctx: ModelContext) -> EnsembleResult:
+    def evaluate(
+        self, ctx: ModelContext, *,
+        quarantined_models: Optional[frozenset[str]] = None,
+    ) -> EnsembleResult:
         outputs = (
             self.lead_lag_impulse(ctx),
             self.trend_continuation(ctx),
@@ -377,6 +380,19 @@ class DeterministicEdgeEnsemble:
             self.paired_book_parity(ctx),
             self.late_window_dominance(ctx),
         )
+        # Fail-closed model-health quarantine: a quarantined model's output is
+        # marked invalid so it contributes nothing to the ensemble probability
+        # and cannot drive an entry.  ``invalidation_reason`` is the existing
+        # validity filter used by every consumer of ``outputs``.
+        quarantine = frozenset(quarantined_models or ())
+        if quarantine:
+            outputs = tuple(
+                replace(output, invalidation_reason=(
+                    output.invalidation_reason
+                    or f"model_health_quarantined:{output.model_name}"
+                )) if output.model_name in quarantine else output
+                for output in outputs
+            )
         volatility = float(ctx.cex.volatility or 0.0)
         widest_spread = max(
             [book.spread or 1.0 for book in (ctx.yes_book, ctx.no_book) if book is not None]

@@ -318,6 +318,9 @@ _PERSISTENCE_CONFIG_FIELDS = (
     "maintenance_max_seconds_per_pass", "writer_queue_max",
     "cex_writer_queue_max", "shutdown_drain_timeout_s",
     "sqlite_busy_timeout_ms",
+    "model_health_quarantine_enabled", "model_health_min_observations",
+    "model_health_min_profit_factor", "model_health_min_expectancy",
+    "model_health_max_loss_asymmetry", "model_health_cooldown_s",
 )
 
 
@@ -479,6 +482,36 @@ def build_frequency_v4_dashboard(
         or telemetry.get("rows_dropped") or 0
     )
     telemetry_failures = int(telemetry.get("failed_batches") or 0)
+    # Raw telemetry counters are cumulative-lifetime, so a single historical
+    # pressure event would otherwise latch the dashboard degraded forever.
+    # Operational degradation fires only while the lossy lane is *currently*
+    # unhealthy: the writer is in a degraded health state or a failure/drop
+    # landed inside the recent failure window.  Lifetime totals remain exported
+    # below for auditability; they no longer pin operational_ready.
+    telemetry_health = str(
+        telemetry.get("state") or telemetry.get("health") or ""
+    )
+    telemetry_recent_window_ms = int(_value(
+        config, "writer_failure_timeout_ms", default=5_000) or 5_000)
+    telemetry_last_failure_ts_ms = int(
+        telemetry.get("last_failure_ts_ms") or 0)
+    telemetry_last_overflow_ts_ms = int(
+        telemetry.get("last_overflow_ts_ms") or 0)
+    telemetry_recent_failure = (
+        telemetry_last_failure_ts_ms > 0
+        and int(now_ms) - telemetry_last_failure_ts_ms <= telemetry_recent_window_ms
+    )
+    telemetry_recent_overflow = (
+        telemetry_last_overflow_ts_ms > 0
+        and int(now_ms) - telemetry_last_overflow_ts_ms <= telemetry_recent_window_ms
+    )
+    # A HEALTHY writer state with no recent failure means the lossy lane has
+    # recovered; lifetime counters are informational, not a live block.
+    telemetry_currently_unhealthy = (
+        telemetry_health not in ("", "HEALTHY", "CREATED")
+        or telemetry_recent_failure
+        or telemetry_recent_overflow
+    )
     execution_blocked_reason = str(
         runtime.get("execution_blocked_reason")
         or critical.get("engine_latched_failure_reason") or ""
@@ -508,11 +541,13 @@ def build_frequency_v4_dashboard(
     critical_execution_ready = not critical_blocked_reasons
     operational_degraded_reasons = [
         *critical_blocked_reasons,
-        *(["telemetry_writer_unhealthy"] if str(
-            telemetry.get("state") or telemetry.get("health") or ""
-        ) != "HEALTHY" else []),
-        *(["raw_telemetry_loss"] if raw_telemetry_loss > 0 else []),
-        *(["telemetry_batch_failure"] if telemetry_failures > 0 else []),
+        *(["telemetry_writer_unhealthy"] if (
+            telemetry_health not in ("", "HEALTHY", "CREATED")) else []),
+        # Lifetime raw-telemetry loss no longer latches operational degraded.
+        # The lane is degraded only while it is actively dropping or failing
+        # (recent failure/overflow within the writer failure-timeout window).
+        *(["raw_telemetry_loss"] if telemetry_recent_overflow else []),
+        *(["telemetry_batch_failure"] if telemetry_recent_failure else []),
         *(["maintenance_worker_unhealthy"] if str(
             maintenance.get("state") or "") != "RUNNING" else []),
         *(["maintenance_pass_failed"] if str(
@@ -533,9 +568,40 @@ def build_frequency_v4_dashboard(
         )
     except Exception:  # A v1 fixture can be exported before migration tests run.
         latest_checkpoint = None
+    # Freshness must distinguish the runtime heartbeat from the export itself.
+    # A stale export must not make a fresh runtime heartbeat appear stale, so
+    # the runtime heartbeat is the freshest independently-observed signal:
+    # the published runtime heartbeat, the latest runtime_health row, or the
+    # critical writer heartbeat (which the dedicated writer thread touches every
+    # writer_heartbeat_interval_ms).  ``export_age_ms`` is this payload's age.
+    runtime_heartbeat_ts_ms = max(int(value or 0) for value in (
+        heartbeat_ts_ms,
+        (latest_health or {}).get("heartbeat_ts_ms"),
+        (latest_health or {}).get("sample_ts_ms"),
+        critical.get("heartbeat_ts_ms"),
+        operational_reads.get("heartbeat_ts_ms"),
+    ))
+    if runtime_heartbeat_ts_ms <= 0:
+        runtime_heartbeat_ts_ms = int(heartbeat_ts_ms or 0)
+    # export_age_ms is 0 at generation (this payload is brand new).  A reader
+    # that fetches this file later computes the displayed age as
+    # now - generated_ts_ms; exporting it explicitly keeps the contract honest
+    # and lets the dashboard distinguish export freshness from runtime heartbeat
+    # freshness without re-deriving the semantics.
+    export_age_ms = 0
+    runtime_heartbeat_age_ms = (
+        max(0, int(now_ms) - runtime_heartbeat_ts_ms)
+        if runtime_heartbeat_ts_ms > 0 else None)
+    heartbeat_age_ms = (
+        max(0, int(now_ms) - int(heartbeat_ts_ms or 0))
+        if heartbeat_ts_ms else None)
     return {
         "schema_version": 3,
         "generated_ts_ms": int(now_ms),
+        "export_age_ms": export_age_ms,
+        "runtime_heartbeat_age_ms": runtime_heartbeat_age_ms,
+        "heartbeat_age_ms": heartbeat_age_ms,
+        "runtime_heartbeat_ts_ms": runtime_heartbeat_ts_ms,
         "strategy_id": STRATEGY_ID,
         "mode": MODE,
         **safety,
@@ -601,6 +667,20 @@ def build_frequency_v4_dashboard(
             "critical_execution_ready": critical_execution_ready,
             "critical_blocked_reasons": critical_blocked_reasons,
             "operational_degraded_reasons": operational_degraded_reasons,
+            # Telemetry recovery context: lifetime totals stay exposed for
+            # audit, plus the recent-loss flags that actually drive the
+            # operational decision, so an operator can tell a recovered lane
+            # (lifetime loss > 0, recent = false) from an actively failing one.
+            "telemetry_recovery": {
+                "lifetime_raw_telemetry_loss": raw_telemetry_loss,
+                "lifetime_telemetry_failures": telemetry_failures,
+                "recent_failure": telemetry_recent_failure,
+                "recent_overflow": telemetry_recent_overflow,
+                "currently_unhealthy": telemetry_currently_unhealthy,
+                "last_failure_ts_ms": telemetry_last_failure_ts_ms or None,
+                "last_overflow_ts_ms": telemetry_last_overflow_ts_ms or None,
+                "recent_window_ms": telemetry_recent_window_ms,
+            },
             # Backward-compatible alias, now explicitly operational rather
             # than a claim that lossy raw telemetry blocked safe shadow entry.
             "blocked_reasons": operational_degraded_reasons,
@@ -611,6 +691,10 @@ def build_frequency_v4_dashboard(
             "all_fresh_cex_unavailable_blocks_entry": True,
             "stale_cex_reuse_allowed": False,
         },
+        # Automatic model-health quarantine state.  Data-driven from realized
+        # fee-net performance per dominant_model; a quarantined model's ensemble
+        # contribution is zeroed and its entries are rejected (fail-closed).
+        "model_health": _mapping(runtime.get("model_health")),
         "universe": universe,
         "market_universe": universe,
         "frequency": metrics["frequency"],

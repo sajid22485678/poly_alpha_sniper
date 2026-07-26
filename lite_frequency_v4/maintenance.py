@@ -122,6 +122,12 @@ class MaintenanceSnapshot:
     time_to_window_boundary_ms: Optional[int] = None
     last_checkpoint_attempt_ts_ms: Optional[int] = None
     last_successful_checkpoint_ts_ms: Optional[int] = None
+    # Number of consecutive recent PASSIVE checkpoints that completed without
+    # reclaiming any WAL bytes (``after_wal_bytes >= before_wal_bytes``).  A
+    # reader-pinned WAL can report SUCCESS + frames checkpointed yet never
+    # shrink; this counter lets the policy escalate to RESTART, which briefly
+    # waits for readers to drain, instead of looping on PASSIVE forever.
+    consecutive_no_progress_passive: int = 0
 
     def __post_init__(self) -> None:
         for name in (
@@ -132,6 +138,7 @@ class MaintenanceSnapshot:
             "open_positions",
             "active_readers",
             "long_reader_count",
+            "consecutive_no_progress_passive",
         ):
             _require_int(name, getattr(self, name), minimum=0)
         if not isinstance(self.runtime_active, bool):
@@ -289,6 +296,19 @@ def decide_checkpoint(
                 True, CheckpointMode.PASSIVE, "emergency_wal_pressure", snapshot
             )
         return _skip(snapshot, gate_reason)
+
+    # Escalation: when PASSIVE has repeatedly failed to reclaim WAL bytes
+    # (reader-pinned file that reports checkpointed frames but never shrinks),
+    # attempt a RESTART checkpoint instead.  RESTART briefly waits for readers
+    # to drain, which is safe as long as no long reader holds the snapshot.
+    if (snapshot.consecutive_no_progress_passive >= 3
+            and snapshot.wal_bytes >= policy.wal_trigger_bytes
+            and snapshot.long_reader_count == 0
+            and _restart_is_safe(snapshot, policy)):
+        return CheckpointDecision(
+            True, CheckpointMode.RESTART,
+            "passive_no_progress_escalation", snapshot
+        )
 
     if _truncate_is_safe(snapshot, policy):
         return CheckpointDecision(

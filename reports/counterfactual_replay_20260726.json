@@ -1,0 +1,1276 @@
+{
+  "cohort": "dynamic_universe_phase2_130usd_successor",
+  "starting_equity": 130.0,
+  "verified_terminal_trades": 214,
+  "baseline_by_model": {
+    "cex_lead_lag_impulse": {
+      "count": 2,
+      "net_pnl": -0.3741,
+      "fees": 0.1741,
+      "gross_profit": 2.46253,
+      "gross_loss": -2.83663,
+      "profit_factor": 0.868118,
+      "expectancy": -0.18705,
+      "winrate": 0.5,
+      "average_win": 2.46253,
+      "average_loss": -2.83663,
+      "max_drawdown": 2.83663,
+      "wins": 1,
+      "losses": 1
+    },
+    "short_horizon_trend": {
+      "count": 109,
+      "net_pnl": 36.16947,
+      "fees": 8.54903,
+      "gross_profit": 135.69013,
+      "gross_loss": -99.52066,
+      "profit_factor": 1.363437,
+      "expectancy": 0.33183,
+      "winrate": 0.688073,
+      "average_win": 1.809202,
+      "average_loss": -2.927078,
+      "max_drawdown": 16.94131,
+      "wins": 75,
+      "losses": 34
+    },
+    "window_open_displacement": {
+      "count": 103,
+      "net_pnl": -84.03334,
+      "fees": 7.27194,
+      "gross_profit": 75.265,
+      "gross_loss": -159.29834,
+      "profit_factor": 0.472478,
+      "expectancy": -0.815858,
+      "winrate": 0.533981,
+      "average_win": 1.368455,
+      "average_loss": -3.318715,
+      "max_drawdown": 89.43795,
+      "wins": 55,
+      "losses": 48
+    }
+  },
+  "baseline_by_entry_mode": {
+    "CROSS_SPREAD": {
+      "count": 158,
+      "net_pnl": -20.52716,
+      "fees": 11.74536,
+      "gross_profit": 160.47897,
+      "gross_loss": -181.00613,
+      "profit_factor": 0.886594,
+      "expectancy": -0.129919,
+      "winrate": 0.632911,
+      "average_win": 1.60479,
+      "average_loss": -3.120795,
+      "max_drawdown": 35.87101,
+      "wins": 100,
+      "losses": 58
+    },
+    "MAKER_TO_CROSS": {
+      "count": 56,
+      "net_pnl": -27.71081,
+      "fees": 4.24971,
+      "gross_profit": 52.93869,
+      "gross_loss": -80.6495,
+      "profit_factor": 0.656404,
+      "expectancy": -0.494836,
+      "winrate": 0.553571,
+      "average_win": 1.7077,
+      "average_loss": -3.22598,
+      "max_drawdown": 35.64115,
+      "wins": 31,
+      "losses": 25
+    }
+  },
+  "baseline_by_asset": {
+    "BNB": {
+      "count": 28,
+      "net_pnl": -4.68701,
+      "fees": 1.78341,
+      "gross_profit": 21.73311,
+      "gross_loss": -26.42012,
+      "profit_factor": 0.822597,
+      "expectancy": -0.167393,
+      "winrate": 0.678571,
+      "average_win": 1.143848,
+      "average_loss": -2.935569,
+      "max_drawdown": 8.55682,
+      "wins": 19,
+      "losses": 9
+    },
+    "BTC": {
+      "count": 31,
+      "net_pnl": 12.22915,
+      "fees": 2.45235,
+      "gross_profit": 39.64681,
+      "gross_loss": -27.41766,
+      "profit_factor": 1.446032,
+      "expectancy": 0.394489,
+      "winrate": 0.709677,
+      "average_win": 1.802128,
+      "average_loss": -3.046407,
+      "max_drawdown": 7.32293,
+      "wins": 22,
+      "losses": 9
+    },
+    "DOGE": {
+      "count": 35,
+      "net_pnl": -25.37901,
+      "fees": 2.52401,
+      "gross_profit": 26.98751,
+      "gross_loss": -52.36652,
+      "profit_factor": 0.515358,
+      "expectancy": -0.725115,
+      "winrate": 0.542857,
+      "average_win": 1.420395,
+      "average_loss": -3.272908,
+      "max_drawdown": 29.20897,
+      "wins": 19,
+      "losses": 16
+    },
+    "ETH": {
+      "count": 37,
+      "net_pnl": 0.19107,
+      "fees": 3.00303,
+      "gross_profit": 44.37702,
+      "gross_loss": -44.18595,
+      "profit_factor": 1.004324,
+      "expectancy": 0.005164,
+      "winrate": 0.621622,
+      "average_win": 1.929436,
+      "average_loss": -3.156139,
+      "max_drawdown": 21.05626,
+      "wins": 23,
+      "losses": 14
+    },
+    "HYPE": {
+      "count": 16,
+      "net_pnl": -32.60978,
+      "fees": 1.00578,
+      "gross_profit": 4.73482,
+      "gross_loss": -37.3446,
+      "profit_factor": 0.126787,
+      "expectancy": -2.038111,
+      "winrate": 0.3125,
+      "average_win": 0.946964,
+      "average_loss": -3.394964,
+      "max_drawdown": 32.60978,
+      "wins": 5,
+      "losses": 11
+    },
+    "SOL": {
+      "count": 34,
+      "net_pnl": -9.87011,
+      "fees": 2.68141,
+      "gross_profit": 33.52844,
+      "gross_loss": -43.39855,
+      "profit_factor": 0.772571,
+      "expectancy": -0.290297,
+      "winrate": 0.588235,
+      "average_win": 1.676422,
+      "average_loss": -3.099896,
+      "max_drawdown": 19.85592,
+      "wins": 20,
+      "losses": 14
+    },
+    "XRP": {
+      "count": 33,
+      "net_pnl": 11.88772,
+      "fees": 2.54508,
+      "gross_profit": 42.40995,
+      "gross_loss": -30.52223,
+      "profit_factor": 1.389477,
+      "expectancy": 0.360234,
+      "winrate": 0.69697,
+      "average_win": 1.843911,
+      "average_loss": -3.052223,
+      "max_drawdown": 7.53205,
+      "wins": 23,
+      "losses": 10
+    }
+  },
+  "scenarios": [
+    {
+      "scenario": "baseline_current",
+      "predicate": "_baseline",
+      "kept": 214,
+      "excluded": 0,
+      "performance": {
+        "count": 214,
+        "net_pnl": -48.23797,
+        "fees": 15.99507,
+        "gross_profit": 213.41766,
+        "gross_loss": -261.65563,
+        "profit_factor": 0.815643,
+        "expectancy": -0.225411,
+        "winrate": 0.61215,
+        "average_win": 1.629142,
+        "average_loss": -3.152477,
+        "max_drawdown": 59.70626,
+        "wins": 131,
+        "losses": 83
+      },
+      "ending_equity": 81.76203,
+      "min_equity": 79.74729,
+      "by_model": {
+        "cex_lead_lag_impulse": {
+          "count": 2,
+          "net_pnl": -0.3741,
+          "fees": 0.1741,
+          "gross_profit": 2.46253,
+          "gross_loss": -2.83663,
+          "profit_factor": 0.868118,
+          "expectancy": -0.18705,
+          "winrate": 0.5,
+          "average_win": 2.46253,
+          "average_loss": -2.83663,
+          "max_drawdown": 2.83663,
+          "wins": 1,
+          "losses": 1
+        },
+        "short_horizon_trend": {
+          "count": 109,
+          "net_pnl": 36.16947,
+          "fees": 8.54903,
+          "gross_profit": 135.69013,
+          "gross_loss": -99.52066,
+          "profit_factor": 1.363437,
+          "expectancy": 0.33183,
+          "winrate": 0.688073,
+          "average_win": 1.809202,
+          "average_loss": -2.927078,
+          "max_drawdown": 16.94131,
+          "wins": 75,
+          "losses": 34
+        },
+        "window_open_displacement": {
+          "count": 103,
+          "net_pnl": -84.03334,
+          "fees": 7.27194,
+          "gross_profit": 75.265,
+          "gross_loss": -159.29834,
+          "profit_factor": 0.472478,
+          "expectancy": -0.815858,
+          "winrate": 0.533981,
+          "average_win": 1.368455,
+          "average_loss": -3.318715,
+          "max_drawdown": 89.43795,
+          "wins": 55,
+          "losses": 48
+        }
+      },
+      "by_entry_mode": {
+        "CROSS_SPREAD": {
+          "count": 158,
+          "net_pnl": -20.52716,
+          "fees": 11.74536,
+          "gross_profit": 160.47897,
+          "gross_loss": -181.00613,
+          "profit_factor": 0.886594,
+          "expectancy": -0.129919,
+          "winrate": 0.632911,
+          "average_win": 1.60479,
+          "average_loss": -3.120795,
+          "max_drawdown": 35.87101,
+          "wins": 100,
+          "losses": 58
+        },
+        "MAKER_TO_CROSS": {
+          "count": 56,
+          "net_pnl": -27.71081,
+          "fees": 4.24971,
+          "gross_profit": 52.93869,
+          "gross_loss": -80.6495,
+          "profit_factor": 0.656404,
+          "expectancy": -0.494836,
+          "winrate": 0.553571,
+          "average_win": 1.7077,
+          "average_loss": -3.22598,
+          "max_drawdown": 35.64115,
+          "wins": 31,
+          "losses": 25
+        }
+      }
+    },
+    {
+      "scenario": "exclude_window_open_displacement",
+      "predicate": "exclude_window_open_displacement",
+      "kept": 111,
+      "excluded": 103,
+      "performance": {
+        "count": 111,
+        "net_pnl": 35.79537,
+        "fees": 8.72313,
+        "gross_profit": 138.15266,
+        "gross_loss": -102.35729,
+        "profit_factor": 1.34971,
+        "expectancy": 0.322481,
+        "winrate": 0.684685,
+        "average_win": 1.817798,
+        "average_loss": -2.924494,
+        "max_drawdown": 16.94131,
+        "wins": 76,
+        "losses": 35
+      },
+      "ending_equity": 165.79537,
+      "min_equity": 130.0,
+      "by_model": {
+        "cex_lead_lag_impulse": {
+          "count": 2,
+          "net_pnl": -0.3741,
+          "fees": 0.1741,
+          "gross_profit": 2.46253,
+          "gross_loss": -2.83663,
+          "profit_factor": 0.868118,
+          "expectancy": -0.18705,
+          "winrate": 0.5,
+          "average_win": 2.46253,
+          "average_loss": -2.83663,
+          "max_drawdown": 2.83663,
+          "wins": 1,
+          "losses": 1
+        },
+        "short_horizon_trend": {
+          "count": 109,
+          "net_pnl": 36.16947,
+          "fees": 8.54903,
+          "gross_profit": 135.69013,
+          "gross_loss": -99.52066,
+          "profit_factor": 1.363437,
+          "expectancy": 0.33183,
+          "winrate": 0.688073,
+          "average_win": 1.809202,
+          "average_loss": -2.927078,
+          "max_drawdown": 16.94131,
+          "wins": 75,
+          "losses": 34
+        }
+      },
+      "by_entry_mode": {
+        "CROSS_SPREAD": {
+          "count": 94,
+          "net_pnl": 18.52101,
+          "fees": 7.36659,
+          "gross_profit": 111.82832,
+          "gross_loss": -93.30731,
+          "profit_factor": 1.198495,
+          "expectancy": 0.197032,
+          "winrate": 0.659574,
+          "average_win": 1.803683,
+          "average_loss": -2.915853,
+          "max_drawdown": 16.46721,
+          "wins": 62,
+          "losses": 32
+        },
+        "MAKER_TO_CROSS": {
+          "count": 17,
+          "net_pnl": 17.27436,
+          "fees": 1.35654,
+          "gross_profit": 26.32434,
+          "gross_loss": -9.04998,
+          "profit_factor": 2.908773,
+          "expectancy": 1.016139,
+          "winrate": 0.823529,
+          "average_win": 1.88031,
+          "average_loss": -3.01666,
+          "max_drawdown": 3.47616,
+          "wins": 14,
+          "losses": 3
+        }
+      }
+    },
+    {
+      "scenario": "exclude_cex_lead_lag_impulse",
+      "predicate": "exclude_cex_lead_lag_impulse",
+      "kept": 212,
+      "excluded": 2,
+      "performance": {
+        "count": 212,
+        "net_pnl": -47.86387,
+        "fees": 15.82097,
+        "gross_profit": 210.95513,
+        "gross_loss": -258.819,
+        "profit_factor": 0.815068,
+        "expectancy": -0.225773,
+        "winrate": 0.613208,
+        "average_win": 1.622732,
+        "average_loss": -3.156329,
+        "max_drawdown": 60.51015,
+        "wins": 130,
+        "losses": 82
+      },
+      "ending_equity": 82.13613,
+      "min_equity": 80.12139,
+      "by_model": {
+        "short_horizon_trend": {
+          "count": 109,
+          "net_pnl": 36.16947,
+          "fees": 8.54903,
+          "gross_profit": 135.69013,
+          "gross_loss": -99.52066,
+          "profit_factor": 1.363437,
+          "expectancy": 0.33183,
+          "winrate": 0.688073,
+          "average_win": 1.809202,
+          "average_loss": -2.927078,
+          "max_drawdown": 16.94131,
+          "wins": 75,
+          "losses": 34
+        },
+        "window_open_displacement": {
+          "count": 103,
+          "net_pnl": -84.03334,
+          "fees": 7.27194,
+          "gross_profit": 75.265,
+          "gross_loss": -159.29834,
+          "profit_factor": 0.472478,
+          "expectancy": -0.815858,
+          "winrate": 0.533981,
+          "average_win": 1.368455,
+          "average_loss": -3.318715,
+          "max_drawdown": 89.43795,
+          "wins": 55,
+          "losses": 48
+        }
+      },
+      "by_entry_mode": {
+        "CROSS_SPREAD": {
+          "count": 156,
+          "net_pnl": -20.15306,
+          "fees": 11.57126,
+          "gross_profit": 158.01644,
+          "gross_loss": -178.1695,
+          "profit_factor": 0.886888,
+          "expectancy": -0.129186,
+          "winrate": 0.634615,
+          "average_win": 1.596126,
+          "average_loss": -3.125781,
+          "max_drawdown": 35.87101,
+          "wins": 99,
+          "losses": 57
+        },
+        "MAKER_TO_CROSS": {
+          "count": 56,
+          "net_pnl": -27.71081,
+          "fees": 4.24971,
+          "gross_profit": 52.93869,
+          "gross_loss": -80.6495,
+          "profit_factor": 0.656404,
+          "expectancy": -0.494836,
+          "winrate": 0.553571,
+          "average_win": 1.7077,
+          "average_loss": -3.22598,
+          "max_drawdown": 35.64115,
+          "wins": 31,
+          "losses": 25
+        }
+      }
+    },
+    {
+      "scenario": "maker_to_cross_only",
+      "predicate": "_maker_first",
+      "kept": 56,
+      "excluded": 158,
+      "performance": {
+        "count": 56,
+        "net_pnl": -27.71081,
+        "fees": 4.24971,
+        "gross_profit": 52.93869,
+        "gross_loss": -80.6495,
+        "profit_factor": 0.656404,
+        "expectancy": -0.494836,
+        "winrate": 0.553571,
+        "average_win": 1.7077,
+        "average_loss": -3.22598,
+        "max_drawdown": 35.64115,
+        "wins": 31,
+        "losses": 25
+      },
+      "ending_equity": 102.28919,
+      "min_equity": 102.28919,
+      "by_model": {
+        "short_horizon_trend": {
+          "count": 17,
+          "net_pnl": 17.27436,
+          "fees": 1.35654,
+          "gross_profit": 26.32434,
+          "gross_loss": -9.04998,
+          "profit_factor": 2.908773,
+          "expectancy": 1.016139,
+          "winrate": 0.823529,
+          "average_win": 1.88031,
+          "average_loss": -3.01666,
+          "max_drawdown": 3.47616,
+          "wins": 14,
+          "losses": 3
+        },
+        "window_open_displacement": {
+          "count": 39,
+          "net_pnl": -44.98517,
+          "fees": 2.89317,
+          "gross_profit": 26.61435,
+          "gross_loss": -71.59952,
+          "profit_factor": 0.371711,
+          "expectancy": -1.153466,
+          "winrate": 0.435897,
+          "average_win": 1.56555,
+          "average_loss": -3.254524,
+          "max_drawdown": 48.37504,
+          "wins": 17,
+          "losses": 22
+        }
+      },
+      "by_entry_mode": {
+        "MAKER_TO_CROSS": {
+          "count": 56,
+          "net_pnl": -27.71081,
+          "fees": 4.24971,
+          "gross_profit": 52.93869,
+          "gross_loss": -80.6495,
+          "profit_factor": 0.656404,
+          "expectancy": -0.494836,
+          "winrate": 0.553571,
+          "average_win": 1.7077,
+          "average_loss": -3.22598,
+          "max_drawdown": 35.64115,
+          "wins": 31,
+          "losses": 25
+        }
+      }
+    },
+    {
+      "scenario": "exclude_cross_spread_below_edge_0.030",
+      "predicate": "exclude_CROSS_SPREAD_below_edge_0.03",
+      "kept": 157,
+      "excluded": 57,
+      "performance": {
+        "count": 157,
+        "net_pnl": -53.77888,
+        "fees": 11.72418,
+        "gross_profit": 152.5706,
+        "gross_loss": -206.34948,
+        "profit_factor": 0.73938,
+        "expectancy": -0.342541,
+        "winrate": 0.585987,
+        "average_win": 1.658376,
+        "average_loss": -3.174607,
+        "max_drawdown": 62.64201,
+        "wins": 92,
+        "losses": 65
+      },
+      "ending_equity": 76.22112,
+      "min_equity": 76.22112,
+      "by_model": {
+        "cex_lead_lag_impulse": {
+          "count": 2,
+          "net_pnl": -0.3741,
+          "fees": 0.1741,
+          "gross_profit": 2.46253,
+          "gross_loss": -2.83663,
+          "profit_factor": 0.868118,
+          "expectancy": -0.18705,
+          "winrate": 0.5,
+          "average_win": 2.46253,
+          "average_loss": -2.83663,
+          "max_drawdown": 2.83663,
+          "wins": 1,
+          "losses": 1
+        },
+        "short_horizon_trend": {
+          "count": 81,
+          "net_pnl": 30.19815,
+          "fees": 6.35855,
+          "gross_profit": 102.47587,
+          "gross_loss": -72.27772,
+          "profit_factor": 1.417807,
+          "expectancy": 0.372817,
+          "winrate": 0.691358,
+          "average_win": 1.829926,
+          "average_loss": -2.891109,
+          "max_drawdown": 15.66159,
+          "wins": 56,
+          "losses": 25
+        },
+        "window_open_displacement": {
+          "count": 74,
+          "net_pnl": -83.60293,
+          "fees": 5.19153,
+          "gross_profit": 47.6322,
+          "gross_loss": -131.23513,
+          "profit_factor": 0.362953,
+          "expectancy": -1.129769,
+          "winrate": 0.472973,
+          "average_win": 1.36092,
+          "average_loss": -3.365003,
+          "max_drawdown": 86.9928,
+          "wins": 35,
+          "losses": 39
+        }
+      },
+      "by_entry_mode": {
+        "CROSS_SPREAD": {
+          "count": 101,
+          "net_pnl": -26.06807,
+          "fees": 7.47447,
+          "gross_profit": 99.63191,
+          "gross_loss": -125.69998,
+          "profit_factor": 0.792617,
+          "expectancy": -0.2581,
+          "winrate": 0.60396,
+          "average_win": 1.63331,
+          "average_loss": -3.1425,
+          "max_drawdown": 35.02448,
+          "wins": 61,
+          "losses": 40
+        },
+        "MAKER_TO_CROSS": {
+          "count": 56,
+          "net_pnl": -27.71081,
+          "fees": 4.24971,
+          "gross_profit": 52.93869,
+          "gross_loss": -80.6495,
+          "profit_factor": 0.656404,
+          "expectancy": -0.494836,
+          "winrate": 0.553571,
+          "average_win": 1.7077,
+          "average_loss": -3.22598,
+          "max_drawdown": 35.64115,
+          "wins": 31,
+          "losses": 25
+        }
+      }
+    },
+    {
+      "scenario": "edge_ge_0.030",
+      "predicate": "edge_ge_0.03",
+      "kept": 115,
+      "excluded": 99,
+      "performance": {
+        "count": 115,
+        "net_pnl": -34.09712,
+        "fees": 8.50152,
+        "gross_profit": 113.44702,
+        "gross_loss": -147.54414,
+        "profit_factor": 0.768902,
+        "expectancy": -0.296497,
+        "winrate": 0.6,
+        "average_win": 1.64416,
+        "average_loss": -3.207481,
+        "max_drawdown": 43.05353,
+        "wins": 69,
+        "losses": 46
+      },
+      "ending_equity": 95.90288,
+      "min_equity": 93.67241,
+      "by_model": {
+        "cex_lead_lag_impulse": {
+          "count": 2,
+          "net_pnl": -0.3741,
+          "fees": 0.1741,
+          "gross_profit": 2.46253,
+          "gross_loss": -2.83663,
+          "profit_factor": 0.868118,
+          "expectancy": -0.18705,
+          "winrate": 0.5,
+          "average_win": 2.46253,
+          "average_loss": -2.83663,
+          "max_drawdown": 2.83663,
+          "wins": 1,
+          "losses": 1
+        },
+        "short_horizon_trend": {
+          "count": 71,
+          "net_pnl": 16.09574,
+          "fees": 5.58006,
+          "gross_profit": 85.53683,
+          "gross_loss": -69.44109,
+          "profit_factor": 1.23179,
+          "expectancy": 0.226701,
+          "winrate": 0.661972,
+          "average_win": 1.819933,
+          "average_loss": -2.893379,
+          "max_drawdown": 15.18749,
+          "wins": 47,
+          "losses": 24
+        },
+        "window_open_displacement": {
+          "count": 42,
+          "net_pnl": -49.81876,
+          "fees": 2.74736,
+          "gross_profit": 25.44766,
+          "gross_loss": -75.26642,
+          "profit_factor": 0.338101,
+          "expectancy": -1.186161,
+          "winrate": 0.5,
+          "average_win": 1.211793,
+          "average_loss": -3.584115,
+          "max_drawdown": 50.47662,
+          "wins": 21,
+          "losses": 21
+        }
+      },
+      "by_entry_mode": {
+        "CROSS_SPREAD": {
+          "count": 101,
+          "net_pnl": -26.06807,
+          "fees": 7.47447,
+          "gross_profit": 99.63191,
+          "gross_loss": -125.69998,
+          "profit_factor": 0.792617,
+          "expectancy": -0.2581,
+          "winrate": 0.60396,
+          "average_win": 1.63331,
+          "average_loss": -3.1425,
+          "max_drawdown": 35.02448,
+          "wins": 61,
+          "losses": 40
+        },
+        "MAKER_TO_CROSS": {
+          "count": 14,
+          "net_pnl": -8.02905,
+          "fees": 1.02705,
+          "gross_profit": 13.81511,
+          "gross_loss": -21.84416,
+          "profit_factor": 0.63244,
+          "expectancy": -0.573504,
+          "winrate": 0.571429,
+          "average_win": 1.726889,
+          "average_loss": -3.640693,
+          "max_drawdown": 19.68079,
+          "wins": 8,
+          "losses": 6
+        }
+      }
+    },
+    {
+      "scenario": "exclude_hype_doge",
+      "predicate": "exclude_assets_DOGE_HYPE",
+      "kept": 163,
+      "excluded": 51,
+      "performance": {
+        "count": 163,
+        "net_pnl": 9.75082,
+        "fees": 12.46528,
+        "gross_profit": 181.69533,
+        "gross_loss": -171.94451,
+        "profit_factor": 1.056709,
+        "expectancy": 0.059821,
+        "winrate": 0.656442,
+        "average_win": 1.698087,
+        "average_loss": -3.070438,
+        "max_drawdown": 33.40199,
+        "wins": 107,
+        "losses": 56
+      },
+      "ending_equity": 139.75082,
+      "min_equity": 126.503,
+      "by_model": {
+        "cex_lead_lag_impulse": {
+          "count": 1,
+          "net_pnl": 2.46253,
+          "fees": 0.08747,
+          "gross_profit": 2.46253,
+          "gross_loss": 0,
+          "profit_factor": Infinity,
+          "expectancy": 2.46253,
+          "winrate": 1.0,
+          "average_win": 2.46253,
+          "average_loss": 0.0,
+          "max_drawdown": 0.0,
+          "wins": 1,
+          "losses": 0
+        },
+        "short_horizon_trend": {
+          "count": 93,
+          "net_pnl": 31.58033,
+          "fees": 7.48997,
+          "gross_profit": 120.05783,
+          "gross_loss": -88.4775,
+          "profit_factor": 1.356931,
+          "expectancy": 0.339573,
+          "winrate": 0.677419,
+          "average_win": 1.90568,
+          "average_loss": -2.94925,
+          "max_drawdown": 19.28355,
+          "wins": 63,
+          "losses": 30
+        },
+        "window_open_displacement": {
+          "count": 69,
+          "net_pnl": -24.29204,
+          "fees": 4.88784,
+          "gross_profit": 59.17497,
+          "gross_loss": -83.46701,
+          "profit_factor": 0.708962,
+          "expectancy": -0.352059,
+          "winrate": 0.623188,
+          "average_win": 1.376162,
+          "average_loss": -3.21027,
+          "max_drawdown": 29.69665,
+          "wins": 43,
+          "losses": 26
+        }
+      },
+      "by_entry_mode": {
+        "CROSS_SPREAD": {
+          "count": 121,
+          "net_pnl": 21.90417,
+          "fees": 9.26623,
+          "gross_profit": 139.14179,
+          "gross_loss": -117.23762,
+          "profit_factor": 1.186836,
+          "expectancy": 0.181026,
+          "winrate": 0.677686,
+          "average_win": 1.696851,
+          "average_loss": -3.006093,
+          "max_drawdown": 22.63647,
+          "wins": 82,
+          "losses": 39
+        },
+        "MAKER_TO_CROSS": {
+          "count": 42,
+          "net_pnl": -12.15335,
+          "fees": 3.19905,
+          "gross_profit": 42.55354,
+          "gross_loss": -54.70689,
+          "profit_factor": 0.777846,
+          "expectancy": -0.289365,
+          "winrate": 0.595238,
+          "average_win": 1.702142,
+          "average_loss": -3.218052,
+          "max_drawdown": 20.72232,
+          "wins": 25,
+          "losses": 17
+        }
+      }
+    }
+  ],
+  "leave_one_asset_out": {
+    "baseline_current": {
+      "robust": false,
+      "folds": [
+        {
+          "held_out_asset": "BNB",
+          "kept": 186,
+          "net_pnl": -43.55096,
+          "profit_factor": 0.814862,
+          "expectancy": -0.234145,
+          "max_drawdown": 53.9131
+        },
+        {
+          "held_out_asset": "BTC",
+          "kept": 183,
+          "net_pnl": -60.46712,
+          "profit_factor": 0.741856,
+          "expectancy": -0.330421,
+          "max_drawdown": 68.57729
+        },
+        {
+          "held_out_asset": "DOGE",
+          "kept": 179,
+          "net_pnl": -22.85896,
+          "profit_factor": 0.890778,
+          "expectancy": -0.127704,
+          "max_drawdown": 49.54863
+        },
+        {
+          "held_out_asset": "ETH",
+          "kept": 177,
+          "net_pnl": -48.42904,
+          "profit_factor": 0.777307,
+          "expectancy": -0.27361,
+          "max_drawdown": 58.5063
+        },
+        {
+          "held_out_asset": "HYPE",
+          "kept": 198,
+          "net_pnl": -15.62819,
+          "profit_factor": 0.930328,
+          "expectancy": -0.07893,
+          "max_drawdown": 35.27034
+        },
+        {
+          "held_out_asset": "SOL",
+          "kept": 180,
+          "net_pnl": -38.36786,
+          "profit_factor": 0.824208,
+          "expectancy": -0.213155,
+          "max_drawdown": 47.27028
+        },
+        {
+          "held_out_asset": "XRP",
+          "kept": 181,
+          "net_pnl": -60.12569,
+          "profit_factor": 0.739866,
+          "expectancy": -0.332186,
+          "max_drawdown": 67.57706
+        }
+      ]
+    },
+    "exclude_window_open_displacement": {
+      "robust": true,
+      "folds": [
+        {
+          "held_out_asset": "BNB",
+          "kept": 105,
+          "net_pnl": 37.1115,
+          "profit_factor": 1.385396,
+          "expectancy": 0.353443,
+          "max_drawdown": 15.97566
+        },
+        {
+          "held_out_asset": "BTC",
+          "kept": 87,
+          "net_pnl": 24.63554,
+          "profit_factor": 1.299246,
+          "expectancy": 0.283167,
+          "max_drawdown": 15.35753
+        },
+        {
+          "held_out_asset": "DOGE",
+          "kept": 98,
+          "net_pnl": 33.68491,
+          "profit_factor": 1.370921,
+          "expectancy": 0.343724,
+          "max_drawdown": 19.28355
+        },
+        {
+          "held_out_asset": "ETH",
+          "kept": 88,
+          "net_pnl": 18.81094,
+          "profit_factor": 1.222741,
+          "expectancy": 0.213761,
+          "max_drawdown": 13.51037
+        },
+        {
+          "held_out_asset": "HYPE",
+          "kept": 107,
+          "net_pnl": 36.15332,
+          "profit_factor": 1.361459,
+          "expectancy": 0.337881,
+          "max_drawdown": 16.94131
+        },
+        {
+          "held_out_asset": "SOL",
+          "kept": 93,
+          "net_pnl": 41.47714,
+          "profit_factor": 1.529469,
+          "expectancy": 0.445991,
+          "max_drawdown": 12.19307
+        },
+        {
+          "held_out_asset": "XRP",
+          "kept": 88,
+          "net_pnl": 22.89887,
+          "profit_factor": 1.279595,
+          "expectancy": 0.260214,
+          "max_drawdown": 18.6922
+        }
+      ]
+    },
+    "exclude_cex_lead_lag_impulse": {
+      "robust": false,
+      "folds": [
+        {
+          "held_out_asset": "BNB",
+          "kept": 184,
+          "net_pnl": -43.17686,
+          "profit_factor": 0.814212,
+          "expectancy": -0.234657,
+          "max_drawdown": 55.30741
+        },
+        {
+          "held_out_asset": "BTC",
+          "kept": 181,
+          "net_pnl": -60.09302,
+          "profit_factor": 0.740308,
+          "expectancy": -0.332006,
+          "max_drawdown": 69.9716
+        },
+        {
+          "held_out_asset": "DOGE",
+          "kept": 178,
+          "net_pnl": -25.32149,
+          "profit_factor": 0.879012,
+          "expectancy": -0.142256,
+          "max_drawdown": 49.54863
+        },
+        {
+          "held_out_asset": "ETH",
+          "kept": 175,
+          "net_pnl": -48.05494,
+          "profit_factor": 0.776107,
+          "expectancy": -0.2746,
+          "max_drawdown": 58.1322
+        },
+        {
+          "held_out_asset": "HYPE",
+          "kept": 196,
+          "net_pnl": -15.25409,
+          "profit_factor": 0.931125,
+          "expectancy": -0.077827,
+          "max_drawdown": 35.27034
+        },
+        {
+          "held_out_asset": "SOL",
+          "kept": 178,
+          "net_pnl": -37.99376,
+          "profit_factor": 0.82363,
+          "expectancy": -0.213448,
+          "max_drawdown": 47.93057
+        },
+        {
+          "held_out_asset": "XRP",
+          "kept": 180,
+          "net_pnl": -57.28906,
+          "profit_factor": 0.749059,
+          "expectancy": -0.318273,
+          "max_drawdown": 66.50884
+        }
+      ]
+    },
+    "maker_to_cross_only": {
+      "robust": false,
+      "folds": [
+        {
+          "held_out_asset": "BNB",
+          "kept": 48,
+          "net_pnl": -22.70106,
+          "profit_factor": 0.673711,
+          "expectancy": -0.472939,
+          "max_drawdown": 33.9313
+        },
+        {
+          "held_out_asset": "BTC",
+          "kept": 51,
+          "net_pnl": -36.06498,
+          "profit_factor": 0.552818,
+          "expectancy": -0.707156,
+          "max_drawdown": 40.40937
+        },
+        {
+          "held_out_asset": "DOGE",
+          "kept": 48,
+          "net_pnl": -21.92464,
+          "profit_factor": 0.672734,
+          "expectancy": -0.456763,
+          "max_drawdown": 33.00868
+        },
+        {
+          "held_out_asset": "ETH",
+          "kept": 46,
+          "net_pnl": -27.42664,
+          "profit_factor": 0.598553,
+          "expectancy": -0.596231,
+          "max_drawdown": 33.27925
+        },
+        {
+          "held_out_asset": "HYPE",
+          "kept": 50,
+          "net_pnl": -17.93952,
+          "profit_factor": 0.737585,
+          "expectancy": -0.35879,
+          "max_drawdown": 24.39473
+        },
+        {
+          "held_out_asset": "SOL",
+          "kept": 45,
+          "net_pnl": -17.91555,
+          "profit_factor": 0.709705,
+          "expectancy": -0.398123,
+          "max_drawdown": 24.85063
+        },
+        {
+          "held_out_asset": "XRP",
+          "kept": 48,
+          "net_pnl": -22.29247,
+          "profit_factor": 0.673529,
+          "expectancy": -0.464426,
+          "max_drawdown": 33.1934
+        }
+      ]
+    },
+    "exclude_cross_spread_below_edge_0.030": {
+      "robust": false,
+      "folds": [
+        {
+          "held_out_asset": "BNB",
+          "kept": 138,
+          "net_pnl": -54.12617,
+          "profit_factor": 0.716849,
+          "expectancy": -0.392219,
+          "max_drawdown": 63.6002
+        },
+        {
+          "held_out_asset": "BTC",
+          "kept": 138,
+          "net_pnl": -61.70699,
+          "profit_factor": 0.673791,
+          "expectancy": -0.447152,
+          "max_drawdown": 69.81716
+        },
+        {
+          "held_out_asset": "DOGE",
+          "kept": 131,
+          "net_pnl": -38.81038,
+          "profit_factor": 0.77036,
+          "expectancy": -0.296262,
+          "max_drawdown": 55.22118
+        },
+        {
+          "held_out_asset": "ETH",
+          "kept": 127,
+          "net_pnl": -44.601,
+          "profit_factor": 0.730735,
+          "expectancy": -0.351189,
+          "max_drawdown": 54.89399
+        },
+        {
+          "held_out_asset": "HYPE",
+          "kept": 143,
+          "net_pnl": -24.99173,
+          "profit_factor": 0.85559,
+          "expectancy": -0.174767,
+          "max_drawdown": 39.5981
+        },
+        {
+          "held_out_asset": "SOL",
+          "kept": 133,
+          "net_pnl": -36.75223,
+          "profit_factor": 0.782298,
+          "expectancy": -0.276333,
+          "max_drawdown": 42.90589
+        },
+        {
+          "held_out_asset": "XRP",
+          "kept": 132,
+          "net_pnl": -61.68478,
+          "profit_factor": 0.659673,
+          "expectancy": -0.467309,
+          "max_drawdown": 67.12141
+        }
+      ]
+    },
+    "edge_ge_0.030": {
+      "robust": false,
+      "folds": [
+        {
+          "held_out_asset": "BNB",
+          "kept": 102,
+          "net_pnl": -35.82131,
+          "profit_factor": 0.741837,
+          "expectancy": -0.351189,
+          "max_drawdown": 44.77772
+        },
+        {
+          "held_out_asset": "BTC",
+          "kept": 98,
+          "net_pnl": -38.87825,
+          "profit_factor": 0.70176,
+          "expectancy": -0.396717,
+          "max_drawdown": 47.0817
+        },
+        {
+          "held_out_asset": "DOGE",
+          "kept": 94,
+          "net_pnl": -19.53829,
+          "profit_factor": 0.832803,
+          "expectancy": -0.207854,
+          "max_drawdown": 33.33817
+        },
+        {
+          "held_out_asset": "ETH",
+          "kept": 93,
+          "net_pnl": -29.38152,
+          "profit_factor": 0.753437,
+          "expectancy": -0.31593,
+          "max_drawdown": 37.53732
+        },
+        {
+          "held_out_asset": "HYPE",
+          "kept": 107,
+          "net_pnl": -15.08126,
+          "profit_factor": 0.88082,
+          "expectancy": -0.140946,
+          "max_drawdown": 31.06354
+        },
+        {
+          "held_out_asset": "SOL",
+          "kept": 100,
+          "net_pnl": -24.67408,
+          "profit_factor": 0.802589,
+          "expectancy": -0.246741,
+          "max_drawdown": 32.54248
+        },
+        {
+          "held_out_asset": "XRP",
+          "kept": 96,
+          "net_pnl": -41.20801,
+          "profit_factor": 0.679562,
+          "expectancy": -0.42925,
+          "max_drawdown": 45.16531
+        }
+      ]
+    },
+    "exclude_hype_doge": {
+      "robust": false,
+      "folds": [
+        {
+          "held_out_asset": "BNB",
+          "kept": 135,
+          "net_pnl": 14.43783,
+          "profit_factor": 1.099212,
+          "expectancy": 0.106947,
+          "max_drawdown": 32.59366
+        },
+        {
+          "held_out_asset": "BTC",
+          "kept": 132,
+          "net_pnl": -2.47833,
+          "profit_factor": 0.982852,
+          "expectancy": -0.018775,
+          "max_drawdown": 33.563
+        },
+        {
+          "held_out_asset": "DOGE",
+          "kept": 163,
+          "net_pnl": 9.75082,
+          "profit_factor": 1.056709,
+          "expectancy": 0.059821,
+          "max_drawdown": 33.40199
+        },
+        {
+          "held_out_asset": "ETH",
+          "kept": 126,
+          "net_pnl": 9.55975,
+          "profit_factor": 1.074827,
+          "expectancy": 0.075871,
+          "max_drawdown": 22.23285
+        },
+        {
+          "held_out_asset": "HYPE",
+          "kept": 163,
+          "net_pnl": 9.75082,
+          "profit_factor": 1.056709,
+          "expectancy": 0.059821,
+          "max_drawdown": 33.40199
+        },
+        {
+          "held_out_asset": "SOL",
+          "kept": 129,
+          "net_pnl": 19.62093,
+          "profit_factor": 1.152637,
+          "expectancy": 0.1521,
+          "max_drawdown": 20.14429
+        },
+        {
+          "held_out_asset": "XRP",
+          "kept": 130,
+          "net_pnl": -2.1369,
+          "profit_factor": 0.98489,
+          "expectancy": -0.016438,
+          "max_drawdown": 39.66869
+        }
+      ]
+    }
+  }
+}

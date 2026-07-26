@@ -611,7 +611,7 @@ def test_retention_never_deletes_trade_evidence(engine_harness, monkeypatch):
         "NO": _book(identity, "NO", current),
     }
     engine.cex_features.append(_observation(current))
-    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _c: _strong_yes_ensemble())
+    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _c, **_kw: _strong_yes_ensemble())
     monkeypatch.setattr(engine, "_manage_open_position", AsyncMock())
     asyncio.run(engine._evaluate(state, EvaluationTrigger(
         source="test-entry", receipt_ts_ms=current,
@@ -923,7 +923,7 @@ def test_integrity_is_single_flight(engine_harness, monkeypatch):
     concurrent = {"max": 0, "cur": 0}
     runs_before = engine._integrity_runs
 
-    def integrity(_store):
+    def integrity(_store, **_kw):
         concurrent["cur"] += 1
         concurrent["max"] = max(concurrent["max"], concurrent["cur"])
         time.sleep(0.15)
@@ -962,7 +962,7 @@ def test_integrity_failure_degrades_health_and_fails_closed(engine_harness, monk
     engine = engine_harness.engine
     monkeypatch.setattr(
         V4ReadOnlyStore, "integrity_check",
-        lambda _store: {
+        lambda _store, **_kw: {
             "integrity": "malformed database", "foreign_key_violations": []})
     asyncio.run(engine._run_integrity_check())
     assert engine._last_integrity_ok is False
@@ -1201,7 +1201,7 @@ def test_loop_lag_fails_closed_candidate_execution(engine_harness, monkeypatch):
         "NO": _book(identity, "NO", current),
     }
     engine.cex_features.append(_observation(current))
-    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _c: _strong_yes_ensemble())
+    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _c, **_kw: _strong_yes_ensemble())
     monkeypatch.setattr(engine, "_manage_open_position", AsyncMock())
     engine._loop_lag_ms = engine.cfg.loop_lag_safety_ms + 500
     assert engine._execution_blocked_reason() == "event_loop_lag_degraded"

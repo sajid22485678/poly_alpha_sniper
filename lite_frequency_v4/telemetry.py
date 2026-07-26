@@ -241,6 +241,15 @@ class V4TelemetryWriter:
         self._high_water = 0
         self._batch_latencies_ms: deque[float] = deque(maxlen=2_048)
         self._flush_latencies_ms: deque[float] = deque(maxlen=2_048)
+        # Cooperative deadline backoff: when the physical sink repeatedly
+        # exceeds its short transaction budget (the WAL-pinned slow-commit
+        # case), resubmitting the next batch immediately just produces another
+        # deadline miss and more dropped rows.  We pause admission-to-dispatch
+        # until this monotonic deadline expires so a recovering writer is not
+        # hammered while it is still drained.  The queue still accepts items;
+        # only the flush is deferred.
+        self._deadline_backoff_until: float = 0.0
+        self._deadline_backoff_s: float = 0.0
 
     @staticmethod
     def _command(
@@ -464,6 +473,29 @@ class V4TelemetryWriter:
                         not self._drain_on_stop or not self._queue):
                     break
 
+                # Cooperative deadline backoff: if the previous dispatch hit a
+                # deadline-exceeded failure, defer the next flush until the
+                # backoff window expires rather than resubmitting into a still-
+                # stuck writer (which would only produce another miss + drops).
+                # A stop request or an explicit flush always overrides it.
+                if (self._deadline_backoff_until > 0.0
+                        and not self._stop_requested
+                        and not self._flush_requested):
+                    remaining_backoff = self._deadline_backoff_until - time.monotonic()
+                    if remaining_backoff > 0.0:
+                        self._condition.wait(min(
+                            remaining_backoff, self.heartbeat_interval_s))
+                        if time.monotonic() >= next_heartbeat:
+                            self._last_heartbeat_ts_ms = int(time.time() * 1_000)
+                            next_heartbeat = time.monotonic() + self.heartbeat_interval_s
+                        self._flush_requested = False
+                        batch = self._take_batch_locked()
+                        if batch:
+                            self._dispatch(batch)
+                        continue
+                    self._deadline_backoff_until = 0.0
+                    self._deadline_backoff_s = 0.0
+
                 if self._queue and not self._stop_requested and not self._flush_requested:
                     first = self._pending.get(self._queue[0])
                     deadline = (
@@ -568,6 +600,10 @@ class V4TelemetryWriter:
                 if self._health not in {"STOPPING", "STOPPED"}:
                     self._health = "HEALTHY"
                     self._last_error = ""
+                # A clean commit clears any prior deadline backoff: the writer
+                # has recovered and the lossy lane can resume normal cadence.
+                self._deadline_backoff_until = 0.0
+                self._deadline_backoff_s = 0.0
             else:
                 self._failed_batches += 1
                 if priority_skip:
@@ -578,6 +614,15 @@ class V4TelemetryWriter:
                     self._deadline_exceeded_batches += 1
                     self._deadline_exceeded_rows += logical_dropped
                     health = "DEGRADED_TELEMETRY_DEADLINE"
+                    # Exponential backoff (capped at 2 s) so a WAL-pinned slow
+                    # commit does not cause a tight resubmit-and-miss loop.
+                    # The queue keeps accepting; only the next flush is deferred.
+                    previous = self._deadline_backoff_s
+                    self._deadline_backoff_s = min(
+                        2.0, max(self.flush_interval_s, previous * 2.0
+                                 if previous > 0.0 else self.flush_interval_s))
+                    self._deadline_backoff_until = (
+                        time.monotonic() + self._deadline_backoff_s)
                 else:
                     health = "DEGRADED_WRITER"
                 self._drop_locked(
@@ -746,6 +791,8 @@ class V4TelemetryWriter:
                 "last_success_ts_ms": self._last_success_ts_ms or None,
                 "last_failure_ts_ms": self._last_failure_ts_ms or None,
                 "last_overflow_ts_ms": self._last_overflow_ts_ms or None,
+                "deadline_backoff_active": self._deadline_backoff_until > 0.0,
+                "deadline_backoff_s": round(self._deadline_backoff_s, 3),
                 "last_error": self._last_error or None,
             }
 

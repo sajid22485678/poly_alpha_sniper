@@ -41,6 +41,7 @@ from .contracts import (
 from .discovery import GammaMarketDiscovery, window_open_ms
 from .economics import EconomicCalculation, calculate_economics
 from .edge_models import DeterministicEdgeEnsemble, EnsembleResult, ModelContext
+from .model_health import ModelHealthConfig, ModelHealthQuarantine
 from .events import EventDecision, EventDisposition, canonical_json
 from .execution import ExecutionRouter, RouterAction, RouterDecision, tier_for_edge
 from .export import EXPORT_FILENAME, write_frequency_v4_dashboard
@@ -83,8 +84,14 @@ from .workers import V4MaintenanceWorker, V4ReadWorker, V4RuntimeIOWorker
 # 10s Polymarket PONG window with the loop responsive in between.  The durable
 # fix is to run them off-loop against a dedicated read-only connection.
 DASHBOARD_EXPORT_INTERVAL_MS = 15_000
-INTEGRITY_CHECK_INTERVAL_MS = 300_000
-INTEGRITY_MAX_AGE_MS = 600_000
+# The full ``PRAGMA integrity_check`` is a whole-database scan that grew to
+# multi-minute duration once the evidence store crossed ~3 GB.  Running it
+# every 5 minutes monopolised the single reporting worker and stalled exports
+# (the dashboard staleness root cause).  It is now spaced far enough apart that
+# a scan can never delay an export past its 15 s cadence, and the export always
+# uses the last-good cached result so freshness never waits on a fresh scan.
+INTEGRITY_CHECK_INTERVAL_MS = 1_800_000  # 30 minutes
+INTEGRITY_MAX_AGE_MS = 3_600_000  # 1 hour; fail-closed if older
 # Non-executable evaluation-state transitions (SKIP/NO_ACTION reason or bucket
 # changes) that reverse within this window are threshold flapping around a
 # price/score boundary, not decision evidence; they are suppressed and counted
@@ -187,6 +194,20 @@ class FrequencyV4Engine:
             probability_ceiling=cfg.fair_probability_ceiling,
             max_adjustment=cfg.max_model_adjustment,
         )
+        # Automatic, fail-closed model-health quarantine.  A model whose
+        # rolling fee-net performance crosses the observation floor and breaches
+        # the PF/expectancy/loss-asymmetry bounds is quarantined for a cooldown;
+        # its ensemble contribution is zeroed and entries it would drive are
+        # rejected.  Data-driven from realized cohort performance.
+        self.model_health = ModelHealthQuarantine(ModelHealthConfig(
+            enabled=cfg.model_health_quarantine_enabled,
+            min_observations=cfg.model_health_min_observations,
+            min_profit_factor=cfg.model_health_min_profit_factor,
+            min_expectancy=cfg.model_health_min_expectancy,
+            max_loss_asymmetry=cfg.model_health_max_loss_asymmetry,
+            cooldown_s=cfg.model_health_cooldown_s,
+            resample_s=cfg.model_health_resample_s,
+        ))
         self.router = ExecutionRouter(cfg)
         self.poly_ws = PolymarketMarketWS(
             url=cfg.clob_ws_url,
@@ -319,6 +340,10 @@ class FrequencyV4Engine:
         self._wal_size_cache = 0
         self._checkpoint_state: dict[str, Any] = {}
         self._maintenance_result: dict[str, Any] = {}
+        # Consecutive PASSIVE checkpoints that did not reclaim WAL bytes
+        # (reader-pinned file).  Drives the RESTART escalation in the
+        # maintenance policy so a stuck WAL does not grow without bound.
+        self._consecutive_no_progress_passive = 0
         self._critical_command_sequence = 0
         self._critical_failure_reason = ""
         self.counters: dict[str, int] = {
@@ -473,6 +498,7 @@ class FrequencyV4Engine:
             "polymarket_ws": self.poly_ws.health(),
             "okx_ws": self.okx.health,
             "counters": dict(self.counters),
+            "model_health": self.model_health.snapshot(),
             "open_positions": int(self._open_positions_count),
             "last_error": self._last_error,
             "integrity": self._last_integrity,
@@ -1775,7 +1801,8 @@ class FrequencyV4Engine:
             book_history=self.book_history.points(identity.window_key, now_ms=current),
             polymarket_response_ms=response_ms,
         )
-        ensemble = self.ensemble.evaluate(context)
+        ensemble = self.ensemble.evaluate(
+            context, quarantined_models=self.model_health.quarantined_models())
         phase = "UPDATE" if self.router.active(identity) is not None else "INITIAL"
         calculation = calculate_economics(
             identity=identity, ensemble=ensemble,
@@ -2996,14 +3023,20 @@ class FrequencyV4Engine:
                 pass
 
     async def _run_integrity_check(self) -> None:
-        """Off-loop integrity scan on the read-only connection (single-flight)."""
+        """Off-loop integrity scan on the read-only connection (single-flight).
+
+        Uses ``quick_check`` for the periodic scan: it detects the same
+        structural corruption as the full ``integrity_check`` but skips the
+        expensive B-tree ordering validation, keeping a multi-GB evidence-store
+        scan off the export hot path.
+        """
         if self.report_worker is None or self._integrity_inflight:
             return
         self._integrity_inflight = True
         started = time.monotonic()
         try:
             result = await self.report_worker.run_report(
-                lambda store: store.integrity_check(),
+                lambda store: store.integrity_check(quick=True),
                 timeout_s=self.cfg.reporting_worker_timeout_s,
                 name="sqlite_integrity_check",
             )
@@ -3059,25 +3092,30 @@ class FrequencyV4Engine:
             self._export_inflight = False
 
     async def _reporting_loop(self) -> None:
-        """Run integrity then export off-loop, sequentially (never overlapping).
+        """Run export first, then integrity off-loop (never overlapping).
 
-        Each heavy read-only scan executes in a worker thread against the
-        dedicated read-only connection; awaiting the thread yields the event
-        loop, so the WebSocket heartbeat/reconnect path stays responsive while a
-        multi-second scan runs.
+        Freshness is the priority: the dashboard export always runs on its own
+        15 s cadence using the last-good cached integrity result, so a slow
+        whole-database integrity scan can never stall an export.  The integrity
+        scan runs only when its longer interval elapses, after the export, on
+        the same dedicated read-only worker.  Awaiting the worker thread yields
+        the event loop so the WebSocket heartbeat path stays responsive.
         """
         last_export_ms = 0
         # ``start`` already ran one full integrity scan.  Preserve its schedule
-        # instead of immediately repeating the expensive 431 MB read.
+        # instead of immediately repeating the expensive read.
         last_integrity_ms = self._last_integrity_ts_ms
         while not self._stopping.is_set():
             current = now_ms()
-            if current - last_integrity_ms >= INTEGRITY_CHECK_INTERVAL_MS:
-                last_integrity_ms = current
-                await self._run_integrity_check()
+            # Export first: freshness must never wait on a heavy scan.
             if current - last_export_ms >= DASHBOARD_EXPORT_INTERVAL_MS:
                 last_export_ms = current
                 await self._run_dashboard_export()
+            # Integrity only after the export, on its much longer interval, so
+            # it can never monopolise the reporting worker between exports.
+            if current - last_integrity_ms >= INTEGRITY_CHECK_INTERVAL_MS:
+                last_integrity_ms = current
+                await self._run_integrity_check()
             try:
                 await asyncio.wait_for(self._stopping.wait(), timeout=1.0)
             except asyncio.TimeoutError:
@@ -3091,6 +3129,38 @@ class FrequencyV4Engine:
         started = time.monotonic()
         try:
             current = now_ms()
+            # Recompute model-health quarantine on the maintenance cadence using
+            # the read-only worker, so the hot evaluation path only ever reads
+            # the cached quarantined set.  The SQL runs on the worker's owner
+            # thread (the store enforces thread ownership); statistics + the
+            # quarantine set are applied on the engine thread.
+            if self.read_worker is not None and self.model_health.needs_resample():
+                try:
+                    rows = await self.read_worker.query(
+                        """
+                        SELECT c.dominant_model AS model, p.net_pnl AS pnl
+                        FROM pnl_records p
+                        JOIN entries e          ON e.entry_id   = p.entry_id
+                        JOIN candidates c       ON c.candidate_id = e.candidate_id
+                        JOIN runtime_sessions rs ON rs.session_id  = e.session_id
+                        WHERE rs.cohort = ?
+                          AND p.verified = 1
+                        """,
+                        (ACTIVE_COHORT,),
+                        timeout_s=10.0,
+                    )
+                    grouped: dict[str, list[float]] = {}
+                    for row in rows:
+                        pnl = row.get("pnl")
+                        if pnl is None:
+                            continue
+                        grouped.setdefault(
+                            str(row.get("model") or "UNKNOWN"),
+                            []).append(float(pnl))
+                    self.model_health.apply_realized_pnls(grouped)
+                except Exception as exc:  # noqa: BLE001 - quarantine is fail-safe; never block trading
+                    self._last_error = (
+                        f"model_health:{type(exc).__name__}:{exc}"[:240])
             writer = self._writer_health()
             telemetry = self.telemetry.snapshot() if self.telemetry is not None else {}
             reporting = (
@@ -3120,6 +3190,8 @@ class FrequencyV4Engine:
                 time_to_window_boundary_ms=(
                     300_000 - current % 300_000
                 ),
+                consecutive_no_progress_passive=(
+                    self._consecutive_no_progress_passive),
                 last_checkpoint_attempt_ts_ms=(
                     self._checkpoint_state.get("started_ts_ms")
                     or self._checkpoint_state.get("completed_ts_ms")
@@ -3181,6 +3253,19 @@ class FrequencyV4Engine:
                 self._wal_size_cache = int(
                     checkpoint.get("after_wal_bytes") or self._wal_size_cache
                 )
+                # Track consecutive PASSIVE checkpoints that did not reclaim
+                # WAL bytes.  ``made_progress`` (frames checkpointed) can be
+                # true while the file stays pinned by readers, so the real
+                # reclaim signal is after < before.  Only PASSIVE counts:
+                # RESTART/TRUNCATE that fail to reclaim indicate a different
+                # problem and should not feed this escalation counter.
+                mode = str(checkpoint.get("mode") or "").upper()
+                before = int(checkpoint.get("before_wal_bytes") or 0)
+                after = int(checkpoint.get("after_wal_bytes") or 0)
+                if mode == "PASSIVE" and before > 0 and after >= before:
+                    self._consecutive_no_progress_passive += 1
+                else:
+                    self._consecutive_no_progress_passive = 0
         except Exception as exc:  # noqa: BLE001 - maintenance must not crash market-data tasks
             self._maintenance_result = {
                 "status": "FAILED",

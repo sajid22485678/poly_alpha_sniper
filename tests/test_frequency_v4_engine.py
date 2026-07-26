@@ -496,7 +496,7 @@ def test_strong_edge_routes_one_exact_five_share_shadow_entry_idempotently(
         "NO": _book(identity, "NO", current),
     }
     engine.cex_features.append(_observation(current))
-    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _context: _strong_yes_ensemble())
+    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _context, **_kw: _strong_yes_ensemble())
     monkeypatch.setattr(engine, "_manage_open_position", AsyncMock())
 
     first = EvaluationTrigger(
@@ -624,7 +624,7 @@ def test_immaterial_flapping_suppresses_and_material_transitions_persist(
     def evaluate(regime: str, probability: float) -> None:
         monkeypatch.setattr(
             engine.ensemble, "evaluate",
-            lambda _context: _no_edge_ensemble(regime, probability))
+            lambda _context, **_kw: _no_edge_ensemble(regime, probability))
         asyncio.run(engine._evaluate(state, EvaluationTrigger(
             source="test-materiality",
             receipt_ts_ms=now_ms(),
@@ -672,7 +672,7 @@ def test_immaterial_flapping_suppresses_and_material_transitions_persist(
     monkeypatch.setattr(
         engine_module, "IMMATERIAL_TRANSITION_MIN_INTERVAL_MS", 3_600_000)
     monkeypatch.setattr(
-        engine.ensemble, "evaluate", lambda _context: _strong_yes_ensemble())
+        engine.ensemble, "evaluate", lambda _context, **_kw: _strong_yes_ensemble())
     asyncio.run(engine._evaluate(state, EvaluationTrigger(
         source="test-materiality",
         receipt_ts_ms=now_ms(),
@@ -711,7 +711,7 @@ def test_recent_cex_tick_cannot_authorize_entry_after_provider_disconnect(
     asyncio.run(deliver_cex())
     assert engine.cex_features.latest("BTC") is not None
     engine.pending.clear()
-    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _context: _strong_yes_ensemble())
+    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _context, **_kw: _strong_yes_ensemble())
     monkeypatch.setattr(engine, "_manage_open_position", AsyncMock())
 
     asyncio.run(engine._on_source_health({
@@ -756,7 +756,7 @@ def test_unsafe_source_evidence_cannot_drive_open_position_management(
         "NO": _book(identity, "NO", current),
     }
     engine.cex_features.append(_observation(current))
-    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _context: _strong_yes_ensemble())
+    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _context, **_kw: _strong_yes_ensemble())
 
     # Create the verified shadow position without allowing the same evaluation
     # to make a management decision immediately after entry.
@@ -865,7 +865,7 @@ def test_unresolved_official_resolution_uses_bounded_exponential_retry(
         "NO": _book(identity, "NO", current),
     }
     engine.cex_features.append(_observation(current))
-    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _context: _strong_yes_ensemble())
+    monkeypatch.setattr(engine.ensemble, "evaluate", lambda _context, **_kw: _strong_yes_ensemble())
     monkeypatch.setattr(engine, "_manage_open_position", AsyncMock())
     asyncio.run(engine._evaluate(state, EvaluationTrigger(
         source="test-entry",

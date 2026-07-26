@@ -687,7 +687,7 @@ async def test_unchanged_evaluation_is_materially_coalesced(
             outputs=(),
             model_uncalibrated=True,
         )
-        monkeypatch.setattr(engine.ensemble, "evaluate", lambda _ctx: neutral)
+        monkeypatch.setattr(engine.ensemble, "evaluate", lambda _ctx, **_kw: neutral)
 
         before = await engine.read_worker.query_one(
             "SELECT COUNT(*) AS n FROM candidates"

@@ -150,16 +150,39 @@ def test_export_snapshot_is_v4_only_and_surfaces_safety_health_capacity(tmp_path
 def test_export_separates_critical_block_from_lossy_raw_telemetry(tmp_path):
     store, session, _ = _store_with_health(tmp_path)
     try:
-        raw_loss = _healthy_runtime_state(session)
-        raw_loss["persistence"]["telemetry"]["rows_dropped"] = 3
-        raw_loss["persistence"]["telemetry"]["raw_telemetry_loss_count"] = 3
+        # Lifetime raw-telemetry loss with NO recent failure must NOT latch the
+        # dashboard degraded: the lossy lane has recovered, the critical lane is
+        # healthy, and historical counters are informational only.  The lifetime
+        # totals stay exposed in telemetry_recovery for auditability.
+        recovered = _healthy_runtime_state(session)
+        recovered["persistence"]["telemetry"]["rows_dropped"] = 3
+        recovered["persistence"]["telemetry"]["raw_telemetry_loss_count"] = 3
+        recovered["persistence"]["telemetry"]["failed_batches"] = 1
+        recovered["persistence"]["telemetry"]["last_failure_ts_ms"] = 0
+        recovered["persistence"]["telemetry"]["last_overflow_ts_ms"] = 0
         payload = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=FrequencyV4Config(),
-            session_id=session, runtime_state=raw_loss,
+            session_id=session, runtime_state=recovered,
+        )
+        assert payload["persistence"]["critical_execution_ready"] is True
+        assert payload["persistence"]["operational_ready"] is True
+        assert payload["persistence"]["telemetry_recovery"]["lifetime_raw_telemetry_loss"] == 3
+        assert payload["persistence"]["telemetry_recovery"]["recent_failure"] is False
+        assert "raw_telemetry_loss" not in payload["persistence"]["blocked_reasons"]
+
+        # A failure within the recent window IS an active degradation: the lane
+        # is currently unhealthy and operational_ready must reflect it.
+        active = _healthy_runtime_state(session)
+        active["persistence"]["telemetry"]["failed_batches"] = 5
+        active["persistence"]["telemetry"]["last_failure_ts_ms"] = NOW - 1_000
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(),
+            session_id=session, runtime_state=active,
         )
         assert payload["persistence"]["critical_execution_ready"] is True
         assert payload["persistence"]["operational_ready"] is False
-        assert "raw_telemetry_loss" in payload["persistence"]["blocked_reasons"]
+        assert "telemetry_batch_failure" in payload["persistence"]["blocked_reasons"]
+        assert payload["persistence"]["telemetry_recovery"]["recent_failure"] is True
 
         latched = _healthy_runtime_state(session)
         latched["execution_blocked_reason"] = "critical_command_failed"

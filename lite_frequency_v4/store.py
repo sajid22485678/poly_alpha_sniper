@@ -4858,10 +4858,19 @@ class V4Store:
         )
         return int(result["rows_compacted"]) if result is not None else 0
 
-    def integrity_check(self) -> dict[str, Any]:
+    def integrity_check(self, *, quick: bool = False) -> dict[str, Any]:
+        """Run a SQLite integrity scan.
+
+        ``quick=True`` uses ``PRAGMA quick_check``, which performs the same
+        corruption detection as the full ``integrity_check`` but omits the
+        expensive B-tree ordering validation that turns a multi-GB evidence
+        store scan into a multi-minute job.  The periodic engine scan uses the
+        quick mode; the full scan remains available for an explicit audit.
+        """
         self._assert_owner()
+        pragma = "PRAGMA quick_check" if quick else "PRAGMA integrity_check"
         with self._lock:
-            result = [str(row[0]) for row in self._conn.execute("PRAGMA integrity_check").fetchall()]
+            result = [str(row[0]) for row in self._conn.execute(pragma).fetchall()]
             fk = [dict(row) for row in self._conn.execute("PRAGMA foreign_key_check").fetchall()]
         return {"integrity": "ok" if result == ["ok"] else "; ".join(result),
                 "foreign_key_violations": fk}

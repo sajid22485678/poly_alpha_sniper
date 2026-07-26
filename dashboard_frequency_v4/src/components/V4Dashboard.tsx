@@ -94,9 +94,17 @@ export default function V4Dashboard() {
   }, []);
 
   const data = payload.snapshot;
-  const heartbeatAge = data?.heartbeat_ts_ms && sampledAtMs !== null
-    ? Math.max(0, sampledAtMs - data.heartbeat_ts_ms)
-    : null;
+  // Runtime heartbeat age is read from the export payload (computed at export
+  // generation from the freshest writer/runtime-health signal).  This is
+  // intentionally independent of export freshness: a stale export must turn the
+  // export-age card red, not make a live runtime heartbeat look stale.  The
+  // total observed heartbeat age adds the export's own staleness since the file
+  // was written, so a very stale file still surfaces honestly.
+  const heartbeatAge = typeof data?.runtime_heartbeat_age_ms === "number"
+    ? data.runtime_heartbeat_age_ms + (payload.age_ms ?? 0)
+    : (data?.heartbeat_ts_ms && sampledAtMs !== null
+      ? Math.max(0, sampledAtMs - data.heartbeat_ts_ms)
+      : null);
   if (!data) {
     return <main><header><p className="eyebrow">ISOLATED RESEARCH LANE</p><h1>Poly Alpha Frequency V4</h1></header><section className="panel danger"><h2>Telemetry unavailable</h2><p>{requestError || payload.error || "Waiting for the first V4 export."}</p></section></main>;
   }
@@ -134,7 +142,7 @@ export default function V4Dashboard() {
       <section className="grid hero-grid">
         <Card label="cohort" value={cohortInfo.authoritative} tone="good" />
         <Card label="cohort activation" value={cohortInfo.activation_ts_ms ? new Date(Number(cohortInfo.activation_ts_ms)).toISOString() : null} />
-        <Card label="starting equity USD" value={ledger.starting_equity_usd} tone={ledger.starting_equity_usd === 13 ? "good" : "bad"} />
+        <Card label="starting equity USD" value={ledger.starting_equity_usd} tone={typeof ledger.starting_equity_usd === "number" && ledger.starting_equity_usd > 0 ? "good" : "bad"} />
         <Card label="current equity USD" value={ledger.current_equity_usd} />
         <Card label="available cash USD" value={ledger.available_cash_usd} tone={Number(ledger.available_cash_usd ?? 0) >= 0 ? "good" : "bad"} />
         <Card label="committed USD" value={ledger.committed_total_usd} />
@@ -161,7 +169,7 @@ export default function V4Dashboard() {
         <Card label="real orders possible" value={data.real_orders_possible} tone={data.real_orders_possible ? "bad" : "good"} />
         <Card label="kill switch" value={data.kill_switch_engaged} tone={data.kill_switch_engaged ? "good" : "bad"} />
         <Card label="fixed shares" value={data.fixed_shares} tone={data.fixed_shares === 5 ? "good" : "bad"} />
-        <Card label="heartbeat age ms" value={heartbeatAge} tone={heartbeatAge !== null && heartbeatAge < 10000 ? "good" : "warn"} />
+        <Card label="runtime heartbeat age ms" value={heartbeatAge} tone={heartbeatAge !== null && heartbeatAge < 15000 ? "good" : "warn"} />
         <Card label="export age ms" value={payload.age_ms} tone={payload.age_ms !== null && payload.age_ms < 10000 ? "good" : "warn"} />
         <Card label="capacity / hour" value={sessionFrequency.theoretical_max_trades_per_hour} />
         <Card label="actual entries" value={sessionFrequency.actual_entries} />
@@ -193,7 +201,7 @@ export default function V4Dashboard() {
       </section>
 
       <section className="grid metrics-grid">
-        <Table title="Authoritative capital ledger ($13 cohort)" value={capital} />
+        <Table title={`Authoritative capital ledger (${fmt(cohortInfo.authoritative)} · $${fmt(ledger.starting_equity_usd, 0)} cohort)`} value={capital} />
         <Table title="Dynamic universe & capacity" value={data.market_universe} />
         <RollingFrequencyTable value={frequency} />
         <Table title="Execution router" value={execution} />
