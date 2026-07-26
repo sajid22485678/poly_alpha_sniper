@@ -2,13 +2,32 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import signal
 import sys
+import traceback
 from typing import Any, Optional
 
 from .config import FrequencyV4Config, load_frequency_v4_config
+from .diagnostics import capture_fatal_diagnostic, persist_fatal_diagnostic
 from .engine import FrequencyV4Engine
 from .runtime import V4RuntimeFiles, immutable_safety_state
+
+
+def _extract_task_name(exc: BaseException) -> Optional[str]:
+    """Recover the failing task name from the supervisor's wrapping message.
+
+    ``run_until_stopped`` wraps a dead critical task as
+    ``RuntimeError("critical Frequency V4 task failed: <task>") from error``.
+    The originating exception is preserved on ``__cause__``; the task name is
+    only embedded in the wrapper message.  Recovering it here keeps the
+    diagnostic payload self-describing without changing the supervisor's
+    exception contract.
+    """
+    message = str(exc)
+    match = re.search(
+        r"critical Frequency V4 task failed:\s*(\S+)", message)
+    return match.group(1) if match else None
 
 
 async def _main(
@@ -46,8 +65,32 @@ async def _main(
     except Exception as exc:
         exit_code = 1
         stop_reason = f"fatal_{type(exc).__name__}"
+        # Persist the full fatal-task diagnostic *before* the (deliberately
+        # terse) stderr print.  The originating exception, its chained
+        # __cause__/__context__, traceback, session/PID/commit context, last
+        # heartbeat/export state and telemetry safety/capacity snapshot are
+        # captured atomically to the runtime dir.  Persistence is fail-safe:
+        # a write failure cannot hide the original failure or recursively
+        # crash the runtime, so the stderr line below always still fires.
+        task_name = _extract_task_name(exc)
+        try:
+            diagnostic = capture_fatal_diagnostic(
+                exc, engine=engine, task_name=task_name)
+            persist_fatal_diagnostic(
+                diagnostic,
+                runtime_dir=cfg.runtime_dir,
+            )
+        except Exception as diag_exc:  # pragma: no cover - fail-safe path
+            print(
+                "Frequency V4 diagnostic capture error: "
+                f"{type(diag_exc).__name__}: {diag_exc}",
+                file=sys.stderr, flush=True)
+        # The stderr line keeps the launcher log concise; the full traceback
+        # is also echoed here so it is visible alongside the persisted file
+        # even when the runtime directory is not inspected.
         print(f"Frequency V4 fatal error: {type(exc).__name__}: {exc}",
               file=sys.stderr, flush=True)
+        traceback.print_exc()
     finally:
         final_state = None
         try:
