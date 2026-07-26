@@ -3165,6 +3165,41 @@ class FrequencyV4Engine:
             except asyncio.TimeoutError:
                 pass
 
+    def _apply_checkpoint_result(self, checkpoint: dict[str, Any]) -> None:
+        """Fold one checkpoint outcome into the WAL reclamation state.
+
+        Progress is reclaimed bytes, never checkpointed frames: a PASSIVE pass
+        routinely backfills every frame and leaves the file exactly as large.
+
+        A checkpoint that never ran -- the background write gate refused it, or
+        its mode was revalidated unsafe -- is not evidence of anything and must
+        leave the counter untouched.  Resetting it made a deferred escalation
+        cancel its own trigger, so the policy cycled escalate -> deferred ->
+        re-arm indefinitely while the WAL grew without bound.
+        """
+
+        self._checkpoint_state = dict(checkpoint)
+        # A successful TRUNCATE reports after_wal_bytes == 0, which is exactly
+        # the outcome we want to believe.  Falling back on a falsy value would
+        # keep the cache at the pre-checkpoint size and make the policy
+        # re-escalate against a WAL that is already empty.
+        after_bytes = checkpoint.get("after_wal_bytes")
+        if after_bytes is not None:
+            self._wal_size_cache = int(after_bytes)
+        mode = str(checkpoint.get("mode") or "").upper()
+        status = str(checkpoint.get("status") or "").upper()
+        before = int(checkpoint.get("before_wal_bytes") or 0)
+        after = int(checkpoint.get("after_wal_bytes") or 0)
+        reclaimed = max(0, before - after)
+        executed = status not in {"SKIPPED", ""}
+        if reclaimed > 0:
+            self._consecutive_no_progress_passive = 0
+        elif executed and mode == "PASSIVE" and before > 0:
+            self._consecutive_no_progress_passive += 1
+        if executed and mode in {"RESTART", "TRUNCATE"}:
+            self._checkpoint_escalations += 1
+        self._wal_bytes_reclaimed_total += reclaimed
+
     async def _run_maintenance_pass(self) -> None:
         """Run policy-gated checkpoint/retention on its owner connection."""
         if self._maintenance_inflight or self.maintenance_worker is None:
@@ -3305,26 +3340,7 @@ class FrequencyV4Engine:
             self._last_maintenance_rows = int(result_view.get("rows_deleted") or 0)
             checkpoint = result_view.get("checkpoint")
             if isinstance(checkpoint, dict):
-                self._checkpoint_state = dict(checkpoint)
-                self._wal_size_cache = int(
-                    checkpoint.get("after_wal_bytes") or self._wal_size_cache
-                )
-                # Track consecutive PASSIVE checkpoints that did not reclaim
-                # WAL bytes.  ``made_progress`` (frames checkpointed) can be
-                # true while the file stays pinned by readers, so the real
-                # reclaim signal is after < before.  Only PASSIVE counts:
-                # RESTART/TRUNCATE that fail to reclaim indicate a different
-                # problem and should not feed this escalation counter.
-                mode = str(checkpoint.get("mode") or "").upper()
-                before = int(checkpoint.get("before_wal_bytes") or 0)
-                after = int(checkpoint.get("after_wal_bytes") or 0)
-                if mode == "PASSIVE" and before > 0 and after >= before:
-                    self._consecutive_no_progress_passive += 1
-                else:
-                    self._consecutive_no_progress_passive = 0
-                if mode in {"RESTART", "TRUNCATE"}:
-                    self._checkpoint_escalations += 1
-                self._wal_bytes_reclaimed_total += max(0, before - after)
+                self._apply_checkpoint_result(checkpoint)
         except Exception as exc:  # noqa: BLE001 - maintenance must not crash market-data tasks
             self._maintenance_result = {
                 "status": "FAILED",

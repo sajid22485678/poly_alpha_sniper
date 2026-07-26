@@ -72,6 +72,12 @@ class MaintenancePolicy:
     # global database stall; a contended attempt returns BUSY and retries on
     # the next maintenance cycle instead.
     live_reclaim_busy_timeout_ms: int = 2_000
+    # How long an escalated reclamation may keep retrying a refused
+    # background-write gate before giving up for this cycle.  The gate refuses
+    # whenever a critical command is in flight, so a single non-blocking
+    # attempt is refused almost every cycle under continuous load and the
+    # reclamation the policy decided on never actually runs.
+    live_reclaim_gate_wait_ms: int = 4_000
 
     def __post_init__(self) -> None:
         positive_ints = (
@@ -97,6 +103,9 @@ class MaintenancePolicy:
         _require_int(
             "live_reclaim_busy_timeout_ms",
             self.live_reclaim_busy_timeout_ms, minimum=1)
+        _require_int(
+            "live_reclaim_gate_wait_ms",
+            self.live_reclaim_gate_wait_ms, minimum=0)
         _require_int("telemetry_queue_gate", self.telemetry_queue_gate, minimum=0)
         _require_int("window_guard_ms", self.window_guard_ms, minimum=0)
         _require_int("restart_window_guard_ms", self.restart_window_guard_ms, minimum=0)
@@ -480,13 +489,8 @@ def perform_checkpoint(
         before_wal = _read_wal_bytes(
             store, fallback=snapshot_wal(decision), reader=wal_size_reader
         )
-        response = _invoke_checkpoint(
-            store, decision.mode, decision.reason,
-            busy_timeout_ms=(
-                policy.live_reclaim_busy_timeout_ms
-                if decision.reason == LIVE_RECLAIM_REASON else None
-            ),
-        )
+        response = _invoke_reclaiming_checkpoint(
+            store, decision, policy, monotonic_clock)
         busy, total, checkpointed = _normalize_checkpoint_response(response)
         if isinstance(response, Mapping) and "before_wal_bytes" in response:
             before_wal = _coerce_nonnegative_int(
@@ -790,10 +794,13 @@ def _live_reclaim_is_safe(
         return False
     if snapshot.wal_bytes < policy.restart_trigger_bytes:
         return False
-    # A live reader would make the checkpointer wait on read-mark locks; a long
-    # reader (an integrity scan, a heavy report) would make it wait for a long
-    # time.  Neither is acceptable while the writer lock is held.
-    if snapshot.active_readers or snapshot.long_reader_count:
+    # A LONG reader (an integrity scan, a heavy report) holds its read-mark for
+    # far longer than the bounded lock wait, so reclamation would stall behind
+    # it: that is prohibited.  A short in-flight read is not, and must not be:
+    # an oversized WAL slows every read, which keeps a reader in flight, which
+    # would block reclamation forever.  A brief overlap simply returns BUSY
+    # within live_reclaim_busy_timeout_ms and retries on the next cycle.
+    if snapshot.long_reader_count:
         return False
     # Critical persistence must never queue behind reclamation.
     if snapshot.critical_queue_depth:
@@ -875,6 +882,48 @@ def _unsafe_mode_reason(
     if mode is CheckpointMode.RESTART and not _restart_is_safe(snapshot, policy):
         return "restart_requires_quiescent_runtime"
     return None
+
+
+def _invoke_reclaiming_checkpoint(
+    store: Any,
+    decision: CheckpointDecision,
+    policy: MaintenancePolicy,
+    monotonic_clock: Callable[[], float],
+    sleep: Optional[Callable[[float], None]] = None,
+) -> Any:
+    """Invoke one checkpoint, retrying only a refused background-write gate.
+
+    The Store takes the shared background-write gate before checkpointing, and
+    that gate refuses whenever a critical command is in flight.  Under
+    continuous critical writes one non-blocking attempt per maintenance cycle
+    is refused essentially every time, so an escalated reclamation is decided
+    but never executed and the WAL keeps growing -- the exact failure this
+    escalation exists to prevent.
+
+    Retrying inside a short bounded window slips the checkpoint into an
+    ordinary gap between critical commands.  It never makes a critical write
+    wait: a refusal means we did not start, and we simply try again.  Only the
+    escalated reclamation retries; ordinary PASSIVE passes keep the original
+    single-attempt behaviour and yield immediately.
+    """
+
+    assert decision.mode is not None
+    if decision.reason != LIVE_RECLAIM_REASON:
+        return _invoke_checkpoint(store, decision.mode, decision.reason)
+    pause = sleep or time.sleep
+    deadline = monotonic_clock() + policy.live_reclaim_gate_wait_ms / 1_000.0
+    while True:
+        try:
+            return _invoke_checkpoint(
+                store, decision.mode, decision.reason,
+                busy_timeout_ms=policy.live_reclaim_busy_timeout_ms,
+            )
+        except Exception as exc:  # noqa: BLE001 - only gate refusals retry
+            if not _is_background_write_deferred(exc):
+                raise
+            if monotonic_clock() >= deadline:
+                raise
+            pause(0.02)
 
 
 def _invoke_checkpoint(

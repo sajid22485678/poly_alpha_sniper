@@ -12,9 +12,46 @@ from __future__ import annotations
 import pytest
 
 from lite_frequency_v4.maintenance import (
-    LIVE_RECLAIM_REASON, CheckpointMode, CheckpointResult, CheckpointStatus,
-    MaintenancePolicy, MaintenanceSnapshot, decide_checkpoint,
+    LIVE_RECLAIM_REASON, CheckpointDecision, CheckpointMode, CheckpointResult,
+    CheckpointStatus, MaintenancePolicy, MaintenanceSnapshot,
+    _invoke_reclaiming_checkpoint, decide_checkpoint, perform_checkpoint,
 )
+
+
+class _BackgroundWriteDeferred(RuntimeError):
+    """Mirrors the Store exception raised when the write gate refuses."""
+
+
+_BackgroundWriteDeferred.__name__ = "V4BackgroundWriteDeferred"
+
+
+class _GatedStore:
+    """Store stub whose background-write gate refuses the first N attempts."""
+
+    def __init__(self, refusals: int, *, wal_bytes: int = 500_000_000) -> None:
+        self.refusals = int(refusals)
+        self.attempts = 0
+        self.busy_timeouts: list = []
+        self.wal_bytes = int(wal_bytes)
+        self.recorded: list = []
+
+    def checkpoint(self, *, mode: str = "PASSIVE", reason: str = "manual",
+                   busy_timeout_ms=None):
+        self.attempts += 1
+        if self.attempts <= self.refusals:
+            raise _BackgroundWriteDeferred("critical write pending")
+        self.busy_timeouts.append(busy_timeout_ms)
+        before, self.wal_bytes = self.wal_bytes, 0
+        return {
+            "checkpoint_run_id": self.attempts, "mode": mode,
+            "before_wal_bytes": before, "after_wal_bytes": 0,
+            "duration_ms": 5.0, "busy_result": 0,
+            "frames_total": 1_000, "frames_checkpointed": 1_000,
+            "success": True, "failure_reason": None,
+        }
+
+    def database_size_bytes(self) -> int:
+        return 6_000_000_000
 
 
 def _snapshot(**overrides):
@@ -131,15 +168,14 @@ def test_escalation_runs_even_when_the_maintenance_gate_is_closed():
     "unsafe",
     [
         {"long_reader_count": 1},
-        {"active_readers": 1},
         {"critical_queue_depth": 1},
         {"writer_healthy": False},
         {"runtime_health": "DEGRADED_INTEGRITY"},
         {"runtime_health": "DEGRADED_PERSISTENCE"},
     ],
     ids=[
-        "long_reader", "active_reader", "critical_queued",
-        "writer_unhealthy", "integrity_degraded", "persistence_degraded",
+        "long_reader", "critical_queued", "writer_unhealthy",
+        "integrity_degraded", "persistence_degraded",
     ],
 )
 def test_live_reclamation_requires_database_level_safety(unsafe):
@@ -218,3 +254,102 @@ def test_policy_validates_escalation_knobs():
         MaintenancePolicy(no_progress_escalation_threshold=0)
     with pytest.raises(ValueError):
         MaintenancePolicy(live_reclaim_busy_timeout_ms=0)
+    with pytest.raises(ValueError):
+        MaintenancePolicy(live_reclaim_gate_wait_ms=-1)
+
+
+# --------------------------------------------------------------------------
+# The decided reclamation must actually execute.
+# --------------------------------------------------------------------------
+
+def test_short_active_reader_does_not_block_reclamation():
+    """An oversized WAL slows reads, keeping a reader perpetually in flight.
+
+    Blocking on any active reader therefore blocks reclamation forever. Only a
+    LONG reader is prohibited; a brief overlap returns BUSY and retries.
+    """
+    policy = MaintenancePolicy()
+    snap = _snapshot(consecutive_no_progress_passive=3, active_readers=1)
+    decision = decide_checkpoint(snap, policy)
+    assert decision.mode == CheckpointMode.TRUNCATE
+    assert decision.reason == LIVE_RECLAIM_REASON
+
+
+def test_refused_write_gate_is_retried_within_a_bounded_window():
+    """A single non-blocking attempt is refused nearly every cycle under load."""
+    store = _GatedStore(refusals=5)
+    decision = CheckpointDecision(
+        True, CheckpointMode.TRUNCATE, LIVE_RECLAIM_REASON,
+        _snapshot(consecutive_no_progress_passive=3))
+    clock = {"t": 0.0}
+    policy = MaintenancePolicy(live_reclaim_gate_wait_ms=1_000)
+    response = _invoke_reclaiming_checkpoint(
+        store, decision, policy,
+        monotonic_clock=lambda: clock["t"],
+        sleep=lambda seconds: clock.__setitem__("t", clock["t"] + seconds),
+    )
+    assert store.attempts == 6
+    assert response["after_wal_bytes"] == 0
+    # The escalated attempt still carries its bounded lock wait.
+    assert store.busy_timeouts == [policy.live_reclaim_busy_timeout_ms]
+
+
+def test_gate_retry_gives_up_at_the_bounded_deadline():
+    store = _GatedStore(refusals=10_000)
+    decision = CheckpointDecision(
+        True, CheckpointMode.TRUNCATE, LIVE_RECLAIM_REASON,
+        _snapshot(consecutive_no_progress_passive=3))
+    clock = {"t": 0.0}
+    with pytest.raises(Exception) as excinfo:
+        _invoke_reclaiming_checkpoint(
+            store, decision, MaintenancePolicy(live_reclaim_gate_wait_ms=100),
+            monotonic_clock=lambda: clock["t"],
+            sleep=lambda seconds: clock.__setitem__("t", clock["t"] + seconds),
+        )
+    assert type(excinfo.value).__name__ == "V4BackgroundWriteDeferred"
+    # Bounded: it never spins indefinitely against a gate that stays held.
+    assert store.attempts <= 8
+
+
+def test_ordinary_passive_pass_never_retries_the_gate():
+    """Only the escalation retries; a normal pass must yield immediately."""
+    store = _GatedStore(refusals=1)
+    decision = CheckpointDecision(
+        True, CheckpointMode.PASSIVE, "normal_bounded_checkpoint",
+        _snapshot())
+    with pytest.raises(Exception):
+        _invoke_reclaiming_checkpoint(
+            store, decision, MaintenancePolicy(),
+            monotonic_clock=lambda: 0.0, sleep=lambda _s: None)
+    assert store.attempts == 1
+
+
+def test_deferred_reclamation_is_reported_as_skipped_not_reclaimed():
+    store = _GatedStore(refusals=10_000)
+    decision = CheckpointDecision(
+        True, CheckpointMode.TRUNCATE, LIVE_RECLAIM_REASON,
+        _snapshot(consecutive_no_progress_passive=3))
+    result = perform_checkpoint(
+        store, decision, MaintenancePolicy(live_reclaim_gate_wait_ms=0),
+        wal_size_reader=lambda: store.wal_bytes,
+    )
+    assert result.status is CheckpointStatus.SKIPPED
+    assert result.reason == "critical_write_pending"
+    assert result.bytes_reclaimed == 0
+    assert result.made_progress is False
+
+
+def test_reclamation_reports_bytes_returned_to_the_filesystem():
+    store = _GatedStore(refusals=0, wal_bytes=800_000_000)
+    decision = CheckpointDecision(
+        True, CheckpointMode.TRUNCATE, LIVE_RECLAIM_REASON,
+        _snapshot(consecutive_no_progress_passive=3))
+    result = perform_checkpoint(
+        store, decision, MaintenancePolicy(),
+        wal_size_reader=lambda: store.wal_bytes,
+    )
+    assert result.status is CheckpointStatus.SUCCESS
+    assert result.before_wal_bytes == 800_000_000
+    assert result.after_wal_bytes == 0
+    assert result.bytes_reclaimed == 800_000_000
+    assert result.made_progress is True

@@ -531,6 +531,69 @@ async def test_slow_telemetry_batch_is_lossy_and_loop_safe(
 
 
 @pytest.mark.asyncio
+async def test_deferred_reclamation_keeps_the_escalation_armed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A checkpoint that never ran must not cancel its own trigger.
+
+    The background write gate refuses whenever a critical command is in
+    flight, so an escalated TRUNCATE is frequently deferred.  Treating that
+    deferral as progress reset the no-progress counter, and the policy cycled
+    escalate -> deferred -> re-arm forever while the WAL grew unbounded.
+    """
+
+    async with _running_engine(tmp_path, monkeypatch) as (engine, _runtime):
+        engine._consecutive_no_progress_passive = 0
+        engine._checkpoint_escalations = 0
+        engine._wal_bytes_reclaimed_total = 0
+
+        def passive(before: int, after: int) -> dict[str, Any]:
+            return {"mode": "PASSIVE", "status": "SUCCESS",
+                    "before_wal_bytes": before, "after_wal_bytes": after}
+
+        # Full frame backfill, not one byte back: that is no progress.
+        engine._apply_checkpoint_result(passive(200_000_000, 200_016_480))
+        assert engine._consecutive_no_progress_passive == 1
+        engine._apply_checkpoint_result(passive(240_000_000, 240_000_000))
+        assert engine._consecutive_no_progress_passive == 2
+
+        # The escalation is decided but the gate refuses it.
+        engine._apply_checkpoint_result({
+            "mode": "TRUNCATE", "status": "SKIPPED",
+            "reason": "critical_write_pending",
+            "before_wal_bytes": 260_000_000, "after_wal_bytes": 260_000_000,
+        })
+        assert engine._consecutive_no_progress_passive == 2, (
+            "a deferred checkpoint must leave the escalation armed")
+        assert engine._checkpoint_escalations == 0
+
+        # It runs but loses the race for the locks: still armed, still no bytes.
+        engine._apply_checkpoint_result({
+            "mode": "TRUNCATE", "status": "BUSY",
+            "before_wal_bytes": 280_000_000, "after_wal_bytes": 280_000_000,
+        })
+        assert engine._consecutive_no_progress_passive == 2
+        assert engine._checkpoint_escalations == 1
+
+        # It succeeds: only real reclamation clears the escalation state.
+        engine._apply_checkpoint_result({
+            "mode": "TRUNCATE", "status": "SUCCESS",
+            "before_wal_bytes": 300_000_000, "after_wal_bytes": 0,
+        })
+        assert engine._consecutive_no_progress_passive == 0
+        assert engine._checkpoint_escalations == 2
+        assert engine._wal_bytes_reclaimed_total == 300_000_000
+        assert engine._wal_size_cache == 0
+
+        state = engine._runtime_state()
+        assert state["persistence"]["wal_reclamation"] == {
+            "consecutive_no_progress_passive": 0,
+            "checkpoint_escalations": 2,
+            "bytes_reclaimed_total": 300_000_000,
+        }
+
+
+@pytest.mark.asyncio
 async def test_slow_checkpoint_and_retention_are_engine_worker_responsive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
