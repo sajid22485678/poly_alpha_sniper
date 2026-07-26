@@ -292,6 +292,103 @@ def test_conservation_holds_exactly_under_mixed_categories():
     assert writer.snapshot()["accounting_reconciliation_mismatch_rows"] == 0
 
 
+def test_conservation_holds_while_a_batch_is_in_flight():
+    """Rows handed to the sink but not yet acknowledged must stay accounted.
+
+    Found by the live soak: reconciliation transiently reported an 8-10 row
+    mismatch because rows removed from the queue for dispatch were subtracted
+    from ``buffered`` before ``logical_committed`` grew, leaving them owned by
+    nobody.  A transient mismatch is indistinguishable from real loss, so it
+    blocked readiness at random.
+    """
+
+    released = threading.Event()
+    entered = threading.Event()
+
+    class _BlockingSink:
+        def submit_telemetry_batch(self, commands, *, timeout_s):
+            _ = timeout_s
+            entered.set()
+            assert released.wait(timeout=10.0), "test deadlock"
+            return len(list(commands))
+
+    writer = _writer(_BlockingSink(), capacity=32)
+    writer.start()
+    try:
+        for index in range(24):
+            writer.submit("record_event", index)
+        assert entered.wait(timeout=5.0)
+        # A batch is now sitting inside the sink, neither queued nor committed.
+        mid_flight = writer.reconcile()
+        assert mid_flight["inflight"] > 0, mid_flight
+        assert mid_flight["mismatch"] == 0, mid_flight
+        released.set()
+        assert writer.flush(timeout_s=5.0)
+    finally:
+        released.set()
+        writer.stop(drain=True, timeout_s=5.0)
+
+    settled = writer.reconcile()
+    assert settled["inflight"] == 0, settled
+    assert settled["mismatch"] == 0, settled
+    assert writer.snapshot()["telemetry_data_safety"] == "HEALTHY"
+
+
+def test_capacity_state_is_hard_overload_only_when_out_of_control():
+    """Shedding by policy is not hard overload; losing rows is."""
+
+    shedding = _writer(_Sink(), capacity=8)
+    for index in range(200):
+        shedding.submit(
+            "record_event", index,
+            overload_policy=TelemetryOverloadPolicy.SAMPLE,
+            overload_key="stream",
+        )
+    snapshot = shedding.snapshot()
+    assert snapshot["telemetry_capacity_state"] == (
+        TelemetryCapacityState.POLICY_SAMPLING_ACTIVE.value)
+    assert snapshot["telemetry_data_safety"] == "HEALTHY"
+
+    losing = _writer(_Sink(), capacity=8)
+    for index in range(200):
+        losing.submit(
+            "record_event", index,
+            overload_policy=TelemetryOverloadPolicy.ADMIT,
+        )
+    snapshot = losing.snapshot()
+    assert snapshot["telemetry_capacity_state"] == (
+        TelemetryCapacityState.HARD_OVERLOAD.value)
+    assert snapshot["telemetry_data_safety"] == "UNHEALTHY"
+
+
+def test_recovery_blockers_name_the_failing_condition():
+    """The lane explains why it is not recovering rather than just saying no."""
+
+    controller = _controller()
+    # A steadily growing queue: the blocker must be named, not implied.
+    for tick in range(1, 40):
+        controller.add(float(tick), queue_depth=tick, offered=20, admitted=20)
+        controller.observe_commit(
+            now=float(tick), rows=19, logical_rows=19,
+            transaction_ms=20.0, total_ms=20.0, queue_depth=tick)
+        decision = controller.decide(
+            now=float(tick), queue_depth=tick,
+            transaction_budget_ms=250.0, queued_logical=tick)
+    assert "queue_accumulating" in decision.recovery_blockers
+    assert decision.current_operational_healthy is False
+
+    healthy = _controller()
+    for tick in range(1, 121):
+        healthy.add(float(tick), queue_depth=0, offered=20, admitted=20)
+        healthy.observe_commit(
+            now=float(tick), rows=20, logical_rows=20,
+            transaction_ms=5.0, total_ms=5.0, queue_depth=0)
+        decision = healthy.decide(
+            now=float(tick), queue_depth=0,
+            transaction_budget_ms=250.0, queued_logical=0)
+    assert decision.recovery_blockers == ()
+
+
 def test_reconciliation_mismatch_blocks_readiness(tmp_path):
     store, session, _ = _store_with_health(tmp_path)
     try:

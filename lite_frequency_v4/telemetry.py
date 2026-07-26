@@ -473,7 +473,7 @@ class _RollingTelemetryWindow:
 
 
 def _capacity_state(
-    decision: "_ControlDecision", *, queue_depth: int, high_water: int,
+    decision: "_ControlDecision", *, queue_depth: int, capacity: int,
 ) -> str:
     """Report how the lane is coping with offered load, honestly.
 
@@ -483,16 +483,31 @@ def _capacity_state(
     bounded and fully accounted.
     """
 
-    if decision.overload_active and not decision.controlled_overload:
+    view = decision.controller_view
+    # Hard overload means the lane is genuinely out of control -- not merely
+    # that it is shedding.  Shedding under an approved policy is the lane
+    # working as designed, and reporting it as hard overload is what made a
+    # correctly-behaving runtime permanently unready.
+    # Depth alone is not the signal.  Crossing the high-water mark is what
+    # *triggers* the shedding policy, and even sitting at the hard bound is the
+    # bound holding, so long as the policy keeps resolving admissions without
+    # loss.  The lane is out of control exactly when that stops being true:
+    # rows are lost, admissions overflow outside policy, or the sink misses its
+    # cooperative deadline.  Each of those fires precisely when the bound fails.
+    _ = queue_depth, capacity
+    out_of_control = (
+        int(view.lost) > 0                       # unexpected loss
+        or int(view.admission_overflow) > 0      # overflow outside policy
+        or int(view.deadline_failures) > 0       # missed cooperative deadline
+    )
+    if out_of_control:
         return TelemetryCapacityState.HARD_OVERLOAD.value
-    if int(queue_depth) > max(0, int(high_water)):
-        return TelemetryCapacityState.HARD_OVERLOAD.value
-    if decision.overload_active:
+    if decision.overload_active or decision.sampling_keep_ratio < 1.0:
         if decision.sampling_keep_ratio < 1.0:
             return TelemetryCapacityState.POLICY_SAMPLING_ACTIVE.value
-        if decision.view.deferred > 0:
+        if int(view.deferred) > 0:
             return TelemetryCapacityState.POLICY_DEFER_ACTIVE.value
-        if decision.view.coalesced > 0:
+        if int(view.coalesced) > 0:
             return TelemetryCapacityState.POLICY_COALESCING_ACTIVE.value
         return TelemetryCapacityState.POLICY_SAMPLING_ACTIVE.value
     return TelemetryCapacityState.WITHIN_CAPACITY.value
@@ -672,6 +687,10 @@ class _ControlDecision:
     transaction_duration_p99_ms: float
     transaction_fixed_overhead_ms: float
     tail_ms_per_row: Optional[float]
+    # Named conditions currently preventing a healthy recovery window.  Empty
+    # means healthy.  Exposed so "why is this lane not recovering?" is answered
+    # by the runtime rather than inferred by an operator.
+    recovery_blockers: tuple[str, ...] = ()
 
 
 class _AdaptiveTelemetryController:
@@ -728,6 +747,7 @@ class _AdaptiveTelemetryController:
         self._overload_enter_streak = 0
         self._overload_exit_streak = 0
         self._healthy_streak = 0
+        self._recovery_blockers: tuple[str, ...] = ("settling",)
         self._settled_since = started
         self._last_control_tick = (
             math.floor(started / self._control_interval_s) - 1)
@@ -1083,18 +1103,29 @@ class _AdaptiveTelemetryController:
                 and depth_nonincreasing
                 and int(queue_depth) <= self.low_water
             )
-            healthy = (
-                float(now) - self._settled_since >= _RECOVERY_SETTLE_S
-                and recovery_view.lost == 0
-                and recovery_view.admission_overflow == 0
-                and recovery_view.failed_batches == 0
-                and recovery_view.deadline_failures == 0
-                and depth_nonincreasing
-                and service_balanced
-                and controller_safe
-                and int(queue_depth) <= self.low_water
-                and (not self._overload_active or controlled_overload)
-            )
+            # Named conjuncts so an operator (and the soak evidence) can see
+            # exactly which condition is holding recovery back, instead of
+            # inferring it from a single opaque boolean.
+            blockers = [
+                name for name, blocked in (
+                    ("settling",
+                     float(now) - self._settled_since < _RECOVERY_SETTLE_S),
+                    ("unexpected_loss", recovery_view.lost != 0),
+                    ("admission_overflow",
+                     recovery_view.admission_overflow != 0),
+                    ("failed_batches", recovery_view.failed_batches != 0),
+                    ("deadline_failures", recovery_view.deadline_failures != 0),
+                    ("queue_accumulating", not depth_nonincreasing),
+                    ("service_imbalance", not service_balanced),
+                    ("controller_chunk_unsafe", not controller_safe),
+                    ("queue_above_low_water",
+                     int(queue_depth) > self.low_water),
+                    ("uncontrolled_overload",
+                     self._overload_active and not controlled_overload),
+                ) if blocked
+            ]
+            self._recovery_blockers = tuple(blockers)
+            healthy = not blockers
             self._healthy_streak = self._healthy_streak + 1 if healthy else 0
 
         service_balanced = _service_balanced(
@@ -1164,6 +1195,7 @@ class _AdaptiveTelemetryController:
             current_operational_healthy=(
                 self._healthy_streak >= _RECOVERY_HEALTHY_WINDOWS),
             recovery_healthy_windows=self._healthy_streak,
+            recovery_blockers=self._recovery_blockers,
             view=recovery_view,
             controller_view=view,
             transaction_duration_avg_ms=avg_ms,
@@ -1348,6 +1380,10 @@ class V4TelemetryWriter:
         # ``_coalesced`` *and* travel to the sink inside that pending, so
         # reconciliation subtracts this overlap exactly once.
         self._aggregated_in_queue = 0
+        # Logical rows removed from the queue and handed to the sink but not yet
+        # acknowledged.  Without this the conservation identity briefly fails
+        # for every batch in flight, which is indistinguishable from real loss.
+        self._inflight_logical = 0
         self._sample_sequence = 0
         self._written = 0
         self._logical_written = 0
@@ -1500,6 +1536,7 @@ class V4TelemetryWriter:
         accounted = (
             self._logical_written
             + self._queued_logical
+            + self._inflight_logical
             + policy_sampled
             + policy_coalesced
             + policy_deduplicated
@@ -1513,6 +1550,7 @@ class V4TelemetryWriter:
             "submitted": int(self._submitted),
             "logical_committed": int(self._logical_written),
             "buffered": int(self._queued_logical),
+            "inflight": int(self._inflight_logical),
             "policy_sampled": int(policy_sampled),
             "policy_coalesced": int(policy_coalesced),
             "policy_deduplicated": int(policy_deduplicated),
@@ -1952,8 +1990,9 @@ class V4TelemetryWriter:
             pending = self._pending.pop(token, None)
             if pending is None:
                 continue
-            self._queued_logical = max(
-                0, self._queued_logical - max(0, int(pending.logical_count)))
+            moved = max(0, int(pending.logical_count))
+            self._queued_logical = max(0, self._queued_logical - moved)
+            self._inflight_logical += moved
             if (pending.aggregate_key is not None
                     and self._aggregate_tokens.get(pending.aggregate_key) == token):
                 self._aggregate_tokens.pop(pending.aggregate_key, None)
@@ -2230,6 +2269,14 @@ class V4TelemetryWriter:
         # cooperative priority skip and dropped on a genuine batch failure.
         logical_unwritten = sum(row.logical_count for row in failed_rows)
         with self._condition:
+            # The batch is no longer in flight: every row in it is about to be
+            # counted as committed, requeued, or dropped below.  Release it
+            # first so exactly one of those states owns each row.
+            self._inflight_logical = max(
+                0,
+                self._inflight_logical
+                - sum(max(0, int(row.logical_count)) for row in batch),
+            )
             self._batch_latencies_ms.append(batch_ms)
             self._flush_latencies_ms.append(flush_ms)
             self._inflight_batches = max(0, self._inflight_batches - 1)
@@ -2541,8 +2588,7 @@ class V4TelemetryWriter:
             ]
             data_safety = "HEALTHY" if not data_safety_reasons else "UNHEALTHY"
             capacity_state = _capacity_state(
-                decision, queue_depth=len(self._queue),
-                high_water=self._controller.high_water)
+                decision, queue_depth=len(self._queue), capacity=self.capacity)
             return {
                 "health": self._health,
                 # --- explicit taxonomy / conservation ---------------------
@@ -2582,8 +2628,10 @@ class V4TelemetryWriter:
                 "telemetry_data_safety_reasons": data_safety_reasons,
                 "telemetry_capacity_state": capacity_state,
                 "window_unexpected_loss_rows": recent_unexpected,
-                "queue_bounded": bool(
-                    int(recent.max_depth) <= self._controller.high_water),
+                # Bounded means the queue never reached its hard limit.  Sitting
+                # above the high-water mark is the shedding policy working, not
+                # a bound being breached.
+                "queue_bounded": bool(int(recent.max_depth) < self.capacity),
                 "queue_max_depth_window": int(recent.max_depth),
                 "queue_depth": len(self._queue),
                 "queue_capacity": self.capacity,
@@ -2653,6 +2701,7 @@ class V4TelemetryWriter:
                 "current_operational_healthy": (
                     decision.current_operational_healthy),
                 "recovery_healthy_windows": decision.recovery_healthy_windows,
+                "recovery_blockers": list(decision.recovery_blockers),
                 "recovery_required_windows": _RECOVERY_HEALTHY_WINDOWS,
                 "rate_window_seconds": _RATE_WINDOW_S,
                 "recovery_settle_seconds": _RECOVERY_SETTLE_S,
