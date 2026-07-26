@@ -73,7 +73,14 @@ from .store import (
 )
 from .universe import UNIVERSE_POLICY_VERSION, evaluate_market_identity
 from .telemetry import TelemetryOverloadPolicy, V4TelemetryWriter
-from .workers import V4MaintenanceWorker, V4ReadWorker, V4RuntimeIOWorker
+from .workers import (
+    V4MaintenanceWorker,
+    V4ReadWorker,
+    V4RuntimeIOWorker,
+    V4WorkerJobTimeout,
+    V4WorkerNotRunning,
+    V4WorkerQueueFull,
+)
 
 
 # The dashboard export is off-loop on its own read-only worker.  Five seconds
@@ -86,6 +93,11 @@ DASHBOARD_EXPORT_INTERVAL_MS = 5_000
 # It now has a separate read worker; exports use the last-good cached result.
 INTEGRITY_CHECK_INTERVAL_MS = 1_800_000  # 30 minutes
 INTEGRITY_MAX_AGE_MS = 3_600_000  # 1 hour; fail-closed if older
+# A transient runtime/export publish timeout (event-loop stall under heavy
+# maintenance + integrity I/O) must degrade observable readiness, not terminate
+# the heartbeat loop.  This many consecutive healthy publishes are required to
+# clear the degradation so a single blip cannot mask a stuck export.
+REPORTING_EXPORT_RECOVERY_PUBLISHES = 3
 # Non-executable evaluation-state transitions (SKIP/NO_ACTION reason or bucket
 # changes) that reverse within this window are threshold flapping around a
 # price/score boundary, not decision evidence; they are suppressed and counted
@@ -470,6 +482,39 @@ class FrequencyV4Engine:
         self._last_integrity_ok: Optional[bool] = None
         self._last_integrity_ts_ms = 0
         self._integrity_runs = 0
+        # Explicit quick-scan lifecycle exposure: the reporting/export path must
+        # never wait on the integrity scan, but it must show when one is running,
+        # how long the last one took, and whether it succeeded.  These are read
+        # from the published runtime state; they own no connection.
+        self._integrity_scan_started_ms = 0
+        self._integrity_scan_completed_ms = 0
+        self._integrity_scan_in_progress = False
+        self._last_integrity_success: Optional[bool] = None
+        self._last_integrity_failure = ""
+        # The full ``integrity_check`` (B-tree ordering) audit runs on the
+        # dedicated integrity read worker's own connection at most once per
+        # ``full_integrity_audit_interval_ms``.  It is single-flight, mutually
+        # exclusive with the periodic quick scan, and never touches the
+        # reporting/export or maintenance workers, so it can stall neither the
+        # export cadence nor WAL checkpoint decisions.
+        self._full_integrity_inflight = False
+        self._full_integrity_audit_started_ms = 0
+        self._full_integrity_audit_completed_ms = 0
+        self._last_full_integrity_duration_ms = 0.0
+        self._last_full_integrity_success: Optional[bool] = None
+        self._last_full_integrity_failure = ""
+        self._last_full_integrity_ts_ms = 0
+        self._full_integrity_runs = 0
+        self._full_integrity_result: dict[str, Any] = {}
+        # Runtime/export publish degradation: a transient worker timeout or a
+        # momentary queue-full/not-running state must degrade readiness (and keep
+        # retrying on the next heartbeat) instead of terminating the loop.  The
+        # last valid export is preserved; the flag only clears after a healthy
+        # recovery window so a single blip cannot mask a stuck publish.
+        self._last_export_publish_ok = True
+        self._export_publish_failures = 0
+        self._export_degraded_since_ms = 0
+        self._export_recovery_consecutive = 0
         self._last_maintenance_duration_ms = 0.0
         self._last_maintenance_rows = 0
         self._maintenance_runs = 0
@@ -765,11 +810,42 @@ class FrequencyV4Engine:
             "dashboard_export_ms": round(self._last_export_duration_ms, 1),
             "dashboard_export_runs": self._export_runs,
             "dashboard_export_ok": self._last_export_ok,
+            # Runtime/export publish degradation is surfaced honestly: a stuck
+            # publish cannot be hidden, and the age of the last valid export
+            # remains visible so operational readiness fails closed.
+            **self._publish_degradation_state(),
             "integrity_check_ms": round(self._last_integrity_duration_ms, 1),
             "integrity_check_runs": self._integrity_runs,
             "integrity_ok": self._last_integrity_ok,
             "integrity_checked_ts_ms": self._last_integrity_ts_ms or None,
             "integrity_max_age_ms": INTEGRITY_MAX_AGE_MS,
+            # Quick integrity scan lifecycle: the reporting/export worker never
+            # waits for it, but its in-progress state and last result are exposed.
+            "integrity_scan_in_progress": self._integrity_scan_in_progress,
+            "integrity_scan_started_ts_ms": (
+                self._integrity_scan_started_ms or None),
+            "integrity_scan_completed_ts_ms": (
+                self._integrity_scan_completed_ms or None),
+            "integrity_scan_duration_ms": round(
+                self._last_integrity_duration_ms, 1),
+            "last_integrity_success": self._last_integrity_success,
+            "last_integrity_failure": self._last_integrity_failure or None,
+            # Full integrity audit runs on the dedicated integrity connection at
+            # most once per the long interval; it never blocks the reporting or
+            # maintenance paths.  Exposed for offline-style observability.
+            "full_integrity_audit_in_progress": self._full_integrity_inflight,
+            "full_integrity_audit_started_ts_ms": (
+                self._full_integrity_audit_started_ms or None),
+            "full_integrity_audit_completed_ts_ms": (
+                self._full_integrity_audit_completed_ms or None),
+            "full_integrity_audit_duration_ms": round(
+                self._last_full_integrity_duration_ms, 1),
+            "full_integrity_audit_runs": self._full_integrity_runs,
+            "full_integrity_audit_ok": self._last_full_integrity_success,
+            "full_integrity_audit_checked_ts_ms": (
+                self._last_full_integrity_ts_ms or None),
+            "full_integrity_audit_last_failure": (
+                self._last_full_integrity_failure or None),
             "maintenance_ms": round(self._last_maintenance_duration_ms, 1),
             "maintenance_runs": self._maintenance_runs,
             "maintenance_rows_last": self._last_maintenance_rows,
@@ -3462,16 +3538,7 @@ class FrequencyV4Engine:
                     )[:240]
             state_name = self._runtime_state_name(current)
             state_payload = self._runtime_state(state_name)
-            if self.runtime_io_worker is not None:
-                runtime_state = await self.runtime_io_worker.run_io(
-                    self.runtime.publish,
-                    state_payload,
-                    timeout_s=10.0,
-                    name="runtime_publish",
-                )
-            else:
-                runtime_state = state_payload
-            self._last_published_state = runtime_state
+            runtime_state = await self._publish_runtime_state(state_payload)
             if current - last_health_ms >= 5_000:
                 writer = self._writer_health()
                 db_writes_per_min = int(
@@ -3505,6 +3572,76 @@ class FrequencyV4Engine:
             except asyncio.TimeoutError:
                 pass
 
+    def _publish_degradation_state(self) -> dict[str, Any]:
+        """Current runtime/export publish degradation, exactly as published.
+
+        Kept separate from :meth:`_runtime_state` so the dashboard export can
+        overlay it onto the last *successfully published* snapshot.  That
+        snapshot carries the authentic ``heartbeat_ts_ms`` (the moment the
+        runtime files were actually written, which is what makes a stuck publish
+        visible as a growing heartbeat age), but its degradation fields were
+        captured before the failure that froze it -- so they must be refreshed or
+        the export would keep reporting the pre-failure healthy verdict.
+        """
+
+        return {
+            "reporting_export_publish_ok": self._last_export_publish_ok,
+            "reporting_export_degraded": bool(self._export_degraded_since_ms),
+            "reporting_export_degraded_since_ts_ms": (
+                self._export_degraded_since_ms or None),
+            "reporting_export_publish_failures": self._export_publish_failures,
+        }
+
+    async def _publish_runtime_state(
+        self, state_payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Publish runtime state through the cheapest independent path.
+
+        A transient ``runtime_io_worker`` failure -- a publish timeout under
+        event-loop pressure from concurrent maintenance + integrity I/O, a
+        momentarily full queue, or a not-running blip during shutdown -- must
+        degrade observable readiness and retry on the next heartbeat rather than
+        propagate out of ``_heartbeat_export_loop`` and terminate the runtime.
+        The last valid export is preserved; only a healthy recovery window clears
+        the degradation.  Programming errors (any non-transient exception) still
+        propagate loudly so genuine bugs are not swallowed.
+        """
+
+        if self.runtime_io_worker is None:
+            # Last valid export is retained even on the no-worker path; the
+            # payload is still a coherent view for the in-loop consumers.
+            self._last_published_state = state_payload
+            return state_payload
+        try:
+            runtime_state = await self.runtime_io_worker.run_io(
+                self.runtime.publish,
+                state_payload,
+                timeout_s=10.0,
+                name="runtime_publish",
+            )
+        except (V4WorkerJobTimeout, V4WorkerQueueFull, V4WorkerNotRunning) as exc:
+            # Transient only: keep the last valid export, record the explicit
+            # degradation, and let the loop retry on the next ~2s heartbeat.
+            self._last_export_publish_ok = False
+            self._export_publish_failures += 1
+            if not self._export_degraded_since_ms:
+                self._export_degraded_since_ms = now_ms()
+            self._export_recovery_consecutive = 0
+            self._last_error = (
+                f"reporting_export_degraded:{type(exc).__name__}:{exc}"
+            )[:240]
+            return self._last_published_state or state_payload
+        # Success: count it toward the recovery window and clear the degradation
+        # only after enough consecutive healthy publishes to trust recovery.
+        self._last_export_publish_ok = True
+        if self._export_degraded_since_ms:
+            self._export_recovery_consecutive += 1
+            if self._export_recovery_consecutive >= REPORTING_EXPORT_RECOVERY_PUBLISHES:
+                self._export_degraded_since_ms = 0
+                self._export_recovery_consecutive = 0
+        self._last_published_state = runtime_state
+        return runtime_state
+
     async def _run_integrity_check(self) -> None:
         """Off-loop integrity scan on the read-only connection (single-flight).
 
@@ -3512,11 +3649,24 @@ class FrequencyV4Engine:
         structural corruption as the full ``integrity_check`` but skips the
         expensive B-tree ordering validation, keeping a multi-GB evidence-store
         scan off the export hot path.
+
+        The scan runs on the dedicated ``integrity_worker`` (a separate owner
+        thread and read-only connection from ``report_worker``) so it can never
+        delay the dashboard export cadence.  Its lifecycle -- started/completed
+        timestamps, in-progress flag and last success/failure -- is exposed in
+        the published runtime state for honest operational observability.
         """
         integrity_worker = self.integrity_worker or self.report_worker
-        if integrity_worker is None or self._integrity_inflight:
+        if (integrity_worker is None
+                or self._integrity_inflight
+                or self._full_integrity_inflight):
+            # Never overlap the two scans: they share the integrity connection,
+            # and a queued quick scan would otherwise sit behind a multi-minute
+            # full audit holding a stale in-progress flag.
             return
         self._integrity_inflight = True
+        self._integrity_scan_in_progress = True
+        self._integrity_scan_started_ms = now_ms()
         started = time.monotonic()
         try:
             result = await integrity_worker.run_report(
@@ -3530,6 +3680,8 @@ class FrequencyV4Engine:
             self._last_integrity_ok = bool(
                 result.get("integrity") == "ok"
                 and not result.get("foreign_key_violations"))
+            self._last_integrity_success = bool(self._last_integrity_ok)
+            self._last_integrity_failure = ""
             if not self._last_integrity_ok:
                 self._last_error = f"integrity_degraded:{result.get('integrity')}"[:240]
         except Exception as exc:  # noqa: BLE001 - reporting worker must not crash
@@ -3539,11 +3691,79 @@ class FrequencyV4Engine:
                 "foreign_key_violations": [],
                 "error": f"{type(exc).__name__}:{exc}"[:200],
             }
+            self._last_integrity_success = False
+            self._last_integrity_failure = f"{type(exc).__name__}:{exc}"[:200]
             self._last_error = f"integrity:{type(exc).__name__}:{exc}"[:240]
         finally:
             self._last_integrity_duration_ms = (time.monotonic() - started) * 1_000.0
+            self._integrity_scan_completed_ms = now_ms()
+            self._integrity_scan_in_progress = False
             self._integrity_runs += 1
             self._integrity_inflight = False
+
+    async def _run_full_integrity_audit(self) -> bool:
+        """Infrequent full ``PRAGMA integrity_check`` on the integrity connection.
+
+        The full B-tree ordering validation is an offline-style audit: measured
+        at ~66s on the 6.50 GB production evidence store versus ~17s for the
+        periodic ``quick_check``.  It runs on the dedicated ``integrity_worker``
+        -- its own thread and read-only connection, shared with nothing but the
+        quick scan, which it is mutually exclusive with.  It therefore touches
+        neither the ``report_worker`` (so the 5s export cadence is untouched) nor
+        the ``maintenance_worker`` (so WAL checkpoint decisions and retention are
+        untouched).  It is gated by the long ``full_integrity_audit_interval_ms``
+        and carries its own bounded ``full_integrity_audit_timeout_s``, because
+        the 30s maintenance budget is shorter than one real scan and would
+        interrupt every audit at the deadline without ever producing a verdict.
+
+        A failure fails closed for operational readiness without killing an
+        otherwise safe runtime: ``_last_full_integrity_success`` surfaces it in
+        the published state and the periodic quick scan remains the authoritative
+        execution gate.
+
+        Returns ``True`` when the audit actually ran, ``False`` when it deferred,
+        so the caller does not consume a whole audit interval on a deferral.
+        """
+        integrity_worker = self.integrity_worker
+        if (integrity_worker is None
+                or self._full_integrity_inflight
+                or self._integrity_inflight):
+            return False
+        self._full_integrity_inflight = True
+        self._full_integrity_audit_started_ms = now_ms()
+        started = time.monotonic()
+        try:
+            result = await integrity_worker.run_report(
+                lambda store: store.integrity_check(quick=False),
+                timeout_s=self.cfg.full_integrity_audit_timeout_s,
+                name="full_integrity_audit",
+            )
+            ok = bool(
+                result.get("integrity") == "ok"
+                and not result.get("foreign_key_violations"))
+            self._full_integrity_result = dict(result)
+            self._last_full_integrity_success = ok
+            self._last_full_integrity_failure = ""
+            if not ok:
+                self._last_error = (
+                    f"full_integrity_degraded:{result.get('integrity')}")[:240]
+        except Exception as exc:  # noqa: BLE001 - audit must not crash the runtime
+            self._full_integrity_result = {
+                "integrity": "UNKNOWN",
+                "foreign_key_violations": [],
+                "error": f"{type(exc).__name__}:{exc}"[:200],
+            }
+            self._last_full_integrity_success = False
+            self._last_full_integrity_failure = f"{type(exc).__name__}:{exc}"[:200]
+            self._last_error = f"full_integrity:{type(exc).__name__}:{exc}"[:240]
+        finally:
+            self._last_full_integrity_duration_ms = (
+                (time.monotonic() - started) * 1_000.0)
+            self._last_full_integrity_ts_ms = now_ms()
+            self._full_integrity_audit_completed_ms = now_ms()
+            self._full_integrity_runs += 1
+            self._full_integrity_inflight = False
+        return True
 
     async def _run_dashboard_export(self) -> None:
         """Off-loop whole-database dashboard export (single-flight, atomic write)."""
@@ -3552,7 +3772,16 @@ class FrequencyV4Engine:
         self._export_inflight = True
         started = time.monotonic()
         current = now_ms()
-        state = self._last_published_state or self._runtime_state("RUNNING")
+        # The last successfully published state is the export's source of truth:
+        # its heartbeat_ts_ms is the moment the runtime files were actually
+        # written, so a stuck publish stays honestly visible as a growing
+        # heartbeat age rather than being papered over with a fresh in-memory
+        # timestamp.  Only the live publish-degradation fields are refreshed on
+        # top, since the frozen snapshot predates the failure that froze it.
+        state = {
+            **(self._last_published_state or self._runtime_state("RUNNING")),
+            **self._publish_degradation_state(),
+        }
         try:
             await self.report_worker.run_report(
                 write_frequency_v4_dashboard,
@@ -3609,6 +3838,35 @@ class FrequencyV4Engine:
                 await self._run_integrity_check()
             try:
                 await asyncio.wait_for(self._stopping.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+
+    async def _full_integrity_audit_loop(self) -> None:
+        """Run the infrequent full integrity audit off the reporting path.
+
+        The full ``PRAGMA integrity_check`` (B-tree ordering validation) runs on
+        the dedicated integrity connection at most once per the long
+        ``full_integrity_audit_interval_ms``.  It is its own task so the periodic
+        quick scan, dashboard export and checkpoint/retention cadence are never
+        delayed by it.
+
+        The clock starts at launch rather than at zero: a ~66s full scan at every
+        startup would compete with the startup quick scan that gates execution,
+        for no benefit -- startup already runs its own repository-approved
+        validation.  A deferred audit (quick scan in flight) does not consume the
+        interval, so it is retried on the next tick instead of being silently
+        skipped for another six hours.
+        """
+
+        last_audit_ms = self._last_full_integrity_ts_ms or now_ms()
+        while not self._stopping.is_set():
+            current = now_ms()
+            if (current - last_audit_ms
+                    >= self.cfg.full_integrity_audit_interval_ms):
+                if await self._run_full_integrity_audit():
+                    last_audit_ms = current
+            try:
+                await asyncio.wait_for(self._stopping.wait(), timeout=60.0)
             except asyncio.TimeoutError:
                 pass
 
@@ -4034,6 +4292,9 @@ class FrequencyV4Engine:
             asyncio.create_task(self._heartbeat_export_loop(), name="v4-heartbeat-export"),
             asyncio.create_task(self._reporting_loop(), name="v4-reporting"),
             asyncio.create_task(self._integrity_loop(), name="v4-integrity"),
+            asyncio.create_task(
+                self._full_integrity_audit_loop(),
+                name="v4-full-integrity-audit"),
             asyncio.create_task(self._loop_lag_monitor(), name="v4-loop-lag"),
             asyncio.create_task(self._resolution_loop(), name="v4-resolution"),
             asyncio.create_task(self._maintenance_loop(), name="v4-maintenance"),

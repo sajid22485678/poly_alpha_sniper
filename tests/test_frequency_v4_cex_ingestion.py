@@ -10,9 +10,11 @@ queue, a non-blocking ``put_nowait`` callback, and a dedicated consumer task.
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -30,6 +32,7 @@ from poly_alpha_sniper.lite_frequency_v4.contracts import (
     MarketIdentity,
     SourceEvent,
 )
+from poly_alpha_sniper.lite_frequency_v4 import export as export_module
 from poly_alpha_sniper.lite_frequency_v4.edge_models import EnsembleResult
 from poly_alpha_sniper.lite_frequency_v4.engine import (
     EvaluationTrigger,
@@ -51,6 +54,9 @@ from poly_alpha_sniper.lite_frequency_v4.workers import (
     V4MaintenanceWorker,
     V4ReadWorker,
     V4RuntimeIOWorker,
+    V4WorkerJobTimeout,
+    V4WorkerNotRunning,
+    V4WorkerQueueFull,
 )
 
 
@@ -105,6 +111,18 @@ def engine_harness(tmp_path, monkeypatch):
         busy_timeout_ms=cfg.sqlite_busy_timeout_ms,
         default_timeout_s=cfg.reporting_worker_timeout_s,
     ).start()
+    # Production wires a dedicated integrity reader: its own thread and its own
+    # read-only connection, shared with nothing.  The harness must have one too,
+    # or "the scan cannot delay the export" would be tested against a single
+    # worker that serialises both and would pass for the wrong reason.
+    integrity_worker = V4ReadWorker(
+        cfg.db_path,
+        worker_name="test-v4-cex-integrity-reader",
+        worker_kind="READ_INTEGRITY",
+        queue_capacity=cfg.reporting_queue_capacity,
+        busy_timeout_ms=cfg.sqlite_busy_timeout_ms,
+        default_timeout_s=cfg.reporting_worker_timeout_s,
+    ).start()
     maintenance_worker = V4MaintenanceWorker(
         cfg.db_path,
         queue_capacity=cfg.maintenance_queue_capacity,
@@ -119,6 +137,7 @@ def engine_harness(tmp_path, monkeypatch):
     engine.telemetry = telemetry
     engine.read_worker = read_worker
     engine.report_worker = report_worker
+    engine.integrity_worker = integrity_worker
     engine.maintenance_worker = maintenance_worker
     engine.runtime_io_worker = runtime_io_worker
     engine._process_ownership_cache = {
@@ -135,13 +154,14 @@ def engine_harness(tmp_path, monkeypatch):
         yield SimpleNamespace(
             engine=engine, persistence=persistence, telemetry=telemetry,
             read_worker=read_worker, maintenance_worker=maintenance_worker,
-            report_worker=report_worker,
+            report_worker=report_worker, integrity_worker=integrity_worker,
             runtime_io_worker=runtime_io_worker, runtime=runtime, cfg=cfg,
             root=tmp_path,
         )
     finally:
         telemetry.stop(drain=True, timeout_s=5.0)
         report_worker.stop(timeout_s=5.0)
+        integrity_worker.stop(timeout_s=5.0)
         read_worker.stop(timeout_s=5.0)
         maintenance_worker.stop(timeout_s=5.0)
         runtime_io_worker.stop(timeout_s=5.0)
@@ -1246,3 +1266,702 @@ def test_ws_callbacks_stay_responsive_during_slow_reporting(engine_harness, monk
     assert elapsed < 0.15                       # OKX admission not blocked
     assert engine.counters["accepted_events"] == 20
     assert ticks["n"] >= 15                     # heartbeat kept ticking
+
+
+# ---------------------------------------------------------------------------
+# Reporting isolation: a transient heartbeat/export publish timeout must
+# degrade readiness and retry, not terminate the runtime.  A multi-GB integrity
+# scan must never share the reporting/export worker.
+# ---------------------------------------------------------------------------
+
+
+# 13. One transient publish timeout does not propagate out of the publish path.
+def test_transient_publish_timeout_does_not_kill_publish(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    payload = engine._runtime_state("RUNNING")
+
+    def boom(*_a, **_k):
+        raise V4WorkerJobTimeout("runtime-io-worker job 'runtime_publish' exceeded 10.000s")
+
+    # The dedicated runtime_io_worker wraps the synchronous callable; patch the
+    # callable itself so the real worker thread raises the transient failure.
+    monkeypatch.setattr(engine.runtime, "publish", boom)
+
+    # Must not raise: the transient timeout degrades readiness instead.
+    result = asyncio.run(engine._publish_runtime_state(payload))
+    assert result is not None                       # last valid export retained
+    assert engine._last_export_publish_ok is False
+    assert engine._export_publish_failures == 1
+    assert engine._export_degraded_since_ms > 0
+    assert "reporting_export_degraded" in engine._last_error
+
+
+# 14. The next successful publish counts toward recovery; the flag only clears
+# after the bounded healthy recovery window.
+def test_publish_recovers_after_healthy_window(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    payload = engine._runtime_state("RUNNING")
+    recovery_target = engine_module.REPORTING_EXPORT_RECOVERY_PUBLISHES
+    calls = {"n": 0}
+    real_publish = engine.runtime.publish
+
+    def flaky(state=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise V4WorkerJobTimeout("transient publish timeout")
+        return real_publish(state)
+
+    monkeypatch.setattr(engine.runtime, "publish", flaky)
+
+    async def scenario():
+        # First call: transient failure -> degraded.
+        await engine._publish_runtime_state(payload)
+        assert engine._export_degraded_since_ms > 0
+        # Subsequent successful calls: count toward recovery but do not clear
+        # until the window is reached.
+        for _ in range(recovery_target - 1):
+            await engine._publish_runtime_state(payload)
+            assert engine._export_degraded_since_ms > 0
+        # The window-th successful publish clears the degradation.
+        await engine._publish_runtime_state(payload)
+        assert engine._export_degraded_since_ms == 0
+        assert engine._last_export_publish_ok is True
+
+    asyncio.run(scenario())
+
+
+# 15. Repeated timeouts keep the degradation visible and accumulate failures.
+def test_repeated_publish_timeouts_remain_visible(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    payload = engine._runtime_state("RUNNING")
+
+    def always_timeout(*_a, **_k):
+        raise V4WorkerJobTimeout("stuck publish")
+
+    monkeypatch.setattr(engine.runtime, "publish", always_timeout)
+    before = engine._export_publish_failures
+    for _ in range(4):
+        asyncio.run(engine._publish_runtime_state(payload))
+    assert engine._export_publish_failures == before + 4
+    assert engine._export_degraded_since_ms > 0
+    # The degradation is published honestly so operational readiness fails closed.
+    state = engine._runtime_state("RUNNING")
+    assert state["reporting_export_degraded"] is True
+    assert state["reporting_export_publish_failures"] == before + 4
+
+
+# 16. A non-transient programming error from publish still propagates loudly.
+def test_non_transient_publish_error_propagates(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    payload = engine._runtime_state("RUNNING")
+
+    def bug(*_a, **_k):
+        raise RuntimeError("genuine publish bug, not a transient timeout")
+
+    monkeypatch.setattr(engine.runtime, "publish", bug)
+    with pytest.raises(RuntimeError, match="genuine publish bug"):
+        asyncio.run(engine._publish_runtime_state(payload))
+
+
+# 17. The recoverable worker-error family (queue full / not running) also
+# degrades rather than killing the loop.
+def test_queue_full_and_not_running_degrade(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    payload = engine._runtime_state("RUNNING")
+
+    for exc in (V4WorkerQueueFull("queue full"),
+                V4WorkerNotRunning("not running")):
+        def fail(_state=None, _exc=exc):
+            raise _exc
+        monkeypatch.setattr(engine.runtime, "publish", fail)
+        asyncio.run(engine._publish_runtime_state(payload))   # must not raise
+        assert engine._last_export_publish_ok is False
+        assert engine._export_degraded_since_ms > 0
+
+
+# 18. The heartbeat file stays fresh through the cheap independent publish path
+# even while the export is degraded.
+def test_heartbeat_stays_fresh_during_degraded_publish(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    runtime = engine_harness.runtime
+    payload = engine._runtime_state("RUNNING")
+    real_publish = engine.runtime.publish
+
+    # Establish a baseline heartbeat file with one real publish.
+    asyncio.run(engine._publish_runtime_state(payload))
+    before = runtime.heartbeat_path.stat().st_mtime_ns
+
+    def timeout(*_a, **_k):
+        raise V4WorkerJobTimeout("transient")
+
+    monkeypatch.setattr(engine.runtime, "publish", timeout)
+    asyncio.run(engine._publish_runtime_state(payload))
+    assert engine._export_degraded_since_ms > 0
+
+    # Recovery: a real publish rewrites the heartbeat file.
+    monkeypatch.setattr(engine.runtime, "publish", real_publish)
+    asyncio.run(engine._publish_runtime_state(payload))
+    after = runtime.heartbeat_path.stat().st_mtime_ns
+    assert after > before
+
+
+# 19. The supervisor does not classify a recoverable publish timeout as fatal:
+# driving the heartbeat loop body for a few iterations with transient failures
+# must not raise out of the loop.
+def test_heartbeat_loop_survives_transient_publish_timeouts(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    state = {"failures_remaining": 3}
+
+    real_publish = engine.runtime.publish
+
+    def intermittent(s=None):
+        if state["failures_remaining"] > 0:
+            state["failures_remaining"] -= 1
+            raise V4WorkerJobTimeout("transient")
+        return real_publish(s)
+
+    monkeypatch.setattr(engine.runtime, "publish", intermittent)
+
+    async def scenario():
+        # Run a handful of loop iterations; the loop sleeps ~2s per iteration so
+        # shorten the wait by stopping after a bounded number of publishes.
+        task = asyncio.create_task(engine._heartbeat_export_loop())
+        await asyncio.sleep(0.05)
+        engine._stopping.set()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(scenario())
+    # The loop tolerated the transient timeouts; degradation was recorded.
+    assert engine._export_publish_failures >= 1
+
+
+# ---------------------------------------------------------------------------
+# Integrity scan isolation: the reporting/export worker never waits on a full
+# multi-GB scan; the scan runs on a separate worker and connection.
+# ---------------------------------------------------------------------------
+
+
+# 20. The export path never scans the database at all -- not the full multi-GB
+# integrity_check (B-tree ordering, ~66s on the 6.50 GB production store) and
+# not the quick_check either (~17s on the same store).  Both would monopolise
+# the reporting worker and stall the 5s export cadence.  With no cached result
+# the payload is an honest UNKNOWN that fails closed.
+def test_export_never_scans_on_hot_path(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    scans: list[bool] = []
+
+    def tracking(self, *, quick=False):
+        scans.append(quick)
+        return {"integrity": "ok", "foreign_key_violations": []}
+
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", tracking)
+
+    # Build the dashboard payload directly with integrity=None: this is the
+    # hot-path call that previously triggered a synchronous scan.
+    from poly_alpha_sniper.lite_frequency_v4.export import build_frequency_v4_dashboard
+    store = engine_harness.read_worker
+    payload = store.run_report_sync(
+        lambda s: build_frequency_v4_dashboard(
+            s, now_ms=now_ms(), config=engine.cfg,
+            runtime_state=engine._runtime_state("RUNNING"),
+            session_id=engine.session_id, integrity=None,
+        ))
+    assert scans == []                       # neither quick nor full, ever
+    assert payload["integrity"]["sqlite_integrity"] == "UNKNOWN"
+    assert "sqlite_integrity_unhealthy" in (
+        payload["persistence"]["critical_blocked_reasons"])
+    assert payload["persistence"]["operational_ready"] is False
+
+    # The runtime's own export passes its cached off-loop result, which is how a
+    # healthy verdict is earned -- without a scan on this path.
+    cached = store.run_report_sync(
+        lambda s: build_frequency_v4_dashboard(
+            s, now_ms=now_ms(), config=engine.cfg,
+            runtime_state=engine._runtime_state("RUNNING"),
+            session_id=engine.session_id,
+            integrity={"integrity": "ok", "foreign_key_violations": []},
+        ))
+    assert scans == []
+    assert cached["integrity"]["sqlite_integrity"] == "ok"
+
+
+# 20b. The engine's own export loop feeds the cached result through, so a live
+# runtime reports a real verdict without the export path ever scanning.
+def test_engine_export_uses_cached_integrity_without_scanning(
+        engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    scans: list[bool] = []
+    real_integrity_check = V4ReadOnlyStore.integrity_check
+
+    def tracking(self, *, quick=False):
+        scans.append(quick)
+        return real_integrity_check(self, quick=quick)
+
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", tracking)
+
+    # The real writer refuses any path outside the canonical export directory,
+    # so build the real payload and capture it instead of writing it.  Everything
+    # up to the write -- including how the engine sources integrity -- is real.
+    built: list[dict] = []
+
+    def capture(store, _output_path, **kwargs):
+        payload = export_module.build_frequency_v4_dashboard(store, **kwargs)
+        built.append(payload)
+        return {"path": str(_output_path), "payload": payload, "bytes": 0}
+
+    monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", capture)
+
+    asyncio.run(engine._run_integrity_check())   # off-loop scan populates cache
+    assert scans == [True]                       # exactly one, and it is quick
+    assert engine._last_integrity["integrity"] == "ok"
+
+    asyncio.run(engine._run_dashboard_export())
+    assert engine._last_export_ok is True, engine._last_error
+    assert scans == [True]                       # export added no scan of its own
+    assert built[-1]["integrity"]["sqlite_integrity"] == "ok"
+    assert "sqlite_integrity_unhealthy" not in (
+        built[-1]["persistence"]["critical_blocked_reasons"])
+
+    # With the cache cleared the very same export path reports UNKNOWN rather
+    # than reaching for the database itself, and fails closed on it.
+    engine._last_integrity = {}
+    asyncio.run(engine._run_dashboard_export())
+    assert engine._last_export_ok is True, engine._last_error
+    assert scans == [True]                       # still no scan on this path
+    assert built[-1]["integrity"]["sqlite_integrity"] == "UNKNOWN"
+    assert "sqlite_integrity_unhealthy" in (
+        built[-1]["persistence"]["critical_blocked_reasons"])
+    assert built[-1]["persistence"]["operational_ready"] is False
+
+
+# 21. A long integrity scan does not delay the reporting/export cadence.  The
+# real scan on the 6.50 GB production store takes ~17s (quick) to ~66s (full);
+# this holds one open across many export cadences without burning that wall
+# clock, which is a strictly stronger claim than sleeping a fixed interval.
+def test_long_integrity_scan_does_not_block_reporting(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    scanning = threading.Event()      # set once the scan is genuinely in flight
+    release = threading.Event()       # held until the exports have all completed
+
+    def blocking_scan(_store, **_kw):
+        scanning.set()
+        # Stands in for the 31s+ scan: the reporting worker must not wait on it.
+        assert release.wait(timeout=30.0), "test deadlock: scan never released"
+        return {"integrity": "ok", "foreign_key_violations": []}
+
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", blocking_scan)
+    # Build the real payload on the real reporting worker; only the canonical-
+    # path write is stubbed out, since tmp_path is outside the export root.
+    exports: list[dict] = []
+
+    def capture(store, _output_path, **kwargs):
+        payload = export_module.build_frequency_v4_dashboard(store, **kwargs)
+        exports.append(payload)
+        return {"path": str(_output_path), "payload": payload, "bytes": 0}
+
+    monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", capture)
+
+    async def scenario():
+        scan = asyncio.create_task(engine._run_integrity_check())
+        await asyncio.get_running_loop().run_in_executor(
+            None, scanning.wait, 10.0)
+        assert scanning.is_set()
+        assert engine._integrity_scan_in_progress is True
+
+        # Six export cadences run to completion while the scan is still blocked.
+        started = time.monotonic()
+        for _ in range(6):
+            await engine._run_dashboard_export()
+        elapsed = time.monotonic() - started
+        assert engine._integrity_scan_in_progress is True   # still mid-scan
+        assert engine._export_runs >= 6
+        assert engine._last_export_ok is True, engine._last_error
+
+        release.set()
+        await scan
+        return elapsed
+
+    elapsed = asyncio.run(scenario())
+    assert len(exports) == 6              # every cadence produced a real payload
+    # The exports never queued behind the scan: separate workers, separate
+    # connections.  Six full exports in well under one simulated scan.
+    assert elapsed < 10.0
+    assert engine._last_integrity_success is True
+    assert engine._integrity_scan_in_progress is False
+
+
+# 22. The quick integrity scan exposes its lifecycle and is single-flight.
+def test_integrity_scan_exposes_lifecycle_and_is_single_flight(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    concurrent = {"max": 0, "cur": 0}
+
+    def tracking_scan(_store, **_kw):
+        concurrent["cur"] += 1
+        concurrent["max"] = max(concurrent["max"], concurrent["cur"])
+        time.sleep(0.1)
+        concurrent["cur"] -= 1
+        return {"integrity": "ok", "foreign_key_violations": []}
+
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", tracking_scan)
+
+    async def scenario():
+        await asyncio.gather(
+            engine._run_integrity_check(),
+            engine._run_integrity_check(),
+            engine._run_integrity_check(),
+        )
+
+    asyncio.run(scenario())
+    assert concurrent["max"] == 1                       # single-flight
+    assert engine._last_integrity_success is True
+    assert engine._integrity_scan_started_ms > 0
+    assert engine._integrity_scan_completed_ms >= engine._integrity_scan_started_ms
+    assert engine._last_integrity_failure == ""
+    state = engine._runtime_state("RUNNING")
+    assert state["integrity_scan_in_progress"] is False
+    assert state["last_integrity_success"] is True
+
+
+# 23. An integrity scan failure is reported fail-closed without killing the
+# runtime: _last_integrity_ok becomes UNKNOWN and execution stays blocked.
+def test_integrity_scan_failure_fails_closed_without_crash(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+
+    def failing_scan(_store, **_kw):
+        raise RuntimeError("scan worker blew up")
+
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", failing_scan)
+    asyncio.run(engine._run_integrity_check())          # must not raise
+    assert engine._last_integrity_ok is None            # UNKNOWN -> fail closed
+    assert engine._last_integrity_success is False
+    assert "RuntimeError" in engine._last_integrity_failure
+    assert engine._execution_blocked_reason() == "sqlite_integrity_unknown"
+
+
+# 24. The full integrity audit runs the real FULL scan on the dedicated
+# integrity connection -- never the reporting/export worker (which would stall
+# the export cadence) and never the maintenance worker (which owns WAL
+# checkpoint decisions and retention) -- and exposes its lifecycle.
+def test_full_integrity_audit_runs_on_dedicated_integrity_worker(engine_harness):
+    engine = engine_harness.engine
+    main_thread = threading.get_ident()
+    audit: dict[str, object] = {}
+
+    def probe_thread(worker):
+        return worker.run_report_sync(
+            lambda _s: threading.get_ident(), name="thread_probe")
+
+    report_thread = probe_thread(engine.report_worker)
+    integrity_thread = probe_thread(engine.integrity_worker)
+    maintenance_thread = engine.maintenance_worker.run_maintenance_sync(
+        lambda _s: threading.get_ident(), name="thread_probe")
+    assert len({report_thread, integrity_thread, maintenance_thread}) == 3
+
+    real_integrity_check = V4ReadOnlyStore.integrity_check
+
+    def tracking(self, *, quick=False):
+        audit["quick"] = quick
+        audit["thread"] = threading.get_ident()
+        return real_integrity_check(self, quick=quick)
+
+    original = V4ReadOnlyStore.integrity_check
+    V4ReadOnlyStore.integrity_check = tracking
+    try:
+        assert asyncio.run(engine._run_full_integrity_audit()) is True
+    finally:
+        V4ReadOnlyStore.integrity_check = original
+
+    assert audit["quick"] is False                 # a real FULL integrity_check
+    assert audit["thread"] == integrity_thread     # on the integrity connection
+    assert audit["thread"] != report_thread        # not the reporting worker
+    assert audit["thread"] != maintenance_thread   # not the maintenance worker
+    assert audit["thread"] != main_thread          # never the event loop
+
+    state = engine._runtime_state("RUNNING")
+    assert state["full_integrity_audit_ok"] is True
+    assert state["full_integrity_audit_runs"] == 1
+    assert state["full_integrity_audit_in_progress"] is False
+    assert state["full_integrity_audit_started_ts_ms"] > 0
+    assert (state["full_integrity_audit_completed_ts_ms"]
+            >= state["full_integrity_audit_started_ts_ms"])
+    assert state["full_integrity_audit_last_failure"] is None
+    # The audit uses its own budget, not the 30s maintenance one, which is
+    # shorter than a single real full scan on the production store.
+    assert engine.cfg.full_integrity_audit_timeout_s > (
+        engine.cfg.maintenance_worker_timeout_s)
+
+
+# 25. The two scans never overlap in either direction, and a deferral does not
+# consume the audit interval (which would silently skip a whole 6-hour window).
+def test_integrity_scans_never_overlap_in_either_direction(engine_harness):
+    engine = engine_harness.engine
+    calls: list[bool] = []
+    real_integrity_check = V4ReadOnlyStore.integrity_check
+
+    def tracking(self, *, quick=False):
+        calls.append(quick)
+        return real_integrity_check(self, quick=quick)
+
+    original = V4ReadOnlyStore.integrity_check
+    V4ReadOnlyStore.integrity_check = tracking
+    try:
+        async def scenario():
+            # A quick scan in flight defers the audit -- and reports that it
+            # deferred, so the caller does not burn the interval.
+            engine._integrity_inflight = True
+            assert await engine._run_full_integrity_audit() is False
+            assert engine._full_integrity_inflight is False
+            engine._integrity_inflight = False
+            assert calls == []
+
+            # An audit in flight defers the quick scan.
+            engine._full_integrity_inflight = True
+            before_runs = engine._integrity_runs
+            await engine._run_integrity_check()
+            assert engine._integrity_runs == before_runs
+            assert calls == []
+            engine._full_integrity_inflight = False
+
+            # With neither in flight both run, one at a time.
+            assert await engine._run_full_integrity_audit() is True
+            await engine._run_integrity_check()
+
+        asyncio.run(scenario())
+    finally:
+        V4ReadOnlyStore.integrity_check = original
+
+    assert calls == [False, True]   # full audit, then quick scan; never nested
+    assert engine._full_integrity_runs == 1
+
+
+# 25b. The audit loop does not fire a ~66s full scan at every startup: the
+# interval clock starts at launch, not at zero.
+def test_full_integrity_audit_does_not_run_at_startup(engine_harness):
+    engine = engine_harness.engine
+    ran: list[bool] = []
+
+    async def scenario():
+        async def spy():
+            ran.append(True)
+            return True
+
+        engine._run_full_integrity_audit = spy
+        loop_task = asyncio.create_task(engine._full_integrity_audit_loop())
+        await asyncio.sleep(0.1)
+        engine._stopping.set()
+        await asyncio.wait_for(loop_task, timeout=5.0)
+
+    asyncio.run(scenario())
+    assert ran == []            # nothing at startup
+    assert engine._full_integrity_runs == 0
+
+
+# 26. A degraded publish must not buy freshness it does not have: the export
+# keeps reporting the age of the last state actually written to disk, and says
+# so, instead of stamping a fresh in-memory timestamp over a stuck publish.
+def test_stale_export_age_stays_honest_while_publish_is_degraded(
+        engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    exports: list[dict] = []
+
+    def capture(store, _output_path, **kwargs):
+        payload = export_module.build_frequency_v4_dashboard(store, **kwargs)
+        exports.append(payload)
+        return {"path": str(_output_path), "payload": payload, "bytes": 0}
+
+    monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", capture)
+    real_publish = engine.runtime.publish
+
+    async def scenario():
+        # One healthy publish establishes the baseline heartbeat.
+        await engine._publish_runtime_state(engine._runtime_state("RUNNING"))
+        await engine._run_dashboard_export()
+        fresh_age = exports[-1]["runtime_heartbeat_age_ms"]
+        assert fresh_age is not None and fresh_age < 5_000
+        assert exports[-1]["persistence"]["operational_degraded_reasons"].count(
+            "reporting_export_degraded") == 0
+
+        published_ts = exports[-1]["heartbeat_ts_ms"]
+
+        # Now every publish times out.  The heartbeat file stops advancing.
+        def timeout(*_a, **_k):
+            raise V4WorkerJobTimeout("stuck publish")
+
+        monkeypatch.setattr(engine.runtime, "publish", timeout)
+        for _ in range(3):
+            await engine._publish_runtime_state(
+                engine._runtime_state("RUNNING"))
+        await asyncio.sleep(0.05)
+        await engine._run_dashboard_export()
+
+        stale = exports[-1]
+        # The exported heartbeat is still the last one truly written -- not
+        # refreshed -- so its age grows honestly.
+        assert stale["heartbeat_ts_ms"] == published_ts
+        assert stale["runtime_heartbeat_age_ms"] >= fresh_age
+        # And the degradation itself is visible rather than frozen at the
+        # pre-failure value captured in the stale snapshot.
+        assert stale["persistence"]["operational_ready"] is False
+        assert "reporting_export_degraded" in (
+            stale["persistence"]["operational_degraded_reasons"])
+
+        # Recovery restores both freshness and readiness.
+        monkeypatch.setattr(engine.runtime, "publish", real_publish)
+        for _ in range(engine_module.REPORTING_EXPORT_RECOVERY_PUBLISHES):
+            await engine._publish_runtime_state(
+                engine._runtime_state("RUNNING"))
+        await engine._run_dashboard_export()
+        assert engine._export_degraded_since_ms == 0
+        assert "reporting_export_degraded" not in (
+            exports[-1]["persistence"]["operational_degraded_reasons"])
+        assert exports[-1]["heartbeat_ts_ms"] > published_ts
+
+    asyncio.run(scenario())
+
+
+# 27. Every integrity scan outcome -- success, worker timeout and failure --
+# leaves the integrity connection clean: no open transaction, no pinned
+# snapshot, and the worker still usable for the next job.
+def test_integrity_scan_cleans_up_on_success_timeout_and_failure(
+        engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    worker = engine.integrity_worker
+
+    def assert_connection_clean(label: str) -> None:
+        # Runs on the owner thread: the only place the connection may be read.
+        state = worker.run_report_sync(
+            lambda store: {
+                "in_transaction": store.connection.in_transaction,
+                "usable": store.connection.execute(
+                    "SELECT 1").fetchone()[0],
+            },
+            name=f"cleanup_probe_{label}",
+        )
+        assert state["in_transaction"] is False, label
+        assert state["usable"] == 1, label
+        # The worker survived the job: no invariant violation was recorded.
+        assert worker.health()["state"] == "RUNNING", label
+
+    real_integrity_check = V4ReadOnlyStore.integrity_check
+
+    # --- success -----------------------------------------------------------
+    asyncio.run(engine._run_integrity_check())
+    assert engine._last_integrity_success is True
+    assert engine._integrity_scan_in_progress is False
+    assert engine._integrity_inflight is False
+    assert_connection_clean("success")
+
+    # --- worker timeout ----------------------------------------------------
+    release = threading.Event()
+
+    def slow(self, *, quick=False):
+        release.wait(timeout=30.0)
+        return real_integrity_check(self, quick=quick)
+
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", slow)
+    monkeypatch.setattr(engine.cfg, "reporting_worker_timeout_s", 0.15)
+    asyncio.run(engine._run_integrity_check())          # must not raise
+    assert engine._last_integrity_ok is None            # UNKNOWN, fail closed
+    assert engine._last_integrity_success is False
+    assert "V4WorkerJobTimeout" in engine._last_integrity_failure
+    assert engine._integrity_scan_in_progress is False
+    assert engine._integrity_inflight is False
+    release.set()
+    monkeypatch.undo()
+    assert_connection_clean("timeout")
+
+    # --- failure -----------------------------------------------------------
+    def boom(self, *, quick=False):
+        raise sqlite3.OperationalError("injected scan failure")
+
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", boom)
+    asyncio.run(engine._run_integrity_check())          # must not raise
+    assert engine._last_integrity_ok is None
+    assert engine._last_integrity_success is False
+    assert "OperationalError" in engine._last_integrity_failure
+    assert engine._integrity_scan_in_progress is False
+    assert engine._integrity_inflight is False
+    monkeypatch.undo()
+    assert_connection_clean("failure")
+
+    # Fail-closed but nonfatal: execution is blocked, the runtime is alive, and
+    # the next scan still succeeds.
+    assert engine._execution_blocked_reason() == "sqlite_integrity_unknown"
+    asyncio.run(engine._run_integrity_check())
+    assert engine._last_integrity_success is True
+
+
+# 28. An integrity scan must not pin the WAL after it completes: a TRUNCATE
+# checkpoint still fully reclaims once the scan is done.
+def test_integrity_scan_leaves_wal_checkpoint_reachable(engine_harness):
+    engine = engine_harness.engine
+    wal_path = Path(f"{engine_harness.cfg.db_path}-wal")
+
+    # Telemetry from the harness start-up has already produced WAL frames.
+    _flush_telemetry(engine_harness)
+    assert wal_path.exists() and wal_path.stat().st_size > 0
+
+    # Both scan kinds run to completion on the integrity connection.
+    asyncio.run(engine._run_integrity_check())
+    assert engine._last_integrity_success is True
+    assert asyncio.run(engine._run_full_integrity_audit()) is True
+    assert engine._last_full_integrity_success is True
+    assert engine._integrity_scan_in_progress is False
+    assert engine._full_integrity_inflight is False
+
+    # Nothing holds a read snapshot any more, so TRUNCATE fully reclaims.
+    result = engine_harness.maintenance_worker.run_maintenance_sync(
+        lambda store: store.checkpoint(mode="TRUNCATE", reason="test_reclaim"),
+        name="reclaim_checkpoint",
+    )
+    assert result["success"] is True, result
+    assert result["busy_result"] == 0, result
+    # Fully reclaimed at the moment of measurement.  The file is non-zero again
+    # immediately after, because journalling the checkpoint_runs row is itself a
+    # write -- that is reclaim working, not reclaim blocked.
+    assert result["after_wal_bytes"] == 0, result
+    assert result["before_wal_bytes"] > 0, result
+
+
+# 29. A clean shutdown leaves zero open runtime sessions.
+def test_shutdown_leaves_zero_open_runtime_sessions(engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    monkeypatch.setattr(
+        engine_module, "write_frequency_v4_dashboard", lambda *a, **k: {})
+
+    assert int(_query_one(
+        engine_harness,
+        "SELECT COUNT(*) AS count FROM runtime_sessions "
+        "WHERE ended_ts_ms IS NULL")["count"]) == 1     # one while running
+
+    # stop() closes the workers too, so the post-shutdown read has to come from
+    # an independent connection -- which is also the honest way to check it.
+    asyncio.run(engine.stop("test_shutdown"))
+
+    conn = sqlite3.connect(f"file:{engine_harness.cfg.db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM runtime_sessions WHERE ended_ts_ms IS NULL"
+        ).fetchone()[0] == 0                            # none afterwards
+        row = conn.execute(
+            "SELECT ended_ts_ms, stop_reason, dry_run, live_enabled, "
+            "real_orders_possible, live_adapter_present, kill_switch_engaged, "
+            "fixed_shares FROM runtime_sessions WHERE session_id=?",
+            (engine.session_id,)).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row["ended_ts_ms"] is not None
+    assert row["stop_reason"] == "test_shutdown"
+    # The durable session evidence still carries the shadow safety tuple.
+    assert row["dry_run"] == 1
+    assert row["live_enabled"] == 0
+    assert row["real_orders_possible"] == 0
+    assert row["live_adapter_present"] == 0
+    assert row["kill_switch_engaged"] == 1
+    assert row["fixed_shares"] == 5

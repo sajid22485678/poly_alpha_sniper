@@ -168,6 +168,19 @@ class FrequencyV4Config:
     maintenance_chunk_rows: int = 250
     maintenance_max_rows_per_pass: int = 4_000
     maintenance_max_seconds_per_pass: float = 1.0
+    # The full ``PRAGMA integrity_check`` (B-tree ordering validation) is far
+    # slower than the periodic ``quick_check`` and must never share the
+    # reporting/export worker.  It runs on the dedicated integrity read worker's
+    # own connection at most once per this interval, and never at startup, so a
+    # multi-GB evidence store scan stays an infrequent offline-style audit rather
+    # than a hot-path job.  Measured on the 6.50 GB production store: quick_check
+    # ~17s, full integrity_check ~66s.
+    full_integrity_audit_interval_ms: int = 6 * 3_600_000
+    # The audit needs its own budget: ``maintenance_worker_timeout_s`` (30s) is
+    # shorter than one real full scan, so reusing it would interrupt every audit
+    # at the deadline and never produce a verdict.  Still bounded, so a pathological
+    # scan cannot hold the integrity connection (and the WAL read snapshot) forever.
+    full_integrity_audit_timeout_s: float = 300.0
 
     @property
     def exposure_cap_usd(self) -> float:
@@ -309,6 +322,7 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "loop_lag_safety_ms": (50, 120_000),
         "maintenance_chunk_rows": (1, 100_000),
         "maintenance_max_rows_per_pass": (1, 5_000_000),
+        "full_integrity_audit_interval_ms": (600_000, 7 * 86_400_000),
     }
     for name, (minimum, maximum) in integers.items():
         _strict_integer(getattr(cfg, name), name, minimum=minimum, maximum=maximum)
@@ -353,6 +367,7 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "reporting_worker_timeout_s": (0.0, 600.0, True),
         "maintenance_worker_timeout_s": (0.0, 600.0, True),
         "maintenance_max_seconds_per_pass": (0.0, 30.0, True),
+        "full_integrity_audit_timeout_s": (60.0, 600.0, False),
     }
     for name, (minimum, maximum, strict_minimum) in numbers.items():
         _strict_number(getattr(cfg, name), name, minimum=minimum,

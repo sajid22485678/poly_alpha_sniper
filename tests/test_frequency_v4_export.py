@@ -13,6 +13,13 @@ from poly_alpha_sniper.lite_frequency_v4.export import (
 from poly_alpha_sniper.lite_frequency_v4.store import V4Store
 from tests.test_frequency_v4_store import NOW, seed_market_window, seed_session
 
+# The export path never scans the database: the runtime verifies integrity
+# off-loop on its own worker and passes the cached result in.  A test that
+# asserts a *healthy* payload must therefore supply that cached result the same
+# way the engine does.  Omitting it is the honest UNKNOWN case, which fails
+# closed -- see test_uncached_integrity_is_unknown_and_never_scans.
+CACHED_OK_INTEGRITY = {"integrity": "ok", "foreign_key_violations": []}
+
 
 def _store_with_health(tmp_path):
     store = V4Store(tmp_path / "poly_alpha_frequency_v4.db")
@@ -130,6 +137,81 @@ def test_non_finite_values_never_blank_the_whole_export(tmp_path):
         store.close()
 
 
+def test_uncached_integrity_is_unknown_and_never_scans(tmp_path):
+    """The export path must not scan the database, ever.
+
+    On the production evidence store (6.50 GB) ``PRAGMA quick_check`` measures
+    ~17s and the full ``PRAGMA integrity_check`` ~66s.  Either one here would
+    monopolise the reporting worker and stall the 5s export cadence, so with no
+    cached result the payload reports an honest UNKNOWN and fails closed rather
+    than buying a healthy verdict with a synchronous scan.
+    """
+
+    store, session, _ = _store_with_health(tmp_path)
+    scans: list[bool] = []
+    original = V4Store.integrity_check
+
+    def tracking(self, *, quick=False):
+        scans.append(quick)
+        return original(self, quick=quick)
+
+    try:
+        V4Store.integrity_check = tracking
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(), session_id=session,
+            runtime_state=_healthy_runtime_state(session), integrity=None,
+        )
+    finally:
+        V4Store.integrity_check = original
+        store.close()
+
+    assert scans == []                       # neither quick_check nor the full one
+    assert payload["integrity"]["sqlite_integrity"] == "UNKNOWN"
+    assert payload["integrity"]["foreign_key_violations"] == 0
+    # UNKNOWN is not "healthy": readiness fails closed until a cached result
+    # arrives from the off-loop integrity worker.
+    assert "sqlite_integrity_unhealthy" in (
+        payload["persistence"]["critical_blocked_reasons"])
+    assert payload["persistence"]["operational_ready"] is False
+    # The same call with the cached result the runtime supplies is healthy.
+    store, session, _ = _store_with_health(tmp_path / "cached")
+    try:
+        cached = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(), session_id=session,
+            runtime_state=_healthy_runtime_state(session),
+            integrity=CACHED_OK_INTEGRITY,
+        )
+    finally:
+        store.close()
+    assert cached["integrity"]["sqlite_integrity"] == "ok"
+    assert cached["persistence"]["operational_ready"] is True
+
+
+def test_degraded_export_publish_fails_readiness_closed(tmp_path):
+    """A stuck runtime/export publish degrades readiness without blocking execution."""
+
+    store, session, _ = _store_with_health(tmp_path)
+    try:
+        degraded = _healthy_runtime_state(session)
+        degraded["reporting_export_degraded"] = True
+        degraded["reporting_export_publish_failures"] = 4
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(), session_id=session,
+            runtime_state=degraded, integrity=CACHED_OK_INTEGRITY,
+        )
+        persistence = payload["persistence"]
+        assert "reporting_export_degraded" in (
+            persistence["operational_degraded_reasons"])
+        assert persistence["operational_ready"] is False
+        # Recoverable, not fatal: execution is gated by the writer and integrity,
+        # so a reporting blip must not latch the execution path closed.
+        assert "reporting_export_degraded" not in (
+            persistence["critical_blocked_reasons"])
+        assert persistence["critical_execution_ready"] is True
+    finally:
+        store.close()
+
+
 def test_inflight_critical_command_does_not_block_operational_ready(tmp_path):
     """An outstanding command inside its deadline is pipelining, not a fault."""
     store, session, _ = _store_with_health(tmp_path)
@@ -142,7 +224,7 @@ def test_inflight_critical_command_does_not_block_operational_ready(tmp_path):
         })
         payload = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=config, session_id=session,
-            runtime_state=inflight,
+            runtime_state=inflight, integrity=CACHED_OK_INTEGRITY,
         )
         assert payload["persistence"]["critical_blocked_reasons"] == []
         assert payload["persistence"]["operational_ready"] is True
@@ -155,7 +237,7 @@ def test_inflight_critical_command_does_not_block_operational_ready(tmp_path):
         })
         payload = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=config, session_id=session,
-            runtime_state=overdue,
+            runtime_state=overdue, integrity=CACHED_OK_INTEGRITY,
         )
         assert "unconfirmed_critical_command" in (
             payload["persistence"]["critical_blocked_reasons"])
@@ -166,7 +248,7 @@ def test_inflight_critical_command_does_not_block_operational_ready(tmp_path):
         unknown["persistence"]["critical"]["unconfirmed_command_count"] = 1
         payload = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=config, session_id=session,
-            runtime_state=unknown,
+            runtime_state=unknown, integrity=CACHED_OK_INTEGRITY,
         )
         assert "unconfirmed_critical_command" in (
             payload["persistence"]["critical_blocked_reasons"])
@@ -187,6 +269,7 @@ def test_resolved_historical_timeout_is_audit_only_not_current_incomplete(
         payload = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=FrequencyV4Config(),
             session_id=session, runtime_state=state,
+            integrity=CACHED_OK_INTEGRITY,
         )
         assert "critical_command_timeout" not in (
             payload["persistence"]["critical_blocked_reasons"])
@@ -219,7 +302,7 @@ def test_explicit_telemetry_recovery_clears_lifetime_failure_blocker(tmp_path):
             })
             return build_frequency_v4_dashboard(
                 store, now_ms=NOW, config=config, session_id=session,
-                runtime_state=state,
+                runtime_state=state, integrity=CACHED_OK_INTEGRITY,
             )
 
         inside = payload_for(window - 1)["persistence"]
@@ -261,7 +344,7 @@ def test_explicit_current_health_recovers_readiness_without_erasing_lifetime_los
         })
         before = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=config, session_id=session,
-            runtime_state=recovering,
+            runtime_state=recovering, integrity=CACHED_OK_INTEGRITY,
         )
         assert before["persistence"]["operational_ready"] is False
         assert "telemetry_recovery_window" in (
@@ -281,7 +364,7 @@ def test_explicit_current_health_recovers_readiness_without_erasing_lifetime_los
         })
         after = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=config, session_id=session,
-            runtime_state=recovered,
+            runtime_state=recovered, integrity=CACHED_OK_INTEGRITY,
         )
         assert after["persistence"]["operational_ready"] is True
         assert after["persistence"]["telemetry_recovery"][
@@ -473,6 +556,7 @@ def test_export_snapshot_is_v4_only_and_surfaces_safety_health_capacity(tmp_path
         payload = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=FrequencyV4Config(), session_id=session,
             runtime_state=_healthy_runtime_state(session),
+            integrity=CACHED_OK_INTEGRITY,
         )
         assert payload["strategy_id"] == "lite_frequency_v4"
         assert payload["mode"] == "lite_frequency_v4_shadow"
@@ -550,6 +634,7 @@ def test_export_separates_critical_block_from_lossy_raw_telemetry(tmp_path):
         payload = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=FrequencyV4Config(),
             session_id=session, runtime_state=recovered,
+            integrity=CACHED_OK_INTEGRITY,
         )
         assert payload["persistence"]["critical_execution_ready"] is True
         assert payload["persistence"]["operational_ready"] is True
@@ -568,6 +653,7 @@ def test_export_separates_critical_block_from_lossy_raw_telemetry(tmp_path):
         payload = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=FrequencyV4Config(),
             session_id=session, runtime_state=active,
+            integrity=CACHED_OK_INTEGRITY,
         )
         assert payload["persistence"]["critical_execution_ready"] is True
         assert payload["persistence"]["operational_ready"] is False

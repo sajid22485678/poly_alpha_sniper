@@ -401,9 +401,23 @@ def build_frequency_v4_dashboard(
         "ledger": ledger,
         "ledger_available": ledger is not None,
     }
-    # A caller that already verifies integrity off-loop passes the cached result
-    # so the export never re-scans the whole database on the hot reporting path.
-    integrity = store.integrity_check() if integrity is None else dict(integrity)
+    # The export path never scans the database.  Integrity is verified off-loop
+    # on its own worker and connection; the caller passes that cached result in.
+    # Measured on the production evidence store (6.50 GB): ``PRAGMA quick_check``
+    # takes ~17s and the full ``PRAGMA integrity_check`` ~66s.  Either one on this
+    # path would monopolise the reporting worker and stall the 5s export cadence,
+    # so neither is called here -- not even as a "first export" fallback.
+    # With no cached result the payload reports an honest UNKNOWN, which fails
+    # closed through ``sqlite_integrity_unhealthy`` below.  Callers that need a
+    # healthy integrity verdict must supply the cached payload explicitly.
+    if integrity is None:
+        integrity = {
+            "integrity": "UNKNOWN",
+            "foreign_key_violations": [],
+            "error": "no_cached_integrity_result",
+        }
+    else:
+        integrity = dict(integrity)
     open_positions = store.open_positions()
     exposure = sum(float(row.get("committed_exposure_usd") or 0) for row in open_positions)
     latest_health = _latest_runtime_health(store, effective_session_id)
@@ -626,6 +640,12 @@ def build_frequency_v4_dashboard(
         ) == "FAILED" else []),
         *(["runtime_io_worker_unhealthy"] if str(
             runtime_io.get("state") or "") != "RUNNING" else []),
+        # A stuck runtime/export publish is recoverable rather than fatal, so it
+        # does not block execution -- but it must not be hidden either.  While
+        # the engine reports the degradation, operational readiness fails closed
+        # until the bounded healthy-publish recovery window clears it.
+        *(["reporting_export_degraded"] if bool(
+            runtime.get("reporting_export_degraded")) else []),
     ]
     persistence_ready = bool(
         critical_execution_ready and not operational_degraded_reasons
