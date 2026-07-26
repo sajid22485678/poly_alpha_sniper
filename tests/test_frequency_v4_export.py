@@ -82,6 +82,17 @@ def _healthy_runtime_state(session: str) -> dict:
                 "recovery_healthy_windows": 10,
                 "recovery_required_windows": 10,
                 "recovery_sample_age_ms": 0,
+                # A real healthy runtime reports its data-safety verdict, its
+                # capacity state and a closed conservation identity.  A mapping
+                # that cannot report them is UNKNOWN, which fails closed -- see
+                # test_missing_telemetry_health_model_fails_closed.
+                "telemetry_data_safety": "HEALTHY",
+                "telemetry_data_safety_reasons": [],
+                "telemetry_capacity_state": "WITHIN_CAPACITY",
+                "window_unexpected_loss_rows": 0,
+                "accounting_reconciliation_mismatch_rows": 0,
+                "queue_bounded": True,
+                "queue_max_depth_window": 0,
             },
             "operational_reads": {"state": "RUNNING"},
             "reporting": {"state": "RUNNING"},

@@ -411,6 +411,50 @@ def test_cex_overflow_fails_closed(engine_harness):
     assert engine._cex_ingest_queue.qsize() == 1
 
 
+# 5b. A full event-count buffer coarsens attribution instead of discarding
+# counts.  This path was ~92% of all reported raw telemetry loss in production:
+# a deterministic capacity policy was being accounted as unexpected loss.
+def test_event_count_buffer_coarsens_instead_of_losing_counts(engine_harness):
+    engine = engine_harness.engine
+    engine.cfg.telemetry_queue_capacity = 4
+
+    def observed_total() -> int:
+        return sum(counts[0] for counts in engine._event_count_buffer.values())
+
+    # Fill the buffer with mutually incompatible buckets so no exact-compatible
+    # merge target exists for what follows.
+    for index in range(engine.cfg.telemetry_queue_capacity):
+        event = _observation(
+            now_ms() + index, asset=f"SEED{index}", event_id=f"seed-{index}")
+        engine._buffer_event_count(event, _accepted(event))
+    seeded = observed_total()
+    assert len(engine._event_count_buffer) >= engine.cfg.telemetry_queue_capacity
+
+    before_overflow = engine.counters["telemetry_event_bucket_overflow"]
+    for index in range(25):
+        event = _observation(
+            now_ms() + 500 + index, asset=f"OVER{index}",
+            event_id=f"over-{index}")
+        engine._buffer_event_count(event, _accepted(event))
+
+    # Not one observed event was discarded: the volume is conserved exactly.
+    assert observed_total() == seeded + 25
+    # And nothing was accounted as loss.
+    assert engine.counters["telemetry_event_bucket_overflow"] == before_overflow
+    assert engine.counters["telemetry_event_bucket_coarsened"] > 0
+    # The coarsening is declared in the stored row, not implied.
+    coarse = [key for key in engine._event_count_buffer
+              if key[2] == engine_module._AGGREGATED_CHANNEL]
+    assert coarse, "expected a declared AGGREGATED bucket"
+    assert all(key[3] == engine_module._AGGREGATED_ASSET
+               and key[4] == engine_module._AGGREGATED_EVENT_TYPE
+               for key in coarse)
+    # The reserved coarse buckets are bounded, so the buffer cannot grow without
+    # bound just because overflow keeps arriving.
+    assert len(engine._event_count_buffer) <= (
+        engine.cfg.telemetry_queue_capacity + 8)
+
+
 # 6. Overflow invalidates that asset's executable feature history.
 def test_cex_overflow_invalidates_executable_feature_state(engine_harness):
     engine = engine_harness.engine

@@ -579,6 +579,35 @@ def build_frequency_v4_dashboard(
         telemetry_health != "HEALTHY"
         or not telemetry_recovery_healthy
     )
+    # Data safety and capacity are separate questions.  A lane that is shedding
+    # noncritical rows under an approved, fully accounted policy is honestly not
+    # within capacity, but it is not losing evidence either -- and only the
+    # latter may block readiness.  Missing fields stay fail-closed via UNKNOWN.
+    telemetry_data_safety = str(
+        telemetry.get("telemetry_data_safety") or "UNKNOWN")
+    telemetry_capacity_state = str(
+        telemetry.get("telemetry_capacity_state") or "UNKNOWN")
+    telemetry_unexpected_loss = int(
+        telemetry.get("window_unexpected_loss_rows")
+        or telemetry.get("noncritical_rows_unexpectedly_lost") or 0)
+    telemetry_reconciliation_mismatch = int(
+        telemetry.get("accounting_reconciliation_mismatch_rows") or 0)
+    telemetry_queue_bounded = bool(telemetry.get("queue_bounded", False))
+    telemetry_capacity_blocking = telemetry_capacity_state in {
+        "HARD_OVERLOAD", "UNKNOWN"}
+    telemetry_policy_sampling = telemetry_capacity_state in {
+        "POLICY_SAMPLING_ACTIVE", "POLICY_COALESCING_ACTIVE",
+        "POLICY_DEFER_ACTIVE",
+    }
+    # The honest combined verdict: safe, but explicitly not within capacity.
+    telemetry_reported_state = (
+        "HEALTHY_WITH_POLICY_SAMPLING"
+        if telemetry_data_safety == "HEALTHY" and telemetry_policy_sampling
+        else telemetry_data_safety
+        if telemetry_data_safety != "HEALTHY"
+        else "HEALTHY" if telemetry_capacity_state == "WITHIN_CAPACITY"
+        else telemetry_capacity_state
+    )
     execution_blocked_reason = str(
         runtime.get("execution_blocked_reason")
         or critical.get("engine_latched_failure_reason") or ""
@@ -629,6 +658,20 @@ def build_frequency_v4_dashboard(
         *critical_blocked_reasons,
         *(["telemetry_writer_unhealthy"] if (
             telemetry_health != "HEALTHY") else []),
+        # Evidence safety, not throughput: unexpected loss, an unclosed
+        # conservation identity, or an unbounded queue all stay blocking.
+        *([f"telemetry_data_safety_{telemetry_data_safety.lower()}"] if (
+            telemetry_data_safety != "HEALTHY") else []),
+        *(["telemetry_unexpected_noncritical_loss"] if (
+            telemetry_unexpected_loss > 0) else []),
+        *(["telemetry_accounting_mismatch"] if (
+            telemetry_reconciliation_mismatch != 0) else []),
+        *(["telemetry_queue_unbounded"] if (
+            not telemetry_queue_bounded) else []),
+        # Capacity blocks only when the lane is genuinely out of control.
+        # POLICY_SAMPLING_ACTIVE is reported, not penalised.
+        *([f"telemetry_capacity_{telemetry_capacity_state.lower()}"] if (
+            telemetry_capacity_blocking) else []),
         *(["telemetry_recovery_window"] if (
             not telemetry_recovery_healthy) else []),
         *(["telemetry_recovery_sample_stale"] if (
@@ -772,6 +815,37 @@ def build_frequency_v4_dashboard(
             # audit, plus the recent-loss flags that actually drive the
             # operational decision, so an operator can tell a recovered lane
             # (lifetime loss > 0, recent = false) from an actively failing one.
+            # Separated health model.  ``reported_state`` is the honest combined
+            # verdict; the two components stay individually visible so an
+            # operator can always tell "safe but shedding" from "losing rows".
+            "telemetry_health_model": {
+                "reported_state": telemetry_reported_state,
+                "data_safety": telemetry_data_safety,
+                "data_safety_reasons": telemetry.get(
+                    "telemetry_data_safety_reasons") or [],
+                "capacity_state": telemetry_capacity_state,
+                "capacity_blocking": telemetry_capacity_blocking,
+                "policy_sampling_active": telemetry_policy_sampling,
+                "sampling_keep_ratio": telemetry.get("sampling_keep_ratio"),
+                "sampling_policy_reason": telemetry.get("overload_reason"),
+                "overload_policy_reasons": telemetry.get(
+                    "overload_policy_reasons"),
+                "window_unexpected_loss_rows": telemetry_unexpected_loss,
+                "accounting_reconciliation_mismatch_rows": (
+                    telemetry_reconciliation_mismatch),
+                "accounting_reconciliation": telemetry.get(
+                    "accounting_reconciliation"),
+                "loss_by_category": telemetry.get("loss_by_category"),
+                "policy_outcome_breakdown": telemetry.get(
+                    "policy_outcome_breakdown"),
+                "unexpected_loss_breakdown": telemetry.get(
+                    "unexpected_loss_breakdown"),
+                "queue_bounded": telemetry_queue_bounded,
+                "queue_max_depth_window": telemetry.get(
+                    "queue_max_depth_window"),
+                "queue_depth_slope_per_second": telemetry.get(
+                    "queue_depth_slope_per_second"),
+            },
             "telemetry_recovery": {
                 "lifetime_raw_telemetry_loss": raw_telemetry_loss,
                 "lifetime_telemetry_failures": telemetry_failures,

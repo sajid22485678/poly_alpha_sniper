@@ -98,6 +98,13 @@ INTEGRITY_MAX_AGE_MS = 3_600_000  # 1 hour; fail-closed if older
 # the heartbeat loop.  This many consecutive healthy publishes are required to
 # clear the degradation so a single blip cannot mask a stuck export.
 REPORTING_EXPORT_RECOVERY_PUBLISHES = 3
+# Sentinels marking an event-count bucket whose channel/asset/event attribution
+# was deliberately coarsened to keep the aggregation buffer bounded.  The event
+# volume is conserved exactly; only the attribution is coarser, and these values
+# make that visible in the stored row rather than implied.
+_AGGREGATED_CHANNEL = "AGGREGATED"
+_AGGREGATED_ASSET = "AGGREGATED"
+_AGGREGATED_EVENT_TYPE = "AGGREGATED"
 # Non-executable evaluation-state transitions (SKIP/NO_ACTION reason or bucket
 # changes) that reverse within this window are threshold flapping around a
 # price/score boundary, not decision evidence; they are suppressed and counted
@@ -618,6 +625,7 @@ class FrequencyV4Engine:
             "cex_ingest_rejected": 0,
             "telemetry_event_bucket_overflow": 0,
             "telemetry_event_bucket_preoverflow_coalesced": 0,
+            "telemetry_event_bucket_coarsened": 0,
             "telemetry_raw_interval_sampled": 0,
         }
 
@@ -656,6 +664,12 @@ class FrequencyV4Engine:
         )
         current_critical_evidence_lost = int(
             self._critical_evidence_lost_rows)
+        # Only *unexpected* loss belongs here.  The writer's ``dropped`` counter
+        # now accumulates the blocking categories alone (approved policy
+        # outcomes are accounted separately and never touch it), the event-count
+        # bucket counter only fires on shutdown abandonment, and the ingest
+        # counters are hard queue overflow.  All three are genuine loss of
+        # evidence the lane was expected to carry.
         current_raw_telemetry_loss = (
             int(telemetry.get("dropped") or 0)
             + int(self.counters.get("telemetry_event_bucket_overflow") or 0)
@@ -666,6 +680,12 @@ class FrequencyV4Engine:
             + int(self.counters.get(
                 "telemetry_event_bucket_preoverflow_coalesced") or 0)
         )
+        # Engine-side approved policy outcomes.  These conserve event volume --
+        # coarsened buckets still carry their raw counts, interval-sampled rows
+        # are a declared retention policy -- so they are reported explicitly and
+        # never folded into loss.
+        current_policy_coarsened = int(
+            self.counters.get("telemetry_event_bucket_coarsened") or 0)
         current_rows_sampled = (
             int(telemetry.get("sampled") or 0)
             + int(self.counters.get("telemetry_raw_interval_sampled") or 0)
@@ -750,6 +770,28 @@ class FrequencyV4Engine:
             # bundle, so these two concepts must never be conflated.
             "raw_telemetry_loss_count": raw_telemetry_loss,
             "current_raw_telemetry_loss_count": current_raw_telemetry_loss,
+            # Explicit taxonomy roll-up.  Approved policy outcomes and
+            # unexpected loss are reported side by side so overload is visible
+            # without being mistaken for evidence loss.
+            "noncritical_rows_unexpectedly_lost": current_raw_telemetry_loss,
+            "unexpected_loss_breakdown": {
+                "writer_unexpected_rows": int(telemetry.get("dropped") or 0),
+                "event_bucket_shutdown_abandoned": int(self.counters.get(
+                    "telemetry_event_bucket_overflow") or 0),
+                "ingest_queue_overflow": ingress_evidence_loss,
+            },
+            "policy_outcome_breakdown": {
+                "writer_policy_sampled": int(telemetry.get("sampled") or 0),
+                "writer_policy_coalesced": int(telemetry.get("coalesced") or 0),
+                "writer_policy_deduplicated": int(
+                    telemetry.get("noncritical_rows_policy_deduplicated") or 0),
+                "raw_interval_sampled": int(self.counters.get(
+                    "telemetry_raw_interval_sampled") or 0),
+                "event_bucket_preoverflow_coalesced": int(self.counters.get(
+                    "telemetry_event_bucket_preoverflow_coalesced") or 0),
+                "event_bucket_coarsened": current_policy_coarsened,
+            },
+            "event_bucket_coarsened": current_policy_coarsened,
             "ingress_evidence_loss_count": ingress_evidence_loss_total,
             "current_ingress_evidence_loss_count": ingress_evidence_loss,
             "critical_evidence_lost_count": critical_evidence_lost,
@@ -1211,8 +1253,7 @@ class FrequencyV4Engine:
             # Preserve row-valued counts before the writer queue can overflow.
             # Coarsen time/channel detail only when every semantic dimension is
             # identical.  Merging into an unrelated oldest bucket would corrupt
-            # source/asset/event/classification attribution; an unmatched row
-            # is instead explicitly accounted as raw telemetry loss.
+            # source/asset/event/classification attribution.
             compatible = next((
                 existing for existing in self._event_count_buffer
                 if (
@@ -1220,9 +1261,26 @@ class FrequencyV4Engine:
                 ) == (key[1], key[3], key[4], key[5])
             ), None)
             if compatible is None:
-                self.counters["telemetry_event_bucket_overflow"] += 1
-                return
-            key = compatible
+                # No semantically identical bucket exists.  Previously the
+                # event's count was discarded here and accounted as raw
+                # telemetry loss -- which made a *deterministic capacity policy*
+                # indistinguishable from unexpected persistence failure, and was
+                # ~92% of all reported raw loss in production.
+                #
+                # Instead, fold it into the reserved coarse bucket for this
+                # (source, classification).  Counts are summed, so the observed
+                # event volume is conserved exactly; only channel/asset/event
+                # attribution is coarsened, and that coarsening is declared by
+                # the AGGREGATED sentinels below.  The reserved buckets are
+                # bounded by |source| x |classification|, so admitting them past
+                # the soft cap cannot make the buffer grow without bound.
+                key = (
+                    bucket_start, str(source), _AGGREGATED_CHANNEL,
+                    _AGGREGATED_ASSET, _AGGREGATED_EVENT_TYPE, disposition,
+                )
+                self.counters["telemetry_event_bucket_coarsened"] += 1
+            else:
+                key = compatible
             self.counters[
                 "telemetry_event_bucket_preoverflow_coalesced"] += 1
         counts = self._event_count_buffer.setdefault(key, [0, 0, 0, 0])

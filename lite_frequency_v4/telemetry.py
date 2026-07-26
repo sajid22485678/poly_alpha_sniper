@@ -89,6 +89,63 @@ class TelemetryDisposition(str, Enum):
     DROPPED = "DROPPED"
 
 
+class TelemetryLossCategory(str, Enum):
+    """Terminal outcome for a logical row that is not committed or buffered.
+
+    The categories are mutually exclusive and jointly exhaustive: every row the
+    lane stops carrying is attributed to exactly one, so the conservation
+    identity in :meth:`V4TelemetryWriter.reconcile` closes exactly.
+
+    The first four are *approved policy* outcomes.  They are deliberate,
+    deterministic, and individually accounted, so they do not by themselves make
+    the lane unsafe -- but they are always reported, never hidden.  The last
+    group is unexpected loss and stays operationally blocking.
+    """
+
+    # --- approved policy outcomes (noncritical only) ----------------------
+    POLICY_SAMPLED = "POLICY_SAMPLED"
+    POLICY_COALESCED = "POLICY_COALESCED"
+    POLICY_DEDUPLICATED = "POLICY_DEDUPLICATED"
+    # --- unexpected loss (blocking) ---------------------------------------
+    QUEUE_OVERFLOW = "QUEUE_OVERFLOW"
+    DEADLINE_EXPIRED = "DEADLINE_EXPIRED"
+    SINK_FAILURE = "SINK_FAILURE"
+    ACKNOWLEDGEMENT_FAILURE = "ACKNOWLEDGEMENT_FAILURE"
+    MALFORMED_ROW = "MALFORMED_ROW"
+    SHUTDOWN_ABANDONED = "SHUTDOWN_ABANDONED"
+
+
+#: Categories that represent an approved, deterministic policy decision rather
+#: than loss of evidence the lane was expected to carry.
+POLICY_LOSS_CATEGORIES: frozenset[str] = frozenset({
+    TelemetryLossCategory.POLICY_SAMPLED.value,
+    TelemetryLossCategory.POLICY_COALESCED.value,
+    TelemetryLossCategory.POLICY_DEDUPLICATED.value,
+})
+
+#: Categories that remain operationally blocking.
+UNEXPECTED_LOSS_CATEGORIES: frozenset[str] = frozenset(
+    category.value for category in TelemetryLossCategory
+) - POLICY_LOSS_CATEGORIES
+
+
+class TelemetryCapacityState(str, Enum):
+    """How the lane is currently coping with offered load.
+
+    Capacity is reported separately from data safety.  A lane that is sampling
+    noncritical rows under an approved policy is honestly *not* within capacity,
+    but it is not unsafe either; conflating the two is what previously pinned
+    ``operational_ready`` false forever under sustained load.
+    """
+
+    WITHIN_CAPACITY = "WITHIN_CAPACITY"
+    POLICY_SAMPLING_ACTIVE = "POLICY_SAMPLING_ACTIVE"
+    POLICY_COALESCING_ACTIVE = "POLICY_COALESCING_ACTIVE"
+    POLICY_DEFER_ACTIVE = "POLICY_DEFER_ACTIVE"
+    HARD_OVERLOAD = "HARD_OVERLOAD"
+    UNKNOWN = "UNKNOWN"
+
+
 class TelemetryOverloadPolicy(str, Enum):
     """Explicit non-critical behavior once service pressure is detected.
 
@@ -271,6 +328,7 @@ class _WindowView:
     backlogged_seconds: float
     first_depth: Optional[int]
     last_depth: Optional[int]
+    max_depth: int
 
 
 class _RollingTelemetryWindow:
@@ -345,10 +403,20 @@ class _RollingTelemetryWindow:
             name: sum(int(getattr(bucket, name)) for bucket in rows)
             for name in self._COUNTER_FIELDS
         }
-        points = [
-            (float(bucket.tick), float(bucket.last_depth))
-            for bucket in rows if bucket.last_depth is not None
-        ]
+        # Depth is observed on admission/commit events, not on a timer, so the
+        # raw series is unevenly sampled: a busy second contributes a mid-burst
+        # depth while a quiet second contributes nothing at all.  Regressing over
+        # only the buckets that happen to carry an observation reported steep
+        # "growth" for a queue that provably returned to empty every second.
+        # Carry the last known depth forward across silent buckets so the series
+        # is uniform in time and the slope means what it claims to mean.
+        points: list[tuple[float, float]] = []
+        carried: Optional[float] = None
+        for bucket in rows:
+            if bucket.last_depth is not None:
+                carried = float(bucket.last_depth)
+            if carried is not None:
+                points.append((float(bucket.tick), carried))
         slope = 0.0
         if len(points) >= 3:
             mean_x = sum(point[0] for point in points) / len(points)
@@ -400,7 +468,87 @@ class _RollingTelemetryWindow:
             backlogged_seconds=backlogged,
             first_depth=first_depth,
             last_depth=last_depth,
+            max_depth=max((bucket.max_depth for bucket in rows), default=0),
         )
+
+
+def _capacity_state(
+    decision: "_ControlDecision", *, queue_depth: int, high_water: int,
+) -> str:
+    """Report how the lane is coping with offered load, honestly.
+
+    Policy sampling is never reported as "within capacity" -- the lane really is
+    shedding noncritical rows and an operator must be able to see that.  It is
+    also not reported as hard overload, because the shedding is deliberate,
+    bounded and fully accounted.
+    """
+
+    if decision.overload_active and not decision.controlled_overload:
+        return TelemetryCapacityState.HARD_OVERLOAD.value
+    if int(queue_depth) > max(0, int(high_water)):
+        return TelemetryCapacityState.HARD_OVERLOAD.value
+    if decision.overload_active:
+        if decision.sampling_keep_ratio < 1.0:
+            return TelemetryCapacityState.POLICY_SAMPLING_ACTIVE.value
+        if decision.view.deferred > 0:
+            return TelemetryCapacityState.POLICY_DEFER_ACTIVE.value
+        if decision.view.coalesced > 0:
+            return TelemetryCapacityState.POLICY_COALESCING_ACTIVE.value
+        return TelemetryCapacityState.POLICY_SAMPLING_ACTIVE.value
+    return TelemetryCapacityState.WITHIN_CAPACITY.value
+
+
+def _service_balanced(view: _WindowView, *, queued_logical: int) -> bool:
+    """Is every logical row admitted in this window accounted for?
+
+    The previous test compared ``committed`` (physical rows the sink wrote)
+    against ``admitted`` (logical rows enqueued).  Those are different units:
+    aggregation merges many logical rows into one pending, which becomes one
+    physical row, so under any coalescing at all ``committed`` is structurally
+    smaller than ``admitted`` and the lane could never look balanced -- even with
+    an empty queue and zero loss.
+
+    Conservation is the honest test, in one consistent unit: every admitted
+    logical row has either reached the sink, been explicitly lost, or is still
+    held by the lane.
+    """
+
+    return (
+        view.logical_committed + view.lost + max(0, int(queued_logical))
+        >= view.admitted
+    )
+
+
+def _queue_not_accumulating(
+    view: _WindowView, *, queue_depth: int, low_water: int, high_water: int,
+) -> bool:
+    """Is the queue bounded and not growing?
+
+    Two independent conditions, both required:
+
+    * **Bounded** -- the queue never breached the high-water mark in the window.
+      A queue that spiked past its bound is not healthy even if it recovered.
+    * **Not trending up** -- a non-positive slope and an ending depth no greater
+      than the starting depth.  A queue climbing steadily is unhealthy even
+      while it is still numerically below the low-water mark, so absolute depth
+      alone is deliberately *not* accepted as proof.
+
+    The slope is trustworthy only because the depth series is now carried
+    forward across silent buckets (see :meth:`_RollingTelemetryWindow.view`);
+    on the raw event-sampled series it reported growth for an empty queue.
+    """
+
+    _ = queue_depth, low_water
+    if view.max_depth > max(0, int(high_water)):
+        return False
+    return (
+        view.queue_slope_rps <= 0.0
+        and (
+            view.first_depth is None
+            or view.last_depth is None
+            or view.last_depth <= view.first_depth
+        )
+    )
 
 
 def required_rows_per_dispatch(
@@ -758,7 +906,14 @@ class _AdaptiveTelemetryController:
         self, *, now: float, queue_depth: int,
         transaction_budget_ms: Optional[float],
         advance_state: bool = True,
+        queued_logical: Optional[int] = None,
     ) -> _ControlDecision:
+        # Logical rows still held by the lane.  Defaults to the pending count,
+        # which is a lower bound (one pending can carry several aggregated
+        # logical rows), so conservation stays conservative when a caller does
+        # not supply it.
+        queued_logical = (
+            int(queue_depth) if queued_logical is None else int(queued_logical))
         self.window.observe_depth(now, queue_depth)
         view = self.window.view(now, include_current=True)
         recovery_view = self.window.view(now, include_current=False)
@@ -909,16 +1064,11 @@ class _AdaptiveTelemetryController:
             if self._overload_active != prior_overload:
                 self._reset_settle(now)
 
-            service_balanced = (
-                recovery_view.committed >= recovery_view.admitted)
-            depth_nonincreasing = (
-                recovery_view.queue_slope_rps <= 0.0
-                and (
-                    recovery_view.first_depth is None
-                    or recovery_view.last_depth is None
-                    or recovery_view.last_depth <= recovery_view.first_depth
-                )
-            )
+            service_balanced = _service_balanced(
+                recovery_view, queued_logical=queued_logical)
+            depth_nonincreasing = _queue_not_accumulating(
+                recovery_view, queue_depth=queue_depth,
+                low_water=self.low_water, high_water=self.high_water)
             controller_safe = (
                 self.selected_chunk <= self.deadline_safe_chunk
                 and self.selected_chunk >= self.throughput_required_chunk
@@ -947,16 +1097,11 @@ class _AdaptiveTelemetryController:
             )
             self._healthy_streak = self._healthy_streak + 1 if healthy else 0
 
-        service_balanced = (
-            recovery_view.committed >= recovery_view.admitted)
-        depth_nonincreasing = (
-            recovery_view.queue_slope_rps <= 0.0
-            and (
-                recovery_view.first_depth is None
-                or recovery_view.last_depth is None
-                or recovery_view.last_depth <= recovery_view.first_depth
-            )
-        )
+        service_balanced = _service_balanced(
+            recovery_view, queued_logical=queued_logical)
+        depth_nonincreasing = _queue_not_accumulating(
+            recovery_view, queue_depth=queue_depth,
+            low_water=self.low_water, high_water=self.high_water)
         controller_safe = (
             self.selected_chunk <= self.deadline_safe_chunk
             and self.selected_chunk >= self.throughput_required_chunk
@@ -1037,6 +1182,37 @@ class _AdaptiveTelemetryController:
 # maintenance/checkpoint deferrals do not consume this budget: that worker has
 # its own bounded lifetime and shutdown drains it before telemetry.
 _MAX_PRIORITY_REQUEUE_ATTEMPTS = 32
+
+
+#: Noncritical tables whose natural key includes a content hash, so a UNIQUE
+#: violation proves a byte-identical row is *already durably present*.  Only
+#: these may be accounted as POLICY_DEDUPLICATED; every other constraint failure
+#: is a sink failure, because we cannot show the evidence survived.
+_CONTENT_ADDRESSED_TABLES: Mapping[str, str] = {
+    "book_snapshots": "state_hash",
+}
+
+
+def _classify_batch_failure(
+    error: Optional[str], *, deadline_exceeded: bool,
+) -> TelemetryLossCategory:
+    """Attribute one failed physical batch to exactly one terminal category.
+
+    A cooperative deadline miss is its own cause.  A UNIQUE violation on a
+    content-addressed noncritical table means the identical row is already
+    stored -- the write was a redundant re-offer, not lost evidence -- and is
+    accounted as deduplication.  Anything else is an unexplained sink failure
+    and stays blocking; we never assume evidence survived.
+    """
+
+    if deadline_exceeded:
+        return TelemetryLossCategory.DEADLINE_EXPIRED
+    text = str(error or "")
+    if "UNIQUE constraint failed" in text:
+        for table, hash_column in _CONTENT_ADDRESSED_TABLES.items():
+            if f"{table}.{hash_column}" in text:
+                return TelemetryLossCategory.POLICY_DEDUPLICATED
+    return TelemetryLossCategory.SINK_FAILURE
 
 
 def _canonical_digest(value: Any) -> str:
@@ -1154,6 +1330,24 @@ class V4TelemetryWriter:
         self._admission_overflow_rows = 0
         self._drop_reasons: dict[str, int] = {}
         self._policy_reasons: dict[str, int] = {}
+        # Terminal-outcome accounting.  Every logical row that leaves the lane
+        # lands in exactly one of these buckets, so ``submitted`` can be
+        # reconciled exactly against its terminal states.  ``_dropped`` above
+        # remains the historical union of the unexpected causes and is kept for
+        # continuity of the lifetime series; the per-cause counters below are
+        # what the health model reads.
+        self._loss_by_category: dict[str, int] = {
+            category.value: 0 for category in TelemetryLossCategory}
+        self._reconciliation_mismatch_rows = 0
+        self._last_reconciliation: dict[str, int] = {}
+        # Logical rows still owned by the lane (queued pendings, including rows
+        # aggregated into one pending).  Tracked incrementally because summing
+        # the queue on every submit would be O(queue) on the hot path.
+        self._queued_logical = 0
+        # Rows merged into an already-queued pending.  They appear in
+        # ``_coalesced`` *and* travel to the sink inside that pending, so
+        # reconciliation subtracts this overlap exactly once.
+        self._aggregated_in_queue = 0
         self._sample_sequence = 0
         self._written = 0
         self._logical_written = 0
@@ -1258,6 +1452,79 @@ class V4TelemetryWriter:
                 target=self._run, name=self.thread_name, daemon=True)
             self._thread.start()
 
+    def reconcile(self) -> dict[str, int]:
+        """Close the conservation identity over the lane's whole lifetime.
+
+        Every logical row the lane accepted must be in exactly one terminal or
+        in-flight state::
+
+            submitted
+              == logical_committed
+               + buffered
+               + policy_sampled
+               + policy_coalesced
+               + policy_deduplicated
+               + policy_deferred
+               + unexpected_loss
+
+        ``policy_coalesced`` is the *pre-admission* coalescing count only: a row
+        merged into an already-queued pending raises that pending's logical
+        count and is therefore counted once, at commit, in ``logical_committed``.
+        Counting it in both places is the double-count this reconciliation
+        exists to catch.
+
+        A non-zero ``mismatch`` means the taxonomy no longer describes reality,
+        which is itself blocking -- unaccounted rows are indistinguishable from
+        silent loss.
+        """
+
+        with self._condition:
+            return self._reconcile_locked()
+
+    def _reconcile_locked(self) -> dict[str, int]:
+        loss = dict(self._loss_by_category)
+        policy_sampled = int(loss.get(
+            TelemetryLossCategory.POLICY_SAMPLED.value, 0)) + self._sampled
+        policy_coalesced = int(loss.get(
+            TelemetryLossCategory.POLICY_COALESCED.value, 0)) + self._coalesced
+        policy_deduplicated = int(loss.get(
+            TelemetryLossCategory.POLICY_DEDUPLICATED.value, 0)
+        ) + self._deduplicated
+        unexpected = sum(
+            int(count) for name, count in loss.items()
+            if name in UNEXPECTED_LOSS_CATEGORIES
+        )
+        # Rows merged into a queued pending were counted in ``_coalesced`` but
+        # are still carried to the sink inside that pending, so they must not be
+        # subtracted twice.  ``_aggregated_in_queue`` is that overlap.
+        accounted = (
+            self._logical_written
+            + self._queued_logical
+            + policy_sampled
+            + policy_coalesced
+            + policy_deduplicated
+            + self._deferred
+            + unexpected
+            - self._aggregated_in_queue
+        )
+        mismatch = int(self._submitted) - int(accounted)
+        self._reconciliation_mismatch_rows = abs(mismatch)
+        result = {
+            "submitted": int(self._submitted),
+            "logical_committed": int(self._logical_written),
+            "buffered": int(self._queued_logical),
+            "policy_sampled": int(policy_sampled),
+            "policy_coalesced": int(policy_coalesced),
+            "policy_deduplicated": int(policy_deduplicated),
+            "policy_deferred": int(self._deferred),
+            "aggregated_in_queue": int(self._aggregated_in_queue),
+            "unexpected_loss": int(unexpected),
+            "accounted": int(accounted),
+            "mismatch": int(mismatch),
+        }
+        self._last_reconciliation = result
+        return result
+
     def _record_policy_locked(self, reason: str, count: int = 1) -> None:
         key = str(reason)
         self._policy_reasons[key] = (
@@ -1273,6 +1540,7 @@ class V4TelemetryWriter:
             queue_depth=len(self._queue),
             transaction_budget_ms=self._resolve_budget_locked(),
             advance_state=advance_state,
+            queued_logical=self._queued_logical,
         )
         if advance_state:
             self._physical_batch_ceiling = decision.selected_chunk
@@ -1381,7 +1649,9 @@ class V4TelemetryWriter:
             self._controller.add(
                 now_mono, queue_depth=len(self._queue), incoming=1)
             if not self._accepting or self._stop_requested:
-                self._drop_locked(1, "telemetry_submit_after_stop")
+                self._drop_locked(
+                    1, "telemetry_submit_after_stop",
+                    category=TelemetryLossCategory.SHUTDOWN_ABANDONED)
                 return TelemetryDisposition.DROPPED
 
             if dedupe is not None and (
@@ -1412,9 +1682,13 @@ class V4TelemetryWriter:
                             if merge_hook is not None else item
                         )
                     except Exception:
-                        self._drop_locked(1, "telemetry_merge_failed")
+                        self._drop_locked(
+                            1, "telemetry_merge_failed",
+                            category=TelemetryLossCategory.MALFORMED_ROW)
                         return TelemetryDisposition.DROPPED
                     pending.logical_count += 1
+                    self._queued_logical += 1
+                    self._aggregated_in_queue += 1
                     self._coalesced += 1
                     self._controller.add(
                         now_mono, queue_depth=len(self._queue), coalesced=1)
@@ -1490,12 +1764,15 @@ class V4TelemetryWriter:
                 return TelemetryDisposition.DEFERRED
 
             if len(self._queue) >= self.capacity:
+                # Reaching the hard bound is a capacity event, always counted.
+                # Whether it is *loss* depends on what happens next: an approved
+                # policy resolves it deterministically and without losing
+                # evidence the lane promised to carry.  ``admission_overflow``
+                # feeds the recovery-health gate, so recording it on the policy
+                # paths made a correctly-shedding bounded queue permanently
+                # unhealthy -- it is now recorded only when a row is truly lost.
                 self._overflow_count += 1
-                self._admission_overflow_rows += 1
                 self._last_overflow_ts_ms = int(time.time() * 1_000)
-                self._controller.add(
-                    now_mono, queue_depth=len(self._queue),
-                    admission_overflow=1)
                 if policy is TelemetryOverloadPolicy.SAMPLE:
                     self._sampled += 1
                     self._record_policy_locked("queue_full_sampled")
@@ -1510,7 +1787,17 @@ class V4TelemetryWriter:
                         now_mono, queue_depth=len(self._queue),
                         deferred=1, overload_handled=1)
                     return TelemetryDisposition.DEFERRED
-                self._drop_locked(1, "telemetry_queue_full", health="DEGRADED_OVERFLOW")
+                # The approved overload policies (LATEST / SAMPLE / DEFER) were
+                # already offered above.  Reaching the hard bound anyway is
+                # overflow outside policy and stays blocking.
+                self._admission_overflow_rows += 1
+                self._controller.add(
+                    now_mono, queue_depth=len(self._queue),
+                    admission_overflow=1)
+                self._drop_locked(
+                    1, "telemetry_queue_full",
+                    category=TelemetryLossCategory.QUEUE_OVERFLOW,
+                    health="DEGRADED_OVERFLOW")
                 return TelemetryDisposition.DROPPED
 
             token = self._next_token
@@ -1525,6 +1812,7 @@ class V4TelemetryWriter:
             )
             self._pending[token] = pending
             self._queue.append(token)
+            self._queued_logical += 1
             self._admitted += 1
             self._controller.add(
                 now_mono, queue_depth=len(self._queue), admitted=1)
@@ -1546,13 +1834,35 @@ class V4TelemetryWriter:
             return TelemetryDisposition.ACCEPTED
 
     def _drop_locked(self, logical_count: int, reason: str,
-                     *, health: str = "DEGRADED_TELEMETRY") -> None:
+                     *, category: TelemetryLossCategory,
+                     health: str = "DEGRADED_TELEMETRY") -> None:
+        """Account rows that leave the lane without being committed.
+
+        ``category`` is mandatory: an uncategorised drop would break the
+        conservation identity, and "we lost rows but cannot say why" is exactly
+        the state the health model must treat as blocking.
+
+        An approved-policy category is recorded and reported but does not mark
+        the lane failed, does not touch ``_last_failure_ts_ms`` and does not
+        reset the recovery streak -- those are reserved for unexpected loss.
+        """
+
         count = max(0, int(logical_count))
-        if count and self._stop_requested and self._drain_on_stop:
-            self._drain_stop_failed = True
-        self._dropped += count
+        if not count:
+            return
+        key = str(category.value)
+        self._loss_by_category[key] = int(self._loss_by_category.get(key, 0)) + count
         self._drop_reasons[str(reason)] = (
             int(self._drop_reasons.get(str(reason), 0)) + count)
+        if key in POLICY_LOSS_CATEGORIES:
+            self._record_policy_locked(str(reason), count)
+            self._controller.add(
+                time.monotonic(), queue_depth=len(self._queue),
+                overload_handled=count)
+            return
+        if self._stop_requested and self._drain_on_stop:
+            self._drain_stop_failed = True
+        self._dropped += count
         self._controller.add(
             time.monotonic(), queue_depth=len(self._queue), lost=count)
         self._last_failure_ts_ms = int(time.time() * 1_000)
@@ -1623,6 +1933,7 @@ class V4TelemetryWriter:
             pending.merge_hook = None
             self._pending[pending.token] = pending
             self._queue.appendleft(pending.token)
+            self._queued_logical += max(0, int(pending.logical_count))
             if (pending.overload_key is not None
                     and pending.overload_key not in self._overload_latest_tokens):
                 self._overload_latest_tokens[pending.overload_key] = pending.token
@@ -1641,6 +1952,8 @@ class V4TelemetryWriter:
             pending = self._pending.pop(token, None)
             if pending is None:
                 continue
+            self._queued_logical = max(
+                0, self._queued_logical - max(0, int(pending.logical_count)))
             if (pending.aggregate_key is not None
                     and self._aggregate_tokens.get(pending.aggregate_key) == token):
                 self._aggregate_tokens.pop(pending.aggregate_key, None)
@@ -1983,6 +2296,8 @@ class V4TelemetryWriter:
                     # rows are honest loss, not a deferral.
                     self._drop_locked(
                         abandoned, "telemetry_priority_skip_exhausted",
+                        category=(
+                            TelemetryLossCategory.ACKNOWLEDGEMENT_FAILURE),
                         health="DEGRADED_CRITICAL_PRIORITY")
                 self._deadline_backoff_s = max(
                     self.flush_interval_s, 0.250)
@@ -2025,7 +2340,10 @@ class V4TelemetryWriter:
                         completed, queue_depth=len(self._queue),
                         failed_batches=1)
                 self._drop_locked(
-                    logical_unwritten, error or "telemetry_batch_failed", health=health)
+                    logical_unwritten, error or "telemetry_batch_failed",
+                    category=_classify_batch_failure(
+                        error, deadline_exceeded=deadline_exceeded),
+                    health=health)
                 for pending in failed_rows:
                     self._rollback_admission_locked(pending)
             self._sync_controller_locked(completed)
@@ -2146,6 +2464,7 @@ class V4TelemetryWriter:
                 for pending in self._pending.values():
                     self._rollback_admission_locked(pending)
                 self._queue.clear()
+                self._queued_logical = 0
                 self._pending.clear()
                 self._aggregate_tokens.clear()
                 self._overload_latest_tokens.clear()
@@ -2153,6 +2472,7 @@ class V4TelemetryWriter:
                 if discarded:
                     self._drop_locked(
                         discarded, "telemetry_shutdown_discard",
+                        category=TelemetryLossCategory.SHUTDOWN_ABANDONED,
                         health="STOPPING",
                     )
             self._condition.notify_all()
@@ -2197,8 +2517,74 @@ class V4TelemetryWriter:
             window = decision.view
             batch_values = tuple(self._batch_latencies_ms)
             flush_values = tuple(self._flush_latencies_ms)
+            reconciliation = self._reconcile_locked()
+            # ``decision.view`` deliberately excludes the current second so the
+            # recovery streak is judged on settled buckets.  Data safety must be
+            # more responsive than that: a row lost a moment ago is unsafe now,
+            # not one second from now.  ``controller_view`` includes it.
+            recent = decision.controller_view
+            loss = dict(self._loss_by_category)
+            recent_unexpected = int(recent.lost)
+            # Data safety is about evidence, not throughput.  Approved policy
+            # outcomes never appear here; only rows the lane was expected to
+            # carry and did not.
+            data_safety_reasons = [
+                reason for reason, present in (
+                    ("unexpected_noncritical_loss", recent_unexpected > 0),
+                    ("accounting_reconciliation_mismatch",
+                     int(reconciliation["mismatch"]) != 0),
+                    ("recent_deadline_expiry", int(recent.deadline_failures) > 0),
+                    ("recent_sink_failure", int(recent.failed_batches) > 0),
+                    ("recent_queue_overflow",
+                     int(recent.admission_overflow) > 0),
+                ) if present
+            ]
+            data_safety = "HEALTHY" if not data_safety_reasons else "UNHEALTHY"
+            capacity_state = _capacity_state(
+                decision, queue_depth=len(self._queue),
+                high_water=self._controller.high_water)
             return {
                 "health": self._health,
+                # --- explicit taxonomy / conservation ---------------------
+                "loss_by_category": loss,
+                "policy_loss_categories": sorted(POLICY_LOSS_CATEGORIES),
+                "unexpected_loss_categories": sorted(UNEXPECTED_LOSS_CATEGORIES),
+                "noncritical_rows_unexpectedly_lost": int(
+                    reconciliation["unexpected_loss"]),
+                "noncritical_rows_policy_sampled": int(
+                    reconciliation["policy_sampled"]),
+                "noncritical_rows_policy_coalesced": int(
+                    reconciliation["policy_coalesced"]),
+                "noncritical_rows_policy_deduplicated": int(
+                    reconciliation["policy_deduplicated"]),
+                "noncritical_rows_policy_deferred_outstanding": int(
+                    reconciliation["policy_deferred"]),
+                "noncritical_rows_buffered": int(reconciliation["buffered"]),
+                "noncritical_rows_committed": int(
+                    reconciliation["logical_committed"]),
+                "queue_overflow_rows": int(loss.get(
+                    TelemetryLossCategory.QUEUE_OVERFLOW.value, 0)),
+                "deadline_expired_rows": int(loss.get(
+                    TelemetryLossCategory.DEADLINE_EXPIRED.value, 0)),
+                "sink_failure_rows": int(loss.get(
+                    TelemetryLossCategory.SINK_FAILURE.value, 0)),
+                "acknowledgement_failure_rows": int(loss.get(
+                    TelemetryLossCategory.ACKNOWLEDGEMENT_FAILURE.value, 0)),
+                "malformed_rows": int(loss.get(
+                    TelemetryLossCategory.MALFORMED_ROW.value, 0)),
+                "shutdown_abandoned_rows": int(loss.get(
+                    TelemetryLossCategory.SHUTDOWN_ABANDONED.value, 0)),
+                "accounting_reconciliation": reconciliation,
+                "accounting_reconciliation_mismatch_rows": abs(
+                    int(reconciliation["mismatch"])),
+                # --- separated health model -------------------------------
+                "telemetry_data_safety": data_safety,
+                "telemetry_data_safety_reasons": data_safety_reasons,
+                "telemetry_capacity_state": capacity_state,
+                "window_unexpected_loss_rows": recent_unexpected,
+                "queue_bounded": bool(
+                    int(recent.max_depth) <= self._controller.high_water),
+                "queue_max_depth_window": int(recent.max_depth),
                 "queue_depth": len(self._queue),
                 "queue_capacity": self.capacity,
                 "queue_high_water": self._high_water,
