@@ -361,6 +361,58 @@ def test_capacity_state_is_hard_overload_only_when_out_of_control():
     assert snapshot["telemetry_data_safety"] == "UNHEALTHY"
 
 
+def test_unreachable_throughput_floor_does_not_block_recovery_forever():
+    """Demand above physical capacity must not make the controller "unsafe".
+
+    Found by the live shadow soak.  When offered load exceeds what the deadline
+    budget allows, ``throughput_required_chunk`` rises above
+    ``deadline_safe_chunk``; the controller correctly clamps to the safe
+    maximum and sheds the difference.  Requiring ``selected >= required``
+    unconditionally then reported the controller unsafe in exactly the steady
+    state it was designed for, pinning the recovery streak at zero forever.
+    """
+
+    controller = _controller(maximum=9)
+    decision = None
+    for tick in range(1, 121):
+        # Heavy offered load, shed down to what the sink can actually take.
+        controller.add(
+            float(tick), queue_depth=1,
+            incoming=60, offered=60, admitted=9,
+            sampled=51, overload_handled=51)
+        controller.observe_commit(
+            now=float(tick), rows=9, logical_rows=9,
+            transaction_ms=25.0, total_ms=25.0, queue_depth=1)
+        decision = controller.decide(
+            now=float(tick), queue_depth=1,
+            transaction_budget_ms=250.0, queued_logical=1)
+
+    assert decision is not None
+    # The demand shortfall stays visible rather than being hidden...
+    assert decision.throughput_required_chunk >= decision.selected_chunk
+    assert decision.selected_chunk <= decision.deadline_safe_chunk
+    # ...but a controller pinned at its safe maximum while shedding is safe.
+    assert "controller_chunk_unsafe" not in decision.recovery_blockers
+    assert "uncontrolled_overload" not in decision.recovery_blockers
+
+
+def test_chunk_above_deadline_safe_is_always_unsafe():
+    """The deadline budget itself is absolute and must never be relaxed."""
+
+    controller = _controller(maximum=32)
+    for tick in range(1, 30):
+        controller.add(float(tick), queue_depth=0, offered=10, admitted=10)
+        controller.observe_commit(
+            now=float(tick), rows=10, logical_rows=10,
+            transaction_ms=5.0, total_ms=5.0, queue_depth=0)
+        controller.decide(
+            now=float(tick), queue_depth=0,
+            transaction_budget_ms=250.0, queued_logical=0)
+    # Force an oversized selection and confirm it is rejected outright.
+    controller.selected_chunk = controller.deadline_safe_chunk + 1
+    assert controller._controller_safe() is False
+
+
 def test_recovery_blockers_name_the_failing_condition():
     """The lane explains why it is not recovering rather than just saying no."""
 

@@ -910,6 +910,36 @@ class _AdaptiveTelemetryController:
             deadline_failures=1, failed_batches=1,
         )
 
+    def _controller_safe(self) -> bool:
+        """Is the selected physical chunk both safe and the best available?
+
+        Two requirements, and the second is conditional on being achievable:
+
+        * The chunk must never exceed the deadline-safe size.  This is absolute:
+          a larger batch would blow the cooperative transaction budget.
+        * It should meet the throughput floor needed to drain the queue -- *when
+          that floor is reachable within the deadline budget*.
+
+        When demand exceeds physical sink capacity the floor is by definition
+        unreachable: the controller clamps to ``deadline_safe_chunk`` and the
+        shortfall is what the shedding policy exists to absorb.  Requiring
+        ``selected >= throughput_required`` unconditionally therefore made the
+        controller permanently "unsafe" in exactly the steady state it was
+        designed to handle, which pinned the recovery streak at zero and
+        ``operational_ready`` at false for as long as load stayed high.
+
+        Being pinned at the deadline-safe maximum while shedding is the correct
+        response to that situation, so it counts as safe.  The unmet demand
+        stays visible through ``throughput_required_chunk`` and the capacity
+        state; it is reported, not hidden.
+        """
+
+        if self.selected_chunk > self.deadline_safe_chunk:
+            return False
+        reachable_floor = min(
+            self.throughput_required_chunk, self.deadline_safe_chunk)
+        return self.selected_chunk >= reachable_floor
+
     def _sustainable_dispatch_rate(
         self, view: _WindowView, total_p95_ms: float,
     ) -> float:
@@ -1089,10 +1119,7 @@ class _AdaptiveTelemetryController:
             depth_nonincreasing = _queue_not_accumulating(
                 recovery_view, queue_depth=queue_depth,
                 low_water=self.low_water, high_water=self.high_water)
-            controller_safe = (
-                self.selected_chunk <= self.deadline_safe_chunk
-                and self.selected_chunk >= self.throughput_required_chunk
-            )
+            controller_safe = self._controller_safe()
             explicit_overload_handling = (
                 recovery_view.overload_handled > 0)
             controlled_overload = (
@@ -1133,10 +1160,7 @@ class _AdaptiveTelemetryController:
         depth_nonincreasing = _queue_not_accumulating(
             recovery_view, queue_depth=queue_depth,
             low_water=self.low_water, high_water=self.high_water)
-        controller_safe = (
-            self.selected_chunk <= self.deadline_safe_chunk
-            and self.selected_chunk >= self.throughput_required_chunk
-        )
+        controller_safe = self._controller_safe()
         explicit_overload_handling = (
             recovery_view.overload_handled > 0)
         controlled_overload = (
