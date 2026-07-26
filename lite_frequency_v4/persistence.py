@@ -120,10 +120,31 @@ class V4TelemetryDeadlineExceeded(V4PersistenceError):
     telemetry_deadline_exceeded = True
 
 
+class V4TelemetryWriteContention(V4PersistenceError):
+    """Telemetry could not take the write lock within its short busy timeout.
+
+    Another writer -- normally the maintenance worker holding the lock for a
+    WAL checkpoint -- owned it.  Nothing was written and the transaction never
+    opened, so this is a deferral exactly like a priority skip, not a fault.
+    It carries ``telemetry_priority_skip`` so the aggregator requeues the rows
+    instead of destroying them and counting a batch failure; a bounded
+    checkpoint otherwise showed up as a telemetry outage on every cycle.
+    """
+
+    telemetry_priority_skip = True
+
+
 class V4TelemetryBatchTooLarge(V4PersistenceError):
     """The physical telemetry sink refused an oversized transaction."""
 
     telemetry_batch_rejected = True
+
+
+def _is_lock_contention(exc: BaseException) -> bool:
+    """True for a SQLite busy/locked error, i.e. another writer held the lock."""
+
+    text = str(exc).lower()
+    return "locked" in text or "busy" in text
 
 
 def _now_ms() -> int:
@@ -1316,6 +1337,19 @@ class V4TelemetryStoreSink:
             self._metrics["state"] = "DEGRADED_TELEMETRY_DEADLINE"
             self._metrics["last_error"] = f"{type(exc).__name__}:{exc}"[:500]
             raise
+        except sqlite3.OperationalError as exc:
+            if not _is_lock_contention(exc):
+                self._metrics["failures"] += 1
+                self._metrics["state"] = "FAILED"
+                self._metrics["last_error"] = f"{type(exc).__name__}:{exc}"[:500]
+                raise
+            # The lock was held by another writer, so nothing was written and
+            # no transaction opened.  Defer rather than lose the rows.
+            self._metrics["priority_skipped_batches"] += 1
+            self._metrics["state"] = "DEGRADED_WRITE_CONTENTION"
+            self._metrics["last_error"] = f"{type(exc).__name__}:{exc}"[:500]
+            raise V4TelemetryWriteContention(
+                "telemetry yielded the write lock to another writer") from exc
         except Exception as exc:
             self._metrics["failures"] += 1
             self._metrics["state"] = "FAILED"
@@ -1361,4 +1395,5 @@ __all__ = [
     "V4PersistenceQueueFull", "V4PersistenceTimeout", "V4PersistenceWriter",
     "V4TelemetryBatchTooLarge", "V4TelemetryDeadlineExceeded",
     "V4TelemetryPrioritySkip", "V4TelemetryStoreSink",
+    "V4TelemetryWriteContention",
 ]

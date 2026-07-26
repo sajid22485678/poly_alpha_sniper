@@ -5,6 +5,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import hashlib
 import json
 from pathlib import Path
+import sqlite3
 import threading
 import time
 
@@ -17,6 +18,7 @@ from poly_alpha_sniper.lite_frequency_v4.persistence import (
     V4PersistenceWriter,
     V4TelemetryPrioritySkip,
     V4TelemetryStoreSink,
+    V4TelemetryWriteContention,
     _BoundedPriorityScheduler,
     _Envelope,
 )
@@ -1015,6 +1017,40 @@ def test_unconfirmed_gate_counts_only_trade_critical_commands(
     final = writer.metrics()
     assert final["unconfirmed_trade_critical_count"] == 0
     assert final["unconfirmed_command_count"] == 0
+
+
+def test_telemetry_lock_contention_is_a_deferral_not_a_failure(
+        tmp_path, monkeypatch):
+    """A checkpoint holding the write lock must not read as a telemetry outage.
+
+    The telemetry sink uses a deliberately short busy timeout so it can never
+    make a critical command wait.  When a bounded maintenance checkpoint owns
+    the write lock, BEGIN IMMEDIATE therefore fails with "database is locked" --
+    but nothing was written and no transaction opened, so the rows must be
+    requeued, not destroyed and counted as a batch failure.
+    """
+
+    path = tmp_path / "telemetry-contention.db"
+    V4Store(path).close()
+
+    def locked(self, *, immediate: bool = False):
+        raise sqlite3.OperationalError("database is locked")
+
+    sink = V4TelemetryStoreSink(path, busy_timeout_ms=100)
+    monkeypatch.setattr(V4Store, "transaction", locked)
+    with pytest.raises(V4TelemetryWriteContention):
+        sink.submit_telemetry_batch([
+            {"method": "record_event_count_batch",
+             "args": ([_event_count_batch_row()],), "kwargs": {}},
+        ])
+    health = sink.health()
+    # Accounted as a cooperative yield, never as a lost batch.
+    assert health["priority_skipped_batches"] == 1
+    assert health["failures"] == 0
+    assert health["state"] == "DEGRADED_WRITE_CONTENTION"
+    # The aggregator's deferral path keys off this attribute.
+    assert V4TelemetryWriteContention.telemetry_priority_skip is True
+    sink.close()
 
 
 def test_unconfirmed_ages_are_reported_and_clear_on_confirmation(
