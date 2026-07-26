@@ -312,6 +312,14 @@ _STOPPED_HEALTH = frozenset({"OFFLINE", "STOPPED"})
 # perform_checkpoint so the hard-safety recheck knows this TRUNCATE was
 # authorized by the live invariants rather than the stopped-runtime ones.
 LIVE_RECLAIM_REASON = "passive_no_progress_live_reclaim"
+# Runtime health values that make WAL reclamation unsafe: a database whose
+# integrity is unknown or degraded, and a persistence/ownership fault.  Nothing
+# else qualifies.  A degraded or partial market-data feed says nothing about
+# whether a checkpoint is safe, and gating reclamation on general runtime
+# health is precisely what made the previous escalation unreachable -- a live
+# runtime is almost never in a pristine health state, so the WAL grew unbounded
+# while the policy waited for a condition that does not occur.
+_RECLAIM_UNSAFE_HEALTH_PREFIXES = ("DEGRADED_INTEGRITY", "DEGRADED_PERSISTENCE")
 
 
 def decide_checkpoint(
@@ -793,10 +801,11 @@ def _live_reclaim_is_safe(
     if not snapshot.runtime_active:
         # The stopped path keeps its own stricter invariants below.
         return False
-    return (
-        snapshot.writer_healthy
-        and snapshot.normalized_health in _ACTIVE_HEALTH
-    )
+    # Writer and database/ownership health only.  Market-data degradation is
+    # deliberately not consulted; see _RECLAIM_UNSAFE_HEALTH_PREFIXES.
+    if snapshot.normalized_health.startswith(_RECLAIM_UNSAFE_HEALTH_PREFIXES):
+        return False
+    return snapshot.writer_healthy
 
 
 def _restart_is_safe(snapshot: MaintenanceSnapshot, policy: MaintenancePolicy) -> bool:

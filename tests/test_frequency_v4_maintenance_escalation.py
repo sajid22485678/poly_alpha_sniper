@@ -134,7 +134,12 @@ def test_escalation_runs_even_when_the_maintenance_gate_is_closed():
         {"active_readers": 1},
         {"critical_queue_depth": 1},
         {"writer_healthy": False},
-        {"runtime_health": "DEGRADED"},
+        {"runtime_health": "DEGRADED_INTEGRITY"},
+        {"runtime_health": "DEGRADED_PERSISTENCE"},
+    ],
+    ids=[
+        "long_reader", "active_reader", "critical_queued",
+        "writer_unhealthy", "integrity_degraded", "persistence_degraded",
     ],
 )
 def test_live_reclamation_requires_database_level_safety(unsafe):
@@ -142,6 +147,25 @@ def test_live_reclamation_requires_database_level_safety(unsafe):
     snap = _snapshot(consecutive_no_progress_passive=5, **unsafe)
     decision = decide_checkpoint(snap, policy)
     assert decision.reason != LIVE_RECLAIM_REASON
+
+
+@pytest.mark.parametrize(
+    "health",
+    ["DEGRADED_PARTIAL_CEX", "DEGRADED_NO_FRESH_CEX",
+     "DEGRADED_EVENT_LOOP_LAG"],
+)
+def test_market_data_degradation_does_not_starve_reclamation(health):
+    """A live runtime is rarely in a pristine health state.
+
+    Gating reclamation on general runtime health means an exchange feed hiccup
+    -- which says nothing about database safety -- suspends WAL reclamation
+    indefinitely.  That is how the WAL grew unbounded in production.
+    """
+    policy = MaintenancePolicy()
+    snap = _snapshot(consecutive_no_progress_passive=3, runtime_health=health)
+    decision = decide_checkpoint(snap, policy)
+    assert decision.mode == CheckpointMode.TRUNCATE
+    assert decision.reason == LIVE_RECLAIM_REASON
 
 
 def test_live_reclamation_requires_the_restart_wal_threshold():
