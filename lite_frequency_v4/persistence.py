@@ -134,6 +134,13 @@ class V4TelemetryWriteContention(V4PersistenceError):
     telemetry_priority_skip = True
 
 
+class V4TelemetryMaintenanceDeferral(V4TelemetryPrioritySkip):
+    """Telemetry yielded before opening a transaction so maintenance can run."""
+
+    telemetry_priority_skip = True
+    telemetry_checkpoint_deferral = True
+
+
 class V4TelemetryBatchTooLarge(V4PersistenceError):
     """The physical telemetry sink refused an oversized transaction."""
 
@@ -347,7 +354,11 @@ class _CriticalFirstWriteGate:
         self._critical_pending = 0
         self._critical_active = False
         self._telemetry_active = False
+        self._maintenance_waiting = 0
+        self._maintenance_active = False
         self._telemetry_priority_skips = 0
+        self._telemetry_maintenance_deferrals = 0
+        self._maintenance_deferrals = 0
 
     def register_critical(self) -> None:
         with self._condition:
@@ -361,6 +372,12 @@ class _CriticalFirstWriteGate:
 
     def acquire_critical(self) -> None:
         with self._condition:
+            # Maintenance is admitted only when no critical work exists, but
+            # once a PASSIVE checkpoint has started it must not invert
+            # priority and hold a later critical command behind a potentially
+            # multi-second scan.  SQLite coordinates the separate connections;
+            # telemetry remains mutually exclusive because it owns an actual
+            # write transaction.
             while self._critical_active or self._telemetry_active:
                 self._condition.wait()
             self._critical_active = True
@@ -373,14 +390,21 @@ class _CriticalFirstWriteGate:
             self._critical_pending = max(0, self._critical_pending - 1)
             self._condition.notify_all()
 
-    def try_acquire_telemetry(self) -> bool:
+    def try_acquire_telemetry_reason(self) -> Optional[str]:
         with self._condition:
             if (self._critical_pending > 0 or self._critical_active
                     or self._telemetry_active):
                 self._telemetry_priority_skips += 1
-                return False
+                return "critical_persistence_pending"
+            if self._maintenance_waiting > 0 or self._maintenance_active:
+                self._telemetry_priority_skips += 1
+                self._telemetry_maintenance_deferrals += 1
+                return "maintenance_pending"
             self._telemetry_active = True
-            return True
+            return None
+
+    def try_acquire_telemetry(self) -> bool:
+        return self.try_acquire_telemetry_reason() is None
 
     def critical_pending(self) -> bool:
         with self._condition:
@@ -391,6 +415,51 @@ class _CriticalFirstWriteGate:
             if not self._telemetry_active:
                 raise RuntimeError("telemetry write gate released while inactive")
             self._telemetry_active = False
+            self._condition.notify_all()
+
+    def acquire_maintenance(self, timeout_s: float = 0.250) -> bool:
+        """Boundedly wait for admitted telemetry, while never delaying critical."""
+
+        timeout = max(0.0, float(timeout_s))
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            if (self._critical_pending > 0 or self._critical_active
+                    or self._maintenance_active):
+                self._maintenance_deferrals += 1
+                # Retain the historical aggregate low-priority skip counter
+                # while exposing maintenance-specific accounting separately.
+                self._telemetry_priority_skips += 1
+                return False
+            self._maintenance_waiting += 1
+            try:
+                while self._telemetry_active:
+                    if self._critical_pending > 0 or self._critical_active:
+                        self._maintenance_deferrals += 1
+                        self._telemetry_priority_skips += 1
+                        return False
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        self._maintenance_deferrals += 1
+                        self._telemetry_priority_skips += 1
+                        return False
+                    self._condition.wait(remaining)
+                if self._critical_pending > 0 or self._critical_active:
+                    self._maintenance_deferrals += 1
+                    self._telemetry_priority_skips += 1
+                    return False
+                self._maintenance_active = True
+                return True
+            finally:
+                self._maintenance_waiting = max(
+                    0, self._maintenance_waiting - 1)
+                self._condition.notify_all()
+
+    def release_maintenance(self) -> None:
+        with self._condition:
+            if not self._maintenance_active:
+                raise RuntimeError(
+                    "maintenance write gate released while inactive")
+            self._maintenance_active = False
             self._condition.notify_all()
 
     def reset_critical(self) -> None:
@@ -407,7 +476,12 @@ class _CriticalFirstWriteGate:
                 "critical_pending": self._critical_pending,
                 "critical_inflight": int(self._critical_active),
                 "telemetry_inflight": int(self._telemetry_active),
+                "maintenance_waiting": self._maintenance_waiting,
+                "maintenance_inflight": int(self._maintenance_active),
                 "telemetry_priority_skips": self._telemetry_priority_skips,
+                "telemetry_maintenance_deferrals": (
+                    self._telemetry_maintenance_deferrals),
+                "maintenance_deferrals": self._maintenance_deferrals,
             }
 
 
@@ -464,6 +538,10 @@ class V4PersistenceWriter:
             "commit": deque(maxlen=1_024), "queue": deque(maxlen=1_024),
             "ack": deque(maxlen=1_024),
         }
+        self._critical_submit_times: deque[float] = deque(maxlen=4_096)
+        self._critical_commit_times: deque[float] = deque(maxlen=4_096)
+        self._trade_critical_submit_times: deque[float] = deque(maxlen=4_096)
+        self._trade_critical_commit_times: deque[float] = deque(maxlen=4_096)
         self._telemetry_sink: Optional[V4TelemetryStoreSink] = None
         self._telemetry_sink_lock = threading.Lock()
         self.telemetry_max_transaction_ms = 250.0
@@ -525,8 +603,11 @@ class V4PersistenceWriter:
         with self._metrics_lock:
             self._metrics["commands_submitted"] += 1
             self._metrics["terminal_submitted"] += int(command_snapshot.terminal)
+            submitted_mono = time.monotonic()
+            self._critical_submit_times.append(submitted_mono)
             if trade_critical:
                 self._queued_trade_critical += 1
+                self._trade_critical_submit_times.append(submitted_mono)
             self._inflight_commands[command_snapshot.command_id] = (
                 envelope.enqueued_ts_ms, trade_critical)
         return future
@@ -542,8 +623,18 @@ class V4PersistenceWriter:
         except asyncio.TimeoutError as exc:
             with self._metrics_lock:
                 self._metrics["timeout_count"] += 1
-            raise V4PersistenceTimeout(
-                f"persistence acknowledgement timed out: {command.command_id}") from exc
+            # The shielded command deliberately continues so the journal can
+            # establish its durable outcome.  Consume that late asyncio result
+            # (the writer records exact finalized loss independently) to avoid
+            # an unobserved-future warning without pretending the timed-out
+            # caller received an acknowledgement.
+            wrapped.add_done_callback(
+                lambda completed: completed.exception()
+                if not completed.cancelled() else None)
+            timeout_error = V4PersistenceTimeout(
+                f"persistence acknowledgement timed out: {command.command_id}")
+            timeout_error.persistence_late_future = wrapped
+            raise timeout_error from exc
 
     def execute_sync(self, command: V4PersistenceCommand,
                      timeout_s: Optional[float] = None) -> Any:
@@ -587,27 +678,38 @@ class V4PersistenceWriter:
 
         return self.telemetry_max_transaction_ms
 
+    def telemetry_commit_metrics(self) -> dict[str, Any]:
+        """Return the latest sink-owned transaction timing sample."""
+
+        with self._telemetry_sink_lock:
+            if self._telemetry_sink is None:
+                return {
+                    "last_transaction_duration_ms": 0.0,
+                    "last_duration_ms": 0.0,
+                }
+            return self._telemetry_sink.health()
+
     def critical_write_pending(self) -> bool:
         """Thread-safe callback for non-critical worker admission checks."""
 
         return self._write_gate.critical_pending()
 
     def try_acquire_background_write(self) -> bool:
-        """Non-blocking maintenance/background admission on the shared gate.
+        """Bounded maintenance/background admission on the shared gate.
 
         A maintenance owner thread should call this immediately before opening
         a write transaction and call :meth:`release_background_write` in a
-        ``finally`` block.  ``False`` means it must skip/defer the pass; it must
-        never wait when critical work is queued or active.  Telemetry uses this
-        exact same underlying admission gate.
+        ``finally`` block.  ``False`` means it must skip/defer the pass.
+        Maintenance may wait briefly for an already-admitted short telemetry
+        transaction, but never waits when critical work is queued or active.
         """
 
-        return self._write_gate.try_acquire_telemetry()
+        return self._write_gate.acquire_maintenance(timeout_s=0.250)
 
     def release_background_write(self) -> None:
         """Release a successful background-write admission."""
 
-        self._write_gate.release_telemetry()
+        self._write_gate.release_maintenance()
 
     def close_telemetry_sink(self) -> bool:
         """Close the lazy telemetry connection on its aggregation thread.
@@ -641,10 +743,32 @@ class V4PersistenceWriter:
 
     def metrics(self) -> dict[str, Any]:
         with self._metrics_lock:
+            current_mono = time.monotonic()
+            rate_cutoff = current_mono - 15.0
+            for rows in (
+                self._critical_submit_times, self._critical_commit_times,
+                self._trade_critical_submit_times,
+                self._trade_critical_commit_times,
+            ):
+                while rows and rows[0] < rate_cutoff:
+                    rows.popleft()
             result = dict(self._metrics)
             latency = {
                 name: self._latency_summary(rows)
                 for name, rows in self._latency_samples.items()
+            }
+            rate_elapsed_s = min(
+                15.0, max(1.0, current_mono - self._started_mono))
+            current_rates = {
+                "critical_rows_submitted_per_second": round(
+                    len(self._critical_submit_times) / rate_elapsed_s, 4),
+                "critical_rows_committed_per_second": round(
+                    len(self._critical_commit_times) / rate_elapsed_s, 4),
+                "trade_critical_rows_submitted_per_second": round(
+                    len(self._trade_critical_submit_times) / rate_elapsed_s, 4),
+                "trade_critical_rows_committed_per_second": round(
+                    len(self._trade_critical_commit_times) / rate_elapsed_s, 4),
+                "critical_rate_window_seconds": 15,
             }
         queue_depth = self._scheduler.depth
         gate = self._write_gate.snapshot()
@@ -681,6 +805,7 @@ class V4PersistenceWriter:
             "unconfirmed_command_oldest_age_ms": oldest_any,
             "unconfirmed_trade_critical_oldest_age_ms": oldest_critical,
             "inflight_registered_commands": inflight_registered,
+            **current_rates,
             **gate,
         })
         return result
@@ -916,10 +1041,13 @@ class V4PersistenceWriter:
             self._metrics["terminal_committed"] += int(command.terminal)
             self._metrics["last_commit_ts_ms"] = _now_ms()
             self._metrics["last_committed_command_id"] = command.command_id
+            committed_mono = time.monotonic()
+            self._critical_commit_times.append(committed_mono)
             self._inflight_commands.pop(command.command_id, None)
             self._metrics["unconfirmed_command_count"] = max(
                 0, int(self._metrics["unconfirmed_command_count"]) - 1)
             if _is_trade_critical(command):
+                self._trade_critical_commit_times.append(committed_mono)
                 self._metrics["unconfirmed_trade_critical_count"] = max(
                     0, int(self._metrics["unconfirmed_trade_critical_count"]) - 1)
             self._metrics["heartbeat_ts_ms"] = _now_ms()
@@ -1048,6 +1176,18 @@ class V4PersistenceWriter:
                         "JournalFinalizationFailed:"
                         f"{type(exc).__name__}:{exc}")[:500]
                 self._metrics["heartbeat_ts_ms"] = _now_ms()
+            # The engine must distinguish a durably FAILED command (known
+            # logical evidence loss) from an acknowledgement/journal failure
+            # whose durable outcome is still unknown.  Preserve that exact
+            # classification on the original exception propagated to its
+            # awaiting caller.
+            try:
+                setattr(
+                    exc, "persistence_failure_finalized",
+                    bool(failure_finalized),
+                )
+            except Exception:
+                pass
             if not envelope.future.done():
                 envelope.future.set_exception(exc)
 
@@ -1186,6 +1326,12 @@ class V4TelemetryStoreSink:
             "state": "NEW", "owner_thread_id": 0, "batches": 0,
             "calls": 0, "failures": 0, "last_commit_ts_ms": 0,
             "last_duration_ms": 0.0, "max_duration_ms": 0.0,
+            "last_transaction_duration_ms": 0.0,
+            "max_transaction_duration_ms": 0.0,
+            "last_transaction_fixed_overhead_ms": 0.0,
+            "last_row_work_duration_ms": 0.0,
+            "last_row_call_p95_ms": 0.0,
+            "last_row_call_max_ms": 0.0,
             "last_outer_transactions": 0, "last_error": "",
             "priority_skipped_batches": 0,
             "deadline_exceeded_batches": 0, "batch_rejected_count": 0,
@@ -1263,13 +1409,19 @@ class V4TelemetryStoreSink:
             raise
         if not rows:
             return []
-        if not self._write_gate.try_acquire_telemetry():
+        deferral_reason = self._write_gate.try_acquire_telemetry_reason()
+        if deferral_reason is not None:
             self._metrics["priority_skipped_batches"] += 1
+            if deferral_reason == "maintenance_pending":
+                self._metrics["state"] = "DEFERRED_MAINTENANCE"
+                self._metrics["last_error"] = "maintenance_pending"
+                raise V4TelemetryMaintenanceDeferral(
+                    "telemetry deferred so bounded maintenance can run")
             self._metrics["state"] = "DEGRADED_CRITICAL_PRIORITY"
             self._metrics["last_error"] = "critical_persistence_pending"
             raise V4TelemetryPrioritySkip(
                 "telemetry skipped because critical persistence is pending")
-        started = time.monotonic()
+        started_clock = time.perf_counter()
         allowed_s = self.max_transaction_ms / 1_000.0
         if timeout_s is not None:
             allowed_s = min(allowed_s, float(timeout_s))
@@ -1280,9 +1432,12 @@ class V4TelemetryStoreSink:
         # budget, so a busy writer alone could exhaust the deadline before a
         # single row was written and roll the whole chunk back.
         deadline: Optional[float] = None
+        transaction_started_clock: Optional[float] = None
+        row_call_durations_ms: list[float] = []
 
         def arm_deadline() -> None:
-            nonlocal deadline
+            nonlocal deadline, transaction_started_clock
+            transaction_started_clock = time.perf_counter()
             deadline = time.monotonic() + allowed_s
 
         def cooperative_check() -> None:
@@ -1307,19 +1462,55 @@ class V4TelemetryStoreSink:
                 results = []
                 for row in rows:
                     cooperative_check()
+                    row_started_clock = time.perf_counter()
                     results.append(getattr(store, row.method)(
                         *row.args, **dict(row.kwargs)))
+                    row_call_durations_ms.append(max(
+                        0.0,
+                        (time.perf_counter() - row_started_clock) * 1_000.0,
+                    ))
                     # Check after every nested Store call, including the last,
                     # so a critical arrival rolls back this telemetry chunk
                     # instead of waiting for its commit.
                     cooperative_check()
-            duration = max(0.0, (time.monotonic() - started) * 1_000.0)
+            completed_clock = time.perf_counter()
+            duration = max(
+                0.0, (completed_clock - started_clock) * 1_000.0)
+            transaction_duration = max(
+                0.0,
+                (completed_clock - (
+                    transaction_started_clock
+                    if transaction_started_clock is not None
+                    else started_clock
+                )) * 1_000.0,
+            )
             self._metrics["batches"] += 1
             self._metrics["calls"] += len(rows)
+            self._metrics["state"] = "HEALTHY"
             self._metrics["last_commit_ts_ms"] = _now_ms()
             self._metrics["last_duration_ms"] = duration
             self._metrics["max_duration_ms"] = max(
                 float(self._metrics["max_duration_ms"]), duration)
+            self._metrics["last_transaction_duration_ms"] = (
+                transaction_duration)
+            self._metrics["max_transaction_duration_ms"] = max(
+                float(self._metrics["max_transaction_duration_ms"]),
+                transaction_duration,
+            )
+            row_work_duration = sum(row_call_durations_ms)
+            ordered_row_calls = sorted(row_call_durations_ms)
+            row_p95_index = max(
+                0,
+                math.ceil(0.95 * len(ordered_row_calls)) - 1,
+            )
+            self._metrics["last_row_work_duration_ms"] = row_work_duration
+            self._metrics["last_row_call_p95_ms"] = (
+                ordered_row_calls[row_p95_index]
+                if ordered_row_calls else 0.0)
+            self._metrics["last_row_call_max_ms"] = max(
+                ordered_row_calls, default=0.0)
+            self._metrics["last_transaction_fixed_overhead_ms"] = max(
+                0.0, transaction_duration - row_work_duration)
             after_transactions = store.transaction_counters
             self._metrics["last_outer_transactions"] = (
                 after_transactions["committed"] - before_transactions["committed"])
@@ -1394,6 +1585,7 @@ __all__ = [
     "V4PersistenceError", "V4PersistenceIdempotencyConflict",
     "V4PersistenceQueueFull", "V4PersistenceTimeout", "V4PersistenceWriter",
     "V4TelemetryBatchTooLarge", "V4TelemetryDeadlineExceeded",
+    "V4TelemetryMaintenanceDeferral",
     "V4TelemetryPrioritySkip", "V4TelemetryStoreSink",
     "V4TelemetryWriteContention",
 ]

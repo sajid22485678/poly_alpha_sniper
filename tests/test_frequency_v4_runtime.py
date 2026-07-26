@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import ast
 import json
 import os
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from poly_alpha_sniper.lite_frequency_v4 import bot as bot_module
 from poly_alpha_sniper.lite_frequency_v4.config import (
     FREQUENCY_V4_DB_PATH,
     FREQUENCY_V4_EXPORT_DIR,
@@ -23,6 +25,72 @@ from poly_alpha_sniper.lite_frequency_v4.runtime import (
 
 def _read(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_bot_preserves_failed_terminal_state_when_stop_raises():
+    class FailingStopEngine:
+        def __init__(self):
+            self._stopping = asyncio.Event()
+            self._critical_evidence_lost_rows = 7
+
+        async def run_until_stopped(self):
+            return
+
+        async def stop(self, _reason):
+            raise RuntimeError("terminal command failed")
+
+        def _runtime_state(self, state):
+            assert state == "FAILED"
+            return {
+                **immutable_safety_state(),
+                "state": state,
+                "persistence": {
+                    "telemetry": {"true_lost_critical_rows": 7},
+                },
+            }
+
+    exit_code, final = asyncio.run(
+        bot_module._main(None, None, FailingStopEngine()))
+    assert exit_code == 1
+    assert final is not None
+    assert final["state"] == "FAILED"
+    assert final["persistence"]["telemetry"][
+        "true_lost_critical_rows"] == 7
+
+
+def test_bot_minimal_fallback_preserves_lifetime_and_new_critical_loss():
+    class FailingStateEngine:
+        def __init__(self):
+            self._stopping = asyncio.Event()
+            self.session_id = "failed-session"
+            self._critical_evidence_lost_rows = 7
+            self._telemetry_lifetime_baseline = {
+                "raw_telemetry_loss_count": 68_361,
+                "failed_batches": 35,
+                "true_lost_critical_rows": 2,
+            }
+            self._db_path_resolved = "D:/v4/poly_alpha_frequency_v4.db"
+            self._runtime_dir_resolved = "D:/v4/runtime"
+            self._export_path_resolved = "D:/v4/export/frequency_v4_dashboard.json"
+            self._lineage_fingerprint = "a" * 64
+
+        async def run_until_stopped(self):
+            return
+
+        async def stop(self, _reason):
+            raise RuntimeError("terminal command failed")
+
+        def _runtime_state(self, _state):
+            raise RuntimeError("state capture failed")
+
+    exit_code, final = asyncio.run(
+        bot_module._main(None, None, FailingStateEngine()))
+    assert exit_code == 1
+    assert final is not None
+    telemetry = final["persistence"]["telemetry"]
+    assert telemetry["true_lost_critical_rows"] == 9
+    assert telemetry["raw_telemetry_loss_count"] == 68_361
+    assert telemetry["failed_batches"] == 35
 
 
 def test_immutable_runtime_safety_contract_has_no_live_execution_surface():

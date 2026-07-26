@@ -129,8 +129,17 @@ export default function V4Dashboard() {
   const criticalWriter = record(persistenceSummary.critical);
   const telemetryWriter = record(persistenceSummary.telemetry);
   const checkpoint = record(persistenceSummary.latest_checkpoint);
+  const runtimeSummary = record(data.runtime);
   const persistenceReady = persistenceSummary.operational_ready === true;
   const criticalReady = persistenceSummary.critical_execution_ready === true;
+  const runtimeState = String(runtimeSummary.state ?? "").toUpperCase();
+  const terminalRuntime = runtimeState === "STOPPED" || runtimeState === "FAILED";
+  const expectedOpenSessions = terminalRuntime ? 0 : 1;
+  const reportedOpenSessions = Number(runtimeSummary.open_runtime_session_count);
+  const currentSessionOpen = runtimeSummary.current_session_open;
+  const runtimeSessionHealthy = Number.isFinite(reportedOpenSessions)
+    && reportedOpenSessions === expectedOpenSessions
+    && currentSessionOpen === (expectedOpenSessions === 1);
 
   return (
     <main>
@@ -187,9 +196,21 @@ export default function V4Dashboard() {
         <Card label="critical p95 ms" value={criticalWriter.commit_latency_p95_ms} />
         <Card label="telemetry queue" value={`${fmt(telemetryWriter.queue_depth, 0)} / ${fmt(telemetryWriter.queue_capacity, 0)}`} tone={Number(telemetryWriter.rows_dropped ?? 0) === 0 ? "good" : "warn"} />
         <Card label="telemetry coalesced" value={telemetryWriter.rows_coalesced} />
+        <Card label="telemetry sampled" value={telemetryWriter.rows_sampled} />
+        <Card label="telemetry deferred" value={telemetryWriter.rows_deferred} />
         <Card label="telemetry dropped" value={telemetryWriter.rows_dropped} tone={Number(telemetryWriter.rows_dropped ?? 0) === 0 ? "good" : "warn"} />
         <Card label="telemetry batch failures" value={telemetryWriter.failed_batches} tone={Number(telemetryWriter.failed_batches ?? 0) === 0 ? "good" : "warn"} />
+        <Card label="raw / offered / admitted rps" value={`${fmt(telemetryWriter.incoming_rows_per_second)} / ${fmt(telemetryWriter.offered_rows_per_second)} / ${fmt(telemetryWriter.admitted_rows_per_second)}`} />
+        <Card label="committed rps" value={telemetryWriter.committed_rows_per_second} tone={Number(telemetryWriter.committed_rows_per_second ?? 0) >= Number(telemetryWriter.admitted_rows_per_second ?? 0) ? "good" : "warn"} />
+        <Card label="queue slope rows/s" value={telemetryWriter.queue_depth_slope_per_second} tone={Number(telemetryWriter.queue_depth_slope_per_second ?? 0) <= 0 ? "good" : "warn"} />
+        <Card label="chunk selected / admitted req / offered req / safe" value={`${fmt(telemetryWriter.selected_chunk, 0)} / ${fmt(telemetryWriter.throughput_required_chunk, 0)} / ${fmt(telemetryWriter.offered_required_chunk, 0)} / ${fmt(telemetryWriter.deadline_safe_chunk, 0)}`} />
+        <Card label="telemetry controller" value={telemetryWriter.controller_state} tone={telemetryWriter.current_operational_healthy === true ? "good" : "warn"} />
+        <Card label="overload policy" value={telemetryWriter.overload_active === true ? telemetryWriter.overload_reason : "inactive"} tone={telemetryWriter.overload_active === true ? "warn" : "good"} />
+        <Card label="checkpoint deferrals" value={telemetryWriter.checkpoint_deferral_batches} />
+        <Card label="critical evidence lost" value={telemetryWriter.true_lost_critical_rows} tone={Number(telemetryWriter.true_lost_critical_rows ?? 0) === 0 ? "good" : "bad"} />
         <Card label="critical evidence incomplete" value={telemetryWriter.critical_evidence_incomplete_count} tone={Number(telemetryWriter.critical_evidence_incomplete_count ?? 0) === 0 ? "good" : "bad"} />
+        <Card label="open runtime sessions" value={`${fmt(runtimeSummary.open_runtime_session_count, 0)} (expected ${expectedOpenSessions})`} tone={runtimeSessionHealthy ? "good" : "bad"} />
+        <Card label="current session open" value={currentSessionOpen} tone={runtimeSessionHealthy ? "good" : "bad"} />
         <Card label="WAL bytes" value={record(data.database).wal_bytes} />
         <Card label="checkpoint status" value={checkpoint.status ?? checkpoint.mode} tone={checkpoint.successful === false ? "warn" : "neutral"} />
         <Card label="checkpoint busy" value={checkpoint.busy_result} tone={Number(checkpoint.busy_result ?? 0) === 0 ? "good" : "warn"} />

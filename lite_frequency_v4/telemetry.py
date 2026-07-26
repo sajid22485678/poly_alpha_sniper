@@ -20,6 +20,10 @@ documented cases, each with its own counter:
 ``coalesced``/``deduplicated``
     Repeated identical state within ``coalescing_interval_s``, an explicit
     duplicate ``dedupe_key``, or a deterministic ``bucket_key`` merge.
+``sampled``/``deferred``
+    An explicitly classified non-critical row was sampled to measured sink
+    capacity, or an aggregate was deferred for caller retry.  Neither is
+    reported as unknown loss.
 ``dropped`` (``telemetry_queue_full``)
     Admission overflow once ``capacity`` rows are already pending.
 ``dropped`` (batch failure)
@@ -41,16 +45,13 @@ retry loop:
 for an exponentially growing window (capped at 2 s).  Admission keeps running;
 only dispatch waits.  A clean commit clears it.
 
-*Measured physical-chunk sizing* — the sink enforces a short cooperative
-transaction deadline.  A chunk larger than that budget allows, at the current
-per-row database cost, is guaranteed to miss it.  Rather than discovering the
-limit by losing a batch to it, the aggregator asks the sink for its budget,
-tracks per-row cost from successful commits, and sizes each chunk to use only
-half the budget.  A miss additionally proves the true cost is at least
-``budget/rows`` and halves the size immediately.  Because the size is computed
-from measurement it recovers when the database gets faster again -- right
-after a WAL truncation, for example -- instead of staying pinned at its worst
-observed value for the life of the process.
+*Throughput-aware physical-chunk sizing* — a rolling current window separates
+the deadline-safe chunk, the service floor needed to stabilize/drain the queue,
+and the physical maximum.  Transaction hold-time tails bound the safe side;
+admitted/committed rates and queue slope drive the service side.  In-range
+growth is gradual, deadline pressure shrinks immediately, overload uses only
+caller-selected non-critical policies, and a bounded healthy window restores
+operational health without erasing lifetime audit counters.
 """
 from __future__ import annotations
 
@@ -83,7 +84,33 @@ class TelemetryDisposition(str, Enum):
 
     ACCEPTED = "ACCEPTED"
     COALESCED = "COALESCED"
+    SAMPLED = "SAMPLED"
+    DEFERRED = "DEFERRED"
     DROPPED = "DROPPED"
+
+
+class TelemetryOverloadPolicy(str, Enum):
+    """Explicit non-critical behavior once service pressure is detected.
+
+    The telemetry lane never carries authoritative trade evidence.  Callers
+    still opt into the exact overload behavior so pressure cannot silently
+    change the retention contract:
+
+    ``ADMIT``
+        Preserve the legacy behavior and admit until the hard queue bound.
+    ``LATEST``
+        Under pressure, replace the newest still-pending row for the same key.
+    ``SAMPLE``
+        Under pressure, retain a deterministic capacity-sized sample.
+    ``DEFER``
+        Refuse admission without loss so the caller can keep its aggregate and
+        retry later.
+    """
+
+    ADMIT = "ADMIT"
+    LATEST = "LATEST"
+    SAMPLE = "SAMPLE"
+    DEFER = "DEFER"
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,14 +188,840 @@ class _Pending:
     state_admitted_monotonic: Optional[float] = None
     aggregate_key: Optional[tuple[str, str, int, int]] = None
     merge_hook: Optional[MergeHook] = None
+    overload_key: Optional[str] = None
     requeue_attempts: int = 0
 
 
+# Controller constants are intentionally module-local and deterministic.  The
+# queue thresholds are derived from the physical batch cap below so production
+# pressure is handled before the maintenance policy's 256-row gate.
+_RATE_WINDOW_S = 15
+_COST_WINDOW_S = 20.0
+# The cost model is bounded by both wall time and recent transactions.  Under
+# sustained high throughput, transaction count is the faster clock: retaining
+# thousands of obsolete slow-size samples can pin the inferred marginal cost
+# after the sink has demonstrably recovered.
+_MAX_COST_SAMPLES = 256
+_DEADLINE_BUDGET_FRACTION = 0.80
+_THROUGHPUT_MARGIN = 1.20
+_DRAIN_HORIZON_S = 10.0
+_UP_STEP_FRACTION = 0.25
+_UP_HEADROOM_WINDOWS = 5
+_OVERLOAD_ENTER_WINDOWS = 2
+_OVERLOAD_EXIT_WINDOWS = 5
+_RECOVERY_HEALTHY_WINDOWS = 10
+_RECOVERY_SETTLE_S = max(float(_RATE_WINDOW_S), _COST_WINDOW_S)
+_MIN_SAMPLING_KEEP_RATIO = 0.05
+_SAMPLING_CAPACITY_RESERVE = 0.90
+
+
+@dataclass(slots=True)
+class _RateBucket:
+    tick: int = -1
+    incoming: int = 0
+    offered: int = 0
+    admitted: int = 0
+    committed: int = 0
+    logical_committed: int = 0
+    coalesced: int = 0
+    sampled: int = 0
+    deferred: int = 0
+    overload_handled: int = 0
+    lost: int = 0
+    admission_overflow: int = 0
+    dispatch_attempts: int = 0
+    dispatch_successes: int = 0
+    failed_batches: int = 0
+    deadline_failures: int = 0
+    priority_deferrals: int = 0
+    checkpoint_deferrals: int = 0
+    first_depth: Optional[int] = None
+    last_depth: Optional[int] = None
+    max_depth: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class _WindowView:
+    elapsed_s: float
+    incoming: int
+    offered: int
+    admitted: int
+    committed: int
+    logical_committed: int
+    coalesced: int
+    sampled: int
+    deferred: int
+    overload_handled: int
+    lost: int
+    admission_overflow: int
+    dispatch_attempts: int
+    dispatch_successes: int
+    failed_batches: int
+    deadline_failures: int
+    priority_deferrals: int
+    checkpoint_deferrals: int
+    incoming_rps: float
+    offered_rps: float
+    admitted_rps: float
+    committed_rps: float
+    logical_committed_rps: float
+    dispatch_attempt_rps: float
+    dispatch_success_rps: float
+    queue_slope_rps: float
+    backlogged_seconds: float
+    first_depth: Optional[int]
+    last_depth: Optional[int]
+
+
+class _RollingTelemetryWindow:
+    """Fixed one-second ring used by the live controller.
+
+    Admission stays O(1), memory is fixed, and current decisions never depend
+    on lifetime averages.  The class accepts explicit monotonic timestamps so
+    its math can be tested without sleeping.
+    """
+
+    _COUNTER_FIELDS = frozenset({
+        "incoming", "offered", "admitted", "committed", "logical_committed",
+        "coalesced", "sampled", "deferred", "lost",
+        "overload_handled",
+        "admission_overflow", "dispatch_attempts", "dispatch_successes",
+        "failed_batches", "deadline_failures", "priority_deferrals",
+        "checkpoint_deferrals",
+    })
+
+    def __init__(self, *, window_s: int = _RATE_WINDOW_S,
+                 started_monotonic: Optional[float] = None) -> None:
+        if isinstance(window_s, bool) or not isinstance(window_s, int) or window_s < 3:
+            raise ValueError("telemetry rate window must be an integer >= 3")
+        self.window_s = int(window_s)
+        self.started_monotonic = (
+            time.monotonic() if started_monotonic is None
+            else float(started_monotonic)
+        )
+        self._buckets = [_RateBucket() for _ in range(self.window_s)]
+
+    def _bucket(self, now: float) -> _RateBucket:
+        tick = math.floor(float(now))
+        index = tick % self.window_s
+        bucket = self._buckets[index]
+        if bucket.tick != tick:
+            bucket = _RateBucket(tick=tick)
+            self._buckets[index] = bucket
+        return bucket
+
+    def add(self, now: float, **deltas: int) -> None:
+        unknown = set(deltas) - self._COUNTER_FIELDS
+        if unknown:
+            raise ValueError(f"unknown telemetry rate fields: {sorted(unknown)}")
+        bucket = self._bucket(now)
+        for name, value in deltas.items():
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"telemetry rate delta {name} must be non-negative")
+            setattr(bucket, name, int(getattr(bucket, name)) + int(value))
+
+    def observe_depth(self, now: float, depth: int) -> None:
+        value = max(0, int(depth))
+        bucket = self._bucket(now)
+        if bucket.first_depth is None:
+            bucket.first_depth = value
+        bucket.last_depth = value
+        bucket.max_depth = max(bucket.max_depth, value)
+
+    def view(self, now: float, *, include_current: bool = True) -> _WindowView:
+        current_tick = math.floor(float(now))
+        latest = current_tick if include_current else current_tick - 1
+        earliest = latest - self.window_s + 1
+        rows = sorted(
+            (bucket for bucket in self._buckets
+             if earliest <= bucket.tick <= latest),
+            key=lambda bucket: bucket.tick,
+        )
+        elapsed = min(float(self.window_s), max(
+            1.0,
+            float(latest - math.floor(self.started_monotonic) + 1),
+        ))
+        totals = {
+            name: sum(int(getattr(bucket, name)) for bucket in rows)
+            for name in self._COUNTER_FIELDS
+        }
+        points = [
+            (float(bucket.tick), float(bucket.last_depth))
+            for bucket in rows if bucket.last_depth is not None
+        ]
+        slope = 0.0
+        if len(points) >= 3:
+            mean_x = sum(point[0] for point in points) / len(points)
+            mean_y = sum(point[1] for point in points) / len(points)
+            denominator = sum((point[0] - mean_x) ** 2 for point in points)
+            if denominator > 0:
+                slope = sum(
+                    (point[0] - mean_x) * (point[1] - mean_y)
+                    for point in points
+                ) / denominator
+        backlogged = float(sum(bucket.max_depth > 0 for bucket in rows))
+        first_depth = next(
+            (bucket.first_depth for bucket in rows
+             if bucket.first_depth is not None),
+            None,
+        )
+        last_depth = next(
+            (bucket.last_depth for bucket in reversed(rows)
+             if bucket.last_depth is not None),
+            None,
+        )
+        return _WindowView(
+            elapsed_s=elapsed,
+            incoming=totals["incoming"],
+            offered=totals["offered"],
+            admitted=totals["admitted"],
+            committed=totals["committed"],
+            logical_committed=totals["logical_committed"],
+            coalesced=totals["coalesced"],
+            sampled=totals["sampled"],
+            deferred=totals["deferred"],
+            overload_handled=totals["overload_handled"],
+            lost=totals["lost"],
+            admission_overflow=totals["admission_overflow"],
+            dispatch_attempts=totals["dispatch_attempts"],
+            dispatch_successes=totals["dispatch_successes"],
+            failed_batches=totals["failed_batches"],
+            deadline_failures=totals["deadline_failures"],
+            priority_deferrals=totals["priority_deferrals"],
+            checkpoint_deferrals=totals["checkpoint_deferrals"],
+            incoming_rps=totals["incoming"] / elapsed,
+            offered_rps=totals["offered"] / elapsed,
+            admitted_rps=totals["admitted"] / elapsed,
+            committed_rps=totals["committed"] / elapsed,
+            logical_committed_rps=totals["logical_committed"] / elapsed,
+            dispatch_attempt_rps=totals["dispatch_attempts"] / elapsed,
+            dispatch_success_rps=totals["dispatch_successes"] / elapsed,
+            queue_slope_rps=float(slope),
+            backlogged_seconds=backlogged,
+            first_depth=first_depth,
+            last_depth=last_depth,
+        )
+
+
+def required_rows_per_dispatch(
+    *,
+    admitted_rows_per_second: float,
+    sustainable_dispatches_per_second: float,
+    queue_depth: int,
+    queue_target: int,
+    drain_horizon_s: float = _DRAIN_HORIZON_S,
+    safety_margin: float = _THROUGHPUT_MARGIN,
+) -> int:
+    """Return the service floor needed to stabilize and drain the queue."""
+
+    values = (
+        admitted_rows_per_second, sustainable_dispatches_per_second,
+        drain_horizon_s, safety_margin,
+    )
+    if any(
+        isinstance(value, bool) or not isinstance(value, (int, float))
+        or not math.isfinite(float(value)) or float(value) < 0
+        for value in values
+    ):
+        raise ValueError("throughput inputs must be finite and non-negative")
+    if float(drain_horizon_s) <= 0 or float(safety_margin) <= 0:
+        raise ValueError("drain horizon and safety margin must be positive")
+    demand = max(0.0, float(admitted_rows_per_second))
+    demand += max(0, int(queue_depth) - max(0, int(queue_target))) / float(
+        drain_horizon_s)
+    if demand <= 0:
+        return 1
+    if float(sustainable_dispatches_per_second) <= 0:
+        # Explicit overload sentinel.  The caller compares this floor with the
+        # physical/deadline-safe capacity and never dispatches this many rows.
+        return max(2, int(queue_depth) + 1)
+    return max(
+        1,
+        math.ceil(
+            demand * float(safety_margin)
+            / float(sustainable_dispatches_per_second)
+        ),
+    )
+
+
+def deadline_safe_capacity(
+    *,
+    transaction_budget_ms: Optional[float],
+    tail_ms_per_row: Optional[float],
+    physical_max_chunk: int,
+    fixed_overhead_ms: float = 0.0,
+) -> int:
+    """Bound a chunk by a conservative affine transaction-cost estimate.
+
+    ``fixed_overhead_ms`` prevents transaction setup/commit cost from being
+    multiplied once per row.  The remaining 20 percent of the physical budget
+    is reserved for scheduling and tail jitter.
+    """
+
+    if isinstance(physical_max_chunk, bool) or int(physical_max_chunk) < 1:
+        raise ValueError("physical_max_chunk must be positive")
+    maximum = int(physical_max_chunk)
+    if transaction_budget_ms is None:
+        return maximum
+    if (isinstance(transaction_budget_ms, bool)
+            or not isinstance(transaction_budget_ms, (int, float))
+            or not math.isfinite(float(transaction_budget_ms))
+            or float(transaction_budget_ms) <= 0):
+        raise ValueError("transaction budget must be finite and positive")
+    if tail_ms_per_row is None:
+        return 1
+    if (isinstance(tail_ms_per_row, bool)
+            or not isinstance(tail_ms_per_row, (int, float))
+            or not math.isfinite(float(tail_ms_per_row))
+            or float(tail_ms_per_row) <= 0):
+        raise ValueError("tail cost must be finite and positive")
+    if (isinstance(fixed_overhead_ms, bool)
+            or not isinstance(fixed_overhead_ms, (int, float))
+            or not math.isfinite(float(fixed_overhead_ms))
+            or float(fixed_overhead_ms) < 0):
+        raise ValueError("fixed overhead must be finite and non-negative")
+    usable = (
+        float(transaction_budget_ms) * _DEADLINE_BUDGET_FRACTION
+        - float(fixed_overhead_ms)
+    )
+    raw = math.floor(
+        usable / max(float(tail_ms_per_row), 1e-3)
+    )
+    return max(1, min(maximum, raw))
+
+
+@dataclass(frozen=True, slots=True)
+class _TxnObservation:
+    ts: float
+    rows: int
+    transaction_ms: float
+    total_ms: float
+    deadline_miss: bool = False
+    fixed_overhead_ms: Optional[float] = None
+    marginal_ms_per_row: Optional[float] = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ControlDecision:
+    physical_max_chunk: int
+    deadline_safe_chunk: int
+    throughput_required_chunk: int
+    offered_required_chunk: int
+    selected_chunk: int
+    sustainable_dispatches_per_second: float
+    estimated_sink_capacity_rows_per_second: float
+    overload_active: bool
+    controlled_overload: bool
+    overload_reason: Optional[str]
+    sampling_keep_ratio: float
+    controller_state: str
+    current_operational_healthy: bool
+    recovery_healthy_windows: int
+    view: _WindowView
+    controller_view: _WindowView
+    transaction_duration_avg_ms: float
+    transaction_duration_p95_ms: float
+    transaction_duration_p99_ms: float
+    transaction_fixed_overhead_ms: float
+    tail_ms_per_row: Optional[float]
+
+
+class _AdaptiveTelemetryController:
+    """Deadline-safe, throughput-aware controller with bounded recovery."""
+
+    def __init__(
+        self, *, physical_max_chunk: int, queue_capacity: int,
+        flush_interval_s: float, budgeted_sink: bool,
+        started_monotonic: Optional[float] = None,
+    ) -> None:
+        self.physical_max_chunk = max(1, int(physical_max_chunk))
+        self.queue_capacity = max(1, int(queue_capacity))
+        self.flush_interval_s = max(1e-3, float(flush_interval_s))
+        # Upward adaptation is evaluated in real flush intervals.  This keeps
+        # the controller responsive while a fast sink is continuously draining
+        # a backlog, without letting a same-timestamp burst count as multiple
+        # healthy windows.
+        self._control_interval_s = self.flush_interval_s
+        self._up_min_interval_s = (
+            _UP_HEADROOM_WINDOWS * self._control_interval_s)
+        # A one-second sampling cadence still represents sustained telemetry,
+        # but a longer unobserved gap must break the consecutive-headroom
+        # streak.  Expressing this in control ticks keeps fast sinks responsive.
+        self._up_max_headroom_gap_ticks = max(
+            1, math.ceil(1.0 / self._control_interval_s))
+        started = time.monotonic() if started_monotonic is None else float(
+            started_monotonic)
+        self.window = _RollingTelemetryWindow(
+            window_s=_RATE_WINDOW_S, started_monotonic=started)
+        self._transactions: deque[_TxnObservation] = deque(
+            maxlen=_MAX_COST_SAMPLES)
+        high_candidate = max(64, self.physical_max_chunk * 4)
+        self.high_water = max(
+            1, min(max(1, self.queue_capacity - 1), high_candidate))
+        self.low_water = max(
+            0, min(self.high_water - 1, max(16, self.physical_max_chunk * 2)))
+        self.queue_target = self.low_water
+        # A four-row bootstrap is small enough to remain conservative before a
+        # transaction-cost sample exists, while avoiding a self-fulfilling
+        # one-row ceiling caused by measuring only per-transaction overhead.
+        bootstrap = min(4, self.physical_max_chunk)
+        self.selected_chunk = bootstrap if budgeted_sink else self.physical_max_chunk
+        self.deadline_safe_chunk = (
+            bootstrap if budgeted_sink else self.physical_max_chunk)
+        self.throughput_required_chunk = 1
+        self.offered_required_chunk = 1
+        self._active_deadline_cap: Optional[int] = None
+        self._deadline_cap_until = 0.0
+        self._headroom_streak = 0
+        self._last_increase_ts = started - self._up_min_interval_s
+        self._successes_at_selected = 0
+        self._overload_active = False
+        self._overload_reason: Optional[str] = None
+        self._overload_enter_streak = 0
+        self._overload_exit_streak = 0
+        self._healthy_streak = 0
+        self._settled_since = started
+        self._last_control_tick = (
+            math.floor(started / self._control_interval_s) - 1)
+        self._last_decision: Optional[_ControlDecision] = None
+
+    @staticmethod
+    def _percentile(values: Sequence[float], fraction: float) -> float:
+        if not values:
+            return 0.0
+        ordered = sorted(float(value) for value in values)
+        index = min(
+            len(ordered) - 1,
+            max(0, math.ceil(float(fraction) * len(ordered)) - 1),
+        )
+        return ordered[index]
+
+    def _transaction_stats(
+        self, now: float,
+    ) -> tuple[float, float, float, float, Optional[float], dict[int, float]]:
+        cutoff = float(now) - _COST_WINDOW_S
+        while self._transactions and self._transactions[0].ts < cutoff:
+            self._transactions.popleft()
+        rows = tuple(self._transactions)
+        if not rows:
+            return 0.0, 0.0, 0.0, 0.0, None, {}
+        total = tuple(row.total_ms for row in rows)
+        by_size: dict[int, list[float]] = {}
+        for row in rows:
+            by_size.setdefault(max(1, row.rows), []).append(row.transaction_ms)
+        chunk_p95 = {
+            size: (
+                max(values) if len(values) < 5
+                else self._percentile(values, 0.95)
+            )
+            for size, values in by_size.items()
+        }
+        ordered = sorted(chunk_p95.items())
+        slopes = [
+            (right_ms - left_ms) / (right_rows - left_rows)
+            for left_index, (left_rows, left_ms) in enumerate(ordered)
+            for right_rows, right_ms in ordered[left_index + 1:]
+            if right_ms > left_ms
+        ]
+        if slopes:
+            marginal = max(1e-3, self._percentile(slopes, 0.95))
+            intercepts = [
+                max(0.0, duration - marginal * size)
+                for size, duration in ordered
+            ]
+            fixed = self._percentile(intercepts, 0.95)
+        else:
+            # With one observed size there is not enough information to split
+            # fixed and marginal cost.  This all-variable fallback is safe but
+            # no longer permanent: fixed-time, one-step probes create the
+            # second size needed for the affine estimate.
+            fixed = 0.0
+            marginal = max(
+                1e-3,
+                max(duration / max(1, size) for size, duration in ordered),
+            )
+        direct_fixed = [
+            float(row.fixed_overhead_ms)
+            for row in rows if row.fixed_overhead_ms is not None
+        ]
+        direct_marginal = [
+            float(row.marginal_ms_per_row)
+            for row in rows if row.marginal_ms_per_row is not None
+        ]
+        if direct_fixed:
+            fixed = max(fixed, self._percentile(direct_fixed, 0.95))
+        if direct_marginal:
+            marginal = max(
+                1e-3, self._percentile(direct_marginal, 0.95))
+        miss_floor = max(
+            (
+                row.transaction_ms / max(1, row.rows)
+                for row in rows if row.deadline_miss
+            ),
+            default=0.0,
+        )
+        marginal = max(marginal, miss_floor)
+        return (
+            sum(total) / len(total),
+            self._percentile(total, 0.95),
+            self._percentile(total, 0.99),
+            fixed,
+            marginal,
+            chunk_p95,
+        )
+
+    def _reset_settle(self, now: float) -> None:
+        self._settled_since = float(now)
+        self._healthy_streak = 0
+
+    def add(self, now: float, *, queue_depth: int, **deltas: int) -> None:
+        self.window.add(now, **deltas)
+        self.window.observe_depth(now, queue_depth)
+        if any(int(deltas.get(name) or 0) > 0 for name in (
+            "lost", "admission_overflow", "failed_batches",
+            "deadline_failures",
+        )):
+            self._reset_settle(now)
+
+    def observe_commit(
+        self, *, now: float, rows: int, logical_rows: int,
+        transaction_ms: float, total_ms: float, queue_depth: int,
+        fixed_overhead_ms: Optional[float] = None,
+        marginal_ms_per_row: Optional[float] = None,
+    ) -> None:
+        count = max(0, int(rows))
+        if count <= 0:
+            return
+        transaction = max(0.0, float(transaction_ms))
+        total = max(transaction, float(total_ms), 1e-3)
+        fixed = (
+            None if fixed_overhead_ms is None
+            else max(0.0, float(fixed_overhead_ms))
+        )
+        marginal = (
+            None if marginal_ms_per_row is None
+            else max(1e-3, float(marginal_ms_per_row))
+        )
+        self._transactions.append(_TxnObservation(
+            ts=float(now), rows=count,
+            transaction_ms=max(transaction, 1e-3), total_ms=total,
+            fixed_overhead_ms=fixed,
+            marginal_ms_per_row=marginal,
+        ))
+        if count >= self.selected_chunk:
+            self._successes_at_selected += 1
+        self.add(
+            now, queue_depth=queue_depth, committed=count,
+            logical_committed=max(0, int(logical_rows)),
+            dispatch_successes=1,
+        )
+
+    def observe_deadline_miss(
+        self, *, now: float, failed_rows: int,
+        transaction_budget_ms: Optional[float], queue_depth: int,
+    ) -> None:
+        rows = max(1, int(failed_rows))
+        current = max(1, min(self.selected_chunk, rows))
+        cap = max(1, current // 2)
+        self._active_deadline_cap = cap
+        self._deadline_cap_until = float(now) + _COST_WINDOW_S
+        self.selected_chunk = min(self.selected_chunk, cap)
+        self.deadline_safe_chunk = min(self.deadline_safe_chunk, cap)
+        self._headroom_streak = 0
+        self._successes_at_selected = 0
+        self._reset_settle(now)
+        if transaction_budget_ms is not None:
+            budget = max(1e-3, float(transaction_budget_ms))
+            self._transactions.append(_TxnObservation(
+                ts=float(now), rows=rows,
+                transaction_ms=budget, total_ms=budget,
+                deadline_miss=True,
+            ))
+        self.add(
+            now, queue_depth=queue_depth,
+            deadline_failures=1, failed_batches=1,
+        )
+
+    def _sustainable_dispatch_rate(
+        self, view: _WindowView, total_p95_ms: float,
+    ) -> float:
+        latency_capacity = (
+            1_000.0 / max(1.0, total_p95_ms)
+            if total_p95_ms > 0 else 1.0 / self.flush_interval_s
+        )
+        if view.backlogged_seconds >= 3.0 and view.dispatch_successes > 0:
+            observed_busy = view.dispatch_successes / view.backlogged_seconds
+            return max(1e-6, min(latency_capacity, observed_busy))
+        return max(1e-6, latency_capacity)
+
+    def decide(
+        self, *, now: float, queue_depth: int,
+        transaction_budget_ms: Optional[float],
+        advance_state: bool = True,
+    ) -> _ControlDecision:
+        self.window.observe_depth(now, queue_depth)
+        view = self.window.view(now, include_current=True)
+        recovery_view = self.window.view(now, include_current=False)
+        (
+            avg_ms, p95_ms, p99_ms, fixed_ms, tail_ms, chunk_p95,
+        ) = self._transaction_stats(now)
+        safe = (
+            self.deadline_safe_chunk
+            if transaction_budget_ms is not None and tail_ms is None
+            else deadline_safe_capacity(
+                transaction_budget_ms=transaction_budget_ms,
+                tail_ms_per_row=tail_ms,
+                physical_max_chunk=self.physical_max_chunk,
+                fixed_overhead_ms=fixed_ms,
+            )
+        )
+        if (self._active_deadline_cap is not None
+                and float(now) < self._deadline_cap_until):
+            safe = min(safe, self._active_deadline_cap)
+        elif self._active_deadline_cap is not None:
+            self._active_deadline_cap = None
+        sustainable = self._sustainable_dispatch_rate(view, p95_ms)
+        required = required_rows_per_dispatch(
+            admitted_rows_per_second=view.admitted_rps,
+            sustainable_dispatches_per_second=sustainable,
+            queue_depth=queue_depth,
+            queue_target=self.queue_target,
+        )
+        offered_required = required_rows_per_dispatch(
+            admitted_rows_per_second=view.offered_rps,
+            sustainable_dispatches_per_second=sustainable,
+            queue_depth=queue_depth,
+            queue_target=self.queue_target,
+        )
+        self.deadline_safe_chunk = max(
+            1, min(self.physical_max_chunk, safe))
+        self.throughput_required_chunk = max(1, int(required))
+        self.offered_required_chunk = max(1, int(offered_required))
+
+        capacity_pressure = (
+            self.offered_required_chunk > self.deadline_safe_chunk)
+        high_pressure = int(queue_depth) >= self.high_water
+        current_tick = math.floor(
+            float(now) / self._control_interval_s)
+        if advance_state and current_tick != self._last_control_tick:
+            control_gap = current_tick - self._last_control_tick
+            self._last_control_tick = current_tick
+            if (
+                control_gap <= 0
+                or control_gap > self._up_max_headroom_gap_ticks
+            ):
+                self._headroom_streak = 0
+            prior_selected = self.selected_chunk
+            if self.deadline_safe_chunk < self.selected_chunk:
+                self.selected_chunk = self.deadline_safe_chunk
+                self._headroom_streak = 0
+                self._successes_at_selected = 0
+            else:
+                current_tail = chunk_p95.get(self.selected_chunk, p95_ms)
+                cost_headroom = (
+                    transaction_budget_ms is None
+                    or (
+                        current_tail > 0
+                        and current_tail
+                        <= float(transaction_budget_ms)
+                        * _DEADLINE_BUDGET_FRACTION
+                    )
+                )
+                clean_probe_window = (
+                    self._successes_at_selected > 0
+                    and view.lost == 0
+                    and view.admission_overflow == 0
+                    and view.failed_batches == 0
+                    and view.deadline_failures == 0
+                    and view.priority_deferrals == 0
+                    and view.checkpoint_deferrals == 0
+                )
+                if (self.selected_chunk < self.deadline_safe_chunk
+                        and cost_headroom and clean_probe_window):
+                    self._headroom_streak += 1
+                else:
+                    self._headroom_streak = 0
+                # A successful batch can prove headroom for only one control
+                # interval.  Requiring fresh work in every interval prevents a
+                # completed burst from ratcheting the size upward while idle.
+                self._successes_at_selected = 0
+                if (
+                    self._headroom_streak >= _UP_HEADROOM_WINDOWS
+                    and float(now) - self._last_increase_ts
+                    >= self._up_min_interval_s
+                ):
+                    step = max(
+                        1, math.ceil(
+                            self.selected_chunk * _UP_STEP_FRACTION))
+                    self.selected_chunk = min(
+                        self.deadline_safe_chunk,
+                        self.selected_chunk + step,
+                    )
+                    self._last_increase_ts = float(now)
+                    self._headroom_streak = 0
+                    self._successes_at_selected = 0
+            if self.selected_chunk != prior_selected:
+                self._reset_settle(now)
+
+            if capacity_pressure:
+                self._overload_enter_streak += 1
+            else:
+                self._overload_enter_streak = 0
+            prior_overload = self._overload_active
+            if high_pressure or (
+                    self._overload_enter_streak >= _OVERLOAD_ENTER_WINDOWS):
+                self._overload_active = True
+                self._overload_reason = (
+                    "queue_high_water" if high_pressure
+                    else "throughput_exceeds_deadline_safe_capacity"
+                )
+                self._overload_exit_streak = 0
+            elif self._overload_active:
+                recovered = (
+                    int(queue_depth) <= self.low_water
+                    and recovery_view.queue_slope_rps <= 0.0
+                    and not capacity_pressure
+                    and recovery_view.lost == 0
+                    and recovery_view.failed_batches == 0
+                    and recovery_view.deadline_failures == 0
+                )
+                self._overload_exit_streak = (
+                    self._overload_exit_streak + 1 if recovered else 0)
+                if self._overload_exit_streak >= _OVERLOAD_EXIT_WINDOWS:
+                    self._overload_active = False
+                    self._overload_reason = None
+                    self._overload_exit_streak = 0
+            if self._overload_active != prior_overload:
+                self._reset_settle(now)
+
+            service_balanced = (
+                recovery_view.committed >= recovery_view.admitted)
+            depth_nonincreasing = (
+                recovery_view.queue_slope_rps <= 0.0
+                and (
+                    recovery_view.first_depth is None
+                    or recovery_view.last_depth is None
+                    or recovery_view.last_depth <= recovery_view.first_depth
+                )
+            )
+            controller_safe = (
+                self.selected_chunk <= self.deadline_safe_chunk
+                and self.selected_chunk >= self.throughput_required_chunk
+            )
+            explicit_overload_handling = (
+                recovery_view.overload_handled > 0)
+            controlled_overload = (
+                self._overload_active
+                and explicit_overload_handling
+                and controller_safe
+                and service_balanced
+                and depth_nonincreasing
+                and int(queue_depth) <= self.low_water
+            )
+            healthy = (
+                float(now) - self._settled_since >= _RECOVERY_SETTLE_S
+                and recovery_view.lost == 0
+                and recovery_view.admission_overflow == 0
+                and recovery_view.failed_batches == 0
+                and recovery_view.deadline_failures == 0
+                and depth_nonincreasing
+                and service_balanced
+                and controller_safe
+                and int(queue_depth) <= self.low_water
+                and (not self._overload_active or controlled_overload)
+            )
+            self._healthy_streak = self._healthy_streak + 1 if healthy else 0
+
+        service_balanced = (
+            recovery_view.committed >= recovery_view.admitted)
+        depth_nonincreasing = (
+            recovery_view.queue_slope_rps <= 0.0
+            and (
+                recovery_view.first_depth is None
+                or recovery_view.last_depth is None
+                or recovery_view.last_depth <= recovery_view.first_depth
+            )
+        )
+        controller_safe = (
+            self.selected_chunk <= self.deadline_safe_chunk
+            and self.selected_chunk >= self.throughput_required_chunk
+        )
+        explicit_overload_handling = (
+            recovery_view.overload_handled > 0)
+        controlled_overload = (
+            self._overload_active
+            and explicit_overload_handling
+            and controller_safe
+            and service_balanced
+            and depth_nonincreasing
+            and int(queue_depth) <= self.low_water
+        )
+        # Capacity is estimated only at the currently selected physical size;
+        # it is never extrapolated from a smaller observed size to ``safe``.
+        estimated_capacity = self.selected_chunk * sustainable
+        backlog_drain_rps = (
+            max(0, int(queue_depth) - self.queue_target)
+            / _DRAIN_HORIZON_S
+        )
+        admissible_offered_rps = max(
+            0.0,
+            _SAMPLING_CAPACITY_RESERVE * estimated_capacity
+            - backlog_drain_rps,
+        )
+        keep_ratio = min(
+            1.0,
+            max(
+                _MIN_SAMPLING_KEEP_RATIO,
+                admissible_offered_rps / max(view.offered_rps, 1e-9),
+            ),
+        )
+        if high_pressure:
+            keep_ratio = min(keep_ratio, 0.25)
+        if int(queue_depth) >= self.high_water + self.physical_max_chunk:
+            keep_ratio = 0.0
+        state = (
+            "OVERLOAD_NONCRITICAL_SAMPLING" if self._overload_active
+            else "RECOVERING" if (
+                self.selected_chunk < self.deadline_safe_chunk
+                or self._healthy_streak < _RECOVERY_HEALTHY_WINDOWS
+            )
+            else "STABLE"
+        )
+        decision = _ControlDecision(
+            physical_max_chunk=self.physical_max_chunk,
+            deadline_safe_chunk=self.deadline_safe_chunk,
+            throughput_required_chunk=self.throughput_required_chunk,
+            offered_required_chunk=self.offered_required_chunk,
+            selected_chunk=max(1, min(
+                self.physical_max_chunk, self.selected_chunk)),
+            sustainable_dispatches_per_second=sustainable,
+            estimated_sink_capacity_rows_per_second=estimated_capacity,
+            overload_active=self._overload_active,
+            controlled_overload=controlled_overload,
+            overload_reason=self._overload_reason,
+            sampling_keep_ratio=keep_ratio,
+            controller_state=state,
+            current_operational_healthy=(
+                self._healthy_streak >= _RECOVERY_HEALTHY_WINDOWS),
+            recovery_healthy_windows=self._healthy_streak,
+            view=recovery_view,
+            controller_view=view,
+            transaction_duration_avg_ms=avg_ms,
+            transaction_duration_p95_ms=p95_ms,
+            transaction_duration_p99_ms=p99_ms,
+            transaction_fixed_overhead_ms=fixed_ms,
+            tail_ms_per_row=tail_ms,
+        )
+        self._last_decision = decision
+        return decision
+
+
 # How often one row may be requeued after a cooperative priority skip before it
-# is accounted as a genuine drop.  At the default 250 ms dispatch deferral this
-# absorbs roughly three seconds of held write gate -- longer than any bounded
-# maintenance checkpoint -- while keeping retries strictly finite.
-_MAX_PRIORITY_REQUEUE_ATTEMPTS = 12
+# is accounted as a genuine drop.  The 250 ms minimum retry cadence below makes
+# ordinary critical/write-contention retries an eight-second bound.  Explicit
+# maintenance/checkpoint deferrals do not consume this budget: that worker has
+# its own bounded lifetime and shutdown drains it before telemetry.
+_MAX_PRIORITY_REQUEUE_ATTEMPTS = 32
 
 
 def _canonical_digest(value: Any) -> str:
@@ -253,6 +1106,7 @@ class V4TelemetryWriter:
         self._queue: deque[int] = deque()
         self._pending: dict[int, _Pending] = {}
         self._aggregate_tokens: dict[tuple[str, str, int, int], int] = {}
+        self._overload_latest_tokens: dict[str, int] = {}
         self._pending_dedupe: dict[str, int] = {}
         self._dedupe_seen: OrderedDict[str, None] = OrderedDict()
         self._state_seen: OrderedDict[str, tuple[str, float]] = OrderedDict()
@@ -261,6 +1115,8 @@ class V4TelemetryWriter:
         self._accepting = True
         self._stop_requested = False
         self._drain_on_stop = True
+        self._drain_stop_failed = False
+        self._drain_stop_start_dropped = 0
         self._flush_requested = False
         self._inflight_batches = 0
 
@@ -272,9 +1128,18 @@ class V4TelemetryWriter:
         self._last_failure_ts_ms = 0
         self._last_overflow_ts_ms = 0
         self._submitted = 0
+        self._offered = 0
+        self._admitted = 0
         self._coalesced = 0
+        self._preoverflow_coalesced = 0
+        self._sampled = 0
+        self._deferred = 0
         self._deduplicated = 0
         self._dropped = 0
+        self._admission_overflow_rows = 0
+        self._drop_reasons: dict[str, int] = {}
+        self._policy_reasons: dict[str, int] = {}
+        self._sample_sequence = 0
         self._written = 0
         self._logical_written = 0
         self._batches = 0
@@ -307,6 +1172,9 @@ class V4TelemetryWriter:
         self._deadline_shrink_events = 0
         self._consecutive_successful_batches = 0
         self._last_priority_skip_ts_ms = 0
+        self._checkpoint_deferral_batches = 0
+        self._checkpoint_deferral_rows = 0
+        self._last_checkpoint_deferral_ts_ms = 0
         self._requeued_rows = 0
         # Measured cost control.  Once the sink's transaction budget is known,
         # the chunk size is computed from the observed per-row cost with a
@@ -316,6 +1184,19 @@ class V4TelemetryWriter:
         # permanently pinned at its worst observed value.
         self._budget_ms: Optional[float] = None
         self._ms_per_row: Optional[float] = None
+        budget_getter = getattr(
+            self._persistence_writer, "telemetry_transaction_budget_ms", None)
+        self._controller = _AdaptiveTelemetryController(
+            physical_max_chunk=self.physical_batch_size,
+            queue_capacity=self.capacity,
+            flush_interval_s=self.flush_interval_s,
+            budgeted_sink=callable(budget_getter),
+            started_monotonic=time.monotonic(),
+        )
+        self._physical_batch_ceiling = self._controller.selected_chunk
+        self._last_control_decision: Optional[_ControlDecision] = None
+        self._last_controller_sample_ts_ms = now_wall
+        self._last_controller_sample_monotonic = time.monotonic()
 
     @staticmethod
     def _command(
@@ -362,6 +1243,54 @@ class V4TelemetryWriter:
                 target=self._run, name=self.thread_name, daemon=True)
             self._thread.start()
 
+    def _record_policy_locked(self, reason: str, count: int = 1) -> None:
+        key = str(reason)
+        self._policy_reasons[key] = (
+            int(self._policy_reasons.get(key, 0)) + max(0, int(count)))
+
+    def _sync_controller_locked(
+        self, now_mono: Optional[float] = None,
+        *, advance_state: bool = True,
+    ) -> _ControlDecision:
+        now = time.monotonic() if now_mono is None else float(now_mono)
+        decision = self._controller.decide(
+            now=now,
+            queue_depth=len(self._queue),
+            transaction_budget_ms=self._resolve_budget_locked(),
+            advance_state=advance_state,
+        )
+        if advance_state:
+            self._physical_batch_ceiling = decision.selected_chunk
+            self._last_controller_sample_ts_ms = int(time.time() * 1_000)
+            self._last_controller_sample_monotonic = now
+        self._ms_per_row = decision.tail_ms_per_row
+        self._last_control_decision = decision
+        return decision
+
+    def _sample_under_pressure_locked(
+        self, *, item: TelemetryCommand, overload_key: Optional[str],
+        keep_ratio: float,
+    ) -> bool:
+        """Return True when an explicitly sampleable row should be retained."""
+
+        ratio = max(0.0, min(1.0, float(keep_ratio)))
+        if ratio >= 1.0:
+            return True
+        if ratio <= 0.0:
+            return False
+        self._sample_sequence += 1
+        digest = hashlib.sha256(json.dumps(
+            {
+                "sequence": self._sample_sequence,
+                "key": overload_key,
+                "command": item.payload(),
+            },
+            sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+            allow_nan=False, default=str,
+        ).encode("utf-8")).digest()
+        draw = int.from_bytes(digest[:8], "big") / float(2**64)
+        return draw < ratio
+
     def submit(
         self,
         command: TelemetryCommand | Mapping[str, Any] | str,
@@ -374,6 +1303,9 @@ class V4TelemetryWriter:
         event_ts_ms: Optional[int] = None,
         bucket_ms: int = 1_000,
         merge_hook: Optional[MergeHook] = None,
+        overload_policy: TelemetryOverloadPolicy | str = (
+            TelemetryOverloadPolicy.ADMIT),
+        overload_key: Optional[Hashable] = None,
     ) -> TelemetryDisposition:
         """Admit telemetry without waiting for persistence.
 
@@ -385,6 +1317,14 @@ class V4TelemetryWriter:
         """
 
         item = self._command(command, tuple(args), kwargs)
+        try:
+            policy = (
+                overload_policy
+                if isinstance(overload_policy, TelemetryOverloadPolicy)
+                else TelemetryOverloadPolicy(str(overload_policy).strip().upper())
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid telemetry overload policy") from exc
         if state_key is not None and bucket_key is not None:
             raise ValueError("state and bucket coalescing are mutually exclusive")
         if merge_hook is not None and bucket_key is None:
@@ -395,6 +1335,16 @@ class V4TelemetryWriter:
             if (event_ts_ms is None or isinstance(event_ts_ms, bool)
                     or not isinstance(event_ts_ms, int) or event_ts_ms < 0):
                 raise ValueError("bucket aggregation requires a non-negative event_ts_ms")
+        if policy is TelemetryOverloadPolicy.LATEST and overload_key is None:
+            if state_key is not None:
+                overload_key = ("state", state_key)
+            elif bucket_key is not None:
+                overload_key = ("bucket", bucket_key)
+            elif dedupe_key is not None:
+                overload_key = ("dedupe", dedupe_key)
+            else:
+                raise ValueError(
+                    "LATEST overload policy requires overload_key or a coalescing key")
 
         now_mono = time.monotonic()
         dedupe = _canonical_digest(dedupe_key) if dedupe_key is not None else None
@@ -406,9 +1356,15 @@ class V4TelemetryWriter:
                 item.method, _canonical_digest(bucket_key),
                 event_ts_ms // bucket_ms * bucket_ms, bucket_ms,
             )
+        overload = (
+            _canonical_digest((item.method, overload_key))
+            if overload_key is not None else None
+        )
 
         with self._condition:
             self._submitted += 1
+            self._controller.add(
+                now_mono, queue_depth=len(self._queue), incoming=1)
             if not self._accepting or self._stop_requested:
                 self._drop_locked(1, "telemetry_submit_after_stop")
                 return TelemetryDisposition.DROPPED
@@ -417,6 +1373,8 @@ class V4TelemetryWriter:
                     dedupe in self._dedupe_seen or dedupe in self._pending_dedupe):
                 self._coalesced += 1
                 self._deduplicated += 1
+                self._controller.add(
+                    now_mono, queue_depth=len(self._queue), coalesced=1)
                 return TelemetryDisposition.COALESCED
 
             if state is not None and signature is not None:
@@ -425,6 +1383,8 @@ class V4TelemetryWriter:
                         and now_mono - prior[1] < self.coalescing_interval_s):
                     self._state_seen.move_to_end(state)
                     self._coalesced += 1
+                    self._controller.add(
+                        now_mono, queue_depth=len(self._queue), coalesced=1)
                     return TelemetryDisposition.COALESCED
 
             if aggregate is not None and aggregate in self._aggregate_tokens:
@@ -441,6 +1401,8 @@ class V4TelemetryWriter:
                         return TelemetryDisposition.DROPPED
                     pending.logical_count += 1
                     self._coalesced += 1
+                    self._controller.add(
+                        now_mono, queue_depth=len(self._queue), coalesced=1)
                     if dedupe is not None:
                         pending.dedupe_keys.add(dedupe)
                         self._pending_dedupe[dedupe] = token
@@ -448,9 +1410,91 @@ class V4TelemetryWriter:
                             self._dedupe_seen, dedupe, None, self.dedupe_capacity)
                     return TelemetryDisposition.COALESCED
 
+            # Offered demand is counted after ordinary semantic
+            # dedupe/state/bucket coalescing, but before overload policy.  It
+            # therefore remains visible while SAMPLE/DEFER/LATEST deliberately
+            # reduce physical admission and cannot self-clear overload.
+            self._offered += 1
+            self._controller.add(
+                now_mono, queue_depth=len(self._queue), offered=1)
+            decision = self._sync_controller_locked(now_mono)
+            pressure = (
+                decision.overload_active
+                or len(self._queue) >= self._controller.high_water
+            )
+            if (pressure and policy is TelemetryOverloadPolicy.LATEST
+                    and overload is not None):
+                existing_token = self._overload_latest_tokens.get(overload)
+                existing = self._pending.get(existing_token or -1)
+                if existing is not None:
+                    existing.command = item
+                    # LATEST means the superseded state is intentionally
+                    # coalesced, not physically/logically committed.  Keep the
+                    # pending physical row count at one and update its state
+                    # cache metadata to the replacement payload.
+                    if state is not None and signature is not None:
+                        existing.state_key = state
+                        existing.state_signature = signature
+                        existing.state_admitted_monotonic = now_mono
+                        self._cache_put(
+                            self._state_seen, state,
+                            (signature, now_mono), self.state_capacity,
+                        )
+                    if dedupe is not None:
+                        existing.dedupe_keys.add(dedupe)
+                        self._pending_dedupe[dedupe] = existing.token
+                        self._cache_put(
+                            self._dedupe_seen, dedupe, None,
+                            self.dedupe_capacity,
+                        )
+                    self._coalesced += 1
+                    self._preoverflow_coalesced += 1
+                    self._record_policy_locked("overload_latest_replaced")
+                    self._controller.add(
+                        now_mono, queue_depth=len(self._queue),
+                        coalesced=1, overload_handled=1)
+                    return TelemetryDisposition.COALESCED
+            if pressure and policy is TelemetryOverloadPolicy.SAMPLE:
+                if not self._sample_under_pressure_locked(
+                        item=item, overload_key=overload,
+                        keep_ratio=decision.sampling_keep_ratio):
+                    self._sampled += 1
+                    self._record_policy_locked(
+                        decision.overload_reason or "queue_pressure_sampling")
+                    self._controller.add(
+                        now_mono, queue_depth=len(self._queue),
+                        sampled=1, overload_handled=1)
+                    return TelemetryDisposition.SAMPLED
+            if pressure and policy is TelemetryOverloadPolicy.DEFER:
+                self._deferred += 1
+                self._record_policy_locked(
+                    decision.overload_reason or "queue_pressure_deferred")
+                self._controller.add(
+                    now_mono, queue_depth=len(self._queue),
+                    deferred=1, overload_handled=1)
+                return TelemetryDisposition.DEFERRED
+
             if len(self._queue) >= self.capacity:
                 self._overflow_count += 1
+                self._admission_overflow_rows += 1
                 self._last_overflow_ts_ms = int(time.time() * 1_000)
+                self._controller.add(
+                    now_mono, queue_depth=len(self._queue),
+                    admission_overflow=1)
+                if policy is TelemetryOverloadPolicy.SAMPLE:
+                    self._sampled += 1
+                    self._record_policy_locked("queue_full_sampled")
+                    self._controller.add(
+                        now_mono, queue_depth=len(self._queue),
+                        sampled=1, overload_handled=1)
+                    return TelemetryDisposition.SAMPLED
+                if policy is TelemetryOverloadPolicy.DEFER:
+                    self._deferred += 1
+                    self._record_policy_locked("queue_full_deferred")
+                    self._controller.add(
+                        now_mono, queue_depth=len(self._queue),
+                        deferred=1, overload_handled=1)
+                    return TelemetryDisposition.DEFERRED
                 self._drop_locked(1, "telemetry_queue_full", health="DEGRADED_OVERFLOW")
                 return TelemetryDisposition.DROPPED
 
@@ -462,11 +1506,17 @@ class V4TelemetryWriter:
                 state_key=state, state_signature=signature,
                 state_admitted_monotonic=now_mono if state is not None else None,
                 aggregate_key=aggregate, merge_hook=merge_hook,
+                overload_key=overload,
             )
             self._pending[token] = pending
             self._queue.append(token)
+            self._admitted += 1
+            self._controller.add(
+                now_mono, queue_depth=len(self._queue), admitted=1)
             if aggregate is not None:
                 self._aggregate_tokens[aggregate] = token
+            if overload is not None:
+                self._overload_latest_tokens[overload] = token
             if dedupe is not None:
                 self._pending_dedupe[dedupe] = token
                 self._cache_put(
@@ -482,7 +1532,14 @@ class V4TelemetryWriter:
 
     def _drop_locked(self, logical_count: int, reason: str,
                      *, health: str = "DEGRADED_TELEMETRY") -> None:
-        self._dropped += int(logical_count)
+        count = max(0, int(logical_count))
+        if count and self._stop_requested and self._drain_on_stop:
+            self._drain_stop_failed = True
+        self._dropped += count
+        self._drop_reasons[str(reason)] = (
+            int(self._drop_reasons.get(str(reason), 0)) + count)
+        self._controller.add(
+            time.monotonic(), queue_depth=len(self._queue), lost=count)
         self._last_failure_ts_ms = int(time.time() * 1_000)
         self._last_error = str(reason)[:240]
         self._health = health
@@ -496,20 +1553,6 @@ class V4TelemetryWriter:
             if (current is not None and current[0] == pending.state_signature
                     and current[1] == pending.state_admitted_monotonic):
                 self._state_seen.pop(pending.state_key, None)
-
-    # Fraction of the sink's transaction budget one chunk may be sized to use.
-    # The remainder absorbs variance in per-row cost, so the steady state sits
-    # below the deadline instead of oscillating across it.
-    _BUDGET_SAFETY_FRACTION = 0.4
-    # Per-row cost is tracked as a slowly DECAYING MAXIMUM, not a mean.  The
-    # cost distribution has a heavy tail -- page-cache misses, WAL index
-    # growth, write-lock hand-off -- and a mean sits far below that tail.
-    # Sizing from the mean let the chunk climb straight back into the failure
-    # zone as soon as a few cheap batches landed, producing a sawtooth that
-    # missed the deadline indefinitely instead of settling.  Tracking the tail
-    # and decaying it slowly makes the size shrink immediately on a spike and
-    # recover only after a sustained stretch of genuinely cheap batches.
-    _COST_DECAY = 0.9995
 
     def _resolve_budget_locked(self) -> Optional[float]:
         if self._budget_ms is not None:
@@ -525,24 +1568,9 @@ class V4TelemetryWriter:
                 self._budget_ms = value
         return self._budget_ms
 
-    def _observe_cost_locked(self, rows: int, elapsed_ms: float) -> None:
-        if rows <= 0 or not math.isfinite(elapsed_ms) or elapsed_ms < 0:
-            return
-        observed = max(elapsed_ms / rows, 1e-3)
-        self._ms_per_row = (
-            observed if self._ms_per_row is None
-            else max(observed, self._ms_per_row * self._COST_DECAY)
-        )
-
-    def _recompute_ceiling_locked(self) -> None:
-        budget = self._resolve_budget_locked()
-        if budget is None or self._ms_per_row is None:
-            return
-        target = int(budget * self._BUDGET_SAFETY_FRACTION / self._ms_per_row)
-        self._physical_batch_ceiling = max(
-            1, min(self.physical_batch_size, target))
-
-    def _requeue_locked(self, rows: list[_Pending]) -> int:
+    def _requeue_locked(
+        self, rows: list[_Pending], *, consume_retry: bool = True,
+    ) -> int:
         """Return unattempted rows to the front of the queue, preserving order.
 
         Used only when the physical sink cooperatively yielded before writing
@@ -551,11 +1579,9 @@ class V4TelemetryWriter:
         already be owned by a newer pending row, and merging into it after the
         fact would reorder or hide that newer row.
 
-        Retries are strictly finite.  A row that has already been deferred
-        ``_MAX_PRIORITY_REQUEUE_ATTEMPTS`` times, or any row still pending once
-        a stop has been requested, is returned to the caller as a genuine drop
-        instead of being requeued, so the lane can never spin against a gate
-        that is not going to be released.
+        Retries are strictly finite.  A draining stop continues the same
+        bounded retries; a stop request alone must never turn a cooperative
+        maintenance/critical deferral into a false-successful discard.
 
         Returns the logical count that could not be requeued.
         """
@@ -563,18 +1589,28 @@ class V4TelemetryWriter:
         abandoned = 0
         keep: list[_Pending] = []
         for pending in rows:
-            if (self._stop_requested
-                    or pending.requeue_attempts >= _MAX_PRIORITY_REQUEUE_ATTEMPTS):
+            exhausted = (
+                consume_retry
+                and pending.requeue_attempts >= _MAX_PRIORITY_REQUEUE_ATTEMPTS
+            )
+            if ((self._stop_requested and not self._drain_on_stop)
+                    or exhausted):
                 abandoned += pending.logical_count
                 self._rollback_admission_locked(pending)
+                if self._stop_requested and self._drain_on_stop:
+                    self._drain_stop_failed = True
                 continue
-            pending.requeue_attempts += 1
+            if consume_retry:
+                pending.requeue_attempts += 1
             keep.append(pending)
         for pending in reversed(keep):
             pending.aggregate_key = None
             pending.merge_hook = None
             self._pending[pending.token] = pending
             self._queue.appendleft(pending.token)
+            if (pending.overload_key is not None
+                    and pending.overload_key not in self._overload_latest_tokens):
+                self._overload_latest_tokens[pending.overload_key] = pending.token
             self._requeued_rows += pending.logical_count
         self._high_water = max(self._high_water, len(self._queue))
         return abandoned
@@ -593,6 +1629,10 @@ class V4TelemetryWriter:
             if (pending.aggregate_key is not None
                     and self._aggregate_tokens.get(pending.aggregate_key) == token):
                 self._aggregate_tokens.pop(pending.aggregate_key, None)
+            if (pending.overload_key is not None
+                    and self._overload_latest_tokens.get(
+                        pending.overload_key) == token):
+                self._overload_latest_tokens.pop(pending.overload_key, None)
             for dedupe_key in pending.dedupe_keys:
                 if self._pending_dedupe.get(dedupe_key) == token:
                     self._pending_dedupe.pop(dedupe_key, None)
@@ -608,6 +1648,7 @@ class V4TelemetryWriter:
                 now = time.monotonic()
                 if now >= next_heartbeat:
                     self._last_heartbeat_ts_ms = int(time.time() * 1_000)
+                    self._sync_controller_locked(now, advance_state=True)
                     next_heartbeat = now + self.heartbeat_interval_s
 
                 while not self._queue and not self._stop_requested:
@@ -619,6 +1660,7 @@ class V4TelemetryWriter:
                     now = time.monotonic()
                     if now >= next_heartbeat:
                         self._last_heartbeat_ts_ms = int(time.time() * 1_000)
+                        self._sync_controller_locked(now, advance_state=True)
                         next_heartbeat = now + self.heartbeat_interval_s
 
                 if self._stop_requested and (
@@ -629,9 +1671,14 @@ class V4TelemetryWriter:
                 # deadline-exceeded failure, defer the next flush until the
                 # backoff window expires rather than resubmitting into a still-
                 # stuck writer (which would only produce another miss + drops).
-                # A stop request or an explicit flush always overrides it.
+                # An explicit flush or non-draining stop overrides it.  A
+                # draining stop must respect cooperative priority backoff or it
+                # can exhaust all retries while maintenance is still closing.
                 if (self._deadline_backoff_until > 0.0
-                        and not self._stop_requested
+                        and (
+                            not self._stop_requested
+                            or self._drain_on_stop
+                        )
                         and not self._flush_requested):
                     remaining_backoff = self._deadline_backoff_until - time.monotonic()
                     if remaining_backoff > 0.0:
@@ -644,8 +1691,11 @@ class V4TelemetryWriter:
                         self._condition.wait(min(
                             remaining_backoff, self.heartbeat_interval_s))
                         if time.monotonic() >= next_heartbeat:
+                            heartbeat_now = time.monotonic()
                             self._last_heartbeat_ts_ms = int(time.time() * 1_000)
-                            next_heartbeat = time.monotonic() + self.heartbeat_interval_s
+                            self._sync_controller_locked(
+                                heartbeat_now, advance_state=True)
+                            next_heartbeat = heartbeat_now + self.heartbeat_interval_s
                         continue
                     self._deadline_backoff_until = 0.0
                     self._deadline_backoff_s = 0.0
@@ -664,8 +1714,11 @@ class V4TelemetryWriter:
                             break
                         self._condition.wait(min(remaining, self.heartbeat_interval_s))
                         if time.monotonic() >= next_heartbeat:
+                            heartbeat_now = time.monotonic()
                             self._last_heartbeat_ts_ms = int(time.time() * 1_000)
-                            next_heartbeat = time.monotonic() + self.heartbeat_interval_s
+                            self._sync_controller_locked(
+                                heartbeat_now, advance_state=True)
+                            next_heartbeat = heartbeat_now + self.heartbeat_interval_s
 
                 self._flush_requested = False
                 # One physical chunk per dispatch: a rolled-back sink
@@ -697,17 +1750,87 @@ class V4TelemetryWriter:
             self._last_heartbeat_ts_ms = int(time.time() * 1_000)
             self._condition.notify_all()
 
+    def _transaction_cost_observation(
+        self, result: Any, total_ms: float,
+    ) -> tuple[float, Optional[float], Optional[float]]:
+        """Extract transaction, fixed, and per-command tail cost metrics."""
+
+        candidates: list[Mapping[str, Any]] = []
+        if isinstance(result, Mapping):
+            candidates.append(result)
+        getter = getattr(
+            self._persistence_writer, "telemetry_commit_metrics", None)
+        if callable(getter):
+            try:
+                metrics = getter()
+            except Exception:  # noqa: BLE001 - controller falls back to call time
+                metrics = None
+            if isinstance(metrics, Mapping):
+                candidates.append(metrics)
+        transaction_ms = max(1e-3, float(total_ms))
+        for metrics in candidates:
+            for key in (
+                "transaction_duration_ms", "transaction_ms",
+                "last_transaction_duration_ms", "last_transaction_ms",
+            ):
+                value = metrics.get(key)
+                if (isinstance(value, (int, float))
+                        and not isinstance(value, bool)
+                        and math.isfinite(float(value))
+                        and float(value) >= 0):
+                    transaction_ms = min(
+                        max(1e-3, float(value)),
+                        max(1e-3, total_ms),
+                    )
+                    break
+            else:
+                continue
+            break
+
+        def metric_value(keys: tuple[str, ...]) -> Optional[float]:
+            for metrics in candidates:
+                for key in keys:
+                    value = metrics.get(key)
+                    if (isinstance(value, (int, float))
+                            and not isinstance(value, bool)
+                            and math.isfinite(float(value))
+                            and float(value) >= 0):
+                        return float(value)
+            return None
+
+        fixed = metric_value((
+            "transaction_fixed_overhead_ms",
+            "last_transaction_fixed_overhead_ms",
+        ))
+        marginal = metric_value((
+            "row_call_p95_ms", "last_row_call_p95_ms",
+            "row_call_max_ms", "last_row_call_max_ms",
+        ))
+        return (
+            transaction_ms,
+            min(transaction_ms, fixed) if fixed is not None else None,
+            max(1e-3, marginal) if marginal is not None else None,
+        )
+
     def _dispatch(self, batch: list[_Pending]) -> None:
         started = time.monotonic()
+        started_clock = time.perf_counter()
         written = 0
         logical_written = 0
         successful_batches = 0
         error = ""
         priority_skip = False
+        checkpoint_deferral = False
         deadline_exceeded = False
         failed_rows: list[_Pending] = []
         failed_chunk_rows = 0
         deadline_budget_ms: Optional[float] = None
+        commit_observations: list[
+            tuple[
+                int, int, float, float,
+                Optional[float], Optional[float],
+            ]
+        ] = []
         cursor = 0
         with self._condition:
             chunk_limit = max(1, self._physical_batch_ceiling)
@@ -717,18 +1840,40 @@ class V4TelemetryWriter:
             self._physical_batch_high_water = max(
                 self._physical_batch_high_water, len(payload))
             try:
-                self._batch_attempts += 1
+                call_started = time.monotonic()
+                call_started_clock = time.perf_counter()
+                with self._condition:
+                    self._batch_attempts += 1
+                    self._controller.add(
+                        call_started, queue_depth=len(self._queue),
+                        dispatch_attempts=1)
                 result = self._persistence_writer.submit_telemetry_batch(
                     payload, timeout_s=self.submit_timeout_s)
                 result = self._resolve_result(result)
+                call_completed_clock = time.perf_counter()
                 chunk_written = self._written_from_result(result, len(payload))
                 if chunk_written != len(payload):
                     raise RuntimeError(
                         "physical telemetry writer returned a partial success")
+                total_ms = max(
+                    1e-3,
+                    (call_completed_clock - call_started_clock) * 1_000.0)
+                transaction_ms, fixed_ms, marginal_ms = (
+                    self._transaction_cost_observation(result, total_ms))
+                commit_observations.append((
+                    chunk_written,
+                    sum(row.logical_count for row in chunk),
+                    transaction_ms,
+                    total_ms,
+                    fixed_ms,
+                    marginal_ms,
+                ))
             except Exception as exc:  # noqa: BLE001 - lossy lane is contained
                 error = f"{type(exc).__name__}:{exc}"[:240]
                 priority_skip = bool(
                     getattr(exc, "telemetry_priority_skip", False))
+                checkpoint_deferral = bool(
+                    getattr(exc, "telemetry_checkpoint_deferral", False))
                 deadline_exceeded = bool(
                     getattr(exc, "telemetry_deadline_exceeded", False))
                 budget_attr = getattr(exc, "telemetry_deadline_ms", None)
@@ -747,7 +1892,8 @@ class V4TelemetryWriter:
             cursor += len(chunk)
         success = not failed_rows and cursor == len(batch)
         completed = time.monotonic()
-        batch_ms = max(0.0, (completed - started) * 1_000.0)
+        completed_clock = time.perf_counter()
+        batch_ms = max(0.0, (completed_clock - started_clock) * 1_000.0)
         flush_ms = max(
             0.0,
             (completed - min(row.admitted_monotonic for row in batch)) * 1_000.0,
@@ -762,6 +1908,20 @@ class V4TelemetryWriter:
             self._batches += successful_batches
             self._written += written
             self._logical_written += logical_written
+            for (
+                committed_rows, committed_logical, transaction_ms,
+                total_ms, fixed_ms, marginal_ms,
+            ) in commit_observations:
+                self._controller.observe_commit(
+                    now=completed,
+                    rows=committed_rows,
+                    logical_rows=committed_logical,
+                    transaction_ms=transaction_ms,
+                    total_ms=total_ms,
+                    queue_depth=len(self._queue),
+                    fixed_overhead_ms=fixed_ms,
+                    marginal_ms_per_row=marginal_ms,
+                )
             if successful_batches:
                 self._last_success_ts_ms = int(time.time() * 1_000)
             if success:
@@ -773,8 +1933,7 @@ class V4TelemetryWriter:
                 self._deadline_backoff_until = 0.0
                 self._deadline_backoff_s = 0.0
                 self._consecutive_successful_batches += successful_batches
-                self._observe_cost_locked(cursor, batch_ms)
-                self._recompute_ceiling_locked()
+                self._sync_controller_locked(completed)
             elif priority_skip:
                 # A cooperative yield to critical persistence is designed
                 # behaviour, not a telemetry fault.  The sink rolled its
@@ -789,14 +1948,29 @@ class V4TelemetryWriter:
                 self._priority_skipped_batches += 1
                 self._priority_skipped_rows += logical_unwritten
                 self._last_priority_skip_ts_ms = int(time.time() * 1_000)
-                abandoned = self._requeue_locked(failed_rows)
+                self._controller.add(
+                    completed, queue_depth=len(self._queue),
+                    priority_deferrals=1)
+                if checkpoint_deferral:
+                    self._checkpoint_deferral_batches += 1
+                    self._checkpoint_deferral_rows += logical_unwritten
+                    self._last_checkpoint_deferral_ts_ms = int(
+                        time.time() * 1_000)
+                    self._controller.add(
+                        completed, queue_depth=len(self._queue),
+                        checkpoint_deferrals=1)
+                abandoned = self._requeue_locked(
+                    failed_rows,
+                    consume_retry=not checkpoint_deferral,
+                )
                 if abandoned:
                     # Retry budget exhausted (or shutting down): the remaining
                     # rows are honest loss, not a deferral.
                     self._drop_locked(
                         abandoned, "telemetry_priority_skip_exhausted",
                         health="DEGRADED_CRITICAL_PRIORITY")
-                self._deadline_backoff_s = self.flush_interval_s
+                self._deadline_backoff_s = max(
+                    self.flush_interval_s, 0.250)
                 self._deadline_backoff_until = (
                     time.monotonic() + self._deadline_backoff_s)
             else:
@@ -806,32 +1980,21 @@ class V4TelemetryWriter:
                     self._deadline_exceeded_batches += 1
                     self._deadline_exceeded_rows += logical_unwritten
                     health = "DEGRADED_TELEMETRY_DEADLINE"
-                    # Learn a strictly smaller physical chunk.  A chunk of this
-                    # size cannot fit the sink's cooperative budget at the
-                    # current per-row cost, so resubmitting the same size is a
-                    # guaranteed future miss.  Halving bounds the number of
-                    # deadline failures per process to log2(physical_batch_size).
-                    # A miss proves the true per-row cost is at least
-                    # budget/rows.  Feeding that lower bound into the cost
-                    # estimate makes the next size computation react
-                    # immediately, and the halving below guarantees progress
-                    # even before any budget is known.
                     budget_hint = deadline_budget_ms or self._budget_ms
-                    if (budget_hint and failed_chunk_rows > 0
-                            and math.isfinite(float(budget_hint))):
+                    if (budget_hint is not None
+                            and math.isfinite(float(budget_hint))
+                            and float(budget_hint) > 0):
                         self._budget_ms = float(budget_hint)
-                        floor_cost = float(budget_hint) / failed_chunk_rows
-                        self._ms_per_row = (
-                            floor_cost if self._ms_per_row is None
-                            else max(self._ms_per_row, floor_cost))
-                    if failed_chunk_rows > 1:
-                        self._physical_batch_ceiling = max(
-                            1,
-                            min(self._physical_batch_ceiling,
-                                failed_chunk_rows) // 2,
-                        )
+                    prior_ceiling = self._physical_batch_ceiling
+                    self._controller.observe_deadline_miss(
+                        now=completed,
+                        failed_rows=failed_chunk_rows,
+                        transaction_budget_ms=budget_hint,
+                        queue_depth=len(self._queue),
+                    )
+                    self._sync_controller_locked(completed)
+                    if self._physical_batch_ceiling < prior_ceiling:
                         self._deadline_shrink_events += 1
-                    self._recompute_ceiling_locked()
                     # Exponential backoff (capped at 2 s) so a WAL-pinned slow
                     # commit does not cause a tight resubmit-and-miss loop.
                     # The queue keeps accepting; only the next flush is deferred.
@@ -843,10 +2006,14 @@ class V4TelemetryWriter:
                         time.monotonic() + self._deadline_backoff_s)
                 else:
                     health = "DEGRADED_WRITER"
+                    self._controller.add(
+                        completed, queue_depth=len(self._queue),
+                        failed_batches=1)
                 self._drop_locked(
                     logical_unwritten, error or "telemetry_batch_failed", health=health)
                 for pending in failed_rows:
                     self._rollback_admission_locked(pending)
+            self._sync_controller_locked(completed)
             self._last_heartbeat_ts_ms = int(time.time() * 1_000)
             self._condition.notify_all()
 
@@ -925,7 +2092,18 @@ class V4TelemetryWriter:
             if thread is not None and not thread.is_alive():
                 # Idempotent post-stop call: do not overwrite STOPPED with
                 # STOPPING after the owner thread has closed its SQLite sink.
-                return self._health == "STOPPED" and not self._queue
+                return (
+                    self._health == "STOPPED"
+                    and not self._queue
+                    and (
+                        not drain
+                        or (
+                            not self._drain_stop_failed
+                            and self._dropped
+                            == self._drain_stop_start_dropped
+                        )
+                    )
+                )
             if thread is None and drain and self._queue:
                 # Prefilled queues still drain on the dedicated worker; the
                 # caller thread never invokes the physical persistence writer.
@@ -937,6 +2115,8 @@ class V4TelemetryWriter:
             if not self._stop_requested:
                 self._stop_requested = True
                 self._drain_on_stop = drain
+                self._drain_stop_failed = False
+                self._drain_stop_start_dropped = self._dropped
             elif not drain:
                 # An explicit non-draining stop must be able to escalate a
                 # draining stop that is already in progress.  Without this the
@@ -953,6 +2133,7 @@ class V4TelemetryWriter:
                 self._queue.clear()
                 self._pending.clear()
                 self._aggregate_tokens.clear()
+                self._overload_latest_tokens.clear()
                 self._pending_dedupe.clear()
                 if discarded:
                     self._drop_locked(
@@ -963,7 +2144,16 @@ class V4TelemetryWriter:
         if thread is None:
             with self._condition:
                 self._health = "STOPPED"
-            return not self._queue
+            return (
+                not self._queue
+                and (
+                    not drain
+                    or (
+                        not self._drain_stop_failed
+                        and self._dropped == self._drain_stop_start_dropped
+                    )
+                )
+            )
         thread.join(float(timeout_s))
         if thread.is_alive():
             with self._condition:
@@ -971,13 +2161,25 @@ class V4TelemetryWriter:
                 self._last_error = "telemetry_shutdown_timeout"
             return False
         with self._condition:
-            return self._health == "STOPPED" and not self._queue
+            return (
+                self._health == "STOPPED"
+                and not self._queue
+                and (
+                    not drain
+                    or (
+                        not self._drain_stop_failed
+                        and self._dropped == self._drain_stop_start_dropped
+                    )
+                )
+            )
 
     def snapshot(self) -> dict[str, Any]:
         """Return a sanitized, internally consistent telemetry health snapshot."""
 
         with self._condition:
             now_ms = int(time.time() * 1_000)
+            decision = self._sync_controller_locked(advance_state=False)
+            window = decision.view
             batch_values = tuple(self._batch_latencies_ms)
             flush_values = tuple(self._flush_latencies_ms)
             return {
@@ -988,11 +2190,28 @@ class V4TelemetryWriter:
                 "inflight_batches": self._inflight_batches,
                 "submitted": self._submitted,
                 "rows_submitted": self._submitted,
+                "incoming": self._submitted,
+                "rows_incoming": self._submitted,
+                "offered": self._offered,
+                "rows_offered": self._offered,
+                "admitted": self._admitted,
+                "rows_admitted": self._admitted,
                 "coalesced": self._coalesced,
                 "rows_coalesced": self._coalesced,
+                "preoverflow_coalesced": self._preoverflow_coalesced,
+                "sampled": self._sampled,
+                "rows_sampled": self._sampled,
+                "deferred": self._deferred,
+                "rows_deferred": self._deferred,
                 "deduplicated": self._deduplicated,
                 "dropped": self._dropped,
                 "rows_dropped": self._dropped,
+                "true_lost_critical_rows": 0,
+                "critical_rows_lost": 0,
+                "admission_overflow_rows": self._admission_overflow_rows,
+                "drop_reasons": dict(sorted(self._drop_reasons.items())),
+                "overload_policy_reasons": dict(
+                    sorted(self._policy_reasons.items())),
                 "written": self._written,
                 "rows_written": self._written,
                 "logical_written": self._logical_written,
@@ -1003,15 +2222,91 @@ class V4TelemetryWriter:
                 "priority_skipped_rows": self._priority_skipped_rows,
                 "requeued_rows": self._requeued_rows,
                 "last_priority_skip_ts_ms": self._last_priority_skip_ts_ms or None,
+                "checkpoint_deferral_batches": self._checkpoint_deferral_batches,
+                "checkpoint_deferral_rows": self._checkpoint_deferral_rows,
+                "last_checkpoint_deferral_ts_ms": (
+                    self._last_checkpoint_deferral_ts_ms or None),
                 "deadline_exceeded_batches": self._deadline_exceeded_batches,
                 "deadline_exceeded_rows": self._deadline_exceeded_rows,
                 "physical_batch_size": self.physical_batch_size,
+                "physical_max_chunk": decision.physical_max_chunk,
                 "physical_batch_ceiling": self._physical_batch_ceiling,
+                "selected_chunk": decision.selected_chunk,
+                "deadline_safe_chunk": decision.deadline_safe_chunk,
+                "deadline_safe_chunk_estimate": decision.deadline_safe_chunk,
+                "throughput_required_chunk": (
+                    decision.throughput_required_chunk),
+                "required_rows_per_dispatch": (
+                    decision.throughput_required_chunk),
+                "offered_required_chunk": decision.offered_required_chunk,
+                "sustainable_dispatches_per_second": round(
+                    decision.sustainable_dispatches_per_second, 4),
+                "estimated_sink_capacity_rows_per_second": round(
+                    decision.estimated_sink_capacity_rows_per_second, 4),
+                "controller_state": decision.controller_state,
+                "overload_active": decision.overload_active,
+                "controlled_overload": decision.controlled_overload,
+                "overload_reason": decision.overload_reason,
+                "sampling_keep_ratio": round(
+                    decision.sampling_keep_ratio, 6),
+                "current_operational_healthy": (
+                    decision.current_operational_healthy),
+                "recovery_healthy_windows": decision.recovery_healthy_windows,
+                "recovery_required_windows": _RECOVERY_HEALTHY_WINDOWS,
+                "rate_window_seconds": _RATE_WINDOW_S,
+                "recovery_settle_seconds": _RECOVERY_SETTLE_S,
+                "recovery_sample_ts_ms": self._last_controller_sample_ts_ms,
+                "recovery_sample_age_ms": round(max(
+                    0.0,
+                    time.monotonic()
+                    - self._last_controller_sample_monotonic,
+                ) * 1_000.0, 3),
+                "incoming_rows_per_second": round(window.incoming_rps, 4),
+                "offered_rows_per_second": round(window.offered_rps, 4),
+                "admitted_rows_per_second": round(window.admitted_rps, 4),
+                "committed_rows_per_second": round(window.committed_rps, 4),
+                "logical_committed_rows_per_second": round(
+                    window.logical_committed_rps, 4),
+                "critical_rows_per_second": 0.0,
+                "noncritical_rows_per_second": round(
+                    window.incoming_rps, 4),
+                "dispatches_per_second": round(
+                    window.dispatch_success_rps, 4),
+                "dispatch_attempts_per_second": round(
+                    window.dispatch_attempt_rps, 4),
+                "queue_depth_slope_per_second": round(
+                    window.queue_slope_rps, 4),
+                "window_incoming_rows": window.incoming,
+                "window_offered_rows": window.offered,
+                "window_admitted_rows": window.admitted,
+                "window_committed_rows": window.committed,
+                "window_coalesced_rows": window.coalesced,
+                "window_sampled_rows": window.sampled,
+                "window_deferred_rows": window.deferred,
+                "window_overload_handled_rows": window.overload_handled,
+                "window_lost_rows": window.lost,
+                "window_admission_overflow_rows": (
+                    window.admission_overflow),
+                "window_failed_batches": window.failed_batches,
+                "window_deadline_failures": window.deadline_failures,
+                "window_checkpoint_deferrals": (
+                    window.checkpoint_deferrals),
                 "deadline_shrink_events": self._deadline_shrink_events,
                 "transaction_budget_ms": self._budget_ms,
                 "observed_ms_per_row": (
                     round(self._ms_per_row, 4)
                     if self._ms_per_row is not None else None),
+                "transaction_duration_avg_ms": round(
+                    decision.transaction_duration_avg_ms, 3),
+                "transaction_duration_p95_ms": round(
+                    decision.transaction_duration_p95_ms, 3),
+                "transaction_duration_p99_ms": round(
+                    decision.transaction_duration_p99_ms, 3),
+                "transaction_fixed_overhead_ms": round(
+                    decision.transaction_fixed_overhead_ms, 3),
+                "transaction_tail_ms_per_row": (
+                    round(decision.tail_ms_per_row, 4)
+                    if decision.tail_ms_per_row is not None else None),
                 "consecutive_successful_batches": (
                     self._consecutive_successful_batches),
                 "physical_batch_high_water": self._physical_batch_high_water,
@@ -1029,6 +2324,7 @@ class V4TelemetryWriter:
                 "last_overflow_ts_ms": self._last_overflow_ts_ms or None,
                 "deadline_backoff_active": self._deadline_backoff_until > 0.0,
                 "deadline_backoff_s": round(self._deadline_backoff_s, 3),
+                "drain_stop_failed": self._drain_stop_failed,
                 "last_error": self._last_error or None,
             }
 
@@ -1056,7 +2352,10 @@ __all__ = [
     "MergeHook",
     "TelemetryCommand",
     "TelemetryDisposition",
+    "TelemetryOverloadPolicy",
     "TelemetrySink",
     "V4TelemetryWriter",
+    "deadline_safe_capacity",
+    "required_rows_per_dispatch",
     "sum_kwargs",
 ]

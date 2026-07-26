@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from .config import FrequencyV4Config, load_frequency_v4_config
 from .engine import FrequencyV4Engine
-from .runtime import V4RuntimeFiles
+from .runtime import V4RuntimeFiles, immutable_safety_state
 
 
 async def _main(
@@ -57,6 +57,46 @@ async def _main(
             exit_code = 1
             print(f"Frequency V4 stop error: {type(exc).__name__}: {exc}",
                   file=sys.stderr, flush=True)
+            # stop() may fail because its own terminal critical command was
+            # durably rejected.  Preserve the resulting exact loss counters
+            # and FAILED lifecycle state before runtime.release removes the
+            # process lock.  The still-open DB session remains independently
+            # fail-closed and visible to the next startup/reconciliation.
+            try:
+                final_state = engine._runtime_state("FAILED")
+            except Exception as state_exc:
+                print(
+                    "Frequency V4 final-state capture error: "
+                    f"{type(state_exc).__name__}: {state_exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                baseline = getattr(
+                    engine, "_telemetry_lifetime_baseline", {})
+                critical_lost = (
+                    int(baseline.get("true_lost_critical_rows", 0))
+                    + int(getattr(
+                        engine, "_critical_evidence_lost_rows", 0)))
+                telemetry_fallback = dict(baseline)
+                telemetry_fallback.update({
+                    "true_lost_critical_rows": critical_lost,
+                    "critical_evidence_lost_count": critical_lost,
+                })
+                final_state = {
+                    **immutable_safety_state(),
+                    "session_id": getattr(engine, "session_id", None),
+                    "state": "FAILED",
+                    "db_path": getattr(engine, "_db_path_resolved", None),
+                    "runtime_dir": getattr(
+                        engine, "_runtime_dir_resolved", None),
+                    "export_path": getattr(
+                        engine, "_export_path_resolved", None),
+                    "lineage_fingerprint": getattr(
+                        engine, "_lineage_fingerprint", None),
+                    "persistence": {
+                        "telemetry": telemetry_fallback,
+                    },
+                }
     return exit_code, final_state
 
 

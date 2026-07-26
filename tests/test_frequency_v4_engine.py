@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -27,8 +29,20 @@ from poly_alpha_sniper.lite_frequency_v4.events import (
     EventDecision,
     EventDisposition,
 )
-from poly_alpha_sniper.lite_frequency_v4.runtime import V4RuntimeFiles, now_ms
-from poly_alpha_sniper.lite_frequency_v4.persistence import V4PersistenceWriter
+from poly_alpha_sniper.lite_frequency_v4.runtime import (
+    V4RuntimeFiles,
+    immutable_safety_state,
+    now_ms,
+)
+from poly_alpha_sniper.lite_frequency_v4.persistence import (
+    V4PersistenceQueueFull,
+    V4PersistenceWriter,
+)
+from poly_alpha_sniper.lite_frequency_v4.store import (
+    ExposureLimitExceeded,
+    V4Store,
+    V4StoreError,
+)
 from poly_alpha_sniper.lite_frequency_v4.telemetry import (
     TelemetryDisposition,
     V4TelemetryWriter,
@@ -172,6 +186,280 @@ def _critical(engine: FrequencyV4Engine, method: str, *args, **kwargs):
 
 def _flush_telemetry(engine_harness) -> None:
     assert engine_harness.telemetry.flush(timeout_s=10.0)
+
+
+@pytest.mark.asyncio
+async def test_true_critical_loss_counts_logical_rows_not_business_rejections(
+    engine_harness, monkeypatch,
+) -> None:
+    engine = engine_harness.engine
+
+    async def capacity_rejection(*_args, **_kwargs):
+        raise ExposureLimitExceeded("max_concurrent_positions")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(engine.persistence, "execute", capacity_rejection)
+        with pytest.raises(ExposureLimitExceeded):
+            await engine._critical_execute(
+                "reserve_and_create_entry_bundle",
+                {"reservation": {}, "entry": {}},
+                logical_rows=3,
+            )
+    assert engine._runtime_state()["persistence"]["telemetry"][
+        "true_lost_critical_rows"] == 0
+
+    async def expected_deadline_rejection(*_args, **_kwargs):
+        raise V4StoreError("entry commit deadline expired")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(engine.persistence, "execute", expected_deadline_rejection)
+        with pytest.raises(V4StoreError):
+            await engine._critical_execute(
+                "reserve_and_create_entry_bundle",
+                {"reservation": {}, "entry": {}},
+                logical_rows=3,
+                expected_store_errors=("entry commit deadline expired",),
+            )
+    assert engine._runtime_state()["persistence"]["telemetry"][
+        "true_lost_critical_rows"] == 0
+
+    async def unfinalized_failure(*_args, **_kwargs):
+        raise V4StoreError("journal outcome unknown")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(engine.persistence, "execute", unfinalized_failure)
+        with pytest.raises(V4StoreError):
+            await engine._critical_execute(
+                "persist_evaluation_bundle",
+                {"candidate": {}, "fair_value": {}, "decision": {}},
+                logical_rows=7,
+            )
+    assert engine._runtime_state()["persistence"]["telemetry"][
+        "true_lost_critical_rows"] == 0
+
+    async def queue_refusal(*_args, **_kwargs):
+        raise V4PersistenceQueueFull("critical persistence queue is full")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(engine.persistence, "execute", queue_refusal)
+        with pytest.raises(V4PersistenceQueueFull):
+            await engine._critical_execute(
+                "persist_evaluation_bundle",
+                {"candidate": {}, "fair_value": {}, "decision": {}},
+                logical_rows=5,
+            )
+    assert engine._runtime_state()["persistence"]["telemetry"][
+        "true_lost_critical_rows"] == 5
+
+    # Exercise the real persistence owner: a malformed allowlisted command is
+    # durably journalled FAILED, and the propagated exception carries proof.
+    with pytest.raises(Exception) as failure:
+        await engine._critical_execute(
+            "record_runtime_session",
+            {},
+            logical_rows=7,
+        )
+    assert getattr(
+        failure.value, "persistence_failure_finalized", None) is True
+    telemetry = engine._runtime_state()["persistence"]["telemetry"]
+    assert telemetry["true_lost_critical_rows"] == 12
+    assert telemetry["current_true_lost_critical_rows"] == 12
+
+
+@pytest.mark.asyncio
+async def test_late_finalized_failure_after_timeout_counts_exact_logical_rows(
+    engine_harness, monkeypatch,
+) -> None:
+    engine = engine_harness.engine
+
+    def delayed_failure(_store, _value):
+        time.sleep(0.05)
+        raise V4StoreError("delayed durable failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(V4Store, "record_runtime_health", delayed_failure)
+        patch.setattr(engine.cfg, "critical_command_timeout_s", 0.01)
+        with pytest.raises(engine_module.V4PersistenceTimeout):
+            await engine._critical_execute(
+                "record_runtime_health", {}, logical_rows=6)
+        await asyncio.sleep(0.15)
+
+    telemetry = engine._runtime_state()["persistence"]["telemetry"]
+    assert telemetry["true_lost_critical_rows"] == 6
+    assert telemetry["late_critical_finalized_failures"] == 1
+    assert telemetry["late_critical_successes"] == 0
+
+    def delayed_capacity_rejection(_store, _value):
+        time.sleep(0.05)
+        raise ExposureLimitExceeded("max_concurrent_positions")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            V4Store, "record_runtime_health", delayed_capacity_rejection)
+        patch.setattr(engine.cfg, "critical_command_timeout_s", 0.01)
+        with pytest.raises(engine_module.V4PersistenceTimeout):
+            await engine._critical_execute(
+                "record_runtime_health", {}, logical_rows=4)
+        await asyncio.sleep(0.15)
+    assert engine._runtime_state()["persistence"]["telemetry"][
+        "true_lost_critical_rows"] == 6
+
+    def delayed_success(_store, _value):
+        time.sleep(0.05)
+        return 42
+
+    with monkeypatch.context() as patch:
+        patch.setattr(V4Store, "record_runtime_health", delayed_success)
+        patch.setattr(engine.cfg, "critical_command_timeout_s", 0.01)
+        with pytest.raises(engine_module.V4PersistenceTimeout):
+            await engine._critical_execute(
+                "record_runtime_health", {}, logical_rows=3)
+        await asyncio.sleep(0.15)
+    recovered = engine._runtime_state()["persistence"]["telemetry"]
+    assert recovered["true_lost_critical_rows"] == 6
+    assert recovered["late_critical_successes"] == 1
+
+
+def test_lifetime_telemetry_counters_carry_across_restart(
+    tmp_path, monkeypatch,
+) -> None:
+    cfg = FrequencyV4Config()
+    cfg.db_path = str(tmp_path / "poly_alpha_frequency_v4.db")
+    cfg.runtime_dir = str(tmp_path / "runtime" / "lite_frequency_v4_shadow")
+    cfg.export_dir = str(tmp_path / "export" / "poly_alpha_frequency_v4")
+    runtime = V4RuntimeFiles(cfg.runtime_dir, repo_root=tmp_path)
+    runtime.directory.mkdir(parents=True, exist_ok=True)
+    export_path = Path(cfg.export_dir) / "frequency_v4_dashboard.json"
+    lineage = engine_module._counter_lineage_fingerprint(
+        cfg.db_path, cfg.runtime_dir, export_path)
+    previous = {
+        **immutable_safety_state(),
+        "state": "STOPPED",
+        "db_path": str(Path(cfg.db_path).resolve()),
+        "runtime_dir": str(Path(cfg.runtime_dir).resolve()),
+        "export_path": str(export_path.resolve()),
+        "lineage_fingerprint": lineage,
+        "persistence": {
+            "telemetry": {
+                "rows_submitted": 1_000,
+                "rows_written": 800,
+                "rows_dropped": 200,
+                "failed_batches": 35,
+                "raw_telemetry_loss_count": 68_361,
+                "true_lost_critical_rows": 2,
+            },
+        },
+    }
+    runtime.state_path.write_text(
+        json.dumps(previous), encoding="utf-8")
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+    export_path.write_text(json.dumps({
+        **immutable_safety_state(),
+        "schema_version": 3,
+        "lineage_fingerprint": lineage,
+        "persistence": {
+            "telemetry": {
+                "rows_submitted": 900,
+                "rows_written": 790,
+                "rows_dropped": 199,
+                "failed_batches": 37,
+                "raw_telemetry_loss_count": 70_000,
+                "true_lost_critical_rows": 1,
+            },
+        },
+    }), encoding="utf-8")
+    monkeypatch.setattr(
+        engine_module, "validate_frequency_v4_config", lambda _cfg: None)
+    engine = FrequencyV4Engine(cfg, runtime)
+    engine.telemetry = SimpleNamespace(snapshot=lambda: {
+        "health": "HEALTHY",
+        "submitted": 11,
+        "offered": 10,
+        "admitted": 9,
+        "written": 8,
+        "logical_written": 8,
+        "coalesced": 1,
+        "sampled": 1,
+        "deferred": 0,
+        "dropped": 3,
+        "failed_batches": 1,
+    })
+    engine._critical_evidence_lost_rows = 4
+
+    telemetry = engine._runtime_state()["persistence"]["telemetry"]
+    assert telemetry["rows_submitted"] == 1_011
+    assert telemetry["rows_written"] == 808
+    assert telemetry["rows_dropped"] == 203
+    assert telemetry["failed_batches"] == 38
+    assert telemetry["raw_telemetry_loss_count"] == 70_003
+    assert telemetry["true_lost_critical_rows"] == 6
+    assert telemetry["current_failed_batches"] == 1
+    assert telemetry["current_raw_telemetry_loss_count"] == 3
+    assert telemetry["lifetime_counter_sources"] == [
+        "runtime_state", "dashboard_export"]
+
+
+def test_lifetime_counter_loader_rejects_wrong_lineage_and_accepts_huge_int(
+    tmp_path, monkeypatch,
+) -> None:
+    huge = 10 ** 10_000
+    assert engine_module._nonnegative_counter(huge) == huge
+
+    cfg = FrequencyV4Config()
+    cfg.db_path = str(tmp_path / "poly_alpha_frequency_v4.db")
+    cfg.runtime_dir = str(tmp_path / "runtime" / "lite_frequency_v4_shadow")
+    cfg.export_dir = str(tmp_path / "export" / "poly_alpha_frequency_v4")
+    runtime = V4RuntimeFiles(cfg.runtime_dir, repo_root=tmp_path)
+    runtime.directory.mkdir(parents=True, exist_ok=True)
+    runtime.state_path.write_text(json.dumps({
+        **immutable_safety_state(),
+        "db_path": str(tmp_path / "unrelated.db"),
+        "runtime_dir": str(Path(cfg.runtime_dir).resolve()),
+        "export_path": str(
+            (Path(cfg.export_dir) / "frequency_v4_dashboard.json").resolve()),
+        "persistence": {
+            "telemetry": {
+                "rows_written": 9_001,
+                "true_lost_critical_rows": 37,
+            },
+        },
+    }), encoding="utf-8")
+    monkeypatch.setattr(
+        engine_module, "validate_frequency_v4_config", lambda _cfg: None)
+    engine = FrequencyV4Engine(cfg, runtime)
+    assert engine._telemetry_lifetime_sources == ()
+    assert all(
+        value == 0
+        for value in engine._telemetry_lifetime_baseline.values())
+
+    export_path = Path(cfg.export_dir) / "frequency_v4_dashboard.json"
+    lineage = engine_module._counter_lineage_fingerprint(
+        cfg.db_path, cfg.runtime_dir, export_path)
+    oversized = json.dumps({
+        **immutable_safety_state(),
+        "db_path": str(Path(cfg.db_path).resolve()),
+        "runtime_dir": str(Path(cfg.runtime_dir).resolve()),
+        "export_path": str(export_path.resolve()),
+        "lineage_fingerprint": lineage,
+        "persistence": {
+            "telemetry": {"rows_written": "HUGE_COUNTER"},
+        },
+    }).replace('"HUGE_COUNTER"', "9" * 5_000)
+    runtime.state_path.write_text(oversized, encoding="utf-8")
+    ignored = FrequencyV4Engine(cfg, runtime)
+    assert ignored._telemetry_lifetime_sources == ()
+
+    runtime.state_path.write_text(json.dumps({
+        **immutable_safety_state(),
+        "db_path": "\x00",
+        "runtime_dir": str(Path(cfg.runtime_dir).resolve()),
+        "export_path": str(export_path.resolve()),
+        "persistence": {
+            "telemetry": {"rows_written": 9_001},
+        },
+    }), encoding="utf-8")
+    malformed = FrequencyV4Engine(cfg, runtime)
+    assert malformed._telemetry_lifetime_sources == ()
 
 
 def _identity(current: int, *, asset: str = "BTC", suffix: str = "1") -> MarketIdentity:
@@ -412,6 +700,69 @@ def test_rejected_polymarket_backlog_is_batched_off_receive_path(
     assert row["raw_count"] == 1
     assert row["invalid_count"] == 1
     assert row["classification"] == "REJECT_STALE"
+
+
+def _event_count_key(index: int) -> tuple[int, str, str, str, str, str]:
+    return (
+        1_800_000_000_000 + index * 1_000,
+        "okx", f"ticker:{index}", "BTC", "ticker", "NEW_TICK",
+    )
+
+
+def test_event_count_flush_bounds_nested_sql_rows_per_command(
+        engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine._event_count_buffer = {
+        _event_count_key(index): [1, 1, 0, 0]
+        for index in range(40)
+    }
+    submit = Mock(return_value=True)
+    monkeypatch.setattr(engine, "_telemetry_submit", submit)
+
+    assert engine._flush_event_counts() is True
+    assert not engine._event_count_buffer
+    assert submit.call_count == 3
+    assert all(
+        len(call.args[1]) <= engine_module.EVENT_COUNT_ROWS_PER_COMMAND
+        for call in submit.call_args_list
+    )
+
+
+def test_event_count_flush_restores_only_failed_and_later_chunks(
+        engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    original = {
+        _event_count_key(index): [1, 1, 0, 0]
+        for index in range(40)
+    }
+    engine._event_count_buffer = {
+        key: list(counts) for key, counts in original.items()
+    }
+    submit = Mock(side_effect=[True, False])
+    monkeypatch.setattr(engine, "_telemetry_submit", submit)
+
+    assert engine._flush_event_counts() is False
+    assert set(engine._event_count_buffer) == set(list(original)[16:])
+    assert all(
+        engine._event_count_buffer[key] == original[key]
+        for key in engine._event_count_buffer
+    )
+
+
+def test_shutdown_drains_more_than_one_event_count_slice(
+        engine_harness, monkeypatch):
+    engine = engine_harness.engine
+    engine._event_count_buffer = {
+        _event_count_key(index): [1, 1, 0, 0]
+        for index in range(600)
+    }
+    submit = Mock(return_value=True)
+    monkeypatch.setattr(engine, "_telemetry_submit", submit)
+
+    assert engine._drain_event_counts_for_shutdown() is True
+    assert not engine._event_count_buffer
+    assert submit.call_count == 38
+    assert engine.counters["telemetry_event_bucket_overflow"] == 0
 
 
 def test_polymarket_ingest_queue_overflow_clears_executable_book(engine_harness):

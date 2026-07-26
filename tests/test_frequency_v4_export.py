@@ -71,6 +71,10 @@ def _healthy_runtime_state(session: str) -> dict:
                 "failed_batches": 0,
                 "raw_telemetry_loss_count": 0,
                 "critical_evidence_incomplete_count": 0,
+                "current_operational_healthy": True,
+                "recovery_healthy_windows": 10,
+                "recovery_required_windows": 10,
+                "recovery_sample_age_ms": 0,
             },
             "operational_reads": {"state": "RUNNING"},
             "reporting": {"state": "RUNNING"},
@@ -170,8 +174,32 @@ def test_inflight_critical_command_does_not_block_operational_ready(tmp_path):
         store.close()
 
 
-def test_telemetry_blocker_clears_once_the_recovery_window_passes(tmp_path):
-    """telemetry_batch_failure must not latch after the lane recovers."""
+def test_resolved_historical_timeout_is_audit_only_not_current_incomplete(
+        tmp_path):
+    store, session, _ = _store_with_health(tmp_path)
+    try:
+        state = _healthy_runtime_state(session)
+        state["persistence"]["critical"].update({
+            "timeout_count": 9,
+            "unconfirmed_command_count": 0,
+            "unconfirmed_command_oldest_age_ms": None,
+        })
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(),
+            session_id=session, runtime_state=state,
+        )
+        assert "critical_command_timeout" not in (
+            payload["persistence"]["critical_blocked_reasons"])
+        assert "critical_evidence_incomplete" not in (
+            payload["persistence"]["critical_blocked_reasons"])
+        assert payload["persistence"]["operational_ready"] is True
+        assert payload["persistence"]["critical"]["timeout_count"] == 9
+    finally:
+        store.close()
+
+
+def test_explicit_telemetry_recovery_clears_lifetime_failure_blocker(tmp_path):
+    """Lifetime failures remain visible while explicit current health recovers."""
     store, session, _ = _store_with_health(tmp_path)
     config = FrequencyV4Config()
     window = config.writer_failure_timeout_ms
@@ -184,6 +212,10 @@ def test_telemetry_blocker_clears_once_the_recovery_window_passes(tmp_path):
                 "rows_dropped": 211_867,
                 "raw_telemetry_loss_count": 217_904,
                 "last_failure_ts_ms": NOW - last_failure_offset_ms,
+                "current_operational_healthy": (
+                    last_failure_offset_ms > window),
+                "recovery_healthy_windows": (
+                    10 if last_failure_offset_ms > window else 0),
             })
             return build_frequency_v4_dashboard(
                 store, now_ms=NOW, config=config, session_id=session,
@@ -191,12 +223,12 @@ def test_telemetry_blocker_clears_once_the_recovery_window_passes(tmp_path):
             )
 
         inside = payload_for(window - 1)["persistence"]
-        assert "telemetry_batch_failure" in inside["blocked_reasons"]
+        assert "telemetry_recovery_window" in inside["blocked_reasons"]
         assert inside["operational_ready"] is False
         assert inside["telemetry_recovery"]["recent_failure"] is True
 
         outside = payload_for(window + 1)["persistence"]
-        assert "telemetry_batch_failure" not in outside["blocked_reasons"]
+        assert "telemetry_recovery_window" not in outside["blocked_reasons"]
         assert outside["operational_ready"] is True
         assert outside["telemetry_recovery"]["recent_failure"] is False
         # Lifetime counters remain reported honestly after recovery.
@@ -204,6 +236,210 @@ def test_telemetry_blocker_clears_once_the_recovery_window_passes(tmp_path):
             "lifetime_telemetry_failures"] == 6_037
         assert outside["telemetry_recovery"][
             "lifetime_raw_telemetry_loss"] == 217_904
+    finally:
+        store.close()
+
+
+def test_explicit_current_health_recovers_readiness_without_erasing_lifetime_loss(
+        tmp_path):
+    """A bounded healthy window clears the live block, not the audit counters."""
+
+    store, session, _ = _store_with_health(tmp_path)
+    config = FrequencyV4Config()
+    try:
+        recovering = _healthy_runtime_state(session)
+        recovering["persistence"]["telemetry"].update({
+            "rows_dropped": 11,
+            "raw_telemetry_loss_count": 11,
+            "failed_batches": 3,
+            "current_operational_healthy": False,
+            "recovery_healthy_windows": 4,
+            "recovery_required_windows": 10,
+            "last_failure_ts_ms": 0,
+            "last_overflow_ts_ms": 0,
+            "recovery_sample_age_ms": 0,
+        })
+        before = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=config, session_id=session,
+            runtime_state=recovering,
+        )
+        assert before["persistence"]["operational_ready"] is False
+        assert "telemetry_recovery_window" in (
+            before["persistence"]["operational_degraded_reasons"])
+
+        recovered = _healthy_runtime_state(session)
+        recovered["persistence"]["telemetry"].update({
+            "rows_dropped": 11,
+            "raw_telemetry_loss_count": 11,
+            "failed_batches": 3,
+            "current_operational_healthy": True,
+            "recovery_healthy_windows": 10,
+            "recovery_required_windows": 10,
+            "last_failure_ts_ms": 0,
+            "last_overflow_ts_ms": 0,
+            "recovery_sample_age_ms": 0,
+        })
+        after = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=config, session_id=session,
+            runtime_state=recovered,
+        )
+        assert after["persistence"]["operational_ready"] is True
+        assert after["persistence"]["telemetry_recovery"][
+            "lifetime_raw_telemetry_loss"] == 11
+        assert after["persistence"]["telemetry_recovery"][
+            "current_operational_healthy"] is True
+    finally:
+        store.close()
+
+
+def test_missing_or_stale_explicit_recovery_state_fails_closed(tmp_path):
+    store, session, _ = _store_with_health(tmp_path)
+    config = FrequencyV4Config()
+    try:
+        missing = _healthy_runtime_state(session)
+        telemetry = missing["persistence"]["telemetry"]
+        for key in (
+            "current_operational_healthy", "recovery_healthy_windows",
+            "recovery_required_windows", "recovery_sample_age_ms",
+        ):
+            telemetry.pop(key, None)
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=config, session_id=session,
+            runtime_state=missing,
+        )
+        assert payload["persistence"]["operational_ready"] is False
+        assert "telemetry_recovery_window" in (
+            payload["persistence"]["operational_degraded_reasons"])
+
+        stale = _healthy_runtime_state(session)
+        stale["persistence"]["telemetry"]["recovery_sample_age_ms"] = (
+            config.writer_failure_timeout_ms + 1)
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=config, session_id=session,
+            runtime_state=stale,
+        )
+        assert payload["persistence"]["operational_ready"] is False
+        assert "telemetry_recovery_sample_stale" in (
+            payload["persistence"]["operational_degraded_reasons"])
+    finally:
+        store.close()
+
+
+def test_runtime_session_query_failure_is_unknown_not_zero(
+        tmp_path, monkeypatch):
+    store, session, _ = _store_with_health(tmp_path)
+    original = store.query_one
+
+    def fail_session_count(sql, params=()):
+        if "COUNT(*) AS count FROM runtime_sessions" in str(sql):
+            raise RuntimeError("session evidence unavailable")
+        return original(sql, params)
+
+    monkeypatch.setattr(store, "query_one", fail_session_count)
+    try:
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(),
+            session_id=session, runtime_state=_healthy_runtime_state(session),
+        )
+        assert payload["runtime"]["open_runtime_session_count"] is None
+        assert payload["runtime"]["current_session_open"] is None
+        assert payload["persistence"]["operational_ready"] is False
+        assert "runtime_session_query_failed" in (
+            payload["persistence"]["critical_blocked_reasons"])
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize(
+    "runtime_state_name",
+    ["STARTING", "RUNNING", "STOPPING", "DEGRADED_TELEMETRY",
+     "DEGRADED_PERSISTENCE"],
+)
+def test_every_nonterminal_state_requires_exactly_one_current_open_session(
+        tmp_path, runtime_state_name):
+    store, session, _ = _store_with_health(tmp_path)
+    try:
+        state = _healthy_runtime_state(session)
+        state["state"] = runtime_state_name
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(),
+            session_id=session, runtime_state=state,
+        )
+        assert "runtime_session_count_mismatch" not in (
+            payload["persistence"]["critical_blocked_reasons"])
+        assert payload["runtime"]["open_runtime_session_count"] == 1
+        assert payload["runtime"]["expected_open_runtime_session_count"] == 1
+        assert payload["runtime"]["current_session_open"] is True
+    finally:
+        store.close()
+
+
+def test_nonterminal_zero_or_duplicate_sessions_fail_closed(tmp_path):
+    store, session, _ = _store_with_health(tmp_path)
+    try:
+        state = _healthy_runtime_state(session)
+        state["state"] = "DEGRADED_TELEMETRY"
+        store.end_runtime_session(session, NOW, "test_zero")
+        zero = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(),
+            session_id=session, runtime_state=state,
+        )
+        assert "runtime_session_count_mismatch" in (
+            zero["persistence"]["critical_blocked_reasons"])
+        assert zero["persistence"]["operational_ready"] is False
+
+        second = seed_session(
+            store, session_id="session-v4-second", started=NOW - 60_000)
+        seed_session(
+            store, session_id="session-v4-third", started=NOW - 30_000)
+        duplicate_state = _healthy_runtime_state(second)
+        duplicate_state["state"] = "STARTING"
+        duplicate = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(),
+            session_id=second, runtime_state=duplicate_state,
+        )
+        assert duplicate["runtime"]["open_runtime_session_count"] == 2
+        assert duplicate["runtime"]["current_session_open"] is True
+        assert "runtime_session_count_mismatch" in (
+            duplicate["persistence"]["critical_blocked_reasons"])
+        assert duplicate["persistence"]["operational_ready"] is False
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("runtime_state_name", ["STOPPED", "FAILED"])
+def test_terminal_state_requires_zero_open_sessions(
+        tmp_path, runtime_state_name):
+    store, session, _ = _store_with_health(tmp_path)
+    try:
+        store.end_runtime_session(session, NOW, "terminal_test")
+        state = _healthy_runtime_state(session)
+        state["state"] = runtime_state_name
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(),
+            session_id=session, runtime_state=state,
+        )
+        assert "runtime_session_count_mismatch" not in (
+            payload["persistence"]["critical_blocked_reasons"])
+        assert payload["runtime"]["open_runtime_session_count"] == 0
+        assert payload["runtime"]["expected_open_runtime_session_count"] == 0
+        assert payload["runtime"]["current_session_open"] is False
+    finally:
+        store.close()
+
+
+def test_exact_critical_loss_blocks_readiness(tmp_path):
+    store, session, _ = _store_with_health(tmp_path)
+    try:
+        state = _healthy_runtime_state(session)
+        state["persistence"]["telemetry"]["true_lost_critical_rows"] = 3
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(),
+            session_id=session, runtime_state=state,
+        )
+        assert "critical_evidence_lost" in (
+            payload["persistence"]["critical_blocked_reasons"])
+        assert payload["persistence"]["operational_ready"] is False
     finally:
         store.close()
 
@@ -326,13 +562,17 @@ def test_export_separates_critical_block_from_lossy_raw_telemetry(tmp_path):
         active = _healthy_runtime_state(session)
         active["persistence"]["telemetry"]["failed_batches"] = 5
         active["persistence"]["telemetry"]["last_failure_ts_ms"] = NOW - 1_000
+        active["persistence"]["telemetry"][
+            "current_operational_healthy"] = False
+        active["persistence"]["telemetry"]["recovery_healthy_windows"] = 0
         payload = build_frequency_v4_dashboard(
             store, now_ms=NOW, config=FrequencyV4Config(),
             session_id=session, runtime_state=active,
         )
         assert payload["persistence"]["critical_execution_ready"] is True
         assert payload["persistence"]["operational_ready"] is False
-        assert "telemetry_batch_failure" in payload["persistence"]["blocked_reasons"]
+        assert "telemetry_recovery_window" in (
+            payload["persistence"]["blocked_reasons"])
         assert payload["persistence"]["telemetry_recovery"]["recent_failure"] is True
 
         latched = _healthy_runtime_state(session)

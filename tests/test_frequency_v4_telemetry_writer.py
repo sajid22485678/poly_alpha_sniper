@@ -634,11 +634,15 @@ def test_one_failed_chunk_never_destroys_rows_it_did_not_attempt():
     for index in range(40):
         writer.submit(TelemetryCommand("record", (index,), {"value": index}))
     writer.start()
-    assert writer.stop(drain=True, timeout_s=10.0)
+    # The owner thread still drains every later row and stops, but a draining
+    # stop must report false because the first accepted physical chunk was
+    # genuinely lost.
+    assert writer.stop(drain=True, timeout_s=10.0) is False
     metrics = writer.snapshot()
     assert metrics["dropped"] == 4
     assert metrics["written"] == 36
     assert metrics["failed_batches"] == 1
+    assert metrics["drain_stop_failed"] is True
 
 
 def test_deadline_backoff_actually_defers_the_next_dispatch():

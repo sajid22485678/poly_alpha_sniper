@@ -92,3 +92,35 @@ def test_launcher_readiness_requires_correlated_safe_fresh_heartbeat():
 
     assert "$heartbeatagems -le 15000" in start
     assert "refusing a duplicate" in start
+
+
+def test_dashboard_reader_rejects_legacy_invalid_and_future_exports():
+    route = (
+        ROOT
+        / "dashboard_frequency_v4"
+        / "src"
+        / "app"
+        / "api"
+        / "snapshot"
+        / "route.ts"
+    ).read_text(encoding="utf-8")
+    assert "snapshot.schema_version !== 3" in route
+    assert 'error: "unsupported_export_schema"' in route
+    assert 'error: "invalid_export_timestamp"' in route
+    assert 'error: "future_export_timestamp"' in route
+    assert "Number.isSafeInteger(generatedTsMs)" in route
+    assert "MAX_FUTURE_SKEW_MS" in route
+    assert "info.mtimeMs" not in route
+
+
+def test_dashboard_runtime_session_card_is_terminal_state_aware():
+    dashboard = (
+        ROOT
+        / "dashboard_frequency_v4"
+        / "src"
+        / "components"
+        / "V4Dashboard.tsx"
+    ).read_text(encoding="utf-8")
+    assert 'runtimeState === "STOPPED" || runtimeState === "FAILED"' in dashboard
+    assert "expectedOpenSessions = terminalRuntime ? 0 : 1" in dashboard
+    assert "current_session_open" in dashboard

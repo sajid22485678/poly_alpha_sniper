@@ -65,8 +65,8 @@ export interface CapitalLedger {
 }
 
 export interface FrequencyV4Snapshot {
-  schema_version?: number;
-  generated_ts_ms?: number;
+  schema_version: number;
+  generated_ts_ms: number;
   current_commit?: string;
   strategy_id?: string;
   mode?: string;

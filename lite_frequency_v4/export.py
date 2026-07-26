@@ -407,6 +407,25 @@ def build_frequency_v4_dashboard(
     open_positions = store.open_positions()
     exposure = sum(float(row.get("committed_exposure_usd") or 0) for row in open_positions)
     latest_health = _latest_runtime_health(store, effective_session_id)
+    runtime_session_query_error: Optional[str] = None
+    try:
+        open_runtime_session_count = int((store.query_one(
+            """SELECT COUNT(*) AS count FROM runtime_sessions
+               WHERE strategy_id=? AND mode=? AND ended_ts_ms IS NULL""",
+            (STRATEGY_ID, MODE),
+        ) or {}).get("count") or 0)
+        current_session_open = int((store.query_one(
+            """SELECT COUNT(*) AS count FROM runtime_sessions
+               WHERE session_id=? AND ended_ts_ms IS NULL""",
+            (effective_session_id,),
+        ) or {}).get("count") or 0)
+    except Exception as exc:
+        # Unknown is not zero.  Session evidence is part of the runtime safety
+        # contract and must fail closed if the query cannot be completed.
+        open_runtime_session_count = None
+        current_session_open = None
+        runtime_session_query_error = (
+            f"{type(exc).__name__}:{exc}")[:240]
     try:
         source_health = store.latest_source_health(session_id=effective_session_id)
     except TypeError:  # Compatibility for a pre-v2 read-only store in tests.
@@ -469,14 +488,19 @@ def build_frequency_v4_dashboard(
     telemetry = _mapping(persistence.get("telemetry"))
     operational_reads = _mapping(persistence.get("operational_reads"))
     reporting = _mapping(persistence.get("reporting"))
+    integrity_reads = _mapping(
+        persistence.get("integrity_reads") or persistence.get("reporting"))
     maintenance = _mapping(persistence.get("maintenance"))
     latest_maintenance = _mapping(persistence.get("latest_maintenance"))
     runtime_io = _mapping(persistence.get("runtime_io"))
     writer_state = str(critical.get("state") or "UNKNOWN")
-    writer_timeouts = int(critical.get("timeout_count") or 0)
     critical_incomplete = int(
         telemetry.get("critical_evidence_incomplete_count")
         or telemetry.get("incomplete_evidence_count") or 0
+    )
+    critical_lost = int(
+        telemetry.get("true_lost_critical_rows")
+        or telemetry.get("critical_evidence_lost_count") or 0
     )
     raw_telemetry_loss = int(
         telemetry.get("raw_telemetry_loss_count")
@@ -516,35 +540,71 @@ def build_frequency_v4_dashboard(
         telemetry_last_overflow_ts_ms > 0
         and int(now_ms) - telemetry_last_overflow_ts_ms <= telemetry_recent_window_ms
     )
-    # A HEALTHY writer state with no recent failure means the lossy lane has
-    # recovered; lifetime counters are informational, not a live block.
+    # Recovery is an explicit writer-owned, fixed-cadence contract.  Missing or
+    # stale state is unknown/unhealthy; legacy timestamp heuristics must not
+    # turn an empty telemetry mapping into operational readiness.
+    explicit_current_health = telemetry.get("current_operational_healthy")
+    recovery_sample_age_ms = telemetry.get("recovery_sample_age_ms")
+    recovery_sample_fresh = (
+        isinstance(recovery_sample_age_ms, (int, float))
+        and not isinstance(recovery_sample_age_ms, bool)
+        and math.isfinite(float(recovery_sample_age_ms))
+        and 0 <= float(recovery_sample_age_ms) <= telemetry_recent_window_ms
+    )
+    recovery_healthy_windows = int(
+        telemetry.get("recovery_healthy_windows") or 0)
+    recovery_required_windows = int(
+        telemetry.get("recovery_required_windows") or 0)
+    telemetry_recovery_healthy = (
+        explicit_current_health is True
+        and recovery_sample_fresh
+        and recovery_required_windows > 0
+        and recovery_healthy_windows >= recovery_required_windows
+    )
     telemetry_currently_unhealthy = (
-        telemetry_health not in ("", "HEALTHY", "CREATED")
-        or telemetry_recent_failure
-        or telemetry_recent_overflow
+        telemetry_health != "HEALTHY"
+        or not telemetry_recovery_healthy
     )
     execution_blocked_reason = str(
         runtime.get("execution_blocked_reason")
         or critical.get("engine_latched_failure_reason") or ""
     )
+    runtime_state_name = str(runtime.get("state") or "").upper()
+    # Every nonterminal state owns exactly one open session, including
+    # STARTING, STOPPING, and DEGRADED_* states.  Terminal exports must prove
+    # that the session was closed.  Unknown state is deliberately treated as
+    # nonterminal so missing lifecycle data cannot bypass the check.
+    terminal_runtime_state = runtime_state_name in {"STOPPED", "FAILED"}
+    expected_open_runtime_sessions = 0 if terminal_runtime_state else 1
+    runtime_session_count_mismatch = (
+        open_runtime_session_count != expected_open_runtime_sessions
+        or current_session_open != expected_open_runtime_sessions
+    )
     critical_blocked_reasons = [
         reason for reason, present in (
             ("critical_writer_unhealthy", writer_state != "HEALTHY"),
-            ("critical_command_timeout", writer_timeouts > 0),
             ("unconfirmed_critical_command", int(
                 critical.get("unconfirmed_command_count") or 0) > 0
                 and unconfirmed_overdue),
             ("critical_evidence_incomplete", critical_incomplete > 0),
+            ("critical_evidence_lost", critical_lost > 0),
             (f"engine_execution_blocked:{execution_blocked_reason}", bool(
                 execution_blocked_reason)),
             ("process_ownership_unverified", not bool(
                 runtime.get("process_ownership_valid"))),
             ("orphan_v4_process_detected", int(
                 runtime.get("orphan_processes") or 0) > 0),
+            ("runtime_session_query_failed", bool(
+                runtime_session_query_error)),
+            ("runtime_session_count_mismatch", bool(
+                runtime_session_count_mismatch)),
             ("operational_read_worker_unhealthy", str(
                 operational_reads.get("state") or "") != "RUNNING"),
             ("reporting_read_worker_unhealthy", str(
                 reporting.get("state") or "") != "RUNNING"),
+            ("integrity_read_worker_unhealthy", bool(
+                persistence.get("integrity_reads")) and str(
+                    integrity_reads.get("state") or "") != "RUNNING"),
             ("sqlite_integrity_unhealthy", not (
                 integrity.get("integrity") == "ok"
                 and not integrity.get("foreign_key_violations"))),
@@ -554,12 +614,11 @@ def build_frequency_v4_dashboard(
     operational_degraded_reasons = [
         *critical_blocked_reasons,
         *(["telemetry_writer_unhealthy"] if (
-            telemetry_health not in ("", "HEALTHY", "CREATED")) else []),
-        # Lifetime raw-telemetry loss no longer latches operational degraded.
-        # The lane is degraded only while it is actively dropping or failing
-        # (recent failure/overflow within the writer failure-timeout window).
-        *(["raw_telemetry_loss"] if telemetry_recent_overflow else []),
-        *(["telemetry_batch_failure"] if telemetry_recent_failure else []),
+            telemetry_health != "HEALTHY") else []),
+        *(["telemetry_recovery_window"] if (
+            not telemetry_recovery_healthy) else []),
+        *(["telemetry_recovery_sample_stale"] if (
+            not recovery_sample_fresh) else []),
         *(["maintenance_worker_unhealthy"] if str(
             maintenance.get("state") or "") != "RUNNING" else []),
         *(["maintenance_pass_failed"] if str(
@@ -617,6 +676,7 @@ def build_frequency_v4_dashboard(
         "strategy_id": STRATEGY_ID,
         "mode": MODE,
         **safety,
+        "lineage_fingerprint": runtime.get("lineage_fingerprint"),
         "runtime_label": RUNTIME_LABEL,
         "cohort": {
             "authoritative": ACTIVE_COHORT,
@@ -649,10 +709,18 @@ def build_frequency_v4_dashboard(
             "launch_nonce_fingerprint": nonce_fingerprint,
             "current_commit": commit,
             "config_hash": runtime.get("config_hash"),
+            "lineage_fingerprint": runtime.get("lineage_fingerprint"),
             "heartbeat_ts_ms": heartbeat_ts_ms,
             "state": runtime.get("state", latest_health.get("state") if latest_health else None),
             "orphan_processes": int(runtime.get("orphan_processes") or 0),
             "process_ownership_valid": bool(runtime.get("process_ownership_valid", False)),
+            "open_runtime_session_count": open_runtime_session_count,
+            "expected_open_runtime_session_count": (
+                expected_open_runtime_sessions),
+            "current_session_open": (
+                bool(current_session_open)
+                if current_session_open is not None else None),
+            "runtime_session_query_error": runtime_session_query_error,
             "latest_health": latest_health,
         },
         "effective_config": {
@@ -664,6 +732,7 @@ def build_frequency_v4_dashboard(
             "telemetry": telemetry,
             "operational_reads": operational_reads,
             "reporting": reporting,
+            "integrity_reads": integrity_reads,
             "maintenance": maintenance,
             "latest_maintenance": latest_maintenance,
             "runtime_io": runtime_io,
@@ -689,6 +758,11 @@ def build_frequency_v4_dashboard(
                 "recent_failure": telemetry_recent_failure,
                 "recent_overflow": telemetry_recent_overflow,
                 "currently_unhealthy": telemetry_currently_unhealthy,
+                "current_operational_healthy": telemetry_recovery_healthy,
+                "healthy_windows": recovery_healthy_windows,
+                "required_healthy_windows": recovery_required_windows,
+                "sample_age_ms": recovery_sample_age_ms,
+                "sample_fresh": recovery_sample_fresh,
                 "last_failure_ts_ms": telemetry_last_failure_ts_ms or None,
                 "last_overflow_ts_ms": telemetry_last_overflow_ts_ms or None,
                 "recent_window_ms": telemetry_recent_window_ms,

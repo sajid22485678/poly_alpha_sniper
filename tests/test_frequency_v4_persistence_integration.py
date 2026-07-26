@@ -357,16 +357,18 @@ async def test_production_start_stop_owns_all_blocking_resources_off_loop(
         telemetry_owner = int(telemetry_sink.health()["owner_thread_id"])
         read_owner = int(engine.read_worker.health()["owner_thread_id"])
         report_owner = int(engine.report_worker.health()["owner_thread_id"])
+        integrity_owner = int(
+            engine.integrity_worker.health()["owner_thread_id"])
         maintenance_owner = int(
             engine.maintenance_worker.health()["owner_thread_id"]
         )
         runtime_owner = int(engine.runtime_io_worker.health()["owner_thread_id"])
         sqlite_owners = {
             critical_owner, telemetry_owner, read_owner, report_owner,
-            maintenance_owner,
+            integrity_owner, maintenance_owner,
         }
         assert main_thread not in sqlite_owners
-        assert len(sqlite_owners) == 5
+        assert len(sqlite_owners) == 6
         assert runtime_owner not in sqlite_owners
         assert set(connection_threads) == sqlite_owners
         assert runtime_publish_threads
@@ -395,6 +397,7 @@ async def test_production_start_stop_owns_all_blocking_resources_off_loop(
         assert engine.persistence.health()["raw_state"] == "STOPPED"
         assert engine.read_worker.health()["state"] == "STOPPED"
         assert engine.report_worker.health()["state"] == "STOPPED"
+        assert engine.integrity_worker.health()["state"] == "STOPPED"
         assert engine.maintenance_worker.health()["state"] == "STOPPED"
         assert engine.runtime_io_worker.health()["state"] == "STOPPED"
         stopped_state = json.loads(
@@ -410,9 +413,14 @@ async def test_production_start_stop_owns_all_blocking_resources_off_loop(
                 "SELECT ended_ts_ms,stop_reason FROM runtime_sessions "
                 "WHERE session_id=?", (engine.session_id,),
             ).fetchone()
+            open_sessions = int(connection.execute(
+                "SELECT COUNT(*) FROM runtime_sessions "
+                "WHERE ended_ts_ms IS NULL"
+            ).fetchone()[0])
         assert session is not None
         assert int(session[0]) > 0
         assert session[1] == "production_lifecycle_test"
+        assert open_sessions == 0
     finally:
         if engine._started and not engine._stop_complete:
             await engine.stop("failed_lifecycle_test_cleanup")
@@ -649,6 +657,108 @@ async def test_slow_checkpoint_and_retention_are_engine_worker_responsive(
 
 
 @pytest.mark.asyncio
+async def test_engine_stop_during_active_maintenance_drains_telemetry_and_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with _running_engine(tmp_path, monkeypatch) as (engine, _runtime):
+        entered = threading.Event()
+        release = threading.Event()
+
+        def held_maintenance_gate(store: V4Store) -> dict[str, Any]:
+            with store._background_write_gate():
+                entered.set()
+                if not release.wait(timeout=3.0):
+                    raise TimeoutError("test maintenance gate was not released")
+            return {"status": "PASS", "mode": "PASSIVE"}
+
+        checkpoint = asyncio.create_task(
+            engine.maintenance_worker.run_checkpoint(
+                held_maintenance_gate,
+                timeout_s=4.0,
+                name="held_checkpoint_during_stop",
+            )
+        )
+        assert await asyncio.to_thread(entered.wait, 2.0)
+        assert engine._telemetry_submit(
+            "record_event_count_batch", []) is True
+        await asyncio.sleep(0.05)
+
+        stop = asyncio.create_task(
+            engine.stop("active_checkpoint_shutdown_test"))
+        await asyncio.sleep(0.10)
+        assert stop.done() is False
+        release.set()
+        await checkpoint
+        await asyncio.wait_for(stop, timeout=5.0)
+
+        telemetry = engine.telemetry.snapshot()
+        assert engine._telemetry_shutdown_ok is True
+        assert telemetry["rows_dropped"] == 0
+        assert telemetry["health"] == "STOPPED"
+        with sqlite3.connect(engine.cfg.db_path) as connection:
+            assert int(connection.execute(
+                "SELECT COUNT(*) FROM runtime_sessions "
+                "WHERE ended_ts_ms IS NULL"
+            ).fetchone()[0]) == 0
+
+
+@pytest.mark.asyncio
+async def test_export_generation_stays_fresh_during_sustained_telemetry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(engine_module, "DASHBOARD_EXPORT_INTERVAL_MS", 100)
+    async with _running_engine(tmp_path, monkeypatch) as (engine, _runtime):
+        observed_exports: list[int] = []
+        original_export = engine._run_dashboard_export
+
+        async def observed_export() -> None:
+            observed_exports.append(now_ms())
+            await original_export()
+
+        monkeypatch.setattr(engine, "_run_dashboard_export", observed_export)
+
+        async def telemetry_load() -> None:
+            for index in range(300):
+                admitted = engine._telemetry_submit(
+                    "record_event_count_batch",
+                    [{
+                        "receipt_ts_ms": now_ms() + index,
+                        "source": "okx",
+                        "channel": "ticker",
+                        "asset": "BTC",
+                        "event_type": "ticker",
+                        "classification": "NEW_TICK",
+                        "raw_count": 1,
+                        "unique_count": 1,
+                        "duplicate_count": 0,
+                        "invalid_count": 0,
+                    }],
+                )
+                assert admitted is True
+                await asyncio.sleep(0.002)
+
+        # Exercise the production _reporting_loop task while the real
+        # thread-owned telemetry writer is continuously accepting work.
+        await telemetry_load()
+        deadline = time.monotonic() + 3.0
+        while len(observed_exports) < 4 and time.monotonic() < deadline:
+            await asyncio.sleep(0.02)
+        assert len(observed_exports) >= 4
+        gaps = [
+            right - left
+            for left, right in zip(observed_exports, observed_exports[1:])
+        ]
+        assert max(gaps, default=0) < 500
+        payload = json.loads(
+            engine.export_path.read_text(encoding="utf-8"))
+        assert max(0, now_ms() - int(payload["generated_ts_ms"])) < 1_000
+        assert await asyncio.to_thread(engine.telemetry.flush, 5.0)
+        telemetry = engine.telemetry.snapshot()
+        assert telemetry["rows_written"] >= 300
+        assert telemetry["rows_dropped"] == 0
+
+
+@pytest.mark.asyncio
 async def test_writer_health_and_integrity_gates_fail_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -821,6 +931,21 @@ async def test_inflight_commands_are_not_reported_as_incomplete_evidence(
         overdue = engine._runtime_state()
         assert overdue["persistence"]["telemetry"][
             "critical_evidence_incomplete_count"] == 9
+
+        def resolved_timeout(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            result = healthy()
+            result.update({
+                "timeout_count": 9,
+                "unconfirmed_command_count": 0,
+                "unconfirmed_command_oldest_age_ms": None,
+            })
+            return result
+
+        monkeypatch.setattr(engine.persistence, "health", resolved_timeout)
+        resolved = engine._runtime_state()
+        assert resolved["persistence"]["telemetry"][
+            "critical_evidence_incomplete_count"] == 0
+        assert resolved["persistence"]["critical"]["timeout_count"] == 9
 
 
 @pytest.mark.asyncio

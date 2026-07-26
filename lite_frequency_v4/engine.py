@@ -13,9 +13,10 @@ from dataclasses import asdict, dataclass, field
 import hashlib
 from itertools import islice
 import json
+import math
 from pathlib import Path
 import time
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 import uuid
 
 from .books import (
@@ -71,25 +72,18 @@ from .store import (
     WindowReservationConflict,
 )
 from .universe import UNIVERSE_POLICY_VERSION, evaluate_market_identity
-from .telemetry import V4TelemetryWriter
+from .telemetry import TelemetryOverloadPolicy, V4TelemetryWriter
 from .workers import V4MaintenanceWorker, V4ReadWorker, V4RuntimeIOWorker
 
 
-# Cadence for the heavy, whole-database synchronous maintenance operations.
-# A large database makes a full dashboard export or PRAGMA integrity_check cost
-# seconds, and they run on the shared event loop; running them every ~2s (the
-# cheap state/heartbeat cadence) monopolises the loop and starves the WebSocket
-# heartbeat/reconnect path, causing PONG-timeout reconnect storms.  They are
-# therefore spaced far apart so a single multi-second scan stays well inside the
-# 10s Polymarket PONG window with the loop responsive in between.  The durable
-# fix is to run them off-loop against a dedicated read-only connection.
-DASHBOARD_EXPORT_INTERVAL_MS = 15_000
+# The dashboard export is off-loop on its own read-only worker.  Five seconds
+# gives the reader two generation opportunities inside the <=10 s freshness
+# contract, while integrity and maintenance use separate owner threads.
+DASHBOARD_EXPORT_INTERVAL_MS = 5_000
 # The full ``PRAGMA integrity_check`` is a whole-database scan that grew to
 # multi-minute duration once the evidence store crossed ~3 GB.  Running it
-# every 5 minutes monopolised the single reporting worker and stalled exports
-# (the dashboard staleness root cause).  It is now spaced far enough apart that
-# a scan can never delay an export past its 15 s cadence, and the export always
-# uses the last-good cached result so freshness never waits on a fresh scan.
+# every 5 minutes once monopolised the reporting worker and stalled exports.
+# It now has a separate read worker; exports use the last-good cached result.
 INTEGRITY_CHECK_INTERVAL_MS = 1_800_000  # 30 minutes
 INTEGRITY_MAX_AGE_MS = 3_600_000  # 1 hour; fail-closed if older
 # Non-executable evaluation-state transitions (SKIP/NO_ACTION reason or bucket
@@ -99,6 +93,193 @@ INTEGRITY_MAX_AGE_MS = 3_600_000  # 1 hour; fail-closed if older
 # safety transitions, maker decisions, management samples, and each window's
 # first evaluation always persist regardless of this interval.
 IMMATERIAL_TRANSITION_MIN_INTERVAL_MS = 5_000
+# One telemetry command may contain several pre-aggregated event buckets, but
+# bounding that nested work keeps one "row" from secretly representing hundreds
+# of SQLite UPSERTs and poisoning the controller's per-command tail estimate.
+EVENT_COUNT_ROWS_PER_COMMAND = 16
+
+# These are audit counters, not controller inputs.  They survive a clean
+# process restart by carrying forward the greatest valid value found in the
+# prior runtime state or dashboard export.  Rolling rates, queue depth, health,
+# and recovery windows always remain process-local so stale state can never
+# manufacture current readiness.
+_TELEMETRY_LIFETIME_COUNTER_ALIASES: dict[str, tuple[str, ...]] = {
+    "rows_submitted": ("rows_submitted", "submitted", "incoming"),
+    "rows_offered": ("rows_offered", "offered"),
+    "rows_admitted": ("rows_admitted", "admitted"),
+    "rows_written": ("rows_written", "written"),
+    "logical_written": ("logical_written",),
+    "rows_coalesced": ("rows_coalesced", "coalesced"),
+    "rows_sampled": ("rows_sampled", "sampled"),
+    "rows_deferred": ("rows_deferred", "deferred"),
+    "rows_dropped": ("rows_dropped", "dropped"),
+    "failed_batches": ("failed_batches",),
+    "raw_telemetry_loss_count": ("raw_telemetry_loss_count",),
+    "ingress_evidence_loss_count": ("ingress_evidence_loss_count",),
+    "true_lost_critical_rows": (
+        "true_lost_critical_rows", "critical_evidence_lost_count"),
+}
+
+
+def _nonnegative_counter(value: Any) -> Optional[int]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if not isinstance(value, float):
+        return None
+    if not math.isfinite(value) or not value.is_integer() or value < 0:
+        return None
+    return int(value)
+
+
+def _normalized_lineage_path(value: str | Path) -> str:
+    return str(Path(value).resolve()).replace("\\", "/").casefold()
+
+
+def _counter_lineage_fingerprint(
+    db_path: str | Path,
+    runtime_dir: str | Path,
+    export_path: str | Path,
+) -> str:
+    payload = json.dumps({
+        "db_path": _normalized_lineage_path(db_path),
+        "runtime_dir": _normalized_lineage_path(runtime_dir),
+        "export_path": _normalized_lineage_path(export_path),
+    }, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _load_telemetry_lifetime_baseline(
+    runtime_state_path: Path,
+    export_path: Path,
+    db_path: Path,
+    runtime_dir: Path,
+) -> tuple[dict[str, int], tuple[str, ...]]:
+    """Load only namespace-safe cumulative counters from prior JSON state.
+
+    State and export are written independently.  Taking the per-field maximum
+    preserves the newest observed lifetime value without ever summing two
+    representations of the same prior process.
+    """
+
+    baseline = {field: 0 for field in _TELEMETRY_LIFETIME_COUNTER_ALIASES}
+    sources: list[str] = []
+    immutable = immutable_safety_state()
+    required_safety = {
+        key: immutable[key] for key in (
+            "strategy_id", "mode", "dry_run", "live_enabled",
+            "real_orders_possible", "live_adapter_present",
+            "kill_switch_engaged", "fixed_shares",
+        )
+    }
+    expected_lineage = _counter_lineage_fingerprint(
+        db_path, runtime_dir, export_path)
+    for label, path in (
+            ("runtime_state", runtime_state_path), ("dashboard_export", export_path)):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(payload, Mapping):
+            continue
+        if any(payload.get(key) != value for key, value in required_safety.items()):
+            continue
+        try:
+            if label == "runtime_state":
+                lineage_valid = all((
+                    _normalized_lineage_path(payload.get("db_path") or ".")
+                    == _normalized_lineage_path(db_path),
+                    _normalized_lineage_path(payload.get("runtime_dir") or ".")
+                    == _normalized_lineage_path(runtime_dir),
+                    _normalized_lineage_path(payload.get("export_path") or ".")
+                    == _normalized_lineage_path(export_path),
+                ))
+            else:
+                export_runtime = payload.get("runtime")
+                export_runtime = (
+                    export_runtime
+                    if isinstance(export_runtime, Mapping) else {})
+                lineage_valid = (
+                    payload.get("lineage_fingerprint") == expected_lineage
+                    or export_runtime.get("lineage_fingerprint")
+                    == expected_lineage
+                )
+        except (OSError, TypeError, ValueError):
+            continue
+        if not lineage_valid:
+            continue
+        telemetry = payload.get("persistence")
+        if not isinstance(telemetry, Mapping):
+            continue
+        telemetry = telemetry.get("telemetry")
+        if not isinstance(telemetry, Mapping):
+            continue
+        accepted = False
+        for field, aliases in _TELEMETRY_LIFETIME_COUNTER_ALIASES.items():
+            for alias in aliases:
+                value = _nonnegative_counter(telemetry.get(alias))
+                if value is not None:
+                    baseline[field] = max(baseline[field], value)
+                    accepted = True
+                    break
+        if accepted:
+            sources.append(label)
+    return baseline, tuple(sources)
+
+
+def _critical_logical_rows(
+    method: str, args: tuple[Any, ...], explicit: Optional[int],
+) -> int:
+    """Count intended logical evidence rows represented by one critical ACK.
+
+    Bundle side effects such as index updates and evidence pinning are not
+    separate logical evidence.  Callers may supply an explicit count when a
+    new bundle shape cannot be inferred here.
+    """
+
+    if explicit is not None:
+        if isinstance(explicit, bool) or int(explicit) != explicit or int(explicit) <= 0:
+            raise ValueError("logical_rows must be a positive integer")
+        return int(explicit)
+    payload = args[0] if args and isinstance(args[0], Mapping) else {}
+    if method == "persist_market_bundle":
+        return max(1, sum(
+            payload.get(key) is not None
+            for key in ("market", "identity", "window", "link", "anchor", "funnel")
+        ))
+    if method == "persist_evaluation_bundle":
+        books = list(payload.get("books") or ())
+        cex_rows = list(payload.get("cex") or ())
+        fair = payload.get("fair_value")
+        fair = fair if isinstance(fair, Mapping) else {}
+        count = sum((
+            int(payload.get("source_event") is not None),
+            len(books),
+            len(cex_rows),
+            sum(
+                int(isinstance(row, Mapping) and row.get("source_event") is not None)
+                for row in cex_rows
+            ),
+            int(payload.get("candidate") is not None),
+            len(payload.get("candidate_book_links") or books),
+            len(payload.get("candidate_cex_links") or cex_rows),
+            len(payload.get("models") or ()),
+            int(bool(fair)),
+            len(fair.get("sides") or ()),
+            int(payload.get("decision") is not None),
+            int(payload.get("latency") is not None),
+            int(payload.get("funnel") is not None),
+        ))
+        return max(1, count)
+    if method == "reserve_and_create_entry_bundle":
+        # Reservation, entry, and the position created atomically with it.
+        return 3
+    if method == "management_bundle":
+        return 1 + int(payload.get("close") is not None)
+    if method == "resolution_bundle":
+        return 1 + int(payload.get("close") is not None)
+    return 1
 
 
 def _sha256_json(value: Any) -> str:
@@ -184,6 +365,24 @@ class FrequencyV4Engine:
         self._runtime_dir_resolved = str(Path(cfg.runtime_dir).resolve())
         self._export_path_resolved = str(
             (Path(cfg.export_dir) / EXPORT_FILENAME).resolve())
+        self._lineage_fingerprint = _counter_lineage_fingerprint(
+            self._db_path_resolved,
+            self._runtime_dir_resolved,
+            self._export_path_resolved,
+        )
+        (
+            self._telemetry_lifetime_baseline,
+            self._telemetry_lifetime_sources,
+        ) = _load_telemetry_lifetime_baseline(
+            runtime.state_path,
+            Path(self._export_path_resolved),
+            Path(self._db_path_resolved),
+            Path(self._runtime_dir_resolved),
+        )
+        self._critical_evidence_lost_rows = 0
+        self._late_critical_successes = 0
+        self._late_critical_finalized_failures = 0
+        self._late_critical_unfinalized_failures = 0
         self.gamma = GammaPublicClient(cfg.gamma_base_url, timeout_s=cfg.rest_timeout_s)
         self.clob = ClobPublicClient(cfg.clob_base_url, timeout_s=cfg.rest_timeout_s)
         self.discovery = GammaMarketDiscovery(self.gamma.get_markets, cfg)
@@ -318,6 +517,7 @@ class FrequencyV4Engine:
         # never strand position management behind a long FIFO report.
         self.read_worker: Any = None
         self.report_worker: Any = None
+        self.integrity_worker: Any = None
         self.maintenance_worker: Any = None
         self.runtime_io_worker: Any = None
         self._open_positions_count = 0
@@ -372,6 +572,8 @@ class FrequencyV4Engine:
             "cex_ingest_admitted": 0,
             "cex_ingest_rejected": 0,
             "telemetry_event_bucket_overflow": 0,
+            "telemetry_event_bucket_preoverflow_coalesced": 0,
+            "telemetry_raw_interval_sampled": 0,
         }
 
     @property
@@ -392,6 +594,12 @@ class FrequencyV4Engine:
                 "queue_capacity": self.cfg.telemetry_queue_capacity,
             }
         )
+        ingress_evidence_loss = (
+            int(self.counters.get("polymarket_ingest_overflow") or 0)
+            + int(self.counters.get("cex_ingest_overflow") or 0)
+            + int(self._polymarket_queue_discarded)
+            + int(self._cex_queue_discarded)
+        )
         # Only an *overdue* unconfirmed command is incomplete evidence.  An
         # in-flight command is normal pipelining and resolves in milliseconds;
         # counting it here reported permanent evidence loss under load.
@@ -400,36 +608,123 @@ class FrequencyV4Engine:
              if self._critical_command_overdue(
                  critical.get("unconfirmed_command_oldest_age_ms")) else 0)
             + int(critical.get("ambiguous_command_count") or 0)
-            + int(critical.get("timeout_count") or 0)
         )
-        ingress_evidence_loss = (
-            int(self.counters.get("polymarket_ingest_overflow") or 0)
-            + int(self.counters.get("cex_ingest_overflow") or 0)
-            + int(self._polymarket_queue_discarded)
-            + int(self._cex_queue_discarded)
-        )
-        raw_telemetry_loss = (
+        current_critical_evidence_lost = int(
+            self._critical_evidence_lost_rows)
+        current_raw_telemetry_loss = (
             int(telemetry.get("dropped") or 0)
-            + int(telemetry.get("failed_batches") or 0)
             + int(self.counters.get("telemetry_event_bucket_overflow") or 0)
             + ingress_evidence_loss
         )
+        current_rows_coalesced = (
+            int(telemetry.get("coalesced") or 0)
+            + int(self.counters.get(
+                "telemetry_event_bucket_preoverflow_coalesced") or 0)
+        )
+        current_rows_sampled = (
+            int(telemetry.get("sampled") or 0)
+            + int(self.counters.get("telemetry_raw_interval_sampled") or 0)
+        )
+        baseline = self._telemetry_lifetime_baseline
+
+        def lifetime(field: str, current_value: int) -> int:
+            return int(baseline.get(field, 0)) + int(current_value)
+
+        rows_submitted = lifetime(
+            "rows_submitted", int(telemetry.get("submitted") or 0))
+        rows_offered = lifetime(
+            "rows_offered", int(telemetry.get("offered") or 0))
+        rows_admitted = lifetime(
+            "rows_admitted", int(telemetry.get("admitted") or 0))
+        rows_written = lifetime(
+            "rows_written", int(telemetry.get("written") or 0))
+        logical_written = lifetime(
+            "logical_written", int(telemetry.get("logical_written") or 0))
+        rows_coalesced = lifetime("rows_coalesced", current_rows_coalesced)
+        rows_sampled = lifetime("rows_sampled", current_rows_sampled)
+        rows_deferred = lifetime(
+            "rows_deferred", int(telemetry.get("deferred") or 0))
+        rows_dropped = lifetime(
+            "rows_dropped", int(telemetry.get("dropped") or 0))
+        failed_batches = lifetime(
+            "failed_batches", int(telemetry.get("failed_batches") or 0))
+        raw_telemetry_loss = lifetime(
+            "raw_telemetry_loss_count", current_raw_telemetry_loss)
+        ingress_evidence_loss_total = lifetime(
+            "ingress_evidence_loss_count", ingress_evidence_loss)
+        critical_evidence_lost = lifetime(
+            "true_lost_critical_rows", current_critical_evidence_lost)
         # Stable dashboard aliases keep the external contract independent of
         # the worker implementation's internal counter names.
         telemetry_view = {
             **telemetry,
             "state": telemetry.get("state", telemetry.get("health", "UNKNOWN")),
-            "rows_submitted": int(telemetry.get("submitted") or 0),
-            "rows_written": int(telemetry.get("written") or 0),
-            "rows_coalesced": int(telemetry.get("coalesced") or 0),
-            "rows_dropped": int(telemetry.get("dropped") or 0),
+            "submitted": rows_submitted,
+            "rows_submitted": rows_submitted,
+            "incoming": rows_submitted,
+            "rows_incoming": rows_submitted,
+            "offered": rows_offered,
+            "rows_offered": rows_offered,
+            "admitted": rows_admitted,
+            "rows_admitted": rows_admitted,
+            "written": rows_written,
+            "rows_written": rows_written,
+            "logical_written": logical_written,
+            "current_rows_submitted": int(telemetry.get("submitted") or 0),
+            "current_rows_offered": int(telemetry.get("offered") or 0),
+            "current_rows_admitted": int(telemetry.get("admitted") or 0),
+            "current_rows_written": int(telemetry.get("written") or 0),
+            "current_logical_written": int(
+                telemetry.get("logical_written") or 0),
+            "writer_rows_coalesced": int(telemetry.get("coalesced") or 0),
+            "current_writer_rows_coalesced": int(
+                telemetry.get("coalesced") or 0),
+            "rows_coalesced": rows_coalesced,
+            "current_rows_coalesced": current_rows_coalesced,
+            "event_bucket_preoverflow_coalesced": int(
+                self.counters.get(
+                    "telemetry_event_bucket_preoverflow_coalesced") or 0),
+            "writer_rows_sampled": int(telemetry.get("sampled") or 0),
+            "current_writer_rows_sampled": int(
+                telemetry.get("sampled") or 0),
+            "raw_interval_sampled": int(
+                self.counters.get("telemetry_raw_interval_sampled") or 0),
+            "rows_sampled": rows_sampled,
+            "current_rows_sampled": current_rows_sampled,
+            "deferred": rows_deferred,
+            "rows_deferred": rows_deferred,
+            "current_rows_deferred": int(telemetry.get("deferred") or 0),
+            "dropped": rows_dropped,
+            "rows_dropped": rows_dropped,
+            "current_rows_dropped": int(telemetry.get("dropped") or 0),
+            "failed_batches": failed_batches,
+            "current_failed_batches": int(
+                telemetry.get("failed_batches") or 0),
             # Raw telemetry is intentionally lossy under pressure.  Complete
             # trade/candidate evidence travels through the critical atomic
             # bundle, so these two concepts must never be conflated.
             "raw_telemetry_loss_count": raw_telemetry_loss,
-            "ingress_evidence_loss_count": ingress_evidence_loss,
+            "current_raw_telemetry_loss_count": current_raw_telemetry_loss,
+            "ingress_evidence_loss_count": ingress_evidence_loss_total,
+            "current_ingress_evidence_loss_count": ingress_evidence_loss,
+            "critical_evidence_lost_count": critical_evidence_lost,
+            "true_lost_critical_rows": critical_evidence_lost,
+            "current_true_lost_critical_rows": (
+                current_critical_evidence_lost),
+            "late_critical_successes": self._late_critical_successes,
+            "late_critical_finalized_failures": (
+                self._late_critical_finalized_failures),
+            "late_critical_unfinalized_failures": (
+                self._late_critical_unfinalized_failures),
             "critical_evidence_incomplete_count": critical_evidence_incomplete,
             "incomplete_evidence_count": critical_evidence_incomplete,
+            "lifetime_counter_baseline": dict(sorted(baseline.items())),
+            "lifetime_counter_sources": list(
+                self._telemetry_lifetime_sources),
+            "critical_rows_per_second": float(
+                critical.get("critical_rows_submitted_per_second") or 0.0),
+            "critical_rows_committed_per_second": float(
+                critical.get("critical_rows_committed_per_second") or 0.0),
         }
         return {
             **immutable_safety_state(),
@@ -439,6 +734,7 @@ class FrequencyV4Engine:
             "db_path": self._db_path_resolved,
             "runtime_dir": self._runtime_dir_resolved,
             "export_path": self._export_path_resolved,
+            "lineage_fingerprint": self._lineage_fingerprint,
             **ownership,
             "markets_discovered": len(self.markets),
             "active_markets": len(active),
@@ -487,6 +783,15 @@ class FrequencyV4Engine:
                 "reporting": (
                     self.report_worker.health() if self.report_worker is not None
                     else {"state": "NOT_STARTED"}
+                ),
+                "integrity_reads": (
+                    self.integrity_worker.health()
+                    if self.integrity_worker is not None
+                    else (
+                        self.report_worker.health()
+                        if self.report_worker is not None
+                        else {"state": "NOT_STARTED"}
+                    )
                 ),
                 "maintenance": (
                     self.maintenance_worker.health()
@@ -643,6 +948,42 @@ class FrequencyV4Engine:
             f"{str(method).replace('_', '-')[:80]}"
         )
 
+    def _observe_late_critical_completion(
+        self,
+        completed: asyncio.Future[Any],
+        logical_rows: int,
+        expected_store_errors: tuple[str, ...],
+    ) -> None:
+        """Classify the durable outcome of a command after caller timeout."""
+
+        if completed.cancelled():
+            self._late_critical_unfinalized_failures += 1
+            return
+        try:
+            exc = completed.exception()
+        except (asyncio.CancelledError, Exception):
+            self._late_critical_unfinalized_failures += 1
+            return
+        if exc is None:
+            self._late_critical_successes += 1
+            return
+        if isinstance(exc, (
+                WindowReservationConflict,
+                ExposureLimitExceeded,
+                UniverseEligibilityError,
+        )) or str(exc) in expected_store_errors:
+            # The late durable outcome is an explicit business rejection, not
+            # missing evidence.
+            return
+        if getattr(exc, "persistence_failure_finalized", None) is True:
+            self._critical_evidence_lost_rows += int(logical_rows)
+            self._late_critical_finalized_failures += 1
+            self._last_error = (
+                f"late_critical_persistence:{type(exc).__name__}:{exc}"
+            )[:240]
+            return
+        self._late_critical_unfinalized_failures += 1
+
     async def _critical_execute(
         self, method: str, *args: Any,
         ordering_key: str = "global",
@@ -654,10 +995,13 @@ class FrequencyV4Engine:
         associated_window_id: Optional[int] = None,
         associated_trade_id: Optional[int] = None,
         expected_store_errors: tuple[str, ...] = (),
+        logical_rows: Optional[int] = None,
         **kwargs: Any,
     ) -> Any:
         """Await one durable commit without running SQLite on the event loop."""
 
+        logical_row_count = _critical_logical_rows(
+            method, tuple(args), logical_rows)
         if self.persistence is None:
             self._critical_failure_reason = "critical_writer_not_started"
             raise V4PersistenceError(self._critical_failure_reason)
@@ -679,13 +1023,34 @@ class FrequencyV4Engine:
             result = await self.persistence.execute(
                 command, timeout_s=self.cfg.critical_command_timeout_s)
             return result
-        except (V4PersistenceQueueFull, V4PersistenceTimeout) as exc:
+        except V4PersistenceQueueFull as exc:
+            # Admission was definitively refused before journalling; unlike a
+            # timeout, there is no ambiguous durable outcome to reconcile.
+            self._critical_evidence_lost_rows += logical_row_count
             self._critical_failure_reason = type(exc).__name__
             self._last_error = (
                 f"critical_persistence:{type(exc).__name__}:{exc}"
             )[:240]
             raise
-        except (WindowReservationConflict, ExposureLimitExceeded) as exc:
+        except V4PersistenceTimeout as exc:
+            late_future = getattr(exc, "persistence_late_future", None)
+            if isinstance(late_future, asyncio.Future):
+                late_future.add_done_callback(
+                    lambda completed: self._observe_late_critical_completion(
+                        completed,
+                        logical_row_count,
+                        expected_store_errors,
+                    ))
+            self._critical_failure_reason = type(exc).__name__
+            self._last_error = (
+                f"critical_persistence:{type(exc).__name__}:{exc}"
+            )[:240]
+            raise
+        except (
+            WindowReservationConflict,
+            ExposureLimitExceeded,
+            UniverseEligibilityError,
+        ) as exc:
             # Deterministic business-invariant rejection is not a writer
             # outage. The caller records the precise risk/economic reason.
             self._last_error = (
@@ -698,6 +1063,8 @@ class FrequencyV4Engine:
                     f"critical_rejected:{type(exc).__name__}:{exc}"
                 )[:240]
                 raise
+            if getattr(exc, "persistence_failure_finalized", None) is True:
+                self._critical_evidence_lost_rows += logical_row_count
             self._critical_failure_reason = type(exc).__name__
             self._last_error = (
                 f"critical_persistence:{type(exc).__name__}:{exc}"
@@ -707,6 +1074,8 @@ class FrequencyV4Engine:
             # Latch ambiguous/unexpected acknowledgement failures until a
             # process restart reconciles the durable journal. A later unrelated
             # success must never make an unknown commit executable again.
+            if getattr(exc, "persistence_failure_finalized", None) is True:
+                self._critical_evidence_lost_rows += logical_row_count
             self._critical_failure_reason = type(exc).__name__
             self._last_error = (
                 f"critical_persistence:{type(exc).__name__}:{exc}"
@@ -763,8 +1132,23 @@ class FrequencyV4Engine:
         )
         if (key not in self._event_count_buffer
                 and len(self._event_count_buffer) >= self.cfg.telemetry_queue_capacity):
-            self._event_count_buffer.pop(next(iter(self._event_count_buffer)))
-            self.counters["telemetry_event_bucket_overflow"] += 1
+            # Preserve row-valued counts before the writer queue can overflow.
+            # Coarsen time/channel detail only when every semantic dimension is
+            # identical.  Merging into an unrelated oldest bucket would corrupt
+            # source/asset/event/classification attribution; an unmatched row
+            # is instead explicitly accounted as raw telemetry loss.
+            compatible = next((
+                existing for existing in self._event_count_buffer
+                if (
+                    existing[1], existing[3], existing[4], existing[5]
+                ) == (key[1], key[3], key[4], key[5])
+            ), None)
+            if compatible is None:
+                self.counters["telemetry_event_bucket_overflow"] += 1
+                return
+            key = compatible
+            self.counters[
+                "telemetry_event_bucket_preoverflow_coalesced"] += 1
         counts = self._event_count_buffer.setdefault(key, [0, 0, 0, 0])
         counts[0] += 1
         counts[1] += int(not decision.duplicate)
@@ -782,7 +1166,9 @@ class FrequencyV4Engine:
             return False
         disposition = self.telemetry.submit(
             method, *args, kwargs=kwargs or {}, **policy)
-        return str(getattr(disposition, "value", disposition)) != "DROPPED"
+        return str(getattr(disposition, "value", disposition)) not in {
+            "DROPPED", "DEFERRED",
+        }
 
     def _update_window_funnel(
         self, window_id: int, current: int, **changes: Any,
@@ -792,21 +1178,23 @@ class FrequencyV4Engine:
             kwargs=changes,
             state_key=("window-funnel", int(window_id), tuple(sorted(changes))),
             state_value=changes,
+            overload_policy=TelemetryOverloadPolicy.LATEST,
         )
 
-    def _flush_event_counts(self) -> bool:
+    def _flush_event_counts(self, *, shutdown: bool = False) -> bool:
         if not self._event_count_buffer:
             return True
         # Bound hot-loop aggregation work even after a prolonged telemetry
         # outage; remaining buckets stay queued for the next heartbeat.
         limit = max(1, min(self.cfg.telemetry_batch_size, 1_024))
         keys = list(islice(self._event_count_buffer, limit))
-        buffered = {
-            key: self._event_count_buffer.pop(key)
+        buffered = [
+            (key, self._event_count_buffer.pop(key))
             for key in keys
-        }
-        rows = [
-            {
+        ]
+        for offset in range(0, len(buffered), EVENT_COUNT_ROWS_PER_COMMAND):
+            chunk = buffered[offset:offset + EVENT_COUNT_ROWS_PER_COMMAND]
+            rows = [{
                 "receipt_ts_ms": key[0],
                 "source": key[1],
                 "channel": key[2],
@@ -817,24 +1205,58 @@ class FrequencyV4Engine:
                 "unique_count": counts[1],
                 "duplicate_count": counts[2],
                 "invalid_count": counts[3],
-            }
-            for key, counts in buffered.items()
-        ]
-        try:
-            if not self._telemetry_submit(
-                    "record_event_count_batch", rows,
-                    dedupe_key=("event-count-flush", _sha256_json(rows))):
-                raise RuntimeError("telemetry_event_count_admission_failed")
+            } for key, counts in chunk]
+            try:
+                if not self._telemetry_submit(
+                        "record_event_count_batch", rows,
+                        dedupe_key=("event-count-flush", _sha256_json(rows)),
+                        overload_policy=(
+                            TelemetryOverloadPolicy.ADMIT
+                            if shutdown else TelemetryOverloadPolicy.DEFER
+                        )):
+                    raise RuntimeError(
+                        "telemetry_event_count_admission_failed")
+            except Exception as exc:
+                # Earlier chunks were admitted; restore only this and later
+                # chunks so counts are never duplicated.
+                for key, counts in buffered[offset:]:
+                    target = self._event_count_buffer.setdefault(
+                        key, [0, 0, 0, 0])
+                    for index, count in enumerate(counts):
+                        target[index] += count
+                self._last_error = (
+                    f"telemetry_event_count_flush:{type(exc).__name__}:{exc}"
+                )[:240]
+                return False
+        return True
+
+    def _drain_event_counts_for_shutdown(self) -> bool:
+        """Admit every buffered aggregate before stopping the telemetry lane.
+
+        Producers are already stopped when this runs, so the buffer must
+        strictly shrink.  An admission failure is surfaced as explicit raw
+        telemetry loss and makes the shutdown result false; it is never hidden
+        by a single bounded hot-loop flush.
+        """
+
+        while self._event_count_buffer:
+            before = len(self._event_count_buffer)
+            if not self._flush_event_counts(shutdown=True):
+                break
+            if len(self._event_count_buffer) >= before:
+                self._last_error = "telemetry_event_count_shutdown_no_progress"
+                break
+        if not self._event_count_buffer:
             return True
-        except Exception as exc:
-            for key, counts in buffered.items():
-                target = self._event_count_buffer.setdefault(key, [0, 0, 0, 0])
-                for index, count in enumerate(counts):
-                    target[index] += count
-            self._last_error = (
-                f"telemetry_event_count_flush:{type(exc).__name__}:{exc}"
-            )[:240]
-            return False
+        lost = sum(
+            max(0, int(counts[0]))
+            for counts in self._event_count_buffer.values()
+        )
+        self.counters["telemetry_event_bucket_overflow"] += lost
+        self._event_count_buffer.clear()
+        self._last_error = (
+            f"telemetry_event_count_shutdown_lost_{lost}_raw_events")
+        return False
 
     def _should_persist_raw(self, event: SourceEvent | CexObservation,
                             decision: EventDecision) -> bool:
@@ -845,6 +1267,7 @@ class FrequencyV4Engine:
         if current - prior >= interval:
             self._last_raw_persist_ns[key] = current
             return True
+        self.counters["telemetry_raw_interval_sampled"] += 1
         return False
 
     def _persist_source_event(self, event: SourceEvent | CexObservation,
@@ -872,6 +1295,8 @@ class FrequencyV4Engine:
             "record_source_event", row,
             kwargs=kwargs,
             dedupe_key=("source-event", self.session_id, event_id),
+            overload_policy=TelemetryOverloadPolicy.SAMPLE,
+            overload_key=("source-event", self._stream_key(event)),
         )
         return 0
 
@@ -931,7 +1356,9 @@ class FrequencyV4Engine:
 
     def _persist_cex_observation(self, observation: CexObservation,
                                  decision: EventDecision, *, force: bool = False) -> int:
-        source_id = self._persist_source_event(observation, decision, force=force)
+        if not force and not self._should_persist_raw(observation, decision):
+            return 0
+        source_id = self._persist_source_event(observation, decision, force=True)
         row = observation.to_dict()
         row.update({
             "source_event_id": source_id or None,
@@ -943,6 +1370,11 @@ class FrequencyV4Engine:
             kwargs={"session_id": self.session_id},
             dedupe_key=("cex-observation", self.session_id,
                         observation.event_id),
+            overload_policy=TelemetryOverloadPolicy.SAMPLE,
+            overload_key=(
+                "cex-observation", observation.asset,
+                observation.instrument, observation.event_type,
+            ),
         )
         return 0
 
@@ -1042,6 +1474,7 @@ class FrequencyV4Engine:
                     else "FRESH"
                 ),
             },
+            overload_policy=TelemetryOverloadPolicy.LATEST,
         )
 
     async def _on_cex_hydration(self, _asset: str,
@@ -1615,6 +2048,7 @@ class FrequencyV4Engine:
                 "hydrated": row["hydrated"], "stale": row["stale"],
                 "invalid_reason": row["invalid_reason"],
             },
+            overload_policy=TelemetryOverloadPolicy.LATEST,
         )
         # Telemetry IDs are deliberately not exposed to executable state.  The
         # acknowledged evaluation bundle re-inserts/idempotently resolves the
@@ -1709,6 +2143,7 @@ class FrequencyV4Engine:
                     "retry_count": int(retry_count),
                     "candidate_id": candidate_id,
                 },
+                overload_policy=TelemetryOverloadPolicy.LATEST,
             )
             return int(admitted)
         except Exception as exc:  # noqa: BLE001 - reject telemetry must never crash the engine
@@ -2940,10 +3375,13 @@ class FrequencyV4Engine:
         if (heartbeat_age_ms is not None
                 and int(heartbeat_age_ms) > self.cfg.writer_failure_timeout_ms):
             return "critical_writer_heartbeat_stale"
-        for label, worker in (
+        workers = [
             ("operational_read_worker", self.read_worker),
             ("reporting_read_worker", self.report_worker),
-        ):
+        ]
+        if self.integrity_worker is not None:
+            workers.append(("integrity_read_worker", self.integrity_worker))
+        for label, worker in workers:
             if worker is None:
                 return f"{label}_not_started"
             health = worker.health()
@@ -2977,7 +3415,7 @@ class FrequencyV4Engine:
             "sqlite_integrity_unknown", "sqlite_integrity_degraded",
             "sqlite_integrity_stale", "reporting_read_worker_not_started",
             "reporting_read_worker_unhealthy", "operational_read_worker_not_started",
-            "operational_read_worker_unhealthy",
+            "operational_read_worker_unhealthy", "integrity_read_worker_unhealthy",
         }:
             return "DEGRADED_INTEGRITY"
         if blocked.startswith("critical_"):
@@ -3058,7 +3496,8 @@ class FrequencyV4Engine:
                         "writer_state": writer.get("state"),
                         "open_positions": runtime_state["open_positions"],
                         "last_error": self._last_error or None,
-                    })
+                    },
+                    overload_policy=TelemetryOverloadPolicy.LATEST)
                 last_health_ms = current
             expected_mono = time.monotonic() + 2.0
             try:
@@ -3074,12 +3513,13 @@ class FrequencyV4Engine:
         expensive B-tree ordering validation, keeping a multi-GB evidence-store
         scan off the export hot path.
         """
-        if self.report_worker is None or self._integrity_inflight:
+        integrity_worker = self.integrity_worker or self.report_worker
+        if integrity_worker is None or self._integrity_inflight:
             return
         self._integrity_inflight = True
         started = time.monotonic()
         try:
-            result = await self.report_worker.run_report(
+            result = await integrity_worker.run_report(
                 lambda store: store.integrity_check(quick=True),
                 timeout_s=self.cfg.reporting_worker_timeout_s,
                 name="sqlite_integrity_check",
@@ -3136,27 +3576,34 @@ class FrequencyV4Engine:
             self._export_inflight = False
 
     async def _reporting_loop(self) -> None:
-        """Run export first, then integrity off-loop (never overlapping).
+        """Run fresh exports on their dedicated read-only worker.
 
-        Freshness is the priority: the dashboard export always runs on its own
-        15 s cadence using the last-good cached integrity result, so a slow
-        whole-database integrity scan can never stall an export.  The integrity
-        scan runs only when its longer interval elapses, after the export, on
-        the same dedicated read-only worker.  Awaiting the worker thread yields
-        the event loop so the WebSocket heartbeat path stays responsive.
+        Integrity has a separate worker and loop, so a multi-minute scan cannot
+        delay the five-second export cadence.
         """
         last_export_ms = 0
-        # ``start`` already ran one full integrity scan.  Preserve its schedule
-        # instead of immediately repeating the expensive read.
-        last_integrity_ms = self._last_integrity_ts_ms
         while not self._stopping.is_set():
             current = now_ms()
-            # Export first: freshness must never wait on a heavy scan.
             if current - last_export_ms >= DASHBOARD_EXPORT_INTERVAL_MS:
                 last_export_ms = current
                 await self._run_dashboard_export()
-            # Integrity only after the export, on its much longer interval, so
-            # it can never monopolise the reporting worker between exports.
+            remaining_s = max(
+                0.001,
+                (DASHBOARD_EXPORT_INTERVAL_MS - (now_ms() - last_export_ms))
+                / 1_000.0,
+            )
+            try:
+                await asyncio.wait_for(
+                    self._stopping.wait(), timeout=min(1.0, remaining_s))
+            except asyncio.TimeoutError:
+                pass
+
+    async def _integrity_loop(self) -> None:
+        """Refresh cached integrity independently of dashboard exports."""
+
+        last_integrity_ms = self._last_integrity_ts_ms
+        while not self._stopping.is_set():
+            current = now_ms()
             if current - last_integrity_ms >= INTEGRITY_CHECK_INTERVAL_MS:
                 last_integrity_ms = current
                 await self._run_integrity_check()
@@ -3256,6 +3703,13 @@ class FrequencyV4Engine:
             operational_active = bool(operational.get("current_job"))
             operational_duration = float(
                 operational.get("current_duration_ms") or 0.0)
+            integrity_reads = (
+                self.integrity_worker.health()
+                if self.integrity_worker is not None else {}
+            )
+            integrity_active = bool(integrity_reads.get("current_job"))
+            integrity_duration = float(
+                integrity_reads.get("current_duration_ms") or 0.0)
             runtime_health = self._runtime_state_name(current)
             snapshot = MaintenanceSnapshot(
                 now_ms=current,
@@ -3268,13 +3722,20 @@ class FrequencyV4Engine:
                 ),
                 writer_healthy=writer.get("state") == "HEALTHY",
                 open_positions=max(0, int(self._open_positions_count)),
-                active_readers=int(reporting_active) + int(operational_active),
+                active_readers=(
+                    int(reporting_active) + int(operational_active)
+                    + int(integrity_active)
+                ),
                 long_reader_count=int(
                     reporting_active
                     and reporting_duration > self.cfg.reporting_worker_timeout_s * 1_000
                 ) + int(
                     operational_active
                     and operational_duration
+                    > self.cfg.reporting_worker_timeout_s * 1_000
+                ) + int(
+                    integrity_active
+                    and integrity_duration
                     > self.cfg.reporting_worker_timeout_s * 1_000
                 ),
                 critical_commit_p95_ms=writer.get("commit_latency_p95_ms"),
@@ -3507,6 +3968,14 @@ class FrequencyV4Engine:
             busy_timeout_ms=self.cfg.sqlite_busy_timeout_ms,
             default_timeout_s=self.cfg.reporting_worker_timeout_s,
         )
+        self.integrity_worker = V4ReadWorker(
+            self.cfg.db_path,
+            worker_name="lite-frequency-v4-integrity-read-worker",
+            worker_kind="READ_INTEGRITY",
+            queue_capacity=1,
+            busy_timeout_ms=self.cfg.sqlite_busy_timeout_ms,
+            default_timeout_s=self.cfg.reporting_worker_timeout_s,
+        )
         self.maintenance_worker = V4MaintenanceWorker(
             self.cfg.db_path,
             queue_capacity=self.cfg.maintenance_queue_capacity,
@@ -3527,6 +3996,8 @@ class FrequencyV4Engine:
             self.read_worker.start_async(
                 timeout_s=self.cfg.reporting_worker_timeout_s),
             self.report_worker.start_async(
+                timeout_s=self.cfg.reporting_worker_timeout_s),
+            self.integrity_worker.start_async(
                 timeout_s=self.cfg.reporting_worker_timeout_s),
             self.maintenance_worker.start_async(
                 timeout_s=self.cfg.maintenance_worker_timeout_s),
@@ -3562,6 +4033,7 @@ class FrequencyV4Engine:
                 self._active_subscription_loop(), name="v4-active-subscriptions"),
             asyncio.create_task(self._heartbeat_export_loop(), name="v4-heartbeat-export"),
             asyncio.create_task(self._reporting_loop(), name="v4-reporting"),
+            asyncio.create_task(self._integrity_loop(), name="v4-integrity"),
             asyncio.create_task(self._loop_lag_monitor(), name="v4-loop-lag"),
             asyncio.create_task(self._resolution_loop(), name="v4-resolution"),
             asyncio.create_task(self._maintenance_loop(), name="v4-maintenance"),
@@ -3647,15 +4119,39 @@ class FrequencyV4Engine:
                 await asyncio.gather(*pending, return_exceptions=True)
             self._background_tasks.clear()
 
-            self._flush_event_counts()
             telemetry_stop_failure: Optional[str] = None
+            # Stop/drain maintenance first so a checkpoint cannot keep the
+            # telemetry lane cooperatively deferred while its own drain is
+            # already in progress.  Critical persistence remains running until
+            # after the session terminal command.
+            maintenance_stopped = True
+            if self.maintenance_worker is not None:
+                try:
+                    await self.maintenance_worker.stop_async(
+                        timeout_s=max(
+                            drain_timeout,
+                            float(self.cfg.maintenance_worker_timeout_s),
+                            10.0,
+                        )
+                    )
+                except Exception as exc:
+                    maintenance_stopped = False
+                    self._last_error = (
+                        f"maintenance_pre_telemetry_stop:"
+                        f"{type(exc).__name__}:{exc}"
+                    )[:240]
+            event_counts_drained = self._drain_event_counts_for_shutdown()
+            if not event_counts_drained:
+                telemetry_stop_failure = (
+                    "event counter buffer did not drain without loss")
             if self.telemetry is not None:
                 drained = bool(await asyncio.to_thread(
                     self.telemetry.stop,
                     drain=True,
                     timeout_s=max(drain_timeout, 10.0),
                 ))
-                self._telemetry_shutdown_ok = drained
+                self._telemetry_shutdown_ok = bool(
+                    drained and event_counts_drained and maintenance_stopped)
                 if not drained:
                     # Raw telemetry may be discarded, never critical trade
                     # evidence.  A second bounded non-draining stop is allowed
@@ -3680,6 +4176,9 @@ class FrequencyV4Engine:
                             "telemetry owner thread did not stop before verification"
                         )
                         self._critical_failure_reason = "telemetry_shutdown_timeout"
+                elif not maintenance_stopped and telemetry_stop_failure is None:
+                    telemetry_stop_failure = (
+                        "maintenance worker did not stop before telemetry drain")
 
             if self.persistence is not None:
                 await self._critical_execute(
@@ -3733,7 +4232,8 @@ class FrequencyV4Engine:
             await self.gamma.close()
             await self.clob.close()
             for worker in (
-                self.maintenance_worker, self.report_worker, self.read_worker,
+                self.maintenance_worker, self.integrity_worker,
+                self.report_worker, self.read_worker,
             ):
                 if worker is not None:
                     try:
