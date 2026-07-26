@@ -39,7 +39,7 @@ from poly_alpha_sniper.lite_frequency_v4.runtime import (
     immutable_safety_state,
     now_ms,
 )
-from poly_alpha_sniper.lite_frequency_v4.store import V4Store
+from poly_alpha_sniper.lite_frequency_v4.store import V4BackgroundWriteDeferred, V4Store
 
 
 class _FakePolymarketSource:
@@ -665,10 +665,48 @@ async def test_engine_stop_during_active_maintenance_drains_telemetry_and_sessio
         release = threading.Event()
 
         def held_maintenance_gate(store: V4Store) -> dict[str, Any]:
-            with store._background_write_gate():
+            # The background-write gate refuses the instant a critical command
+            # is pending or active (``_CriticalFirstWriteGate`` returns False
+            # before any wait in that case, so the refusal is immediate, not a
+            # 0.25 s telemetry wait).  After ``engine.start`` returns the
+            # startup critical commands are done, but the 2 s
+            # ``_heartbeat_export_loop`` keeps issuing short critical writes
+            # (``_persist_pending_source_health``), so taking the gate exactly
+            # once races with that recurring traffic: the one-shot ``with`` form
+            # raised ``V4BackgroundWriteDeferred`` ~6 % of the time during setup
+            # sync and the test observed its own setup ordering rather than the
+            # shutdown behaviour it exists to verify.
+            #
+            # Production already treats a gate refusal on a checkpoint as
+            # transient rather than fatal: an ordinary PASSIVE pass returns
+            # ``CheckpointStatus.SKIPPED`` / ``critical_write_pending``
+            # (``perform_checkpoint``), and the escalated reclamation retries
+            # the refusal with a bounded deadline and a 20 ms pause
+            # (``_invoke_reclaiming_checkpoint``).  This stub mirrors that retry
+            # idiom (same 20 ms pause, same shape of bounded deadline) solely to
+            # acquire the gate so it can be *held* for the shutdown scenario.
+            # It does not weaken what the test verifies: stop must still drain
+            # telemetry and close the session cleanly while a maintenance gate
+            # is genuinely held, and a refusal that persists past the deadline
+            # is re-raised so a real deadlock is not hidden.
+            deadline = time.monotonic() + 3.0
+            gate: Any = None
+            while True:
+                try:
+                    gate = store._background_write_gate()
+                    gate.__enter__()
+                    break
+                except V4BackgroundWriteDeferred:
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.02)
+            try:
                 entered.set()
                 if not release.wait(timeout=3.0):
                     raise TimeoutError("test maintenance gate was not released")
+            finally:
+                if gate is not None:
+                    gate.__exit__(None, None, None)
             return {"status": "PASS", "mode": "PASSIVE"}
 
         checkpoint = asyncio.create_task(
