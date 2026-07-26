@@ -4,6 +4,7 @@ import asyncio
 from concurrent.futures import Future, ThreadPoolExecutor
 import hashlib
 import json
+from pathlib import Path
 import threading
 import time
 
@@ -696,6 +697,88 @@ def test_explicit_checkpoint_records_full_wal_evidence(tmp_path):
     store.close()
 
 
+def _grow_wal(store: V4Store, rows: int) -> int:
+    for index in range(rows):
+        store.record_event_count(
+            receipt_ts_ms=NOW + index, source="okx", channel="ticker",
+            asset="BTC", event_type="ticker", classification="NEW_TICK",
+            unique=True, duplicate=False, invalid=False)
+    wal = Path(f"{store.path}-wal")
+    return wal.stat().st_size if wal.exists() else 0
+
+
+def test_passive_checkpoint_reclaims_no_bytes_but_truncate_does(tmp_path):
+    """The production shape, reproduced exactly.
+
+    PASSIVE backfills every frame and reports success, yet the WAL file keeps
+    its size -- so a policy that reads ``frames_checkpointed`` as progress
+    concludes the WAL is being managed while it grows without bound.  Only
+    TRUNCATE returns bytes to the filesystem.
+    """
+
+    store = V4Store(tmp_path / "wal-reclaim.db")
+    try:
+        before_bytes = _grow_wal(store, 400)
+        assert before_bytes > 0
+
+        passive = store.checkpoint(mode="PASSIVE", reason="reclaim_test")
+        assert passive["success"] is True
+        # Every frame was copied into the database ...
+        assert passive["frames_checkpointed"] == passive["frames_total"]
+        assert passive["frames_checkpointed"] > 0
+        # ... and not one byte came back.
+        assert passive["after_wal_bytes"] >= passive["before_wal_bytes"]
+
+        truncate = store.checkpoint(mode="TRUNCATE", reason="reclaim_test")
+        assert truncate["success"] is True
+        assert truncate["after_wal_bytes"] == 0
+        assert truncate["after_wal_bytes"] < truncate["before_wal_bytes"]
+
+        modes = [
+            row["mode"] for row in store.query(
+                "SELECT mode FROM checkpoint_runs ORDER BY checkpoint_run_id")
+        ]
+        assert modes == ["PASSIVE", "TRUNCATE"]
+    finally:
+        store.close()
+
+
+def test_checkpoint_busy_timeout_is_bounded_and_restored(tmp_path):
+    """A bounded lock wait keeps reclamation from becoming a global stall."""
+
+    store = V4Store(tmp_path / "wal-busy.db", busy_timeout_ms=9_000)
+    try:
+        _grow_wal(store, 50)
+        traced: list[str] = []
+        store.connection.set_trace_callback(traced.append)
+        try:
+            result = store.checkpoint(
+                mode="TRUNCATE", reason="bounded", busy_timeout_ms=2_000)
+        finally:
+            store.connection.set_trace_callback(None)
+        assert result["success"] is True
+        pragmas = [
+            statement for statement in traced
+            if statement.startswith("PRAGMA busy_timeout")
+            or statement.startswith("PRAGMA wal_checkpoint")
+        ]
+        # Narrowed for the checkpoint only, then restored immediately after.
+        assert pragmas[:3] == [
+            "PRAGMA busy_timeout=2000",
+            "PRAGMA wal_checkpoint(TRUNCATE)",
+            "PRAGMA busy_timeout=9000",
+        ]
+        # Restored for every other caller on this connection.
+        assert int(
+            store.connection.execute("PRAGMA busy_timeout").fetchone()[0]
+        ) == 9_000
+
+        with pytest.raises(ValueError):
+            store.checkpoint(mode="PASSIVE", busy_timeout_ms=0)
+    finally:
+        store.close()
+
+
 def test_latest_source_health_can_be_scoped_to_session(tmp_path):
     store = V4Store(tmp_path / "health.db")
     store.record_runtime_session(session_row("one"))
@@ -932,6 +1015,109 @@ def test_unconfirmed_gate_counts_only_trade_critical_commands(
     final = writer.metrics()
     assert final["unconfirmed_trade_critical_count"] == 0
     assert final["unconfirmed_command_count"] == 0
+
+
+def test_unconfirmed_ages_are_reported_and_clear_on_confirmation(
+        tmp_path, monkeypatch):
+    """The gate needs an age, not just a count.
+
+    A command that is merely in flight is normal pipelining; only one that is
+    still unconfirmed past its acknowledgement deadline is an unresolved
+    critical command.  The writer therefore reports how long the oldest
+    outstanding command has been outstanding, and that age must disappear the
+    moment the command is durably confirmed.
+    """
+
+    path = tmp_path / "unconfirmed-age.db"
+    entered = threading.Event()
+    release = threading.Event()
+
+    def block_writer(_store, _rows):
+        entered.set()
+        assert release.wait(5.0)
+        return None
+
+    monkeypatch.setattr(V4Store, "record_event_count_batch", block_writer)
+    writer = V4PersistenceWriter(path, sample_interval_s=60.0)
+    idle = writer.metrics()
+    assert idle["unconfirmed_command_oldest_age_ms"] is None
+    assert idle["unconfirmed_trade_critical_oldest_age_ms"] is None
+    assert idle["inflight_registered_commands"] == 0
+
+    critical = writer.submit(V4PersistenceCommand(
+        command_id="age-critical-1", method="record_event_count_batch",
+        args=([_event_count_batch_row()],), ordering_key="critical",
+        terminal=True,
+    ))
+    assert entered.wait(3.0)
+    time.sleep(0.05)
+    inflight = writer.metrics()
+    assert inflight["unconfirmed_trade_critical_count"] >= 1
+    age = inflight["unconfirmed_trade_critical_oldest_age_ms"]
+    assert age is not None and age >= 0
+    assert inflight["unconfirmed_command_oldest_age_ms"] == age
+    assert inflight["inflight_registered_commands"] >= 1
+
+    release.set()
+    assert critical.result(timeout=5.0) is None
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        metrics = writer.metrics()
+        if metrics["inflight_registered_commands"] == 0:
+            break
+        time.sleep(0.005)
+    assert metrics["unconfirmed_trade_critical_oldest_age_ms"] is None
+    assert metrics["unconfirmed_command_oldest_age_ms"] is None
+    assert metrics["inflight_registered_commands"] == 0
+    writer.close()
+
+
+def test_idempotent_replay_clears_the_unconfirmed_registry(tmp_path):
+    """A replay is a confirmed durable outcome, not an outstanding command."""
+
+    path = tmp_path / "replay-age.db"
+    writer = V4PersistenceWriter(path, sample_interval_s=60.0)
+    command = V4PersistenceCommand(
+        command_id="replay-age-1", method="record_event_count_batch",
+        args=([_event_count_batch_row()],), ordering_key="evidence",
+    )
+    writer.execute_sync(command, timeout_s=5.0)
+    writer.execute_sync(command, timeout_s=5.0)
+    metrics = writer.metrics()
+    assert metrics["idempotent_replays"] == 1
+    assert metrics["inflight_registered_commands"] == 0
+    assert metrics["unconfirmed_command_oldest_age_ms"] is None
+    writer.close()
+
+
+def test_unfinalized_failure_keeps_an_ageing_unconfirmed_command(
+        tmp_path, monkeypatch):
+    """Fail-closed: an ambiguous outcome must keep ageing, never disappear."""
+
+    path = tmp_path / "unfinalized-age.db"
+
+    def boom(_store, _rows):
+        raise ValueError("critical write failed")
+
+    def refuse_finalization(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(V4Store, "record_event_count_batch", boom)
+    writer = V4PersistenceWriter(path, sample_interval_s=60.0)
+    monkeypatch.setattr(writer, "_mark_failed", refuse_finalization)
+    with pytest.raises(ValueError, match="critical write failed"):
+        writer.execute_sync(V4PersistenceCommand(
+            command_id="unfinalized-1", method="record_event_count_batch",
+            args=([_event_count_batch_row()],), ordering_key="critical",
+            terminal=True,
+        ), timeout_s=5.0)
+    time.sleep(0.05)
+    metrics = writer.metrics()
+    assert metrics["journal_finalization_failures"] == 1
+    assert metrics["unconfirmed_trade_critical_count"] >= 1
+    assert metrics["unconfirmed_trade_critical_oldest_age_ms"] is not None
+    assert metrics["inflight_registered_commands"] >= 1
+    writer.close()
 
 
 def test_failed_trade_critical_command_finalizes_scoped_unconfirmed(

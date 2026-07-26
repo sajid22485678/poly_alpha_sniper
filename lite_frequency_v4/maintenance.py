@@ -64,6 +64,14 @@ class MaintenancePolicy:
     metadata_retention_ms: int = 24 * 60 * 60 * 1_000
     metadata_max_rows: int = 100_000
     journal_payload_retention_ms: int = 24 * 60 * 60 * 1_000
+    # Consecutive PASSIVE checkpoints that reclaimed zero WAL bytes before the
+    # policy escalates to a stronger, live-safe mode.
+    no_progress_escalation_threshold: int = 2
+    # Hard bound on how long an escalated live checkpoint may wait on the
+    # writer/reader locks.  It keeps a reclaim attempt from becoming a long
+    # global database stall; a contended attempt returns BUSY and retries on
+    # the next maintenance cycle instead.
+    live_reclaim_busy_timeout_ms: int = 2_000
 
     def __post_init__(self) -> None:
         positive_ints = (
@@ -83,6 +91,12 @@ class MaintenancePolicy:
         )
         for name in positive_ints:
             _require_int(name, getattr(self, name), minimum=1)
+        _require_int(
+            "no_progress_escalation_threshold",
+            self.no_progress_escalation_threshold, minimum=1)
+        _require_int(
+            "live_reclaim_busy_timeout_ms",
+            self.live_reclaim_busy_timeout_ms, minimum=1)
         _require_int("telemetry_queue_gate", self.telemetry_queue_gate, minimum=0)
         _require_int("window_guard_ms", self.window_guard_ms, minimum=0)
         _require_int("restart_window_guard_ms", self.restart_window_guard_ms, minimum=0)
@@ -205,8 +219,31 @@ class CheckpointResult:
         return self.status in {CheckpointStatus.SUCCESS, CheckpointStatus.PARTIAL}
 
     @property
-    def made_progress(self) -> bool:
+    def bytes_reclaimed(self) -> int:
+        """WAL bytes actually returned to the filesystem (never negative)."""
+
+        return max(0, int(self.before_wal_bytes) - int(self.after_wal_bytes))
+
+    @property
+    def frames_progress(self) -> bool:
+        """True when SQLite copied at least one frame into the database."""
+
         return bool(self.frames_checkpointed and self.frames_checkpointed > 0)
+
+    @property
+    def made_progress(self) -> bool:
+        """True only when the WAL file actually shrank.
+
+        A PASSIVE checkpoint routinely reports ``frames_checkpointed ==
+        frames_total`` and still leaves ``after_wal_bytes >= before_wal_bytes``:
+        the frames were backfilled into the database, but the WAL could not be
+        restarted (a reader held a read-mark, or the writer appended new frames
+        during the backfill), so the file kept growing.  Treating copied frames
+        as progress made the no-progress escalation counter unreachable and let
+        the WAL grow without bound.  Progress is reclaimed bytes.
+        """
+
+        return self.bytes_reclaimed > 0
 
     @property
     def last_successful_checkpoint_ts_ms(self) -> Optional[int]:
@@ -237,6 +274,8 @@ class CheckpointResult:
         result["mode"] = self.mode.value if self.mode is not None else None
         result["successful"] = self.successful
         result["made_progress"] = self.made_progress
+        result["frames_progress"] = self.frames_progress
+        result["bytes_reclaimed"] = self.bytes_reclaimed
         return result
 
 
@@ -269,6 +308,10 @@ class MaintenancePassResult:
 
 _ACTIVE_HEALTH = frozenset({"HEALTHY", "READY", "RUNNING"})
 _STOPPED_HEALTH = frozenset({"OFFLINE", "STOPPED"})
+# Decision reason for the live, byte-reclaiming escalation.  Carried through to
+# perform_checkpoint so the hard-safety recheck knows this TRUNCATE was
+# authorized by the live invariants rather than the stopped-runtime ones.
+LIVE_RECLAIM_REASON = "passive_no_progress_live_reclaim"
 
 
 def decide_checkpoint(
@@ -284,6 +327,28 @@ def decide_checkpoint(
             return _skip(snapshot, "checkpoint_timestamp_in_future")
         if snapshot.now_ms - last_attempt < policy.checkpoint_min_interval_ms:
             return _skip(snapshot, "checkpoint_min_interval")
+
+    # Live WAL reclamation, evaluated BEFORE the general maintenance gate.
+    #
+    # Under continuous write load a PASSIVE checkpoint backfills every frame
+    # into the database and still cannot reset the WAL: a reader holds a
+    # read-mark, or the writer appends new frames while the backfill runs.  It
+    # therefore reports SUCCESS with frames_checkpointed == frames_total and
+    # reclaims zero bytes, forever, while the file keeps growing.
+    #
+    # The old escalation sat after the gate, but an oversized WAL is exactly
+    # what closes that gate (commit latency rises), so the emergency branch
+    # below returned PASSIVE every cycle and the escalation was unreachable in
+    # production.  It also required full business quiescence (no open
+    # positions), which never holds in a live shadow run and has nothing to do
+    # with SQLite reader safety.  Reclamation is gated on database-level
+    # safety only, and uses TRUNCATE because that is the only mode that
+    # returns bytes to the filesystem.
+    if _live_reclaim_is_safe(snapshot, policy):
+        return CheckpointDecision(
+            True, CheckpointMode.TRUNCATE, LIVE_RECLAIM_REASON, snapshot
+        )
+
     gate_reason = maintenance_gate(snapshot, policy)
     if gate_reason is not None:
         if snapshot.wal_bytes >= policy.restart_trigger_bytes:
@@ -297,11 +362,10 @@ def decide_checkpoint(
             )
         return _skip(snapshot, gate_reason)
 
-    # Escalation: when PASSIVE has repeatedly failed to reclaim WAL bytes
-    # (reader-pinned file that reports checkpointed frames but never shrinks),
-    # attempt a RESTART checkpoint instead.  RESTART briefly waits for readers
-    # to drain, which is safe as long as no long reader holds the snapshot.
-    if (snapshot.consecutive_no_progress_passive >= 3
+    # Quiescent-runtime escalation (kept for the stopped/idle paths, where the
+    # stricter quiescence invariants below can actually be satisfied).
+    if (snapshot.consecutive_no_progress_passive
+            >= policy.no_progress_escalation_threshold
             and snapshot.wal_bytes >= policy.wal_trigger_bytes
             and snapshot.long_reader_count == 0
             and _restart_is_safe(snapshot, policy)):
@@ -381,7 +445,8 @@ def perform_checkpoint(
         )
     assert decision.mode is not None
     off_loop_reason = _active_event_loop_reason()
-    unsafe_reason = _unsafe_mode_reason(decision.mode, decision.snapshot, policy)
+    unsafe_reason = _unsafe_mode_reason(
+        decision.mode, decision.snapshot, policy, decision.reason)
     if off_loop_reason or unsafe_reason:
         return CheckpointResult(
             status=CheckpointStatus.SKIPPED,
@@ -407,7 +472,13 @@ def perform_checkpoint(
         before_wal = _read_wal_bytes(
             store, fallback=snapshot_wal(decision), reader=wal_size_reader
         )
-        response = _invoke_checkpoint(store, decision.mode, decision.reason)
+        response = _invoke_checkpoint(
+            store, decision.mode, decision.reason,
+            busy_timeout_ms=(
+                policy.live_reclaim_busy_timeout_ms
+                if decision.reason == LIVE_RECLAIM_REASON else None
+            ),
+        )
         busy, total, checkpointed = _normalize_checkpoint_response(response)
         if isinstance(response, Mapping) and "before_wal_bytes" in response:
             before_wal = _coerce_nonnegative_int(
@@ -695,6 +766,39 @@ def _skip(snapshot: MaintenanceSnapshot, reason: str) -> CheckpointDecision:
     return CheckpointDecision(False, None, reason, snapshot)
 
 
+def _live_reclaim_is_safe(
+    snapshot: MaintenanceSnapshot, policy: MaintenancePolicy
+) -> bool:
+    """Whether a live TRUNCATE may run to actually reclaim WAL bytes.
+
+    Every condition here is a database-level safety property, never a business
+    one.  Open positions, exposure, and market windows do not make a WAL
+    checkpoint unsafe; readers, a pending critical write, and an unhealthy
+    writer do.
+    """
+
+    if snapshot.consecutive_no_progress_passive < (
+            policy.no_progress_escalation_threshold):
+        return False
+    if snapshot.wal_bytes < policy.restart_trigger_bytes:
+        return False
+    # A live reader would make the checkpointer wait on read-mark locks; a long
+    # reader (an integrity scan, a heavy report) would make it wait for a long
+    # time.  Neither is acceptable while the writer lock is held.
+    if snapshot.active_readers or snapshot.long_reader_count:
+        return False
+    # Critical persistence must never queue behind reclamation.
+    if snapshot.critical_queue_depth:
+        return False
+    if not snapshot.runtime_active:
+        # The stopped path keeps its own stricter invariants below.
+        return False
+    return (
+        snapshot.writer_healthy
+        and snapshot.normalized_health in _ACTIVE_HEALTH
+    )
+
+
 def _restart_is_safe(snapshot: MaintenanceSnapshot, policy: MaintenancePolicy) -> bool:
     if snapshot.wal_bytes < policy.restart_trigger_bytes:
         return False
@@ -737,6 +841,7 @@ def _unsafe_mode_reason(
     mode: CheckpointMode,
     snapshot: MaintenanceSnapshot,
     policy: MaintenancePolicy,
+    reason: str = "",
 ) -> Optional[str]:
     """Execution-time revalidation of mode-specific HARD safety only.
 
@@ -746,8 +851,16 @@ def _unsafe_mode_reason(
     PASSIVE mode contradicted that decision and vetoed every emergency
     checkpoint; PASSIVE never blocks the critical writer and needs no
     quiescence, so only TRUNCATE/RESTART invariants are rechecked.
+
+    A TRUNCATE authorized as the live reclamation escalation is revalidated
+    against the live invariants that authorized it, not the stopped-runtime
+    ones -- rechecking the wrong contract would veto it unconditionally.
     """
 
+    if mode is CheckpointMode.TRUNCATE and reason == LIVE_RECLAIM_REASON:
+        if not _live_reclaim_is_safe(snapshot, policy):
+            return "live_reclaim_requires_reader_free_runtime"
+        return None
     if mode is CheckpointMode.TRUNCATE and not _truncate_is_safe(snapshot, policy):
         return "truncate_requires_verified_stopped_runtime"
     if mode is CheckpointMode.RESTART and not _restart_is_safe(snapshot, policy):
@@ -755,16 +868,26 @@ def _unsafe_mode_reason(
     return None
 
 
-def _invoke_checkpoint(store: Any, mode: CheckpointMode, reason: str) -> Any:
+def _invoke_checkpoint(
+    store: Any, mode: CheckpointMode, reason: str,
+    busy_timeout_ms: Optional[int] = None,
+) -> Any:
     for name in ("run_wal_checkpoint", "checkpoint"):
         method = getattr(store, name, None)
         if callable(method):
             if name == "checkpoint":
                 parameters = inspect.signature(method).parameters
+                kwargs: dict[str, Any] = {}
                 if "reason" in parameters:
-                    response = method(mode=mode.value, reason=reason)
-                elif "mode" in parameters:
-                    response = method(mode=mode.value)
+                    kwargs["reason"] = reason
+                # A bounded lock wait is only meaningful for a Store that
+                # supports it; older/duck-typed Stores keep their own default.
+                if busy_timeout_ms is not None and "busy_timeout_ms" in parameters:
+                    kwargs["busy_timeout_ms"] = int(busy_timeout_ms)
+                if "mode" in parameters:
+                    response = method(mode=mode.value, **kwargs)
+                elif kwargs:
+                    response = method(mode.value, **kwargs)
                 else:
                     response = method(mode.value)
             else:

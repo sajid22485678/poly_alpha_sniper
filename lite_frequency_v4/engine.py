@@ -194,10 +194,12 @@ class FrequencyV4Engine:
             probability_ceiling=cfg.fair_probability_ceiling,
             max_adjustment=cfg.max_model_adjustment,
         )
-        # Automatic, fail-closed model-health quarantine.  A model whose
-        # rolling fee-net performance crosses the observation floor and breaches
-        # the PF/expectancy/loss-asymmetry bounds is quarantined for a cooldown;
-        # its ensemble contribution is zeroed and entries it would drive are
+        # Automatic, fail-closed model-health quarantine.  A model is
+        # quarantined for a cooldown once it clears the observation floor and
+        # either breaches BOTH the profit-factor and expectancy floors, or
+        # independently breaches the severe loss-asymmetry cap with its own
+        # sample requirement met (see model_health for the truth table).  Its
+        # ensemble contribution is then zeroed and entries it would drive are
         # rejected.  Data-driven from realized cohort performance.
         self.model_health = ModelHealthQuarantine(ModelHealthConfig(
             enabled=cfg.model_health_quarantine_enabled,
@@ -205,6 +207,8 @@ class FrequencyV4Engine:
             min_profit_factor=cfg.model_health_min_profit_factor,
             min_expectancy=cfg.model_health_min_expectancy,
             max_loss_asymmetry=cfg.model_health_max_loss_asymmetry,
+            severe_asymmetry_min_observations=(
+                cfg.model_health_severe_asymmetry_min_observations),
             cooldown_s=cfg.model_health_cooldown_s,
             resample_s=cfg.model_health_resample_s,
         ))
@@ -344,6 +348,10 @@ class FrequencyV4Engine:
         # (reader-pinned file).  Drives the RESTART escalation in the
         # maintenance policy so a stuck WAL does not grow without bound.
         self._consecutive_no_progress_passive = 0
+        # Auditable reclamation accounting: how often the policy escalated past
+        # PASSIVE, and how many WAL bytes checkpoints actually returned.
+        self._checkpoint_escalations = 0
+        self._wal_bytes_reclaimed_total = 0
         self._critical_command_sequence = 0
         self._critical_failure_reason = ""
         self.counters: dict[str, int] = {
@@ -384,8 +392,13 @@ class FrequencyV4Engine:
                 "queue_capacity": self.cfg.telemetry_queue_capacity,
             }
         )
+        # Only an *overdue* unconfirmed command is incomplete evidence.  An
+        # in-flight command is normal pipelining and resolves in milliseconds;
+        # counting it here reported permanent evidence loss under load.
         critical_evidence_incomplete = (
-            int(critical.get("unconfirmed_command_count") or 0)
+            (int(critical.get("unconfirmed_command_count") or 0)
+             if self._critical_command_overdue(
+                 critical.get("unconfirmed_command_oldest_age_ms")) else 0)
             + int(critical.get("ambiguous_command_count") or 0)
             + int(critical.get("timeout_count") or 0)
         )
@@ -489,6 +502,12 @@ class FrequencyV4Engine:
                 "latest_maintenance": dict(self._maintenance_result),
                 "db_size_bytes": self._database_size_cache,
                 "wal_size_bytes": self._wal_size_cache,
+                "wal_reclamation": {
+                    "consecutive_no_progress_passive": (
+                        self._consecutive_no_progress_passive),
+                    "checkpoint_escalations": self._checkpoint_escalations,
+                    "bytes_reclaimed_total": self._wal_bytes_reclaimed_total,
+                },
             },
             "buffered_event_counter_buckets": len(self._event_count_buffer),
             "shutdown_drain_timed_out": self._shutdown_drain_timed_out,
@@ -2843,6 +2862,28 @@ class FrequencyV4Engine:
             except asyncio.TimeoutError:
                 pass
 
+    def _critical_command_overdue(self, oldest_age_ms: Any) -> bool:
+        """True when an accepted critical command is genuinely unresolved.
+
+        A command that is merely in flight is normal pipelining: the writer
+        commits it within milliseconds and the acknowledgement follows.  Under
+        continuous load some command is almost always in flight, so gating on
+        the bare in-flight count blocks execution permanently and reports a
+        persistence fault that does not exist.
+
+        The fault condition is a command that is still unconfirmed *past its
+        acknowledgement deadline*.  A writer that cannot report the age stays
+        fully fail-closed: an unknown age is treated as overdue.
+        """
+
+        if oldest_age_ms is None:
+            return True
+        try:
+            age = int(oldest_age_ms)
+        except (TypeError, ValueError):
+            return True
+        return age > int(self.cfg.writer_failure_timeout_ms)
+
     def _execution_blocked_reason(self) -> str:
         """Fail-closed guard for new executable candidates.
 
@@ -2878,9 +2919,12 @@ class FrequencyV4Engine:
         # authoritative tables and must not throttle execution.  Writers that
         # do not expose the scoped count stay fully fail-closed.
         unconfirmed = writer.get("unconfirmed_trade_critical_count")
+        oldest_age_ms = writer.get("unconfirmed_trade_critical_oldest_age_ms")
         if unconfirmed is None:
             unconfirmed = writer.get("unconfirmed_command_count")
-        if int(unconfirmed or 0) > 0:
+            oldest_age_ms = writer.get("unconfirmed_command_oldest_age_ms")
+        if int(unconfirmed or 0) > 0 and self._critical_command_overdue(
+                oldest_age_ms):
             return "critical_command_unconfirmed"
         reconciliation = writer.get("recovery_reconciliation")
         reconciliation = reconciliation if isinstance(reconciliation, dict) else {}
@@ -3169,6 +3213,14 @@ class FrequencyV4Engine:
             )
             reporting_active = bool(reporting.get("current_job"))
             reporting_duration = float(reporting.get("current_duration_ms") or 0.0)
+            operational = (
+                self.read_worker.health() if self.read_worker is not None else {}
+            )
+            # Every live reader pins a WAL read-mark, so reclamation must see
+            # all of them -- not just the reporting worker.
+            operational_active = bool(operational.get("current_job"))
+            operational_duration = float(
+                operational.get("current_duration_ms") or 0.0)
             runtime_health = self._runtime_state_name(current)
             snapshot = MaintenanceSnapshot(
                 now_ms=current,
@@ -3181,10 +3233,14 @@ class FrequencyV4Engine:
                 ),
                 writer_healthy=writer.get("state") == "HEALTHY",
                 open_positions=max(0, int(self._open_positions_count)),
-                active_readers=int(reporting_active),
+                active_readers=int(reporting_active) + int(operational_active),
                 long_reader_count=int(
                     reporting_active
                     and reporting_duration > self.cfg.reporting_worker_timeout_s * 1_000
+                ) + int(
+                    operational_active
+                    and operational_duration
+                    > self.cfg.reporting_worker_timeout_s * 1_000
                 ),
                 critical_commit_p95_ms=writer.get("commit_latency_p95_ms"),
                 time_to_window_boundary_ms=(
@@ -3266,6 +3322,9 @@ class FrequencyV4Engine:
                     self._consecutive_no_progress_passive += 1
                 else:
                     self._consecutive_no_progress_passive = 0
+                if mode in {"RESTART", "TRUNCATE"}:
+                    self._checkpoint_escalations += 1
+                self._wal_bytes_reclaimed_total += max(0, before - after)
         except Exception as exc:  # noqa: BLE001 - maintenance must not crash market-data tasks
             self._maintenance_result = {
                 "status": "FAILED",

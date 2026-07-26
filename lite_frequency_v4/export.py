@@ -493,6 +493,16 @@ def build_frequency_v4_dashboard(
     )
     telemetry_recent_window_ms = int(_value(
         config, "writer_failure_timeout_ms", default=5_000) or 5_000)
+    # An accepted critical command that is merely in flight is normal
+    # pipelining; only one still unconfirmed past the acknowledgement deadline
+    # is an unresolved command.  An age the writer cannot report is treated as
+    # overdue so the dashboard stays fail-closed.
+    unconfirmed_oldest_age_ms = critical.get(
+        "unconfirmed_command_oldest_age_ms")
+    unconfirmed_overdue = (
+        unconfirmed_oldest_age_ms is None
+        or int(unconfirmed_oldest_age_ms) > telemetry_recent_window_ms
+    )
     telemetry_last_failure_ts_ms = int(
         telemetry.get("last_failure_ts_ms") or 0)
     telemetry_last_overflow_ts_ms = int(
@@ -521,7 +531,8 @@ def build_frequency_v4_dashboard(
             ("critical_writer_unhealthy", writer_state != "HEALTHY"),
             ("critical_command_timeout", writer_timeouts > 0),
             ("unconfirmed_critical_command", int(
-                critical.get("unconfirmed_command_count") or 0) > 0),
+                critical.get("unconfirmed_command_count") or 0) > 0
+                and unconfirmed_overdue),
             ("critical_evidence_incomplete", critical_incomplete > 0),
             (f"engine_execution_blocked:{execution_blocked_reason}", bool(
                 execution_blocked_reason)),

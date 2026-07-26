@@ -80,6 +80,111 @@ def _healthy_runtime_state(session: str) -> dict:
     }
 
 
+def test_inflight_critical_command_does_not_block_operational_ready(tmp_path):
+    """An outstanding command inside its deadline is pipelining, not a fault."""
+    store, session, _ = _store_with_health(tmp_path)
+    config = FrequencyV4Config()
+    try:
+        inflight = _healthy_runtime_state(session)
+        inflight["persistence"]["critical"].update({
+            "unconfirmed_command_count": 4,
+            "unconfirmed_command_oldest_age_ms": 25,
+        })
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=config, session_id=session,
+            runtime_state=inflight,
+        )
+        assert payload["persistence"]["critical_blocked_reasons"] == []
+        assert payload["persistence"]["operational_ready"] is True
+
+        overdue = _healthy_runtime_state(session)
+        overdue["persistence"]["critical"].update({
+            "unconfirmed_command_count": 4,
+            "unconfirmed_command_oldest_age_ms": (
+                config.writer_failure_timeout_ms + 1),
+        })
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=config, session_id=session,
+            runtime_state=overdue,
+        )
+        assert "unconfirmed_critical_command" in (
+            payload["persistence"]["critical_blocked_reasons"])
+        assert payload["persistence"]["operational_ready"] is False
+
+        # A writer that cannot report the age stays fail-closed.
+        unknown = _healthy_runtime_state(session)
+        unknown["persistence"]["critical"]["unconfirmed_command_count"] = 1
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=config, session_id=session,
+            runtime_state=unknown,
+        )
+        assert "unconfirmed_critical_command" in (
+            payload["persistence"]["critical_blocked_reasons"])
+    finally:
+        store.close()
+
+
+def test_telemetry_blocker_clears_once_the_recovery_window_passes(tmp_path):
+    """telemetry_batch_failure must not latch after the lane recovers."""
+    store, session, _ = _store_with_health(tmp_path)
+    config = FrequencyV4Config()
+    window = config.writer_failure_timeout_ms
+    try:
+        def payload_for(last_failure_offset_ms: int) -> dict:
+            state = _healthy_runtime_state(session)
+            state["persistence"]["telemetry"].update({
+                # Lifetime totals stay large and honest throughout.
+                "failed_batches": 6_037,
+                "rows_dropped": 211_867,
+                "raw_telemetry_loss_count": 217_904,
+                "last_failure_ts_ms": NOW - last_failure_offset_ms,
+            })
+            return build_frequency_v4_dashboard(
+                store, now_ms=NOW, config=config, session_id=session,
+                runtime_state=state,
+            )
+
+        inside = payload_for(window - 1)["persistence"]
+        assert "telemetry_batch_failure" in inside["blocked_reasons"]
+        assert inside["operational_ready"] is False
+        assert inside["telemetry_recovery"]["recent_failure"] is True
+
+        outside = payload_for(window + 1)["persistence"]
+        assert "telemetry_batch_failure" not in outside["blocked_reasons"]
+        assert outside["operational_ready"] is True
+        assert outside["telemetry_recovery"]["recent_failure"] is False
+        # Lifetime counters remain reported honestly after recovery.
+        assert outside["telemetry_recovery"][
+            "lifetime_telemetry_failures"] == 6_037
+        assert outside["telemetry_recovery"][
+            "lifetime_raw_telemetry_loss"] == 217_904
+    finally:
+        store.close()
+
+
+def test_export_separates_runtime_heartbeat_age_from_export_age(tmp_path):
+    """A stale export must never make a fresh runtime look stale."""
+    store, session, _ = _store_with_health(tmp_path)
+    try:
+        state = _healthy_runtime_state(session)
+        state["heartbeat_ts_ms"] = NOW - 400
+        state["persistence"]["critical"]["heartbeat_ts_ms"] = NOW - 100
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=NOW, config=FrequencyV4Config(), session_id=session,
+            runtime_state=state,
+        )
+        # export_age is zero at generation; the reader ages it from
+        # generated_ts_ms.  The runtime heartbeat is measured independently and
+        # takes the freshest observed signal.
+        assert payload["export_age_ms"] == 0
+        assert payload["generated_ts_ms"] == NOW
+        assert payload["runtime_heartbeat_age_ms"] == 0
+        assert payload["runtime_heartbeat_ts_ms"] == NOW
+        assert payload["heartbeat_age_ms"] == 400
+    finally:
+        store.close()
+
+
 def test_export_snapshot_is_v4_only_and_surfaces_safety_health_capacity(tmp_path):
     store, session, _ = _store_with_health(tmp_path)
     try:

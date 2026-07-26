@@ -104,19 +104,26 @@ class FrequencyV4Config:
     fair_probability_floor: float = 0.001
     fair_probability_ceiling: float = 0.999
     max_model_adjustment: float = 0.15
-    # Automatic model-health quarantine (fail-closed).  A member model whose
-    # rolling fee-net performance crosses ``model_health_min_observations`` and
-    # breaches both the profit-factor and expectancy floors is quarantined for
-    # ``model_health_cooldown_s``; its ensemble contribution is zeroed and
-    # entries it would have driven are rejected.  The gate is data-driven from
-    # realized cohort performance, not a hard-coded model kill, so it generalizes
-    # rather than overfitting.  Set ``model_health_quarantine_enabled`` false to
-    # bypass (the engine recomputes health but never acts on it).
+    # Automatic model-health quarantine (fail-closed).  A member model that
+    # clears ``model_health_min_observations`` is quarantined for
+    # ``model_health_cooldown_s`` when it breaches BOTH the profit-factor and
+    # expectancy floors, or when it independently breaches
+    # ``model_health_max_loss_asymmetry`` with
+    # ``model_health_severe_asymmetry_min_observations`` samples.  Requiring the
+    # two noisy metrics together keeps an ordinary drawdown in one of them from
+    # removing a healthy model; loss asymmetry is the one shape that
+    # disqualifies on its own.  A quarantined model's ensemble contribution is
+    # zeroed and entries it would have driven are rejected.  The gate is
+    # data-driven from realized cohort performance, not a hard-coded model kill,
+    # so it generalizes rather than overfitting.  Set
+    # ``model_health_quarantine_enabled`` false to bypass (the engine recomputes
+    # health but never acts on it).
     model_health_quarantine_enabled: bool = True
     model_health_min_observations: int = 30
     model_health_min_profit_factor: float = 0.90
     model_health_min_expectancy: float = -0.10
     model_health_max_loss_asymmetry: float = 3.0
+    model_health_severe_asymmetry_min_observations: int = 30
     model_health_cooldown_s: float = 1_800.0
     model_health_resample_s: float = 300.0
 

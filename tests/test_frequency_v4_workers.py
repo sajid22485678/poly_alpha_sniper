@@ -138,6 +138,34 @@ async def test_read_worker_closes_callable_snapshot_between_jobs(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_read_worker_never_pins_a_wal_snapshot_across_jobs(tmp_path):
+    """A reader that holds a read-mark between jobs blocks WAL reclamation.
+
+    SQLite cannot reset the WAL while any connection holds a read-mark, so a
+    read worker that keeps a snapshot alive across maintenance cycles makes
+    every checkpoint reclaim zero bytes.  Ordinary queries must therefore leave
+    no transaction open, and a job that opens one must have it rolled back.
+    """
+
+    path = _fresh_db(tmp_path)
+    worker = V4ReadWorker(path).start()
+    try:
+        for _ in range(5):
+            await worker.query("SELECT COUNT(*) AS n FROM markets")
+            await worker.query_one("SELECT COUNT(*) AS n FROM entries")
+            assert await worker.run_report(
+                lambda store: bool(store.connection.in_transaction)
+            ) is False
+        health = worker.health()
+        # Plain reads never open a transaction, so nothing needed rolling back.
+        assert health["snapshot_rollbacks"] == 0
+        assert health["thread_affine_connection"] is True
+        assert health["failed"] == 0
+    finally:
+        worker.stop()
+
+
+@pytest.mark.asyncio
 async def test_slow_read_report_does_not_block_pong_surrogate(tmp_path):
     path = _fresh_db(tmp_path)
     worker = V4ReadWorker(path).start()

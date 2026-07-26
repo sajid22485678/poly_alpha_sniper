@@ -1,10 +1,31 @@
 """Automatic, fail-closed model-health quarantine for the V4 edge ensemble.
 
-A member model whose rolling fee-net performance crosses a minimum-observation
-threshold and breaches both the profit-factor and expectancy floors (and
-optionally a loss-asymmetry cap) is quarantined for a cooldown.  While
-quarantined its ensemble contribution is zeroed and entries it would have
-driven are rejected.
+Quarantine truth table (authoritative)
+--------------------------------------
+Let ``n`` be the model's verified-terminal observation count::
+
+    normal_metric_breach = profit_factor < min_profit_factor
+                           AND expectancy  < min_expectancy
+
+    severe_asymmetry_breach = loss_asymmetry is finite
+                              AND loss_asymmetry > max_loss_asymmetry
+                              AND n >= severe_asymmetry_min_observations
+
+    quarantine = n >= min_observations
+                 AND (normal_metric_breach OR severe_asymmetry_breach)
+
+Both normal metrics must breach together: profit factor and expectancy are
+noisy on small realized samples and either one alone routinely crosses its
+floor during an ordinary drawdown, so quarantining on a single breach removes
+healthy models.  Loss asymmetry is the one independently disqualifying shape --
+a model whose average loss dwarfs its average win cannot be rescued by a better
+hit rate -- so it may quarantine alone, but only once its own explicit
+threshold and sample requirement are both met.
+
+While quarantined a model's ensemble contribution is zeroed and entries it
+would have driven are rejected (fail-closed).  A quarantine lasts
+``cooldown_s``; it is released only after the cooldown elapses and the next
+resample no longer reports a breach.
 
 The gate is **data-driven from realized cohort performance**, not a hard-coded
 model kill: it reads the verified-terminal trade set attributed by
@@ -39,6 +60,10 @@ class ModelHealthConfig:
     max_loss_asymmetry: float = 3.0
     cooldown_s: float = 1_800.0
     resample_s: float = 300.0
+    # Explicit sample requirement for the independently-disqualifying loss
+    # asymmetry branch.  Kept separate from ``min_observations`` so the one
+    # metric that can quarantine on its own always states its own evidence bar.
+    severe_asymmetry_min_observations: int = 30
 
     def __post_init__(self) -> None:
         if isinstance(self.enabled, bool):
@@ -49,6 +74,11 @@ class ModelHealthConfig:
                 or not isinstance(self.min_observations, int)
                 or self.min_observations < 1):
             raise ValueError("model_health min_observations must be a positive int")
+        if (isinstance(self.severe_asymmetry_min_observations, bool)
+                or not isinstance(self.severe_asymmetry_min_observations, int)
+                or self.severe_asymmetry_min_observations < 1):
+            raise ValueError(
+                "model_health severe_asymmetry_min_observations must be a positive int")
         for name, value in (
             ("min_profit_factor", self.min_profit_factor),
             ("min_expectancy", self.min_expectancy),
@@ -166,16 +196,23 @@ class ModelHealthQuarantine:
             reasons: list[str] = []
             quarantined = False
             if observations >= cfg.min_observations:
-                if perf["pf"] < cfg.min_profit_factor:
+                # See the module truth table: the two noisy metrics must breach
+                # together; severe loss asymmetry disqualifies on its own once
+                # its explicit threshold and sample requirement are both met.
+                pf_below = perf["pf"] < cfg.min_profit_factor
+                expectancy_below = perf["exp"] < cfg.min_expectancy
+                normal_metric_breach = pf_below and expectancy_below
+                severe_asymmetry_breach = (
+                    math.isfinite(perf["asymmetry"])
+                    and perf["asymmetry"] > cfg.max_loss_asymmetry
+                    and observations >= cfg.severe_asymmetry_min_observations
+                )
+                quarantined = normal_metric_breach or severe_asymmetry_breach
+                if normal_metric_breach:
                     reasons.append("profit_factor_below_floor")
-                    quarantined = True
-                if perf["exp"] < cfg.min_expectancy:
                     reasons.append("expectancy_below_floor")
-                    quarantined = True
-                if (math.isfinite(perf["asymmetry"])
-                        and perf["asymmetry"] > cfg.max_loss_asymmetry):
+                if severe_asymmetry_breach:
                     reasons.append("loss_asymmetry_above_cap")
-                    quarantined = True
             stats[model] = ModelStatistic(
                 model_name=model,
                 observations=observations,
@@ -314,6 +351,15 @@ class ModelHealthQuarantine:
                 "min_profit_factor": self._config.min_profit_factor,
                 "min_expectancy": self._config.min_expectancy,
                 "max_loss_asymmetry": self._config.max_loss_asymmetry,
+                "severe_asymmetry_min_observations": (
+                    self._config.severe_asymmetry_min_observations),
+                "quarantine_rule": (
+                    "observations>=min_observations AND ("
+                    "(profit_factor<min_profit_factor AND "
+                    "expectancy<min_expectancy) OR "
+                    "(loss_asymmetry>max_loss_asymmetry AND "
+                    "observations>=severe_asymmetry_min_observations))"
+                ),
                 "cooldown_s": self._config.cooldown_s,
                 "quarantined_models": sorted(active.keys()),
                 "active_quarantines": active,

@@ -666,6 +666,93 @@ async def test_execution_gate_scopes_unconfirmed_to_trade_critical(
 
 
 @pytest.mark.asyncio
+async def test_execution_gate_blocks_on_overdue_not_merely_inflight_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An in-flight critical command is pipelining; an overdue one is a fault.
+
+    Gating on the bare in-flight count blocked execution permanently under
+    continuous load -- some trade-critical command is almost always in flight --
+    and reported a persistence fault that did not exist.
+    """
+
+    async with _running_engine(tmp_path, monkeypatch) as (engine, _runtime):
+        assert engine._execution_blocked_reason() == ""
+        healthy = engine.persistence.health
+        timeout_ms = engine.cfg.writer_failure_timeout_ms
+
+        def with_age(count: int, age_ms: Any) -> Any:
+            def fake(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+                result = healthy()
+                result["unconfirmed_trade_critical_count"] = count
+                result["unconfirmed_trade_critical_oldest_age_ms"] = age_ms
+                result["unconfirmed_command_count"] = count
+                result["unconfirmed_command_oldest_age_ms"] = age_ms
+                return result
+            return fake
+
+        # Normal pipelining: outstanding, well inside the acknowledgement
+        # deadline.  Execution continues.
+        monkeypatch.setattr(engine.persistence, "health", with_age(3, 5))
+        assert engine._execution_blocked_reason() == ""
+        monkeypatch.setattr(
+            engine.persistence, "health", with_age(1, timeout_ms))
+        assert engine._execution_blocked_reason() == ""
+
+        # Past the deadline: genuinely unresolved, fail closed.
+        monkeypatch.setattr(
+            engine.persistence, "health", with_age(1, timeout_ms + 1))
+        assert engine._execution_blocked_reason() == (
+            "critical_command_unconfirmed")
+
+        # An unreportable age stays fail-closed.
+        monkeypatch.setattr(engine.persistence, "health", with_age(1, None))
+        assert engine._execution_blocked_reason() == (
+            "critical_command_unconfirmed")
+        monkeypatch.setattr(
+            engine.persistence, "health", with_age(1, "not-a-number"))
+        assert engine._execution_blocked_reason() == (
+            "critical_command_unconfirmed")
+
+        # Confirmation clears the blocker; it never latches.
+        monkeypatch.setattr(engine.persistence, "health", with_age(0, None))
+        assert engine._execution_blocked_reason() == ""
+        monkeypatch.setattr(engine.persistence, "health", healthy)
+        assert engine._execution_blocked_reason() == ""
+
+
+@pytest.mark.asyncio
+async def test_inflight_commands_are_not_reported_as_incomplete_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with _running_engine(tmp_path, monkeypatch) as (engine, _runtime):
+        healthy = engine.persistence.health
+        timeout_ms = engine.cfg.writer_failure_timeout_ms
+
+        def with_age(count: int, age_ms: Any) -> Any:
+            def fake(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+                result = healthy()
+                result["unconfirmed_command_count"] = count
+                result["unconfirmed_command_oldest_age_ms"] = age_ms
+                result["unconfirmed_trade_critical_count"] = 0
+                result["unconfirmed_trade_critical_oldest_age_ms"] = None
+                return result
+            return fake
+
+        monkeypatch.setattr(engine.persistence, "health", with_age(9, 12))
+        state = engine._runtime_state()
+        telemetry = state["persistence"]["telemetry"]
+        assert telemetry["critical_evidence_incomplete_count"] == 0
+        assert telemetry["incomplete_evidence_count"] == 0
+
+        monkeypatch.setattr(
+            engine.persistence, "health", with_age(9, timeout_ms + 1))
+        overdue = engine._runtime_state()
+        assert overdue["persistence"]["telemetry"][
+            "critical_evidence_incomplete_count"] == 9
+
+
+@pytest.mark.asyncio
 async def test_unchanged_evaluation_is_materially_coalesced(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

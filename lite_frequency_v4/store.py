@@ -4882,17 +4882,29 @@ class V4Store:
             if (candidate := Path(f"{self.path}{suffix}")).exists()
         )
 
-    def checkpoint(self, *, mode: str = "PASSIVE", reason: str = "manual") -> dict[str, Any]:
+    def checkpoint(self, *, mode: str = "PASSIVE", reason: str = "manual",
+                   busy_timeout_ms: Optional[int] = None) -> dict[str, Any]:
         """Run and journal one explicit WAL checkpoint.
 
         Automatic checkpoints are disabled.  This method is deliberately not
         called by :meth:`close`; the persistence owner schedules it explicitly.
+
+        ``busy_timeout_ms`` temporarily narrows this connection's lock wait for
+        the duration of the checkpoint only.  RESTART and TRUNCATE take the
+        writer lock and wait for readers, so an unbounded wait would become a
+        global database stall; a bounded one simply returns BUSY and the policy
+        retries on the next maintenance cycle.
         """
 
         self._assert_owner()
         parsed_mode = str(mode).upper()
         if parsed_mode not in {"PASSIVE", "FULL", "RESTART", "TRUNCATE"}:
             raise ValueError("unsupported WAL checkpoint mode")
+        if busy_timeout_ms is not None and (
+                isinstance(busy_timeout_ms, bool)
+                or not isinstance(busy_timeout_ms, int)
+                or busy_timeout_ms < 1):
+            raise ValueError("busy_timeout_ms must be a positive integer")
         if self._transaction_depth:
             raise V4StoreError("cannot checkpoint inside an active transaction")
         with self._background_write_gate():
@@ -4904,8 +4916,16 @@ class V4Store:
             failure: Optional[str] = None
             try:
                 with self._lock:
-                    result = self._conn.execute(
-                        f"PRAGMA wal_checkpoint({parsed_mode})").fetchone()
+                    if busy_timeout_ms is not None:
+                        self._conn.execute(
+                            f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
+                    try:
+                        result = self._conn.execute(
+                            f"PRAGMA wal_checkpoint({parsed_mode})").fetchone()
+                    finally:
+                        if busy_timeout_ms is not None:
+                            self._conn.execute(
+                                f"PRAGMA busy_timeout={int(self.busy_timeout_ms)}")
                 if result is not None:
                     busy, total, checkpointed = (
                         int(result[0]), int(result[1]), int(result[2]))

@@ -6,6 +6,7 @@ import inspect
 from pathlib import Path
 import threading
 import time
+from typing import Any
 
 import pytest
 
@@ -13,6 +14,7 @@ from poly_alpha_sniper.lite_frequency_v4.telemetry import (
     TelemetryCommand,
     TelemetryDisposition,
     V4TelemetryWriter,
+    _MAX_PRIORITY_REQUEUE_ATTEMPTS,
     sum_kwargs,
 )
 
@@ -320,28 +322,206 @@ def test_sink_failure_is_contained_counted_and_never_touches_critical_state():
     assert writer.stop(drain=True, timeout_s=2.0)
 
 
-def test_critical_priority_skip_is_explicitly_dropped_and_degraded():
-    class PrioritySkip(RuntimeError):
-        telemetry_priority_skip = True
+class PrioritySkip(RuntimeError):
+    telemetry_priority_skip = True
+
+
+class _TransientPrioritySink:
+    """Yields to critical persistence for the first ``skips`` submissions."""
+
+    def __init__(self, skips: int) -> None:
+        self.skips = int(skips)
+        self.attempts = 0
+        self.written: list[Any] = []
+
+    def submit_telemetry_batch(self, commands, *, timeout_s):
+        del timeout_s
+        self.attempts += 1
+        if self.attempts <= self.skips:
+            raise PrioritySkip("critical persistence pending")
+        self.written.extend(commands)
+        return len(commands)
+
+
+def test_transient_priority_skip_defers_without_losing_rows():
+    """A cooperative yield rolls back before writing, so nothing is lost.
+
+    The sink never attempted the rows, so accounting them as loss (and as a
+    batch failure) reported a telemetry outage every time critical persistence
+    or a maintenance checkpoint briefly held the shared write gate.
+    """
+
+    sink = _TransientPrioritySink(skips=3)
+    writer = _writer(sink)
+    for index in range(4):
+        assert writer.submit(
+            TelemetryCommand("record", (index,), {"value": index}),
+        ) is TelemetryDisposition.ACCEPTED
+    writer.start()
+    assert writer.flush(timeout_s=5.0)
+    metrics = writer.snapshot()
+    assert metrics["written"] == 4
+    assert metrics["dropped"] == 0
+    # A cooperative yield is designed backpressure, not a fault.
+    assert metrics["failed_batches"] == 0
+    assert metrics["priority_skipped_batches"] == 3
+    assert metrics["requeued_rows"] >= 4
+    assert metrics["health"] == "HEALTHY"
+    assert metrics["last_priority_skip_ts_ms"] is not None
+    assert writer.stop(drain=True, timeout_s=2.0)
+
+
+def test_permanent_priority_skip_retries_a_bounded_number_of_times():
+    """Requeueing is finite: a gate that never frees must not spin forever."""
 
     class PrioritySink:
+        def __init__(self) -> None:
+            self.attempts = 0
+
         def submit_telemetry_batch(self, commands, *, timeout_s):
             del commands, timeout_s
+            self.attempts += 1
             raise PrioritySkip("critical persistence pending")
 
-    writer = _writer(PrioritySink())
+    sink = PrioritySink()
+    writer = _writer(sink)
     assert writer.submit(
         "record_runtime_health", kwargs={"state": "RUNNING"},
     ) is TelemetryDisposition.ACCEPTED
     writer.start()
-    assert writer.flush(timeout_s=2.0)
+    assert writer.flush(timeout_s=10.0)
     metrics = writer.snapshot()
+    # Exhausting the retry budget is honest loss, and only then degraded.
     assert metrics["health"] == "DEGRADED_CRITICAL_PRIORITY"
-    assert metrics["priority_skipped_batches"] == 1
-    assert metrics["priority_skipped_rows"] == 1
     assert metrics["dropped"] == 1
     assert metrics["written"] == 0
+    assert metrics["priority_skipped_rows"] >= 1
+    assert sink.attempts <= _MAX_PRIORITY_REQUEUE_ATTEMPTS + 1
+    assert "telemetry_priority_skip_exhausted" in (metrics["last_error"] or "")
     assert writer.stop(drain=True, timeout_s=2.0)
+
+
+def test_deadline_miss_shrinks_the_physical_chunk_and_stops_failing():
+    """Deadline failures must be self-limiting, not a permanent loss source.
+
+    A chunk larger than the sink's cooperative budget can only ever miss it, so
+    resubmitting the same size forever is guaranteed loss.  The learned ceiling
+    halves on each miss and never grows back inside one process, which bounds
+    total deadline failures to log2(physical_batch_size).
+    """
+
+    class DeadlineExceeded(RuntimeError):
+        telemetry_deadline_exceeded = True
+
+    class BudgetedSink:
+        """Commits at most ``capacity`` rows in one transaction."""
+
+        def __init__(self, capacity: int) -> None:
+            self.capacity = int(capacity)
+            self.written = 0
+            self.misses = 0
+            self.max_accepted = 0
+
+        def submit_telemetry_batch(self, commands, *, timeout_s):
+            del timeout_s
+            if len(commands) > self.capacity:
+                self.misses += 1
+                raise DeadlineExceeded("telemetry transaction exceeded deadline")
+            self.max_accepted = max(self.max_accepted, len(commands))
+            self.written += len(commands)
+            return len(commands)
+
+    sink = BudgetedSink(capacity=5)
+    writer = _writer(sink, capacity=2_048, batch_size=64,
+                     physical_batch_size=32)
+    writer.start()
+    for index in range(400):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    assert writer.flush(timeout_s=20.0)
+    metrics = writer.snapshot()
+    # 32 -> 16 -> 8 -> 4: at most four misses, then it stays under budget.
+    assert sink.misses <= 4
+    assert metrics["deadline_shrink_events"] == sink.misses
+    assert metrics["physical_batch_ceiling"] <= 5
+    assert sink.max_accepted <= 5
+
+    # After warm-up the lane stops producing new failures entirely.
+    failures_after_warmup = metrics["failed_batches"]
+    for index in range(400, 800):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    assert writer.flush(timeout_s=20.0)
+    steady = writer.snapshot()
+    assert steady["failed_batches"] == failures_after_warmup
+    assert steady["deadline_exceeded_batches"] == metrics["deadline_exceeded_batches"]
+    assert steady["health"] == "HEALTHY"
+    assert writer.stop(drain=True, timeout_s=5.0)
+
+
+def test_one_failed_chunk_never_destroys_rows_it_did_not_attempt():
+    """A dispatch carries one physical chunk, so loss is bounded by it."""
+
+    class OneShotFailingSink:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.written = 0
+
+        def submit_telemetry_batch(self, commands, *, timeout_s):
+            del timeout_s
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("physical writer rejected batch")
+            self.written += len(commands)
+            return len(commands)
+
+    sink = OneShotFailingSink()
+    writer = _writer(sink, batch_size=64, physical_batch_size=4)
+    for index in range(40):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    writer.start()
+    assert writer.stop(drain=True, timeout_s=10.0)
+    metrics = writer.snapshot()
+    assert metrics["dropped"] == 4
+    assert metrics["written"] == 36
+    assert metrics["failed_batches"] == 1
+
+
+def test_deadline_backoff_actually_defers_the_next_dispatch():
+    """The backoff window must suppress dispatch, not merely delay it briefly.
+
+    Dispatching inside the window resubmits into a sink that is still missing
+    its deadline, which is the tight retry-and-miss loop the backoff exists to
+    prevent.
+    """
+
+    class DeadlineExceeded(RuntimeError):
+        telemetry_deadline_exceeded = True
+
+    class AlwaysMissingSink:
+        def __init__(self) -> None:
+            self.attempt_monotonics: list[float] = []
+
+        def submit_telemetry_batch(self, commands, *, timeout_s):
+            del commands, timeout_s
+            self.attempt_monotonics.append(time.monotonic())
+            raise DeadlineExceeded("telemetry transaction exceeded deadline")
+
+    sink = AlwaysMissingSink()
+    writer = _writer(sink, batch_size=8, physical_batch_size=1,
+                     flush_interval_s=0.05)
+    writer.start()
+    for index in range(6):
+        writer.submit(TelemetryCommand("record", (index,), {"value": index}))
+    time.sleep(1.0)
+    writer.stop(drain=False, timeout_s=2.0)
+    gaps = [
+        second - first
+        for first, second in zip(sink.attempt_monotonics,
+                                 sink.attempt_monotonics[1:])
+    ]
+    assert sink.attempt_monotonics, "sink was never called"
+    # Every retry is separated by at least the first backoff step.
+    assert all(gap >= 0.04 for gap in gaps), gaps
+    assert writer.snapshot()["deadline_backoff_s"] > 0.0
 
 
 def test_graceful_stop_drains_every_accepted_command_and_rejects_late_submit():

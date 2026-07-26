@@ -451,6 +451,15 @@ class V4PersistenceWriter:
         # journal-side counter, so the execution gate never sees a gap while
         # a trade-critical command is anywhere in flight.
         self._queued_trade_critical = 0
+        # command_id -> (enqueued_ts_ms, trade_critical) for every command that
+        # has been accepted but not yet resolved (committed, idempotently
+        # replayed, or finalized as FAILED).  Insertion order is submission
+        # order, so the exposed "oldest unconfirmed age" is exact.  A command
+        # that is merely in flight is not evidence of a persistence fault; a
+        # command still unconfirmed past its acknowledgement deadline is.  The
+        # execution gate needs that distinction to stay fail-closed on genuine
+        # faults without latching on ordinary pipelining.
+        self._inflight_commands: dict[str, tuple[int, bool]] = {}
 
     def start(self, timeout_s: float = 10.0) -> None:
         with self._lifecycle_lock:
@@ -490,11 +499,14 @@ class V4PersistenceWriter:
         except Exception:
             self._write_gate.cancel_critical()
             raise
+        trade_critical = _is_trade_critical(command_snapshot)
         with self._metrics_lock:
             self._metrics["commands_submitted"] += 1
             self._metrics["terminal_submitted"] += int(command_snapshot.terminal)
-            if _is_trade_critical(command_snapshot):
+            if trade_critical:
                 self._queued_trade_critical += 1
+            self._inflight_commands[command_snapshot.command_id] = (
+                envelope.enqueued_ts_ms, trade_critical)
         return future
 
     async def execute(self, command: V4PersistenceCommand,
@@ -608,8 +620,19 @@ class V4PersistenceWriter:
             }
         queue_depth = self._scheduler.depth
         gate = self._write_gate.snapshot()
+        now = _now_ms()
         with self._metrics_lock:
             queued_trade_critical = self._queued_trade_critical
+            oldest_any: Optional[int] = None
+            oldest_critical: Optional[int] = None
+            for enqueued_ts_ms, trade_critical in self._inflight_commands.values():
+                age = max(0, now - int(enqueued_ts_ms))
+                if oldest_any is None or age > oldest_any:
+                    oldest_any = age
+                if trade_critical and (
+                        oldest_critical is None or age > oldest_critical):
+                    oldest_critical = age
+            inflight_registered = len(self._inflight_commands)
         result.update({
             "queue_depth": queue_depth,
             "queue_capacity": self._scheduler.capacity,
@@ -623,6 +646,13 @@ class V4PersistenceWriter:
             "unconfirmed_trade_critical_count": (
                 int(result.get("unconfirmed_trade_critical_count") or 0)
                 + queued_trade_critical),
+            # Age of the oldest command that is accepted but not yet resolved.
+            # ``None`` means nothing is in flight.  Consumers gate on the age,
+            # not the bare count: an in-flight command is normal pipelining,
+            # an overdue one is an unresolved critical command.
+            "unconfirmed_command_oldest_age_ms": oldest_any,
+            "unconfirmed_trade_critical_oldest_age_ms": oldest_critical,
+            "inflight_registered_commands": inflight_registered,
             **gate,
         })
         return result
@@ -858,6 +888,7 @@ class V4PersistenceWriter:
             self._metrics["terminal_committed"] += int(command.terminal)
             self._metrics["last_commit_ts_ms"] = _now_ms()
             self._metrics["last_committed_command_id"] = command.command_id
+            self._inflight_commands.pop(command.command_id, None)
             self._metrics["unconfirmed_command_count"] = max(
                 0, int(self._metrics["unconfirmed_command_count"]) - 1)
             if _is_trade_critical(command):
@@ -909,6 +940,9 @@ class V4PersistenceWriter:
             if replay:
                 with self._metrics_lock:
                     self._metrics["idempotent_replays"] += 1
+                    # An idempotent replay is a confirmed durable outcome: the
+                    # journal already holds a COMMITTED row for it.
+                    self._inflight_commands.pop(command.command_id, None)
                 if not envelope.future.done():
                     envelope.future.set_result(result)
                 return
@@ -959,6 +993,10 @@ class V4PersistenceWriter:
             with self._metrics_lock:
                 self._metrics["commands_failed"] += 1
                 if failure_finalized:
+                    # Durably finalized as FAILED: resolved, not unconfirmed.
+                    # An unfinalized failure stays registered so its age keeps
+                    # growing and the execution gate stays fail-closed.
+                    self._inflight_commands.pop(command.command_id, None)
                     self._metrics["unconfirmed_command_count"] = max(
                         0, int(self._metrics["unconfirmed_command_count"]) - 1)
                     if trade_critical:
@@ -1200,15 +1238,28 @@ class V4TelemetryStoreSink:
         allowed_s = self.max_transaction_ms / 1_000.0
         if timeout_s is not None:
             allowed_s = min(allowed_s, float(timeout_s))
-        deadline = started + allowed_s
+        # The budget bounds how long telemetry may *hold* the shared SQLite
+        # write lock, so it is armed when BEGIN IMMEDIATE actually acquires it.
+        # Arming at call entry instead charged the contended lock wait -- during
+        # which telemetry holds nothing and blocks nobody -- against the row
+        # budget, so a busy writer alone could exhaust the deadline before a
+        # single row was written and roll the whole chunk back.
+        deadline: Optional[float] = None
+
+        def arm_deadline() -> None:
+            nonlocal deadline
+            deadline = time.monotonic() + allowed_s
 
         def cooperative_check() -> None:
             if self._write_gate.critical_pending():
                 raise V4TelemetryPrioritySkip(
                     "telemetry transaction yielded to newly pending critical persistence")
-            if time.monotonic() >= deadline:
-                raise V4TelemetryDeadlineExceeded(
+            if deadline is not None and time.monotonic() >= deadline:
+                exc = V4TelemetryDeadlineExceeded(
                     "telemetry transaction exceeded cooperative deadline")
+                exc.telemetry_rows_attempted = len(rows)
+                exc.telemetry_deadline_ms = allowed_s * 1_000.0
+                raise exc
 
         try:
             # Connection creation is also inside the gate because V4Store
@@ -1217,6 +1268,7 @@ class V4TelemetryStoreSink:
             cooperative_check()
             before_transactions = store.transaction_counters
             with store.transaction(immediate=True):
+                arm_deadline()
                 results = []
                 for row in rows:
                     cooperative_check()

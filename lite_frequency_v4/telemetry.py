@@ -11,6 +11,43 @@ Each command is a mapping containing ``method``, ``args`` and ``kwargs``.  The
 physical writer remains the sole owner of the SQLite writer connection and is
 responsible for executing a submitted batch atomically.  Actual trade evidence
 must use the critical persistence lane, never this lossy telemetry lane.
+
+Non-critical loss policy (explicit and bounded)
+-----------------------------------------------
+This lane may coalesce, deduplicate, or drop rows.  It does so only in these
+documented cases, each with its own counter:
+
+``coalesced``/``deduplicated``
+    Repeated identical state within ``coalescing_interval_s``, an explicit
+    duplicate ``dedupe_key``, or a deterministic ``bucket_key`` merge.
+``dropped`` (``telemetry_queue_full``)
+    Admission overflow once ``capacity`` rows are already pending.
+``dropped`` (batch failure)
+    Exactly the rows of the one physical chunk whose sink transaction rolled
+    back.  A dispatch never carries more than one physical chunk, so a single
+    failure can never destroy rows it did not attempt.
+``dropped`` (``telemetry_submit_after_stop``/``telemetry_shutdown_discard``)
+    Admission or drain after ``stop()``.
+
+A cooperative *priority skip* is explicitly not loss: the sink yields to
+critical persistence before writing anything, so those rows are requeued and
+only counted in ``priority_skipped_batches``/``priority_skipped_rows``.  It is
+designed backpressure and never marks the lane unhealthy.
+
+Two bounded mechanisms keep repeated sink pressure from becoming an unbounded
+retry loop:
+
+*Deadline backoff* — after a deadline-exceeded chunk the next flush is deferred
+for an exponentially growing window (capped at 2 s).  Admission keeps running;
+only dispatch waits.  A clean commit clears it.
+
+*Learned physical-chunk ceiling* — the sink enforces a short cooperative
+transaction deadline.  A chunk larger than that budget allows, at the current
+per-row database cost, is guaranteed to miss it.  Each miss halves the ceiling,
+which never grows again within one process lifetime (the database only grows,
+so per-row cost only rises); it is re-learned at each launch.  Deadline
+failures are therefore self-limiting: at most ``log2(physical_batch_size)``
+misses per process, after which the lane stops producing new failures.
 """
 from __future__ import annotations
 
@@ -121,6 +158,14 @@ class _Pending:
     state_admitted_monotonic: Optional[float] = None
     aggregate_key: Optional[tuple[str, str, int, int]] = None
     merge_hook: Optional[MergeHook] = None
+    requeue_attempts: int = 0
+
+
+# How often one row may be requeued after a cooperative priority skip before it
+# is accounted as a genuine drop.  At the default 250 ms dispatch deferral this
+# absorbs roughly three seconds of held write gate -- longer than any bounded
+# maintenance checkpoint -- while keeping retries strictly finite.
+_MAX_PRIORITY_REQUEUE_ATTEMPTS = 12
 
 
 def _canonical_digest(value: Any) -> str:
@@ -250,6 +295,16 @@ class V4TelemetryWriter:
         # only the flush is deferred.
         self._deadline_backoff_until: float = 0.0
         self._deadline_backoff_s: float = 0.0
+        # Learned physical-chunk ceiling.  See the module docstring: a chunk
+        # that exceeds the sink's cooperative transaction budget at the current
+        # per-row cost can only ever miss, roll back, and lose its rows.  Each
+        # deadline miss halves this bound; it never grows again inside one
+        # process, so the number of deadline failures per launch is finite.
+        self._physical_batch_ceiling = self.physical_batch_size
+        self._deadline_shrink_events = 0
+        self._consecutive_successful_batches = 0
+        self._last_priority_skip_ts_ms = 0
+        self._requeued_rows = 0
 
     @staticmethod
     def _command(
@@ -431,9 +486,50 @@ class V4TelemetryWriter:
                     and current[1] == pending.state_admitted_monotonic):
                 self._state_seen.pop(pending.state_key, None)
 
-    def _take_batch_locked(self) -> list[_Pending]:
+    def _requeue_locked(self, rows: list[_Pending]) -> int:
+        """Return unattempted rows to the front of the queue, preserving order.
+
+        Used only when the physical sink cooperatively yielded before writing
+        anything, so no row is duplicated: the sink's transaction rolled back.
+        A requeued row becomes a standalone command -- its aggregate slot may
+        already be owned by a newer pending row, and merging into it after the
+        fact would reorder or hide that newer row.
+
+        Retries are strictly finite.  A row that has already been deferred
+        ``_MAX_PRIORITY_REQUEUE_ATTEMPTS`` times, or any row still pending once
+        a stop has been requested, is returned to the caller as a genuine drop
+        instead of being requeued, so the lane can never spin against a gate
+        that is not going to be released.
+
+        Returns the logical count that could not be requeued.
+        """
+
+        abandoned = 0
+        keep: list[_Pending] = []
+        for pending in rows:
+            if (self._stop_requested
+                    or pending.requeue_attempts >= _MAX_PRIORITY_REQUEUE_ATTEMPTS):
+                abandoned += pending.logical_count
+                self._rollback_admission_locked(pending)
+                continue
+            pending.requeue_attempts += 1
+            keep.append(pending)
+        for pending in reversed(keep):
+            pending.aggregate_key = None
+            pending.merge_hook = None
+            self._pending[pending.token] = pending
+            self._queue.appendleft(pending.token)
+            self._requeued_rows += pending.logical_count
+        self._high_water = max(self._high_water, len(self._queue))
+        return abandoned
+
+    def _take_batch_locked(self, limit: Optional[int] = None) -> list[_Pending]:
+        maximum = (
+            self.batch_size if limit is None
+            else max(1, min(self.batch_size, int(limit)))
+        )
         batch: list[_Pending] = []
-        while self._queue and len(batch) < self.batch_size:
+        while self._queue and len(batch) < maximum:
             token = self._queue.popleft()
             pending = self._pending.pop(token, None)
             if pending is None:
@@ -483,15 +579,17 @@ class V4TelemetryWriter:
                         and not self._flush_requested):
                     remaining_backoff = self._deadline_backoff_until - time.monotonic()
                     if remaining_backoff > 0.0:
+                        # Deferral must actually defer.  Dispatching inside the
+                        # backoff window resubmits into a sink that is still
+                        # missing its deadline and destroys another whole chunk
+                        # -- exactly the tight retry-and-miss loop the backoff
+                        # exists to prevent.  Admission keeps accepting rows and
+                        # the heartbeat keeps ticking; only the flush waits.
                         self._condition.wait(min(
                             remaining_backoff, self.heartbeat_interval_s))
                         if time.monotonic() >= next_heartbeat:
                             self._last_heartbeat_ts_ms = int(time.time() * 1_000)
                             next_heartbeat = time.monotonic() + self.heartbeat_interval_s
-                        self._flush_requested = False
-                        batch = self._take_batch_locked()
-                        if batch:
-                            self._dispatch(batch)
                         continue
                     self._deadline_backoff_until = 0.0
                     self._deadline_backoff_s = 0.0
@@ -502,7 +600,7 @@ class V4TelemetryWriter:
                         first.admitted_monotonic + self.flush_interval_s
                         if first is not None else time.monotonic()
                     )
-                    while (len(self._queue) < self.batch_size
+                    while (len(self._queue) < self._physical_batch_ceiling
                            and not self._stop_requested
                            and not self._flush_requested):
                         remaining = deadline - time.monotonic()
@@ -514,7 +612,10 @@ class V4TelemetryWriter:
                             next_heartbeat = time.monotonic() + self.heartbeat_interval_s
 
                 self._flush_requested = False
-                batch = self._take_batch_locked()
+                # One physical chunk per dispatch: a rolled-back sink
+                # transaction can then only ever cost the rows it actually
+                # attempted, never a larger logical batch behind it.
+                batch = self._take_batch_locked(self._physical_batch_ceiling)
 
             if batch:
                 self._dispatch(batch)
@@ -549,9 +650,12 @@ class V4TelemetryWriter:
         priority_skip = False
         deadline_exceeded = False
         failed_rows: list[_Pending] = []
+        failed_chunk_rows = 0
         cursor = 0
+        with self._condition:
+            chunk_limit = max(1, self._physical_batch_ceiling)
         while cursor < len(batch):
-            chunk = batch[cursor:cursor + self.physical_batch_size]
+            chunk = batch[cursor:cursor + chunk_limit]
             payload = [pending.command.payload() for pending in chunk]
             self._physical_batch_high_water = max(
                 self._physical_batch_high_water, len(payload))
@@ -574,6 +678,7 @@ class V4TelemetryWriter:
                 # immediately; all later chunks remain unwritten and are
                 # explicitly accounted as dropped below.
                 failed_rows = batch[cursor:]
+                failed_chunk_rows = len(chunk)
                 break
             written += chunk_written
             logical_written += sum(row.logical_count for row in chunk)
@@ -586,7 +691,9 @@ class V4TelemetryWriter:
             0.0,
             (completed - min(row.admitted_monotonic for row in batch)) * 1_000.0,
         )
-        logical_dropped = sum(row.logical_count for row in failed_rows)
+        # Logical rows the sink did not write.  They are requeued on a
+        # cooperative priority skip and dropped on a genuine batch failure.
+        logical_unwritten = sum(row.logical_count for row in failed_rows)
         with self._condition:
             self._batch_latencies_ms.append(batch_ms)
             self._flush_latencies_ms.append(flush_ms)
@@ -604,16 +711,50 @@ class V4TelemetryWriter:
                 # has recovered and the lossy lane can resume normal cadence.
                 self._deadline_backoff_until = 0.0
                 self._deadline_backoff_s = 0.0
+                self._consecutive_successful_batches += successful_batches
+            elif priority_skip:
+                # A cooperative yield to critical persistence is designed
+                # behaviour, not a telemetry fault.  The sink rolled its
+                # transaction back without writing anything, so these rows are
+                # requeued rather than destroyed, the lane stays HEALTHY, and
+                # no failure timestamp is stamped (which would otherwise make
+                # every checkpoint and every burst of critical writes look like
+                # a telemetry outage on the dashboard).  Only the next dispatch
+                # is briefly deferred so yielding cannot become a spin against a
+                # gate that is still held.
+                self._consecutive_successful_batches = 0
+                self._priority_skipped_batches += 1
+                self._priority_skipped_rows += logical_unwritten
+                self._last_priority_skip_ts_ms = int(time.time() * 1_000)
+                abandoned = self._requeue_locked(failed_rows)
+                if abandoned:
+                    # Retry budget exhausted (or shutting down): the remaining
+                    # rows are honest loss, not a deferral.
+                    self._drop_locked(
+                        abandoned, "telemetry_priority_skip_exhausted",
+                        health="DEGRADED_CRITICAL_PRIORITY")
+                self._deadline_backoff_s = self.flush_interval_s
+                self._deadline_backoff_until = (
+                    time.monotonic() + self._deadline_backoff_s)
             else:
                 self._failed_batches += 1
-                if priority_skip:
-                    self._priority_skipped_batches += 1
-                    self._priority_skipped_rows += logical_dropped
-                    health = "DEGRADED_CRITICAL_PRIORITY"
-                elif deadline_exceeded:
+                self._consecutive_successful_batches = 0
+                if deadline_exceeded:
                     self._deadline_exceeded_batches += 1
-                    self._deadline_exceeded_rows += logical_dropped
+                    self._deadline_exceeded_rows += logical_unwritten
                     health = "DEGRADED_TELEMETRY_DEADLINE"
+                    # Learn a strictly smaller physical chunk.  A chunk of this
+                    # size cannot fit the sink's cooperative budget at the
+                    # current per-row cost, so resubmitting the same size is a
+                    # guaranteed future miss.  Halving bounds the number of
+                    # deadline failures per process to log2(physical_batch_size).
+                    if failed_chunk_rows > 1:
+                        self._physical_batch_ceiling = max(
+                            1,
+                            min(self._physical_batch_ceiling,
+                                failed_chunk_rows) // 2,
+                        )
+                        self._deadline_shrink_events += 1
                     # Exponential backoff (capped at 2 s) so a WAL-pinned slow
                     # commit does not cause a tight resubmit-and-miss loop.
                     # The queue keeps accepting; only the next flush is deferred.
@@ -626,7 +767,7 @@ class V4TelemetryWriter:
                 else:
                     health = "DEGRADED_WRITER"
                 self._drop_locked(
-                    logical_dropped, error or "telemetry_batch_failed", health=health)
+                    logical_unwritten, error or "telemetry_batch_failed", health=health)
                 for pending in failed_rows:
                     self._rollback_admission_locked(pending)
             self._last_heartbeat_ts_ms = int(time.time() * 1_000)
@@ -775,9 +916,15 @@ class V4TelemetryWriter:
                 "failed_batches": self._failed_batches,
                 "priority_skipped_batches": self._priority_skipped_batches,
                 "priority_skipped_rows": self._priority_skipped_rows,
+                "requeued_rows": self._requeued_rows,
+                "last_priority_skip_ts_ms": self._last_priority_skip_ts_ms or None,
                 "deadline_exceeded_batches": self._deadline_exceeded_batches,
                 "deadline_exceeded_rows": self._deadline_exceeded_rows,
                 "physical_batch_size": self.physical_batch_size,
+                "physical_batch_ceiling": self._physical_batch_ceiling,
+                "deadline_shrink_events": self._deadline_shrink_events,
+                "consecutive_successful_batches": (
+                    self._consecutive_successful_batches),
                 "physical_batch_high_water": self._physical_batch_high_water,
                 "overflow_count": self._overflow_count,
                 "batch_latency_avg_ms": self._average(batch_values),
