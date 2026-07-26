@@ -1,6 +1,13 @@
 # Stops only the PID whose V4 lock, executable, module, mode, and launch nonce corroborate.
 [CmdletBinding()]
-param([ValidateRange(1,120)][int]$GracePeriodSeconds = 12)
+# The grace period must outlast a real graceful shutdown, not just a fast one.
+# V4's stop sequence drains the ingest queues, stops the telemetry lane, writes
+# the terminal end_runtime_session command, and publishes a final export. On a
+# multi-GB database that routinely exceeds ten seconds, and force-killing
+# before end_runtime_session commits leaves the session row open forever --
+# which then makes every later startup unable to reconcile that session's
+# unfinished maker observations, permanently fail-closing the engine.
+param([ValidateRange(1,600)][int]$GracePeriodSeconds = 180)
 $ErrorActionPreference="Stop"
 $root=[System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $runtime=Join-Path $root "runtime\lite_frequency_v4_shadow"
