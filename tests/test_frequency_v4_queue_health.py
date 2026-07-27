@@ -26,6 +26,7 @@ from poly_alpha_sniper.lite_frequency_v4.maintenance import (
 )
 from poly_alpha_sniper.lite_frequency_v4.telemetry import (
     TelemetryCapacityState,
+    TelemetryLossCategory,
     _AdaptiveTelemetryController,
 )
 from tests.test_frequency_v4_export import (
@@ -249,6 +250,48 @@ def test_unaccounted_rows_still_report_a_service_imbalance():
             now=tick, queue_depth=0, transaction_budget_ms=250.0,
             queued_logical=0, inflight_logical=0)
     assert "service_imbalance" in decision.recovery_blockers
+
+
+def test_deduplicated_batch_is_not_a_controller_failure():
+    """A content-addressed duplicate is not a sink failure.
+
+    Measured in production the telemetry sink rejected ~116 batches on
+    ``UNIQUE constraint failed: book_snapshots.state_hash``: the identical row
+    was already stored, so no evidence was lost.  Counting those as controller
+    failures reset the recovery settle clock roughly once a minute, which alone
+    kept ``settling`` the dominant blocker and held readiness down.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.telemetry import (
+        POLICY_LOSS_CATEGORIES,
+        _classify_batch_failure,
+    )
+
+    # The exact production error text, as the dispatcher formats it.
+    duplicate = ("RuntimeError:IntegrityError:UNIQUE constraint failed: "
+                 "book_snapshots.market_identity_id, book_snapshots.token_id, "
+                 "book_snapshots.state_hash, book_snapshots.receipt_ts_ms")
+    category = _classify_batch_failure(duplicate, deadline_exceeded=False)
+    assert category is TelemetryLossCategory.POLICY_DEDUPLICATED
+    # ...and being a policy outcome is exactly what keeps it out of the
+    # controller's failed-batch path, so the settle clock is not reset.
+    assert category.value in POLICY_LOSS_CATEGORIES
+
+    # A genuine sink failure is still a controller setback.
+    genuine = "RuntimeError:sink unavailable"
+    assert _classify_batch_failure(
+        genuine, deadline_exceeded=False) is TelemetryLossCategory.SINK_FAILURE
+    assert (TelemetryLossCategory.SINK_FAILURE.value
+            not in POLICY_LOSS_CATEGORIES)
+
+    # A deduplicated batch must not reset a healthy recovery streak.
+    controller = _controller()
+    decision = _drive(controller, [1, 0, 2] * 25)
+    assert decision.recovery_healthy_windows >= 10
+    # A genuine sink failure does reset it.
+    controller.add(200.0, queue_depth=1, failed_batches=1)
+    after = controller.decide(now=201.0, queue_depth=1,
+                              transaction_budget_ms=250.0, queued_logical=1)
+    assert after.recovery_healthy_windows == 0
 
 
 def test_safe_high_water_entry_does_not_reset_the_settle_clock():

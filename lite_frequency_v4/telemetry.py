@@ -2512,9 +2512,21 @@ class V4TelemetryWriter:
                 self._deadline_backoff_until = (
                     time.monotonic() + self._deadline_backoff_s)
             else:
-                self._failed_batches += 1
-                self._consecutive_successful_batches = 0
-                if deadline_exceeded:
+                category = _classify_batch_failure(
+                    error, deadline_exceeded=deadline_exceeded)
+                # A batch rejected only because a content-addressed row is
+                # already stored is a deduplication outcome, not a sink failure:
+                # the evidence is present and nothing was lost.  Counting it as
+                # a controller failure reset the recovery settle clock roughly
+                # once a minute in production, which alone kept ``settling`` the
+                # dominant blocker and held operational readiness down.
+                policy_outcome = category.value in POLICY_LOSS_CATEGORIES
+                if not policy_outcome:
+                    self._failed_batches += 1
+                    self._consecutive_successful_batches = 0
+                if policy_outcome:
+                    health = self._health
+                elif deadline_exceeded:
                     self._deadline_exceeded_batches += 1
                     self._deadline_exceeded_rows += logical_unwritten
                     health = "DEGRADED_TELEMETRY_DEADLINE"
@@ -2578,10 +2590,13 @@ class V4TelemetryWriter:
                         for pending in failed_rows:
                             self._rollback_admission_locked(pending)
                 else:
-                    health = "DEGRADED_WRITER"
-                    self._controller.add(
-                        completed, queue_depth=len(self._queue),
-                        failed_batches=1)
+                    if not policy_outcome:
+                        health = "DEGRADED_WRITER"
+                        # Only a genuine sink failure is a controller setback.
+                        # A deduplicated batch already has its evidence stored.
+                        self._controller.add(
+                            completed, queue_depth=len(self._queue),
+                            failed_batches=1)
                     self._drop_locked(
                         logical_unwritten, error or "telemetry_batch_failed",
                         category=_classify_batch_failure(
