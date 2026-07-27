@@ -2543,9 +2543,13 @@ class V4TelemetryWriter:
                 if not policy_outcome:
                     self._failed_batches += 1
                     self._consecutive_successful_batches = 0
-                if policy_outcome:
-                    health = self._health
-                elif deadline_exceeded:
+                # A policy outcome skips the *deadline adaptation* only.  It must
+                # still fall through to the accounting branch below, because
+                # ``_drop_locked`` is the sole place these rows are attributed --
+                # they were already released from ``_inflight_logical`` when the
+                # batch was taken, so short-circuiting here left them owned by
+                # nobody and broke conservation permanently.
+                if deadline_exceeded and not policy_outcome:
                     self._deadline_exceeded_batches += 1
                     self._deadline_exceeded_rows += logical_unwritten
                     health = "DEGRADED_TELEMETRY_DEADLINE"
@@ -2609,10 +2613,12 @@ class V4TelemetryWriter:
                         for pending in failed_rows:
                             self._rollback_admission_locked(pending)
                 else:
-                    if not policy_outcome:
+                    if policy_outcome:
+                        # Evidence is already stored; keep the writer's health.
+                        health = self._health
+                    else:
                         health = "DEGRADED_WRITER"
                         # Only a genuine sink failure is a controller setback.
-                        # A deduplicated batch already has its evidence stored.
                         self._controller.add(
                             completed, queue_depth=len(self._queue),
                             failed_batches=1)

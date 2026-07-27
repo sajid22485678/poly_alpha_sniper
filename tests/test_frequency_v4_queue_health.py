@@ -303,6 +303,67 @@ def test_deduplicated_batch_is_not_a_controller_failure():
     assert "unexpected_loss" in terminal.recovery_blockers
 
 
+@pytest.mark.parametrize("sink_error,label", [
+    ("IntegrityError:UNIQUE constraint failed: book_snapshots.state_hash",
+     "deduplicated"),
+    ("sink unavailable", "sink_failure"),
+])
+def test_conservation_closes_for_every_batch_failure_category(
+        sink_error, label):
+    """Classifying a batch must never change whether its rows are accounted.
+
+    A deduplicated batch briefly short-circuited the accounting branch, so its
+    rows -- already released from the in-flight tally when the batch was taken
+    -- were owned by no category at all.  Reconciliation drifted permanently:
+    a live 12-minute reproduction reached a mismatch of 88 rows with every loss
+    category still reading zero.  Whatever a failure is called, it must land in
+    exactly one bucket.
+    """
+    import threading as _threading
+    import time as _time
+
+    from poly_alpha_sniper.lite_frequency_v4.telemetry import (
+        V4TelemetryWriter,
+    )
+
+    class _FailingSink:
+        def __init__(self):
+            self.calls = 0
+            self.lock = _threading.Lock()
+
+        def submit_telemetry_batch(self, commands, *, timeout_s):
+            _ = timeout_s
+            with self.lock:
+                self.calls += 1
+            raise RuntimeError(sink_error)
+
+    sink = _FailingSink()
+    writer = V4TelemetryWriter(
+        sink, capacity=64, batch_size=8, flush_interval_s=0.01,
+        coalescing_interval_s=60.0, submit_timeout_s=1.0,
+        heartbeat_interval_s=0.01)
+    writer.start()
+    try:
+        for index in range(24):
+            writer.submit("record_book_snapshot", index)
+        deadline = _time.monotonic() + 5.0
+        while _time.monotonic() < deadline and sink.calls < 2:
+            _time.sleep(0.02)
+        _time.sleep(0.3)
+    finally:
+        writer.stop(drain=False, timeout_s=5.0)
+
+    assert sink.calls > 0, label
+    reconciliation = writer.reconcile()
+    # The identity closes exactly: nothing submitted is unowned.
+    assert reconciliation["mismatch"] == 0, (label, reconciliation)
+    assert reconciliation["submitted"] == reconciliation["accounted"], label
+    # And the rows landed in a category rather than vanishing.
+    snapshot = writer.snapshot()
+    categorised = sum(snapshot["loss_by_category"].values())
+    assert categorised > 0, (label, snapshot["loss_by_category"])
+
+
 def test_recovered_deadline_miss_does_not_block_recovery():
     """A deadline miss whose rows are requeued cost nothing.
 
