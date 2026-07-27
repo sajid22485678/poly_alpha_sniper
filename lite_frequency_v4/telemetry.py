@@ -567,11 +567,13 @@ def _service_balanced(view: _WindowView, *, queued_logical: int,
     logical row has either reached the sink, been explicitly lost, or is still
     held by the lane -- queued *or* in flight inside the sink.
 
-    The in-flight term matters at the window boundary: the recovery view
-    excludes the current second, so a row admitted in the window's last included
-    second and acknowledged in the excluded current second appears in neither
-    ``logical_committed`` nor ``queued_logical``.  Without it the lane reported
-    a phantom service imbalance under ordinary bursty load.
+    Both sides are read from the *current-inclusive* window.  The recovery view
+    deliberately excludes the current second, which is right for judging a
+    settled trend but wrong for a conservation identity: a row admitted in the
+    last included second and acknowledged in the excluded current second was
+    counted as admitted but not as serviced, and the lane reported a phantom
+    imbalance under ordinary bursty load.  The in-flight term closes the same
+    gap for rows still inside the sink.
     """
 
     return (
@@ -1182,10 +1184,18 @@ class _AdaptiveTelemetryController:
             # or a healthy upward growth probe is exactly the policy-sampling
             # adaptation recovery must tolerate: resetting settle on every
             # such change made the 20s interval unreachable under fluctuating
-            # but safe load.  Deadline misses and any loss/overflow already
-            # call ``_reset_settle`` directly through their own paths.
+            # but safe load.
+            #
+            # A deadline miss shrinks both chunks, so gating only on the shrink
+            # re-punished the very event whose direct reset was removed -- the
+            # same setback coming through a different door.  Shrinking is the
+            # adaptation, not the setback: it is a genuine capacity regression
+            # only when rows were actually lost, which is the same terminal test
+            # used everywhere else in this model.
             if (self.selected_chunk < prior_selected
-                    and self.deadline_safe_chunk < prior_safe_chunk):
+                    and self.deadline_safe_chunk < prior_safe_chunk
+                    and (recovery_view.lost
+                         or recovery_view.admission_overflow)):
                 self._reset_settle(now)
 
             if capacity_pressure:
@@ -1241,7 +1251,7 @@ class _AdaptiveTelemetryController:
                 self._reset_settle(now)
 
             service_balanced = _service_balanced(
-                recovery_view, queued_logical=queued_logical,
+                view, queued_logical=queued_logical,
                 inflight_logical=inflight_logical)
             depth_nonincreasing = _queue_not_accumulating(
                 recovery_view, queue_depth=queue_depth,
@@ -1291,7 +1301,7 @@ class _AdaptiveTelemetryController:
             self._healthy_streak = self._healthy_streak + 1 if healthy else 0
 
         service_balanced = _service_balanced(
-                recovery_view, queued_logical=queued_logical,
+                view, queued_logical=queued_logical,
                 inflight_logical=inflight_logical)
         depth_nonincreasing = _queue_not_accumulating(
             recovery_view, queue_depth=queue_depth,
