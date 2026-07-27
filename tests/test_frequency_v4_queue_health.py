@@ -287,11 +287,52 @@ def test_deduplicated_batch_is_not_a_controller_failure():
     controller = _controller()
     decision = _drive(controller, [1, 0, 2] * 25)
     assert decision.recovery_healthy_windows >= 10
-    # A genuine sink failure does reset it.
+
+    # A batch failure whose rows are requeued costs nothing and does not reset
+    # recovery -- the retry budget bounds how long that can hide a real problem.
     controller.add(200.0, queue_depth=1, failed_batches=1)
+    retried = controller.decide(now=201.0, queue_depth=1,
+                                transaction_budget_ms=250.0, queued_logical=1)
+    assert retried.recovery_healthy_windows >= 10
+
+    # A failure that actually loses rows is terminal and does reset it.
+    controller.add(202.0, queue_depth=1, failed_batches=1, lost=4)
+    terminal = controller.decide(now=203.0, queue_depth=1,
+                                 transaction_budget_ms=250.0, queued_logical=1)
+    assert terminal.recovery_healthy_windows == 0
+    assert "unexpected_loss" in terminal.recovery_blockers
+
+
+def test_recovered_deadline_miss_does_not_block_recovery():
+    """A deadline miss whose rows are requeued cost nothing.
+
+    Measured across a 64.7-minute soak, ``failed_batches`` and
+    ``deadline_failures`` advanced while unexpected loss stayed at exactly zero,
+    yet each event restarted a 20 s settle clock and blocked a 15 s window --
+    roughly 35 s of blocked recovery per miss.  The chunk still shrinks (that is
+    the adaptation a miss calls for); recovery is no longer punished.
+    """
+    controller = _controller()
+    decision = _drive(controller, [1, 0, 2] * 25)
+    assert decision.recovery_healthy_windows >= 10
+    prior_chunk = controller.selected_chunk
+
+    controller.observe_deadline_miss(
+        now=200.0, failed_rows=16, transaction_budget_ms=250.0, queue_depth=1)
     after = controller.decide(now=201.0, queue_depth=1,
                               transaction_budget_ms=250.0, queued_logical=1)
-    assert after.recovery_healthy_windows == 0
+    # Adaptation happened...
+    assert controller.selected_chunk <= prior_chunk
+    # ...but a recovered miss did not restart the settle clock.
+    assert "settling" not in after.recovery_blockers
+    assert after.recovery_healthy_windows >= 10
+
+    # The same miss that ends in dropped rows is terminal and does block.
+    controller.add(202.0, queue_depth=1, deadline_failures=1, lost=3)
+    terminal = controller.decide(now=203.0, queue_depth=1,
+                                 transaction_budget_ms=250.0, queued_logical=1)
+    assert terminal.recovery_healthy_windows == 0
+    assert "unexpected_loss" in terminal.recovery_blockers
 
 
 def test_safe_high_water_entry_does_not_reset_the_settle_clock():

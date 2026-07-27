@@ -924,9 +924,16 @@ class _AdaptiveTelemetryController:
     def add(self, now: float, *, queue_depth: int, **deltas: int) -> None:
         self.window.add(now, **deltas)
         self.window.observe_depth(now, queue_depth)
+        # Only *terminal* evidence loss restarts the settle clock.  A failed or
+        # deadline-missed batch whose rows were requeued and later committed
+        # cost nothing: measured across a 64.7-minute soak, unexpected loss
+        # stayed at exactly zero while these counters advanced, yet each one
+        # restarted a 20 s settle and blocked a 15 s window, so recovery could
+        # not accumulate.  Loss and admissions overflowing outside policy are
+        # the terminal signals, and the bounded retry budget guarantees a
+        # genuinely stuck batch eventually becomes one of them.
         if any(int(deltas.get(name) or 0) > 0 for name in (
-            "lost", "admission_overflow", "failed_batches",
-            "deadline_failures",
+            "lost", "admission_overflow",
         )):
             self._reset_settle(now)
 
@@ -976,7 +983,12 @@ class _AdaptiveTelemetryController:
         self.deadline_safe_chunk = min(self.deadline_safe_chunk, cap)
         self._headroom_streak = 0
         self._successes_at_selected = 0
-        self._reset_settle(now)
+        # Shrinking the chunk is the adaptation a deadline miss calls for.
+        # Restarting the settle clock is not: the rows are requeued under the
+        # bounded retry budget and normally commit, so punishing recovery for a
+        # miss that cost nothing is what kept ``settling`` a standing blocker.
+        # If the retry budget is exhausted the rows are dropped, ``lost``
+        # advances, and the settle clock restarts through that path.
         if transaction_budget_ms is not None:
             budget = max(1e-3, float(transaction_budget_ms))
             self._transactions.append(_TxnObservation(
@@ -1256,8 +1268,15 @@ class _AdaptiveTelemetryController:
                     ("unexpected_loss", recovery_view.lost != 0),
                     ("admission_overflow",
                      recovery_view.admission_overflow != 0),
-                    ("failed_batches", recovery_view.failed_batches != 0),
-                    ("deadline_failures", recovery_view.deadline_failures != 0),
+                    # Failed and deadline-missed batches are reported, and they
+                    # drive the controller's chunk adaptation, but they do not
+                    # block recovery on their own: their rows are requeued under
+                    # a bounded retry budget and normally commit.  A batch that
+                    # genuinely cannot be delivered exhausts that budget, its
+                    # rows are dropped, and ``unexpected_loss`` above blocks.
+                    ("unresolved_batch_backlog",
+                     recovery_view.failed_batches != 0
+                     and recovery_view.lost != 0),
                     ("queue_accumulating", not depth_nonincreasing),
                     ("service_imbalance", not service_balanced),
                     ("controller_chunk_unsafe", not controller_safe),
