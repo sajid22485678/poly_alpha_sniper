@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Iterable, Optional
 
+from .export_cache import SectionResolver, policy
 from .export_profile import stage
 
 
@@ -586,9 +587,24 @@ def acceptance_gate(
     }
 
 
+def _resolve(
+    sections: Optional[SectionResolver], name: str, build: Any, **overrides: Any
+) -> Any:
+    """Resolve one metrics section through the cache, or build it directly."""
+
+    if sections is None:
+        return build()
+    tier, max_age_ms, groups = policy(name)
+    return sections.section(
+        name, build=build, groups=groups, tier=tier, max_age_ms=max_age_ms,
+        **overrides,
+    )
+
+
 def build_metrics(
     store: Any, now_ms: int, *, session_id: Optional[str] = None,
     starting_equity_usd: float = 130.0, cohort: Optional[str] = None,
+    sections: Optional[SectionResolver] = None,
 ) -> dict[str, Any]:
     """Build the metrics payload.
 
@@ -597,31 +613,55 @@ def build_metrics(
     include only post-activation trades of that cohort; the unfiltered
     historical aggregate is returned separately, explicitly labelled
     non-authoritative.
+
+    ``sections`` is the export's source-versioned section resolver.  When it
+    is omitted every section is computed from the database on this call --
+    the behaviour every non-export caller keeps.  When it is supplied, a
+    section is recomputed only when its authoritative source version changed
+    or its declared maximum age elapsed, and the resolver records the
+    provenance the export publishes.
     """
     with stage("cohort_activation"):
         activation = cohort_activation_ts_ms(store, cohort) if cohort else None
     with stage("frequency"):
-        frequencies = rolling_frequency(
-            store, now_ms, session_id=session_id, not_before_ts_ms=activation)
+        frequencies = _resolve(sections, "frequency", lambda: rolling_frequency(
+            store, now_ms, session_id=session_id, not_before_ts_ms=activation))
     with stage("performance"):
-        performance = performance_metrics(store, cohort=cohort)
+        performance = _resolve(
+            sections, "performance",
+            lambda: performance_metrics(store, cohort=cohort))
     with stage("acceptance_gate"):
-        acceptance = acceptance_gate(
-            store, frequencies, performance, cohort=cohort)
+        # The gate is derived from the frequency and performance sections, so
+        # its version carries theirs: it can never be computed from one
+        # generation of inputs and then reused against another.
+        acceptance = _resolve(
+            sections, "acceptance_gate",
+            lambda: acceptance_gate(
+                store, frequencies, performance, cohort=cohort),
+            extra_version=(
+                f"{sections.version_of('frequency')}"
+                f"+{sections.version_of('performance')}"
+                if sections is not None else ""),
+        )
     legacy: Optional[dict[str, Any]] = None
     if cohort is not None:
         with stage("legacy_performance"):
             legacy = {
                 "label": "NON_AUTHORITATIVE_LEGACY_ALL_HISTORY",
-                "performance": performance_metrics(store),
+                "performance": _resolve(
+                    sections, "legacy_performance",
+                    lambda: performance_metrics(store)),
             }
     with stage("execution"):
-        execution = execution_metrics(store, now_ms)
+        execution = _resolve(
+            sections, "execution", lambda: execution_metrics(store, now_ms))
     with stage("rejects"):
-        rejects = reject_taxonomy(store, now_ms)
+        rejects = _resolve(
+            sections, "rejects", lambda: reject_taxonomy(store, now_ms))
     with stage("compound_preview"):
-        compound = compound_preview(
-            store, starting_equity_usd=starting_equity_usd, cohort=cohort)
+        compound = _resolve(
+            sections, "compound_preview", lambda: compound_preview(
+                store, starting_equity_usd=starting_equity_usd, cohort=cohort))
     return {
         "generated_ts_ms": int(now_ms),
         "cohort": cohort,

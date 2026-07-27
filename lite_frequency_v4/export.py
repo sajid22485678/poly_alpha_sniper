@@ -11,6 +11,12 @@ from typing import Any, Mapping, Optional
 
 from .config import ACTIVE_COHORT, LEGACY_COHORT, RUNTIME_LABEL
 from .config import FREQUENCY_V4_ROOT
+from .export_cache import (
+    ExportSectionCache,
+    SectionResolver,
+    policy,
+    source_version_sql,
+)
 from .export_profile import EXPORT_PROFILE, stage
 from .ledger import compute_capital_ledger
 from .metrics import build_metrics
@@ -197,12 +203,16 @@ def _latest_runtime_health(store: Any, session_id: Optional[str]) -> Optional[di
     )
 
 
-def _universe(store: Any, now_ms: int) -> dict[str, Any]:
+def _universe(
+    store: Any, now_ms: int, sections: Optional[SectionResolver] = None,
+) -> dict[str, Any]:
     with stage("durations"):
-        duration_rows = store.query(
-            """SELECT duration_ms,COUNT(*) markets,COUNT(DISTINCT asset) assets
-               FROM markets GROUP BY duration_ms ORDER BY duration_ms"""
-        )
+        duration_rows = _section(
+            sections, "universe_durations", lambda: store.query(
+                """SELECT duration_ms,COUNT(*) markets,
+                   COUNT(DISTINCT asset) assets
+                   FROM markets GROUP BY duration_ms ORDER BY duration_ms"""
+            ))
     ignored = [row for row in duration_rows if int(row["duration_ms"]) != 300_000]
     with stage("active_windows"):
         active = store.query(
@@ -250,15 +260,16 @@ def _universe(store: Any, now_ms: int) -> dict[str, Any]:
         for row in observed_rows
     ]
     with stage("universe_rejects"):
-        universe_rejects = {
-            str(row["reason"]): int(row["count"])
-            for row in store.query(
-                """SELECT reason,COUNT(*) count FROM reject_events
-                   WHERE reason LIKE 'universe%' AND reject_ts_ms>=?
-                   GROUP BY reason ORDER BY count DESC""",
-                (int(now_ms) - 12 * 3_600_000,),
-            )
-        }
+        universe_rejects = _section(
+            sections, "universe_rejects", lambda: {
+                str(row["reason"]): int(row["count"])
+                for row in store.query(
+                    """SELECT reason,COUNT(*) count FROM reject_events
+                       WHERE reason LIKE 'universe%' AND reject_ts_ms>=?
+                       GROUP BY reason ORDER BY count DESC""",
+                    (int(now_ms) - 12 * 3_600_000,),
+                )
+            })
     return {
         "exact_duration_ms": 300_000,
         "exact_five_minute_markets": exact_count,
@@ -282,6 +293,18 @@ def _universe(store: Any, now_ms: int) -> dict[str, Any]:
         "universe_rejections_active": rejection_details,
         "universe_reject_reasons_12h": universe_rejects,
     }
+
+
+def _section(
+    sections: Optional[SectionResolver], name: str, build: Any,
+) -> Any:
+    """Resolve one export section through the cache, or build it directly."""
+
+    if sections is None:
+        return build()
+    tier, max_age_ms, groups = policy(name)
+    return sections.section(
+        name, build=build, groups=groups, tier=tier, max_age_ms=max_age_ms)
 
 
 def _latest_candidates(store: Any, limit: int = 12) -> list[dict[str, Any]]:
@@ -373,10 +396,25 @@ def _effective_persistence_config(config: Any) -> dict[str, Any]:
     return result
 
 
+def _source_versions(store: Any) -> dict[str, Any]:
+    """One consistent read of every authoritative source-version component.
+
+    A failure here is not fatal: an empty result makes every section's version
+    unestablished, which forces a full refresh.  The cache can therefore only
+    ever fail towards doing more work, never towards serving stale data.
+    """
+
+    with stage("source_version"):
+        try:
+            return dict(store.query_one(source_version_sql()) or {})
+        except Exception:
+            return {}
+
+
 def build_frequency_v4_dashboard(
     store: Any, *, now_ms: int, config: Any = None,
     runtime_state: Any = None, session_id: Optional[str] = None,
-    integrity: Any = None,
+    integrity: Any = None, section_cache: Optional[ExportSectionCache] = None,
 ) -> dict[str, Any]:
     safety = assert_v4_safety(config)
     runtime = _mapping(runtime_state)
@@ -384,10 +422,20 @@ def build_frequency_v4_dashboard(
     starting_equity = float(_value(
         config, "starting_equity_usd", "research_equity_usd", default=130.0
     ))
+    # Without a cache every section is read fresh on this call -- the
+    # behaviour every non-runtime caller keeps.  With one, a section is
+    # recomputed only when its authoritative source version changed or its
+    # declared maximum age elapsed, and its provenance is published below.
+    sections = (
+        SectionResolver(
+            section_cache, components=_source_versions(store), now_ms=now_ms)
+        if section_cache is not None else None
+    )
     with stage("metrics"):
         metrics = build_metrics(
             store, int(now_ms), session_id=effective_session_id,
             starting_equity_usd=starting_equity, cohort=ACTIVE_COHORT,
+            sections=sections,
         )
     fee_buffer = float(_value(config, "fee_buffer_usd", default=0.02))
     fee_rate = float(_value(config, "crypto_taker_fee_rate", default=0.07))
@@ -401,12 +449,14 @@ def build_frequency_v4_dashboard(
             cohort_row = store.query_one(
                 "SELECT * FROM cohorts WHERE cohort=?", (ACTIVE_COHORT,))
         with stage("insufficient_rejects"):
-            insufficient_rejects = int((store.query_one(
-                """SELECT COUNT(*) count FROM reject_events re
-                   JOIN runtime_sessions rs ON rs.session_id=re.session_id
-                   WHERE re.reason IN
-                     ('insufficient_capital','cohort_equity_depleted')
-                   AND rs.cohort=?""", (ACTIVE_COHORT,)) or {}).get("count") or 0)
+            insufficient_rejects = _section(
+                sections, "insufficient_rejects", lambda: int((store.query_one(
+                    """SELECT COUNT(*) count FROM reject_events re
+                       JOIN runtime_sessions rs ON rs.session_id=re.session_id
+                       WHERE re.reason IN
+                         ('insufficient_capital','cohort_equity_depleted')
+                       AND rs.cohort=?""",
+                    (ACTIVE_COHORT,)) or {}).get("count") or 0))
     except Exception:
         # A pre-cohort read-only fixture cannot report the ledger; the
         # authoritative runtime always can.
@@ -464,12 +514,14 @@ def build_frequency_v4_dashboard(
         current_session_open = None
         runtime_session_query_error = (
             f"{type(exc).__name__}:{exc}")[:240]
-    with stage("source_health"):
+    def _read_source_health() -> Any:
         try:
-            source_health = store.latest_source_health(
-                session_id=effective_session_id)
+            return store.latest_source_health(session_id=effective_session_id)
         except TypeError:  # Compatibility for a pre-v2 read-only store in tests.
-            source_health = store.latest_source_health()
+            return store.latest_source_health()
+
+    with stage("source_health"):
+        source_health = _section(sections, "sources", _read_source_health)
     nonce = runtime.get("launch_nonce")
     nonce_fingerprint = (
         hashlib.sha256(str(nonce).encode("utf-8")).hexdigest()[:12]
@@ -479,7 +531,7 @@ def build_frequency_v4_dashboard(
     duplicates = metrics["acceptance_gate"]["duplicates"]
     unresolved = metrics["acceptance_gate"]["unresolved_final"]
     with stage("universe"):
-        universe = _universe(store, int(now_ms))
+        universe = _universe(store, int(now_ms), sections)
     with stage("candidates"):
         candidates = _latest_candidates(store)
     performance = metrics["performance"]
@@ -515,18 +567,20 @@ def build_frequency_v4_dashboard(
         for reason, count in reasons.items():
             reject_reasons[reason] = reject_reasons.get(reason, 0) + int(count)
     with stage("recent_entries"):
-        recent_entries = store.query(
+        recent_entries = _section(sections, "recent_entries", lambda: store.query(
             """SELECT e.*,w.asset,w.window_open_ts_ms,w.window_close_ts_ms
                FROM entries e JOIN asset_windows w ON w.window_id=e.window_id
                ORDER BY e.entry_ts_ms DESC,e.entry_id DESC LIMIT 20"""
-        )
+        ))
     with stage("terminal_trades"):
-        terminal_trades = store.query(
-            """SELECT p.*,w.asset,e.outcome_side,e.entry_mode
-               FROM pnl_records p JOIN entries e ON e.entry_id=p.entry_id
-               JOIN asset_windows w ON w.window_id=e.window_id
-               ORDER BY p.terminal_ts_ms DESC,p.pnl_record_id DESC LIMIT 20"""
-        )
+        terminal_trades = _section(
+            sections, "terminal_trades", lambda: store.query(
+                """SELECT p.*,w.asset,e.outcome_side,e.entry_mode
+                   FROM pnl_records p JOIN entries e ON e.entry_id=p.entry_id
+                   JOIN asset_windows w ON w.window_id=e.window_id
+                   ORDER BY p.terminal_ts_ms DESC,
+                   p.pnl_record_id DESC LIMIT 20"""
+            ))
     persistence = _mapping(runtime.get("persistence"))
     critical = _mapping(persistence.get("critical"))
     telemetry = _mapping(persistence.get("telemetry"))
@@ -692,8 +746,36 @@ def build_frequency_v4_dashboard(
         ) if present
     ]
     critical_execution_ready = not critical_blocked_reasons
+    # Freshness contract.  Every cached section publishes when its data was
+    # actually read, how old that is, whether this build reused it and why.
+    # A section that could not be produced at all is named in
+    # ``unavailable_sections`` and clears ``complete``; a retained-but-stale
+    # one is named in ``stale_sections``.  Nothing is presented as fresher
+    # than it is, and nothing cached is presented without its age.
+    freshness = (
+        sections.summary() if sections is not None
+        else {
+            "export_generated_at_ms": int(now_ms),
+            "complete": True,
+            "sections": {},
+            "cache_hits": 0,
+            "refreshed": 0,
+            "max_section_age_ms": 0,
+            "stale_sections": [],
+            "degraded_sections": [],
+            "unavailable_sections": [],
+        }
+    )
     operational_degraded_reasons = [
         *critical_blocked_reasons,
+        # A section retained past a failed refresh, or missing entirely, is a
+        # degraded export.  It is published with its age either way; readiness
+        # fails closed until the section refreshes normally again.
+        *([f"export_section_stale:{','.join(freshness['stale_sections'])}"]
+          if freshness["stale_sections"] else []),
+        *([f"export_section_unavailable:"
+           f"{','.join(freshness['unavailable_sections'])}"]
+          if freshness["unavailable_sections"] else []),
         *(["telemetry_writer_unhealthy"] if (
             telemetry_health != "HEALTHY") else []),
         # Evidence safety, not throughput: unexpected loss, an unclosed
@@ -777,6 +859,7 @@ def build_frequency_v4_dashboard(
         "schema_version": 3,
         "generated_ts_ms": int(now_ms),
         "export_age_ms": export_age_ms,
+        "export_freshness": freshness,
         "runtime_heartbeat_age_ms": runtime_heartbeat_age_ms,
         "heartbeat_age_ms": heartbeat_age_ms,
         "runtime_heartbeat_ts_ms": runtime_heartbeat_ts_ms,
@@ -1040,6 +1123,7 @@ def write_frequency_v4_dashboard(
     store: Any, output_path: str | Path, *, now_ms: int,
     config: Any = None, runtime_state: Any = None,
     session_id: Optional[str] = None, integrity: Any = None,
+    section_cache: Optional[ExportSectionCache] = None,
 ) -> dict[str, Any]:
     # C1 isolation guard: refuse any path outside the canonical source-root-
     # derived export directory before building or writing anything.
@@ -1048,7 +1132,7 @@ def write_frequency_v4_dashboard(
         payload = build_frequency_v4_dashboard(
             store, now_ms=int(now_ms), config=config,
             runtime_state=runtime_state, session_id=session_id,
-            integrity=integrity,
+            integrity=integrity, section_cache=section_cache,
         )
         with stage("serialize"):
             encoded = json.dumps(

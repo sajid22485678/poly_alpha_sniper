@@ -54,6 +54,7 @@ from .maintenance import (
 )
 from .polymarket_ws import PolymarketMarketWS
 from .positions import evaluate_exit_vs_hold
+from .export_cache import ExportSectionCache
 from .export_profile import EXPORT_PROFILE
 from .reader_diag import READER_DIAGNOSTICS
 from .persistence import (
@@ -521,6 +522,11 @@ class FrequencyV4Engine:
         self._last_export_duration_ms = 0.0
         self._last_export_ok = True
         self._export_runs = 0
+        # Source-versioned reuse of the export's expensive analytical
+        # sections.  In-memory and owned by this engine instance, so a fresh
+        # runtime starts empty and its first export refreshes everything --
+        # no cached value can survive a restart.
+        self._export_section_cache = ExportSectionCache()
         self._last_integrity_duration_ms = 0.0
         # UNKNOWN is fail-closed until the first dedicated read-worker check.
         self._last_integrity_ok: Optional[bool] = None
@@ -982,6 +988,7 @@ class FrequencyV4Engine:
                 # worker held a read-mark; this says which part of the export
                 # build spent the time, at statement resolution.
                 "export_profile": EXPORT_PROFILE.snapshot(),
+                "export_section_cache": self._export_section_cache.counters(),
                 "db_size_bytes": self._database_size_cache,
                 "wal_size_bytes": self._wal_size_cache,
                 "wal_reclamation": {
@@ -3928,6 +3935,7 @@ class FrequencyV4Engine:
                 runtime_state=state,
                 session_id=self.session_id,
                 integrity=self._last_integrity or None,
+                section_cache=self._export_section_cache,
             )
             self._last_export_ms = current
             self._last_export_ok = True
