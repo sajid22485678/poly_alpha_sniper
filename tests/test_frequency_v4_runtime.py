@@ -14,12 +14,14 @@ from poly_alpha_sniper.lite_frequency_v4.config import (
     FREQUENCY_V4_EXPORT_DIR,
     FREQUENCY_V4_RUNTIME_DIR,
 )
+from poly_alpha_sniper.lite_frequency_v4 import runtime as runtime_module
 from poly_alpha_sniper.lite_frequency_v4.runtime import (
     LAUNCH_NONCE_ENV,
     MODE,
     MODULE,
     V4RuntimeFiles,
     atomic_json,
+    atomic_replace,
     immutable_safety_state,
 )
 
@@ -440,3 +442,142 @@ def test_atomic_json_normal_path_is_unaffected(tmp_path):
     # Overwriting an existing file must also work (the heartbeat republishes).
     atomic_json(target, {"state": "RUNNING", "ts": 2})
     assert json.loads(target.read_text(encoding="utf-8")) == {"state": "RUNNING", "ts": 2}
+
+
+def test_atomic_replace_retries_are_bounded_by_a_wall_clock_deadline(
+        tmp_path, monkeypatch):
+    """Retries must stop at a strict deadline, never spin indefinitely.
+
+    A stall here delays the heartbeat, so the budget must be bounded in wall
+    time rather than by an attempt count alone -- and it must stay far below the
+    2 s heartbeat cadence and the 10 s publish timeout.
+    """
+    target = tmp_path / "state.json"
+    slept: list[float] = []
+    # Deterministic virtual clock: sleeping advances it, so the deadline is
+    # exercised exactly rather than depending on real wall-clock timing.
+    clock = {"now": 1_000.0}
+
+    def always_denied(src, dst):  # type: ignore[no-untyped-def]
+        raise PermissionError(5, "Access is denied")
+
+    def fake_sleep(seconds):  # type: ignore[no-untyped-def]
+        slept.append(float(seconds))
+        clock["now"] += float(seconds)
+
+    monkeypatch.setattr(runtime_module.os, "replace", always_denied)
+    monkeypatch.setattr(runtime_module.time, "sleep", fake_sleep)
+    monkeypatch.setattr(runtime_module.time, "monotonic", lambda: clock["now"])
+
+    with pytest.raises(PermissionError):
+        atomic_json(target, {"state": "RUNNING"})
+
+    assert slept, "expected at least one backoff"
+    # Strictly bounded, and comfortably inside the 2 s heartbeat cadence.
+    assert sum(slept) <= runtime_module._ATOMIC_REPLACE_DEADLINE_S + 1e-6
+    assert sum(slept) < 2.0
+    # Backoff grows rather than hammering the filesystem at a fixed rate.
+    assert slept[0] == runtime_module._ATOMIC_REPLACE_INITIAL_BACKOFF_S
+    assert max(slept) <= runtime_module._ATOMIC_REPLACE_MAX_BACKOFF_S
+    assert slept != sorted(slept, reverse=True)   # not a flat/decreasing series
+
+
+def test_atomic_replace_exhaustion_is_explicit_and_diagnosable(
+        tmp_path, monkeypatch):
+    """Retry exhaustion must say so, and must chain the original error."""
+
+    target = tmp_path / "state.json"
+
+    def always_denied(src, dst):  # type: ignore[no-untyped-def]
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(runtime_module.os, "replace", always_denied)
+    monkeypatch.setattr(runtime_module.time, "sleep", lambda _s: None)
+
+    with pytest.raises(PermissionError) as excinfo:
+        atomic_json(target, {"state": "RUNNING"})
+
+    message = str(excinfo.value)
+    assert "still denied after" in message
+    assert "state.json" in message
+    # The originating error is preserved for the fatal diagnostics path.
+    assert isinstance(excinfo.value.__cause__, PermissionError)
+    assert excinfo.value.errno == 5
+
+
+def test_failed_publish_leaves_the_previous_valid_file_intact(
+        tmp_path, monkeypatch):
+    """A publish that cannot replace must not damage the last good document."""
+
+    target = tmp_path / "state.json"
+    atomic_json(target, {"state": "RUNNING", "ts": 1})
+    good = target.read_text(encoding="utf-8")
+
+    def always_denied(src, dst):  # type: ignore[no-untyped-def]
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(runtime_module.os, "replace", always_denied)
+    monkeypatch.setattr(runtime_module.time, "sleep", lambda _s: None)
+
+    with pytest.raises(PermissionError):
+        atomic_json(target, {"state": "STOPPED", "ts": 2})
+
+    # The prior payload is still complete and parseable -- never half-written.
+    assert target.read_text(encoding="utf-8") == good
+    assert json.loads(target.read_text(encoding="utf-8"))["ts"] == 1
+    assert [p.name for p in tmp_path.iterdir()
+            if ".tmp." in p.name] == []
+
+
+def test_temp_cleanup_never_masks_the_real_failure(tmp_path, monkeypatch):
+    """Cleanup runs in a finally; it must not replace the explanatory error.
+
+    On Windows the unlink can hit the very same AV/reader lock that made the
+    replace fail.  A leaked temp file is recoverable; losing the diagnostic that
+    explains a fatal exit is not.
+    """
+    target = tmp_path / "state.json"
+
+    def always_denied(src, dst):  # type: ignore[no-untyped-def]
+        raise PermissionError(5, "Access is denied")
+
+    def unlink_denied(self, missing_ok=False):  # type: ignore[no-untyped-def]
+        raise PermissionError(32, "The process cannot access the file")
+
+    monkeypatch.setattr(runtime_module.os, "replace", always_denied)
+    monkeypatch.setattr(runtime_module.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(Path, "unlink", unlink_denied)
+
+    with pytest.raises(PermissionError) as excinfo:
+        atomic_json(target, {"state": "RUNNING"})
+
+    # The surfaced error is the replace failure, not the cleanup failure.
+    assert "still denied after" in str(excinfo.value)
+    assert excinfo.value.errno == 5
+
+
+def test_atomic_replace_success_needs_no_sleep(tmp_path, monkeypatch):
+    """Zero added latency on the uncontended common path."""
+
+    target = tmp_path / "state.json"
+    slept: list[float] = []
+    monkeypatch.setattr(runtime_module.time, "sleep",
+                        lambda s: slept.append(s))
+    atomic_json(target, {"state": "RUNNING"})
+    assert slept == []
+    assert target.exists()
+
+
+def test_atomic_replace_is_shared_by_runtime_and_export():
+    """The export path must not carry its own unhardened copy of the replace.
+
+    The same Windows failure was observed in production on the dashboard export
+    (``export:PermissionError:[WinError 5]`` on its temp file), so both
+    publishers have to go through one hardened implementation.
+    """
+    from poly_alpha_sniper.lite_frequency_v4 import export as export_module
+
+    assert export_module.atomic_replace is atomic_replace
+    source = Path(export_module.__file__).read_text(encoding="utf-8")
+    # No bare os.replace may remain in the export publisher.
+    assert "os.replace(" not in source

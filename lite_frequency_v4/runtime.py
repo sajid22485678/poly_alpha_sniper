@@ -23,11 +23,15 @@ LAUNCH_NONCE_ENV = "POLY_ALPHA_FREQUENCY_V4_LAUNCH_NONCE"
 FIXED_SHARES = 5.0
 
 # Bounded retry budget for the Windows atomic-replace PermissionError described
-# in ``_atomic_replace``.  Five attempts at 10 ms apart bounds the worst-case
-# stall to ~40 ms while leaving ample time for a transient reader/AV handle to
-# release; a genuinely persistent permission error still propagates.
-_ATOMIC_REPLACE_ATTEMPTS = 5
-_ATOMIC_REPLACE_BACKOFF_S = 0.010
+# in ``atomic_replace``.  Exponential backoff from 5 ms under a strict 250 ms
+# deadline: a Windows Defender scan or a dashboard read can hold the
+# destination for well over the 40 ms a flat 5x10 ms budget allowed, while
+# 250 ms remains an eighth of the 2 s heartbeat cadence and a fortieth of the
+# 10 s publish timeout, so a stall here can never itself cause a timeout.
+# A permission error that outlives the deadline still propagates.
+_ATOMIC_REPLACE_DEADLINE_S = 0.250
+_ATOMIC_REPLACE_INITIAL_BACKOFF_S = 0.005
+_ATOMIC_REPLACE_MAX_BACKOFF_S = 0.040
 
 
 def now_ms() -> int:
@@ -55,12 +59,30 @@ def atomic_json(path: Path, payload: dict[str, Any]) -> None:
             json.dumps(payload, sort_keys=True, separators=(",", ":")),
             encoding="utf-8",
         )
-        _atomic_replace(temporary, path)
+        atomic_replace(temporary, path)
     finally:
+        _discard_temporary(temporary)
+
+
+def _discard_temporary(temporary: Path) -> None:
+    """Remove an abandoned temp file without ever masking the real failure.
+
+    After a successful replace the temp path no longer exists and this is a
+    no-op.  After a failure it is the cleanup that stops abandoned temp files
+    accumulating in the runtime/export directory.  Either way it runs in a
+    ``finally``, so an exception raised *here* would replace the exception that
+    actually explains the failure -- and on Windows this unlink can itself hit
+    the same transient AV/reader lock that made the replace fail.  Cleanup is
+    therefore strictly best-effort: a leaked temp file is recoverable, a lost
+    diagnostic is not.
+    """
+    try:
         temporary.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
-def _atomic_replace(temporary: Path, path: Path) -> None:
+def atomic_replace(temporary: Path, path: Path) -> None:
     """Atomically replace ``path`` with ``temporary``, tolerating Windows AV/reader locks.
 
     On POSIX ``os.replace`` is atomic even when readers hold the destination
@@ -69,25 +91,39 @@ def _atomic_replace(temporary: Path, path: Path) -> None:
     has the destination open at the instant of the replace.  That contention is
     transient -- the reader releases in milliseconds -- but a single unhandled
     failure here killed the heartbeat/export critical task and terminated the
-    runtime (the historical ``v4-heartbeat-export`` fatal exit).  Retry a bounded
-    number of times on ``PermissionError`` only; any other error, and a
-    permission error that persists past the budget, propagates so the failure is
-    still surfaced and captured by the fatal diagnostics path.
+    runtime (the historical ``v4-heartbeat-export`` fatal exit), and the same
+    call in the dashboard export path has failed in production too.
+
+    Retries on ``PermissionError`` only, with exponential backoff under a strict
+    wall-clock deadline.  Any other error, and a permission error that outlives
+    the deadline, propagates unchanged so the failure is still surfaced and
+    captured by the fatal diagnostics path rather than masked into a
+    false-successful publish.  The retry stays inside the temp-file+replace
+    atomic-publish contract, so a crash between attempts still leaves either the
+    prior valid file or nothing -- never a half-written document.
     """
-    last_exc: Optional[PermissionError] = None
-    for attempt in range(_ATOMIC_REPLACE_ATTEMPTS):
+    deadline = time.monotonic() + _ATOMIC_REPLACE_DEADLINE_S
+    backoff = _ATOMIC_REPLACE_INITIAL_BACKOFF_S
+    attempts = 0
+    while True:
         try:
             os.replace(temporary, path)
             return
         except PermissionError as exc:
-            last_exc = exc
-            # WinError 5 from a concurrent reader/AV handle; the destination
-            # becomes replaceable once that handle closes.  Sleep briefly and
-            # retry.  Any non-permission error escapes immediately below.
-            if attempt < _ATOMIC_REPLACE_ATTEMPTS - 1:
-                time.sleep(_ATOMIC_REPLACE_BACKOFF_S)
-    assert last_exc is not None  # loop only exits without return by raising
-    raise last_exc
+            attempts += 1
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                # Bounded exhaustion is explicit and diagnosable: the caller
+                # (and the fatal diagnostics path) sees how hard we tried.
+                raise PermissionError(
+                    exc.errno,
+                    f"{exc.strerror} (atomic replace of {path.name} still denied "
+                    f"after {attempts} attempts over "
+                    f"{_ATOMIC_REPLACE_DEADLINE_S:.3f}s)",
+                    str(path),
+                ) from exc
+            time.sleep(min(backoff, remaining))
+            backoff = min(backoff * 2.0, _ATOMIC_REPLACE_MAX_BACKOFF_S)
 
 
 def pid_alive(pid: int) -> bool:

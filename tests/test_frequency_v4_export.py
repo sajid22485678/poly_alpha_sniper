@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -745,6 +746,105 @@ def test_atomic_export_writes_only_caller_v4_json_and_no_temp_file(tmp_path, mon
         assert result["bytes"] == path.stat().st_size
     finally:
         store.close()
+
+
+def test_export_survives_a_transient_windows_replace_lock(tmp_path, monkeypatch):
+    """The dashboard export must ride over a transient WinError 5, not fail.
+
+    This is not hypothetical: production ``runtime_health`` recorded
+    ``export:PermissionError:[WinError 5] Access is denied`` on this exact temp
+    file.  The dashboard polls the exported document continuously, so a reader
+    or an antivirus scan can hold the destination at the instant of the replace.
+    A failed export stalls the export age, which is an operational criterion.
+    """
+    from poly_alpha_sniper.lite_frequency_v4 import export as export_mod
+    from poly_alpha_sniper.lite_frequency_v4 import runtime as runtime_mod
+
+    monkeypatch.setattr(export_mod, "canonical_export_dir", lambda: tmp_path)
+    store, session, _ = _store_with_health(tmp_path)
+    output = tmp_path / "readonly_v4"
+    real_replace = os.replace
+    attempts = {"n": 0}
+
+    def flaky_replace(src, dst):
+        attempts["n"] += 1
+        if attempts["n"] <= 2:
+            raise PermissionError(5, "Access is denied")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(runtime_mod.os, "replace", flaky_replace)
+    try:
+        result = write_frequency_v4_dashboard(
+            store, output, now_ms=NOW, config=FrequencyV4Config(),
+            session_id=session,
+            runtime_state={"session_id": session, "heartbeat_ts_ms": NOW},
+            integrity=CACHED_OK_INTEGRITY,
+        )
+    finally:
+        store.close()
+
+    assert attempts["n"] == 3                      # two locked, then success
+    path = Path(result["path"])
+    # The document is complete and valid -- never partially written.
+    decoded = json.loads(path.read_text(encoding="utf-8"))
+    assert decoded["mode"] == "lite_frequency_v4_shadow"
+    assert result["bytes"] == path.stat().st_size
+    # No abandoned temp file was left behind.
+    assert sorted(child.name for child in output.iterdir()) == [EXPORT_FILENAME]
+
+
+def test_export_temp_names_are_unique_per_write(tmp_path, monkeypatch):
+    """Two writers must never collide on one temp path.
+
+    The temp name previously carried only the pid, so any two concurrent writes
+    from one process shared a temp path -- the second could unlink the first's
+    file mid-flight.  A uuid removes the hazard structurally.
+    """
+    from poly_alpha_sniper.lite_frequency_v4 import export as export_mod
+    from poly_alpha_sniper.lite_frequency_v4 import runtime as runtime_mod
+
+    monkeypatch.setattr(export_mod, "canonical_export_dir", lambda: tmp_path)
+    seen: list[str] = []
+    real_replace = os.replace
+
+    def recording_replace(src, dst):
+        seen.append(Path(src).name)
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(runtime_mod.os, "replace", recording_replace)
+    target = tmp_path / EXPORT_FILENAME
+    for index in range(4):
+        export_mod._atomic_write(target, json.dumps({"n": index}) + "\n")
+
+    assert len(seen) == 4
+    assert len(set(seen)) == 4, seen          # every temp path distinct
+    assert json.loads(target.read_text(encoding="utf-8")) == {"n": 3}
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_export_leaves_prior_document_intact_when_replace_never_succeeds(
+        tmp_path, monkeypatch):
+    """Retry exhaustion must not destroy the last good export."""
+
+    from poly_alpha_sniper.lite_frequency_v4 import export as export_mod
+    from poly_alpha_sniper.lite_frequency_v4 import runtime as runtime_mod
+
+    monkeypatch.setattr(export_mod, "canonical_export_dir", lambda: tmp_path)
+    target = tmp_path / EXPORT_FILENAME
+    export_mod._atomic_write(target, json.dumps({"good": True}) + "\n")
+    good = target.read_text(encoding="utf-8")
+
+    def always_denied(src, dst):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(runtime_mod.os, "replace", always_denied)
+    monkeypatch.setattr(runtime_mod.time, "sleep", lambda _s: None)
+
+    with pytest.raises(PermissionError):
+        export_mod._atomic_write(target, json.dumps({"good": False}) + "\n")
+
+    assert target.read_text(encoding="utf-8") == good
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_export_module_has_no_legacy_store_or_execution_imports():

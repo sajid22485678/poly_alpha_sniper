@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import uuid
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -12,6 +13,7 @@ from .config import ACTIVE_COHORT, LEGACY_COHORT, RUNTIME_LABEL
 from .config import FREQUENCY_V4_ROOT
 from .ledger import compute_capital_ledger
 from .metrics import build_metrics
+from .runtime import _discard_temporary, atomic_replace
 from .store import FIXED_SHARES, MODE, STRATEGY_ID
 from .universe import UNIVERSE_POLICY_VERSION
 
@@ -951,14 +953,29 @@ def _json_safe(value: Any) -> Any:
 
 
 def _atomic_write(path: Path, content: str) -> None:
+    """Publish the dashboard export atomically.
+
+    This path has the same Windows exposure as the runtime heartbeat publish and
+    has already failed in production with
+    ``export:PermissionError:[WinError 5] Access is denied`` on this very temp
+    file: the dashboard polls the exported document continuously, so a reader or
+    an antivirus scan can hold the destination at the instant of the replace.
+    It shares the runtime's bounded-retry replace so a transient lock costs a few
+    milliseconds instead of a failed export and a growing export age.
+
+    The temp name carries a uuid as well as the pid so two writers can never
+    collide on one temp path; the canonical destination is still single-writer
+    (the dedicated reporting worker is single-flight).
+    """
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary = path.with_name(
+        f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     try:
         temporary.write_text(content, encoding="utf-8", newline="\n")
-        os.replace(temporary, path)
+        atomic_replace(temporary, path)
     finally:
-        if temporary.exists():
-            temporary.unlink()
+        _discard_temporary(temporary)
 
 
 def write_frequency_v4_dashboard(
