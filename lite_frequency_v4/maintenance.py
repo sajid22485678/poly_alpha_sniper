@@ -67,6 +67,13 @@ class MaintenancePolicy:
     # Consecutive PASSIVE checkpoints that reclaimed zero WAL bytes before the
     # policy escalates to a stronger, live-safe mode.
     no_progress_escalation_threshold: int = 2
+    # Loop lag at or above which a live TRUNCATE reclaim is deferred, and the
+    # WAL size above which it proceeds anyway so the WAL cannot grow without
+    # bound.  The ceiling is deliberately well above the escalation trigger:
+    # deferral buys responsiveness for a cycle or two, it never disables
+    # reclamation.
+    lag_defer_threshold_ms: float = 250.0
+    lag_defer_max_wal_bytes: int = 512 * 1024 * 1024
     # Hard bound on how long an escalated live checkpoint may wait on the
     # writer/reader locks.  It keeps a reclaim attempt from becoming a long
     # global database stall; a contended attempt returns BUSY and retries on
@@ -151,6 +158,11 @@ class MaintenanceSnapshot:
     # shrink; this counter lets the policy escalate to RESTART, which briefly
     # waits for readers to drain, instead of looping on PASSIVE forever.
     consecutive_no_progress_passive: int = 0
+    # Current event-loop lag.  A large live reclaim saturates the disk the
+    # runtime also publishes its heartbeat/export to, so an already-lagging loop
+    # defers the reclaim rather than compounding the stall.  Defaults to 0 so an
+    # unaware caller behaves exactly as before.
+    event_loop_lag_ms: float = 0.0
     # Whether the last database integrity scan passed.  This is the only
     # health signal WAL reclamation consults, because it is the only one that
     # describes the database.  ``runtime_health`` folds in trade-gating
@@ -801,6 +813,19 @@ def _live_reclaim_is_safe(
             policy.no_progress_escalation_threshold):
         return False
     if snapshot.wal_bytes < policy.restart_trigger_bytes:
+        return False
+    # Event-loop responsiveness gate.  A live TRUNCATE rewrites the whole WAL
+    # into the database; on a several-hundred-megabyte WAL that saturates the
+    # same disk the runtime publishes its heartbeat and export to.  Measured on
+    # a 64.7-minute soak, every heartbeat/export latency breach (up to 19.6 s
+    # and 31.7 s) coincided with a reclaim against a 266-457 MB WAL.  When the
+    # loop is already lagging, defer to the next cycle rather than compound it.
+    #
+    # This is a deferral, never an abandonment: once the WAL passes
+    # ``lag_defer_max_wal_bytes`` the reclaim proceeds regardless, so WAL stays
+    # bounded and reclaim stays reachable even under sustained lag.
+    if (snapshot.event_loop_lag_ms >= policy.lag_defer_threshold_ms
+            and snapshot.wal_bytes < policy.lag_defer_max_wal_bytes):
         return False
     # A LONG reader (an integrity scan, a heavy report) holds its read-mark for
     # far longer than the bounded lock wait, so reclamation would stall behind

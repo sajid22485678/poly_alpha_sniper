@@ -4074,6 +4074,10 @@ class FrequencyV4Engine:
                 ),
                 consecutive_no_progress_passive=(
                     self._consecutive_no_progress_passive),
+                # A large live reclaim saturates the disk this runtime also
+                # publishes heartbeat/export to; an already-lagging loop defers
+                # it rather than compounding the stall.
+                event_loop_lag_ms=float(self._loop_lag_ms),
                 integrity_ok=bool(self._last_integrity_ok),
                 last_checkpoint_attempt_ts_ms=(
                     self._checkpoint_state.get("started_ts_ms")
