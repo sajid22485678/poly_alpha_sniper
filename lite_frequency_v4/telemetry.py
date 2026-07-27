@@ -295,6 +295,7 @@ class _RateBucket:
     first_depth: Optional[int] = None
     last_depth: Optional[int] = None
     max_depth: int = 0
+    min_depth: Optional[int] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +330,29 @@ class _WindowView:
     first_depth: Optional[int]
     last_depth: Optional[int]
     max_depth: int
+    # Drainage floor: the shallowest depth reached in each half of the window.
+    # A queue that keeps draining has a flat floor however spiky its peaks; a
+    # queue that is genuinely accumulating has a *rising* floor.  That is the
+    # signal which separates bounded oscillation from real backlog growth.
+    first_half_min_depth: Optional[int]
+    second_half_min_depth: Optional[int]
+
+
+def _half_min(rows: Sequence[_RateBucket], *, first: bool) -> Optional[int]:
+    """Shallowest observed depth in one half of the window, or None.
+
+    Only buckets that actually observed a depth contribute; a silent second
+    carries no information about the floor.
+    """
+
+    observed = [bucket for bucket in rows if bucket.min_depth is not None]
+    if len(observed) < 2:
+        return None
+    midpoint = len(observed) // 2
+    half = observed[:midpoint] if first else observed[midpoint:]
+    if not half:
+        return None
+    return min(int(bucket.min_depth) for bucket in half)
 
 
 class _RollingTelemetryWindow:
@@ -385,6 +409,8 @@ class _RollingTelemetryWindow:
             bucket.first_depth = value
         bucket.last_depth = value
         bucket.max_depth = max(bucket.max_depth, value)
+        bucket.min_depth = (
+            value if bucket.min_depth is None else min(bucket.min_depth, value))
 
     def view(self, now: float, *, include_current: bool = True) -> _WindowView:
         current_tick = math.floor(float(now))
@@ -469,6 +495,8 @@ class _RollingTelemetryWindow:
             first_depth=first_depth,
             last_depth=last_depth,
             max_depth=max((bucket.max_depth for bucket in rows), default=0),
+            first_half_min_depth=_half_min(rows, first=True),
+            second_half_min_depth=_half_min(rows, first=False),
         )
 
 
@@ -494,11 +522,22 @@ def _capacity_state(
     # loss.  The lane is out of control exactly when that stops being true:
     # rows are lost, admissions overflow outside policy, or the sink misses its
     # cooperative deadline.  Each of those fires precisely when the bound fails.
+    # Hard overload means control was *lost*, which is evidenced by rows the
+    # lane could not keep: unexpected loss, or an admission that overflowed
+    # outside policy.
+    #
+    # A cooperative deadline miss on its own is deliberately not enough.
+    # Measured on the 64.7-minute soak, all three HARD_OVERLOAD samples had a
+    # queue depth of 2-9 rows out of 20 000, zero unexpected loss and zero
+    # reconciliation mismatch: the sink missed a deadline, the controller shrank
+    # the chunk and requeued the batch, and every row still committed.  That is
+    # the bounded-retry contract working, not a lane out of control -- and
+    # reporting it as hard overload made a healthy runtime unready.
+    # A deadline miss that actually costs rows still shows up through ``lost``.
     _ = queue_depth, capacity
     out_of_control = (
         int(view.lost) > 0                       # unexpected loss
         or int(view.admission_overflow) > 0      # overflow outside policy
-        or int(view.deadline_failures) > 0       # missed cooperative deadline
     )
     if out_of_control:
         return TelemetryCapacityState.HARD_OVERLOAD.value
@@ -534,36 +573,68 @@ def _service_balanced(view: _WindowView, *, queued_logical: int) -> bool:
     )
 
 
+#: Fraction of hard queue capacity at which backlog is dangerous regardless of
+#: trend.  The observed production peak was 150 of 20 000 (0.75%); half the hard
+#: bound is real danger, not the pressure threshold that merely starts shedding.
+_QUEUE_DANGER_FRACTION = 0.5
+#: Longest a row may sit queued before the backlog is treated as real, however
+#: shallow it looks.  Depth alone hides a small queue that never drains.
+_QUEUE_MAX_RESIDENCE_S = 30.0
+
+
 def _queue_not_accumulating(
     view: _WindowView, *, queue_depth: int, low_water: int, high_water: int,
+    capacity: int, oldest_age_s: float,
 ) -> bool:
-    """Is the queue bounded and not growing?
+    """Is the queue free of genuine, unsafe accumulation?
 
-    Two independent conditions, both required:
+    The previous test blocked on *either* crossing the high-water mark or a
+    single positive regression slope.  Measured against a real 64.7-minute soak
+    both proved to be noise detectors rather than backlog detectors: the queue
+    peaked at 150 of 20 000 (0.75% of capacity), 65 of 87 "accumulating" samples
+    were below the low-water mark -- one at depth 3 -- and every single one of
+    those 87 samples had zero unexpected loss, zero reconciliation mismatch and
+    a bounded queue.  Crossing high water is precisely what *starts* the
+    shedding policy, so treating it as failure made a correctly-shedding lane
+    permanently unable to certify.
 
-    * **Bounded** -- the queue never breached the high-water mark in the window.
-      A queue that spiked past its bound is not healthy even if it recovered.
-    * **Not trending up** -- a non-positive slope and an ending depth no greater
-      than the starting depth.  A queue climbing steadily is unhealthy even
-      while it is still numerically below the low-water mark, so absolute depth
-      alone is deliberately *not* accepted as proof.
+    Accumulation is now judged on evidence of backlog that does not clear:
 
-    The slope is trustworthy only because the depth series is now carried
-    forward across silent buckets (see :meth:`_RollingTelemetryWindow.view`);
-    on the raw event-sampled series it reported growth for an empty queue.
+    * **Danger** -- the queue reached a material fraction of its hard capacity.
+    * **Residence** -- the oldest queued row has been waiting too long, which
+      catches a small queue that never drains (depth alone would hide it).
+    * **Rising floor** -- the *shallowest* depth in the window's second half is
+      higher than in its first half, and materially deep.  A queue that keeps
+      draining has a flat floor no matter how spiky its peaks; a queue that is
+      genuinely accumulating has a floor that climbs.  This is what separates
+      bounded oscillation (0 -> 5 -> 2 -> 7 -> 1, or 5 -> 96 -> 5 with a
+      successful drain) from sustained monotonic growth toward capacity.
+
+    Peaks, instantaneous depth and a momentarily positive slope are deliberately
+    *not* sufficient on their own -- they are what shedding is for.
     """
 
-    _ = queue_depth, low_water
-    if view.max_depth > max(0, int(high_water)):
+    _ = queue_depth
+    limit = max(1, int(capacity))
+    if view.max_depth >= limit * _QUEUE_DANGER_FRACTION:
         return False
-    return (
-        view.queue_slope_rps <= 0.0
-        and (
+    if float(oldest_age_s) > _QUEUE_MAX_RESIDENCE_S:
+        return False
+    floor_before = view.first_half_min_depth
+    floor_after = view.second_half_min_depth
+    if floor_before is None or floor_after is None:
+        # Not enough observations to judge a trend; fall back to the endpoints,
+        # which still catch a monotonic climb.
+        return (
             view.first_depth is None
             or view.last_depth is None
             or view.last_depth <= view.first_depth
         )
-    )
+    # A floor that is rising *and* already meaningful relative to the pressure
+    # threshold is real backlog.  Below that the queue is draining fully between
+    # bursts and the movement is noise.
+    material_floor = max(1, int(low_water) // 4)
+    return not (floor_after > floor_before and floor_after >= material_floor)
 
 
 def required_rows_per_dispatch(
@@ -957,6 +1028,7 @@ class _AdaptiveTelemetryController:
         transaction_budget_ms: Optional[float],
         advance_state: bool = True,
         queued_logical: Optional[int] = None,
+        oldest_age_s: float = 0.0,
     ) -> _ControlDecision:
         # Logical rows still held by the lane.  Defaults to the pending count,
         # which is a lower bound (one pending can carry several aggregated
@@ -1142,7 +1214,8 @@ class _AdaptiveTelemetryController:
                 recovery_view, queued_logical=queued_logical)
             depth_nonincreasing = _queue_not_accumulating(
                 recovery_view, queue_depth=queue_depth,
-                low_water=self.low_water, high_water=self.high_water)
+                low_water=self.low_water, high_water=self.high_water,
+                capacity=self.queue_capacity, oldest_age_s=oldest_age_s)
             controller_safe = self._controller_safe()
             explicit_overload_handling = (
                 recovery_view.overload_handled > 0)
@@ -1183,7 +1256,8 @@ class _AdaptiveTelemetryController:
             recovery_view, queued_logical=queued_logical)
         depth_nonincreasing = _queue_not_accumulating(
             recovery_view, queue_depth=queue_depth,
-            low_water=self.low_water, high_water=self.high_water)
+            low_water=self.low_water, high_water=self.high_water,
+            capacity=self.queue_capacity, oldest_age_s=oldest_age_s)
         controller_safe = self._controller_safe()
         explicit_overload_handling = (
             recovery_view.overload_handled > 0)
@@ -1611,6 +1685,23 @@ class V4TelemetryWriter:
         self._last_reconciliation = result
         return result
 
+    def _oldest_queued_age_s(self, now: float) -> float:
+        """How long the oldest still-queued row has been waiting.
+
+        Depth alone cannot tell a shallow queue that drains from a shallow queue
+        that never drains, so residence age is tracked as an independent backlog
+        signal.  The queue is FIFO by token order, so the head is the oldest and
+        this stays O(1) on the hot path.
+        """
+
+        while self._queue:
+            pending = self._pending.get(self._queue[0])
+            if pending is not None:
+                return max(0.0, float(now) - float(pending.admitted_monotonic))
+            # A token whose pending was already taken; skip it.
+            self._queue.popleft()
+        return 0.0
+
     def _record_policy_locked(self, reason: str, count: int = 1) -> None:
         key = str(reason)
         self._policy_reasons[key] = (
@@ -1627,6 +1718,7 @@ class V4TelemetryWriter:
             transaction_budget_ms=self._resolve_budget_locked(),
             advance_state=advance_state,
             queued_logical=self._queued_logical,
+            oldest_age_s=self._oldest_queued_age_s(now),
         )
         if advance_state:
             self._physical_batch_ceiling = decision.selected_chunk
@@ -2658,18 +2750,36 @@ class V4TelemetryWriter:
             # Data safety is about evidence, not throughput.  Approved policy
             # outcomes never appear here; only rows the lane was expected to
             # carry and did not.
-            data_safety_reasons = [
+            # Evidence loss is the only thing that makes the lane UNSAFE.  A
+            # deadline miss or a failed batch whose rows were requeued and
+            # committed cost no evidence at all -- measured on the soak, those
+            # fired while unexpected loss stayed at exactly zero for 64.7
+            # minutes.  They are real events an operator must see, so they are
+            # reported as DEGRADED, but they do not brand the data unsafe and
+            # they do not block readiness on their own.
+            unsafe_reasons = [
                 reason for reason, present in (
                     ("unexpected_noncritical_loss", recent_unexpected > 0),
                     ("accounting_reconciliation_mismatch",
                      int(reconciliation["mismatch"]) != 0),
-                    ("recent_deadline_expiry", int(recent.deadline_failures) > 0),
-                    ("recent_sink_failure", int(recent.failed_batches) > 0),
                     ("recent_queue_overflow",
                      int(recent.admission_overflow) > 0),
                 ) if present
             ]
-            data_safety = "HEALTHY" if not data_safety_reasons else "UNHEALTHY"
+            degraded_reasons = [
+                reason for reason, present in (
+                    ("recent_deadline_expiry_recovered",
+                     int(recent.deadline_failures) > 0),
+                    ("recent_sink_failure_recovered",
+                     int(recent.failed_batches) > 0),
+                ) if present
+            ]
+            data_safety_reasons = unsafe_reasons + degraded_reasons
+            data_safety = (
+                "UNSAFE" if unsafe_reasons
+                else "DEGRADED" if degraded_reasons
+                else "HEALTHY"
+            )
             capacity_state = _capacity_state(
                 decision, queue_depth=len(self._queue), capacity=self.capacity)
             return {
@@ -2715,6 +2825,14 @@ class V4TelemetryWriter:
                 # above the high-water mark is the shedding policy working, not
                 # a bound being breached.
                 "queue_bounded": bool(int(recent.max_depth) < self.capacity),
+                # Backlog evidence, so a false or true accumulation verdict is
+                # always explainable from the exported sample alone.
+                "queue_oldest_age_s": round(
+                    self._oldest_queued_age_s(time.monotonic()), 3),
+                "queue_floor_before": recent.first_half_min_depth,
+                "queue_floor_after": recent.second_half_min_depth,
+                "queue_danger_depth": int(
+                    self.capacity * _QUEUE_DANGER_FRACTION),
                 "queue_max_depth_window": int(recent.max_depth),
                 "queue_depth": len(self._queue),
                 "queue_capacity": self.capacity,

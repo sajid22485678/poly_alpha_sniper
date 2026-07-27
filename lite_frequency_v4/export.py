@@ -595,12 +595,20 @@ def build_frequency_v4_dashboard(
     telemetry_reconciliation_mismatch = int(
         telemetry.get("accounting_reconciliation_mismatch_rows") or 0)
     telemetry_queue_bounded = bool(telemetry.get("queue_bounded", False))
+    telemetry_queue_oldest_age_s = float(
+        telemetry.get("queue_oldest_age_s") or 0.0)
     telemetry_capacity_blocking = telemetry_capacity_state in {
         "HARD_OVERLOAD", "UNKNOWN"}
     telemetry_policy_sampling = telemetry_capacity_state in {
         "POLICY_SAMPLING_ACTIVE", "POLICY_COALESCING_ACTIVE",
-        "POLICY_DEFER_ACTIVE",
+        "POLICY_DEFER_ACTIVE", "RECOVERING",
     }
+    # Only UNSAFE (evidence actually lost) and UNKNOWN block.  DEGRADED means a
+    # deadline miss or a failed batch happened and the bounded retry recovered
+    # it with zero rows lost: an operator must see it, but it is not evidence
+    # loss and must not hold readiness down while the lane is provably intact.
+    telemetry_data_safety_blocking = telemetry_data_safety in {
+        "UNSAFE", "UNKNOWN"}
     # The honest combined verdict: safe, but explicitly not within capacity.
     telemetry_reported_state = (
         "HEALTHY_WITH_POLICY_SAMPLING"
@@ -663,7 +671,9 @@ def build_frequency_v4_dashboard(
         # Evidence safety, not throughput: unexpected loss, an unclosed
         # conservation identity, or an unbounded queue all stay blocking.
         *([f"telemetry_data_safety_{telemetry_data_safety.lower()}"] if (
-            telemetry_data_safety != "HEALTHY") else []),
+            telemetry_data_safety_blocking) else []),
+        *(["telemetry_queue_residence_stale"] if (
+            telemetry_queue_oldest_age_s > 30.0) else []),
         *(["telemetry_unexpected_noncritical_loss"] if (
             telemetry_unexpected_loss > 0) else []),
         *(["telemetry_accounting_mismatch"] if (
@@ -845,6 +855,11 @@ def build_frequency_v4_dashboard(
                 "queue_bounded": telemetry_queue_bounded,
                 "queue_max_depth_window": telemetry.get(
                     "queue_max_depth_window"),
+                "queue_oldest_age_s": telemetry_queue_oldest_age_s,
+                "queue_floor_before": telemetry.get("queue_floor_before"),
+                "queue_floor_after": telemetry.get("queue_floor_after"),
+                "queue_danger_depth": telemetry.get("queue_danger_depth"),
+                "data_safety_blocking": telemetry_data_safety_blocking,
                 "queue_depth_slope_per_second": telemetry.get(
                     "queue_depth_slope_per_second"),
             },

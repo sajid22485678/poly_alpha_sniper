@@ -191,7 +191,7 @@ def test_queue_overflow_outside_policy_remains_unexpected_loss():
     snapshot = writer.snapshot()
     assert snapshot["queue_overflow_rows"] > 0
     assert snapshot["noncritical_rows_unexpectedly_lost"] > 0
-    assert snapshot["telemetry_data_safety"] == "UNHEALTHY"
+    assert snapshot["telemetry_data_safety"] == "UNSAFE"
     assert "unexpected_noncritical_loss" in (
         snapshot["telemetry_data_safety_reasons"])
 
@@ -212,7 +212,7 @@ def test_sink_failure_remains_unexpected_loss():
     snapshot = writer.snapshot()
     assert snapshot["sink_failure_rows"] > 0
     assert snapshot["noncritical_rows_unexpectedly_lost"] > 0
-    assert snapshot["telemetry_data_safety"] == "UNHEALTHY"
+    assert snapshot["telemetry_data_safety"] == "UNSAFE"
 
 
 def test_shutdown_abandonment_remains_unexpected_loss():
@@ -358,7 +358,7 @@ def test_capacity_state_is_hard_overload_only_when_out_of_control():
     snapshot = losing.snapshot()
     assert snapshot["telemetry_capacity_state"] == (
         TelemetryCapacityState.HARD_OVERLOAD.value)
-    assert snapshot["telemetry_data_safety"] == "UNHEALTHY"
+    assert snapshot["telemetry_data_safety"] == "UNSAFE"
 
 
 def test_unreachable_throughput_floor_does_not_block_recovery_forever():
