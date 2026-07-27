@@ -572,6 +572,89 @@ def test_deferred_reclaim_still_runs_once_the_wal_ceiling_is_reached():
     assert decision.mode is CheckpointMode.TRUNCATE
 
 
+def test_wal_pressure_backfill_runs_far_more_often_than_the_routine_interval():
+    """The measured cause of the 300-470 MB WAL regime.
+
+    The definitive soak showed the WAL growing ~110 MB/min while checkpoints ran
+    once per ~1.4 min, so every PASSIVE landed on a WAL already hundreds of
+    megabytes past the 32 MB trigger and reclaimed exactly zero bytes; the file
+    only ever shrank via a 374-425 MB one-shot TRUNCATE that stalled export
+    publication for 13-16 s.  A backfill must be allowed while the file is still
+    small.
+    """
+    policy = MaintenancePolicy()
+    assert policy.pressure_checkpoint_min_interval_ms < (
+        policy.checkpoint_min_interval_ms)
+    # Just past the pressure floor, well inside the routine interval.
+    snap = _snapshot(
+        wal_bytes=policy.wal_trigger_bytes + 1,
+        consecutive_no_progress_passive=0,
+        now_ms=1_000_000,
+        last_checkpoint_attempt_ts_ms=(
+            1_000_000 - policy.pressure_checkpoint_min_interval_ms - 1),
+    )
+    decision = decide_checkpoint(snap, policy)
+    assert decision.should_run is True
+    assert decision.mode is CheckpointMode.PASSIVE
+    # At the documented trigger the file is ~32 MB, not hundreds.
+    assert snap.wal_bytes < 64 * 1024 * 1024
+
+
+def test_backfill_cadence_can_keep_pace_with_measured_wal_growth():
+    """A sanity bound tying the cadence to the measured growth rate.
+
+    ~110 MB/min was measured under load.  For the 32 MB trigger to mean
+    anything, the backfill interval must be short enough that the WAL cannot
+    outrun it by an order of magnitude between attempts.
+    """
+    policy = MaintenancePolicy()
+    measured_growth_bytes_per_ms = (110 * 1024 * 1024) / 60_000.0
+    growth_between_attempts = (
+        measured_growth_bytes_per_ms
+        * policy.pressure_checkpoint_min_interval_ms)
+    # Growth between backfills stays within the trigger itself, so the WAL
+    # cannot reach the prior failure regime between attempts.
+    assert growth_between_attempts <= policy.wal_trigger_bytes
+    # The old routine cadence provably could not hold that line: a single
+    # interval overshoots the trigger several times over, which is how the file
+    # walked up to the 300-470 MB regime across successive no-progress passes.
+    old = measured_growth_bytes_per_ms * policy.checkpoint_min_interval_ms
+    assert old > policy.wal_trigger_bytes * 3
+
+
+def test_escalation_is_not_allowed_on_the_pressure_cadence():
+    """Only the cheap backfill may run early; reclaim keeps its full interval."""
+
+    policy = MaintenancePolicy()
+    snap = _snapshot(
+        wal_bytes=policy.restart_trigger_bytes * 3,
+        consecutive_no_progress_passive=9,
+        now_ms=1_000_000,
+        last_checkpoint_attempt_ts_ms=(
+            1_000_000 - policy.pressure_checkpoint_min_interval_ms - 1),
+    )
+    decision = decide_checkpoint(snap, policy)
+    assert decision.mode is CheckpointMode.PASSIVE
+    assert decision.mode is not CheckpointMode.TRUNCATE
+
+
+def test_reclaim_remains_reachable_after_the_routine_interval():
+    """Bounding the cadence must not make reclaim unreachable."""
+
+    policy = MaintenancePolicy()
+    snap = _snapshot(
+        wal_bytes=policy.restart_trigger_bytes * 3,
+        consecutive_no_progress_passive=9,
+        now_ms=1_000_000,
+        last_checkpoint_attempt_ts_ms=(
+            1_000_000 - policy.checkpoint_min_interval_ms - 1),
+        event_loop_lag_ms=0.0,
+    )
+    decision = decide_checkpoint(snap, policy)
+    assert decision.should_run is True
+    assert decision.mode is CheckpointMode.TRUNCATE
+
+
 def test_lag_deferral_default_keeps_prior_behaviour():
     """A caller that does not report lag behaves exactly as before."""
 

@@ -74,6 +74,14 @@ class MaintenancePolicy:
     # reclamation.
     lag_defer_threshold_ms: float = 250.0
     lag_defer_max_wal_bytes: int = 512 * 1024 * 1024
+    # Rate limit for checkpoints taken *because the WAL is over its trigger*.
+    # ``checkpoint_min_interval_ms`` paces routine passes, but applying it to
+    # pressure passes as well is what let the WAL reach 450 MB: measured under
+    # load the WAL grows ~110 MB/min, so one attempt per minute means every
+    # attempt lands on a WAL an order of magnitude past the 32 MB trigger this
+    # policy already documents.  A short pressure floor makes that existing
+    # trigger enforceable instead of nominal.
+    pressure_checkpoint_min_interval_ms: int = 5_000
     # Hard bound on how long an escalated live checkpoint may wait on the
     # writer/reader locks.  It keeps a reclaim attempt from becoming a long
     # global database stall; a contended attempt returns BUSY and retries on
@@ -362,8 +370,28 @@ def decide_checkpoint(
     if last_attempt is not None:
         if last_attempt > snapshot.now_ms:
             return _skip(snapshot, "checkpoint_timestamp_in_future")
-        if snapshot.now_ms - last_attempt < policy.checkpoint_min_interval_ms:
+        since_last = snapshot.now_ms - last_attempt
+        floor_ms = min(
+            policy.checkpoint_min_interval_ms,
+            policy.pressure_checkpoint_min_interval_ms,
+        )
+        if since_last < floor_ms:
             return _skip(snapshot, "checkpoint_min_interval")
+        if since_last < policy.checkpoint_min_interval_ms:
+            # Between the pressure floor and the routine interval only the cheap
+            # PASSIVE backfill may run, never an escalation.  The WAL is already
+            # past ``wal_trigger_bytes`` (checked above), and pacing this backfill
+            # at the routine interval is what let a WAL growing ~110 MB/min reach
+            # 450 MB before anything touched it -- so the only thing that ever
+            # reclaimed bytes was a disk-saturating one-shot TRUNCATE.  Frequent
+            # small backfills keep the file near its configured trigger, which is
+            # what makes the eventual reclaim small.  PASSIVE runs on the
+            # dedicated maintenance connection and never blocks the critical
+            # writer, so it is safe at this cadence.  RESTART and TRUNCATE keep
+            # the full routine interval by falling through below.
+            return CheckpointDecision(
+                True, CheckpointMode.PASSIVE, EMERGENCY_WAL_REASON, snapshot
+            )
 
     # Live WAL reclamation, evaluated BEFORE the general maintenance gate.
     #
@@ -827,6 +855,10 @@ def _live_reclaim_is_safe(
     if (snapshot.event_loop_lag_ms >= policy.lag_defer_threshold_ms
             and snapshot.wal_bytes < policy.lag_defer_max_wal_bytes):
         return False
+    # Reclaim size is bounded by keeping the WAL small in the first place --
+    # ``pressure_checkpoint_min_interval_ms`` above -- rather than by a cap here.
+    # A cap would contradict ``restart_trigger_bytes``, which is this policy's
+    # documented escalation point, and would leave an oversized WAL unreclaimed.
     # A LONG reader (an integrity scan, a heavy report) holds its read-mark for
     # far longer than the bounded lock wait, so reclamation would stall behind
     # it: that is prohibited.  A short in-flight read is not, and must not be:

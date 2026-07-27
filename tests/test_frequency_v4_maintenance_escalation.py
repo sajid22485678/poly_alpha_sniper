@@ -236,11 +236,40 @@ def test_zero_progress_does_not_escalate():
 
 
 def test_min_interval_still_rate_limits_escalation():
+    """The expensive escalation keeps the full routine interval.
+
+    Inside that interval a *cheap* PASSIVE backfill may still run, because
+    pacing it at 60 s made the policy's own 32 MB ``wal_trigger_bytes``
+    unreachable: measured under load the WAL grows ~110 MB/min, so one attempt
+    per minute always landed on a WAL already hundreds of megabytes past the
+    trigger, and the only thing that ever reclaimed bytes was a disk-saturating
+    one-shot TRUNCATE.  RESTART and TRUNCATE remain rate limited; only the
+    backfill that keeps the file small is allowed to run sooner.
+    """
     policy = MaintenancePolicy()
     snap = _snapshot(
         consecutive_no_progress_passive=9,
         now_ms=100_000,
         last_checkpoint_attempt_ts_ms=100_000 - policy.checkpoint_min_interval_ms + 1,
+    )
+    decision = decide_checkpoint(snap, policy)
+    # No escalation inside the routine interval, however armed it is.
+    assert decision.mode is not CheckpointMode.TRUNCATE
+    assert decision.mode is not CheckpointMode.RESTART
+    assert decision.should_run is True
+    assert decision.mode is CheckpointMode.PASSIVE
+    assert decision.reason == EMERGENCY_WAL_REASON
+
+
+def test_pressure_floor_still_rate_limits_the_passive_backfill():
+    """Below the pressure floor nothing runs at all -- it is a real rate limit."""
+
+    policy = MaintenancePolicy()
+    snap = _snapshot(
+        consecutive_no_progress_passive=9,
+        now_ms=100_000,
+        last_checkpoint_attempt_ts_ms=(
+            100_000 - policy.pressure_checkpoint_min_interval_ms + 1),
     )
     decision = decide_checkpoint(snap, policy)
     assert decision.should_run is False

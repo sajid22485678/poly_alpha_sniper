@@ -98,6 +98,12 @@ INTEGRITY_MAX_AGE_MS = 3_600_000  # 1 hour; fail-closed if older
 # the heartbeat loop.  This many consecutive healthy publishes are required to
 # clear the degradation so a single blip cannot mask a stuck export.
 REPORTING_EXPORT_RECOVERY_PUBLISHES = 3
+# Maintenance scheduling.  The idle cadence paces routine retention work; the
+# pressure cadence applies while the WAL is over its configured trigger, so a
+# checkpoint happens while the file is still small instead of once a minute
+# against a WAL that has already grown by ~110 MB.
+MAINTENANCE_IDLE_INTERVAL_S = 60.0
+MAINTENANCE_PRESSURE_INTERVAL_S = 5.0
 # Sentinels marking an event-count bucket whose channel/asset/event attribution
 # was deliberately coarsened to keep the aggregation buffer bounded.  The event
 # volume is conserved exactly; only the attribution is coarser, and these values
@@ -4150,10 +4156,31 @@ class FrequencyV4Engine:
             self._maintenance_inflight = False
 
     async def _maintenance_loop(self) -> None:
+        """Run maintenance passes, pacing them against WAL pressure.
+
+        A fixed 60 s cadence is right when the WAL is small, but it was the
+        binding constraint under load: measured, the WAL grows ~110 MB/min, so
+        one pass per minute meant every checkpoint attempt landed on a WAL an
+        order of magnitude past the 32 MB trigger the policy documents, and the
+        only thing that ever reclaimed bytes was a 400 MB+ one-shot TRUNCATE.
+
+        While the WAL is over its trigger the loop re-runs on the policy's
+        pressure interval so checkpoints happen while the file is still small.
+        The pass itself remains bounded and entirely on the maintenance worker;
+        only the scheduling changes here.
+        """
+
         while not self._stopping.is_set():
             await self._run_maintenance_pass()
+            wal_bytes = max(0, int(self._wal_size_cache or 0))
+            under_pressure = (
+                wal_bytes >= self.cfg.checkpoint_wal_size_trigger_bytes)
+            delay_s = (
+                MAINTENANCE_PRESSURE_INTERVAL_S if under_pressure
+                else MAINTENANCE_IDLE_INTERVAL_S
+            )
             try:
-                await asyncio.wait_for(self._stopping.wait(), timeout=60.0)
+                await asyncio.wait_for(self._stopping.wait(), timeout=delay_s)
             except asyncio.TimeoutError:
                 pass
 
