@@ -285,6 +285,54 @@ def sample_once(
         "full_integrity_audit_runs": state.get("full_integrity_audit_runs"),
         "sqlite_integrity": (export.get("integrity") or {}).get(
             "sqlite_integrity"),
+        # --- bounded live integrity health check ----------------------------
+        # Reported separately from the full audit below: the live check proves
+        # every page it read decodes and every declared foreign key resolves,
+        # and publishes how much of a cycle that covers.  It is never a full
+        # audit, so the two must never be read from one field.
+        "live_integrity_health": state.get("live_integrity_health"),
+        "live_integrity_scope": state.get("live_integrity_scope"),
+        "live_integrity_bounded": state.get("live_integrity_bounded"),
+        "live_integrity_max_chunk_ms": state.get("live_integrity_max_chunk_ms"),
+        "live_integrity_chunk_bound_ms": state.get(
+            "live_integrity_chunk_bound_ms"),
+        "live_integrity_chunks_over_bound": state.get(
+            "live_integrity_chunks_over_bound"),
+        "live_integrity_rows_per_chunk": state.get(
+            "live_integrity_rows_per_chunk"),
+        "live_integrity_progress": state.get("live_integrity_progress"),
+        "live_integrity_cycles_completed": state.get(
+            "live_integrity_cycles_completed"),
+        "live_integrity_last_completed_ms": state.get(
+            "live_integrity_last_completed_ms"),
+        "live_integrity_last_completed_ok": state.get(
+            "live_integrity_last_completed_ok"),
+        # --- full audit, on a completed snapshot ----------------------------
+        "full_audit_status": state.get("full_audit_status"),
+        "full_audit_ok": state.get("full_audit_ok"),
+        "full_audit_scope": state.get("full_audit_scope"),
+        "full_audit_runs_on_live_database": state.get(
+            "full_audit_runs_on_live_database"),
+        "full_audit_source_as_of_ms": state.get("full_audit_source_as_of_ms"),
+        "full_audit_completed_ms": state.get("full_audit_completed_ms"),
+        "full_audit_age_ms": state.get("full_audit_age_ms"),
+        "full_audit_failure_reason": state.get("full_audit_failure_reason"),
+        "full_audit_snapshot_status": state.get("full_audit_snapshot_status"),
+        "full_audit_snapshot_progress_pct": state.get(
+            "full_audit_snapshot_progress_pct"),
+        "full_audit_snapshot_progress_pages": state.get(
+            "full_audit_snapshot_progress_pages"),
+        "full_audit_snapshot_total_pages": state.get(
+            "full_audit_snapshot_total_pages"),
+        "full_audit_snapshot_steps": state.get("full_audit_snapshot_steps"),
+        "full_audit_snapshot_restarts": state.get(
+            "full_audit_snapshot_restarts"),
+        "full_audit_snapshot_max_step_ms": state.get(
+            "full_audit_snapshot_max_step_ms"),
+        "full_audit_snapshot_duration_ms": state.get(
+            "full_audit_snapshot_duration_ms"),
+        "full_audit_integrity_check_ms": state.get(
+            "full_audit_integrity_check_ms"),
         "export_runs": state.get("dashboard_export_runs"),
         "export_ok": state.get("dashboard_export_ok"),
         "export_duration_ms": state.get("dashboard_export_ms"),
@@ -416,7 +464,12 @@ def _line(row: Mapping[str, Any]) -> str:
         f"q={row['queue_depth']} age={row['queue_oldest_age_s']} "
         f"rdrs={row.get('active_reader_count')}"
         f"/{row.get('oldest_reader_age_ms')} "
-        f"iscan={row['integrity_runs']} blk={blockers}"
+        f"iscan={row['integrity_runs']} "
+        f"live={row.get('live_integrity_max_chunk_ms')}ms"
+        f"/{(row.get('live_integrity_progress') or {}).get('progress_pct')}% "
+        f"audit={row.get('full_audit_status')}"
+        f"/{row.get('full_audit_snapshot_progress_pct')}% "
+        f"blk={blockers}"
     )
 
 

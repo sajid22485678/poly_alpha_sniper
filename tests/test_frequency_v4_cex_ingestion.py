@@ -1708,13 +1708,14 @@ def test_integrity_scan_failure_fails_closed_without_crash(engine_harness, monke
 
 
 # 24. The full integrity audit runs the real FULL scan on the dedicated
-# integrity connection -- never the reporting/export worker (which would stall
-# the export cadence) and never the maintenance worker (which owns WAL
-# checkpoint decisions and retention) -- and exposes its lifecycle.
+# integrity worker -- never the reporting/export worker (which would stall the
+# export cadence) and never the maintenance worker (which owns WAL checkpoint
+# decisions and retention) -- and it runs against a completed snapshot, never
+# against the live database.
 def test_full_integrity_audit_runs_on_dedicated_integrity_worker(engine_harness):
     engine = engine_harness.engine
     main_thread = threading.get_ident()
-    audit: dict[str, object] = {}
+    audited: dict[str, object] = {}
 
     def probe_thread(worker):
         return worker.run_report_sync(
@@ -1726,38 +1727,61 @@ def test_full_integrity_audit_runs_on_dedicated_integrity_worker(engine_harness)
         lambda _s: threading.get_ident(), name="thread_probe")
     assert len({report_thread, integrity_thread, maintenance_thread}) == 3
 
-    real_integrity_check = V4ReadOnlyStore.integrity_check
+    real_audit = engine_module.audit_snapshot_database
+    live_scans: list[object] = []
+    real_live_full = V4ReadOnlyStore.integrity_check
 
-    def tracking(self, *, quick=False):
-        audit["quick"] = quick
-        audit["thread"] = threading.get_ident()
-        return real_integrity_check(self, quick=quick)
+    def tracking_audit(path, **kwargs):
+        audited["path"] = Path(path)
+        audited["thread"] = threading.get_ident()
+        return real_audit(path, **kwargs)
 
-    original = V4ReadOnlyStore.integrity_check
-    V4ReadOnlyStore.integrity_check = tracking
+    def tracking_live(self, *, quick=False):
+        # The live database must never see a full integrity_check again.
+        live_scans.append(quick)
+        return real_live_full(self, quick=quick)
+
+    engine_module.audit_snapshot_database = tracking_audit
+    V4ReadOnlyStore.integrity_check = tracking_live
     try:
         assert asyncio.run(engine._run_full_integrity_audit()) is True
     finally:
-        V4ReadOnlyStore.integrity_check = original
+        engine_module.audit_snapshot_database = real_audit
+        V4ReadOnlyStore.integrity_check = real_live_full
 
-    assert audit["quick"] is False                 # a real FULL integrity_check
-    assert audit["thread"] == integrity_thread     # on the integrity connection
-    assert audit["thread"] != report_thread        # not the reporting worker
-    assert audit["thread"] != maintenance_thread   # not the maintenance worker
-    assert audit["thread"] != main_thread          # never the event loop
+    assert audited["thread"] == integrity_thread   # on the integrity worker
+    assert audited["thread"] != report_thread      # not the reporting worker
+    assert audited["thread"] != maintenance_thread  # not the maintenance worker
+    assert audited["thread"] != main_thread        # never the event loop
+    # The audited file is the snapshot, not the live store.
+    assert audited["path"] != Path(engine.cfg.db_path)
+    assert audited["path"].parent.name == "integrity_audit"
+    assert False not in live_scans                 # no live full integrity_check
 
     state = engine._runtime_state("RUNNING")
+    assert state["full_audit_status"] == "COMPLETED_OK"
+    assert state["full_audit_ok"] is True
+    assert state["full_audit_runs_on_live_database"] is False
+    assert state["full_audit_scope"] == (
+        "full_integrity_check_on_completed_snapshot")
+    assert state["full_audit_completed_ms"] > 0
+    assert state["full_audit_source_as_of_ms"] > 0
+    assert state["full_audit_snapshot_restarts"] == 0
+    assert state["full_audit_snapshot_total_pages"] > 0
+    assert state["full_audit_failure_reason"] is None
+    # Legacy keys keep reporting the same lifecycle.
     assert state["full_integrity_audit_ok"] is True
     assert state["full_integrity_audit_runs"] == 1
     assert state["full_integrity_audit_in_progress"] is False
     assert state["full_integrity_audit_started_ts_ms"] > 0
     assert (state["full_integrity_audit_completed_ts_ms"]
             >= state["full_integrity_audit_started_ts_ms"])
-    assert state["full_integrity_audit_last_failure"] is None
     # The audit uses its own budget, not the 30s maintenance one, which is
     # shorter than a single real full scan on the production store.
     assert engine.cfg.full_integrity_audit_timeout_s > (
         engine.cfg.maintenance_worker_timeout_s)
+    # The multi-gigabyte image is not kept once the verdict exists.
+    assert not engine._audit_snapshot_path().exists()
 
 
 # 25. The two scans never overlap in either direction, and a deferral does not
@@ -1765,20 +1789,20 @@ def test_full_integrity_audit_runs_on_dedicated_integrity_worker(engine_harness)
 def test_integrity_scans_never_overlap_in_either_direction(engine_harness):
     engine = engine_harness.engine
     calls: list[object] = []
-    real_integrity_check = V4ReadOnlyStore.integrity_check
+    real_audit = engine_module.audit_snapshot_database
     real_chunked = V4ReadOnlyStore.integrity_check_chunked
 
-    def tracking(self, *, quick=False):
-        calls.append(quick)
-        return real_integrity_check(self, quick=quick)
+    def tracking(path, **kwargs):
+        calls.append(False)
+        return real_audit(path, **kwargs)
 
     def tracking_chunked(self):
         calls.append("chunked")
         return real_chunked(self)
 
-    original = V4ReadOnlyStore.integrity_check
+    original = engine_module.audit_snapshot_database
     original_chunked = V4ReadOnlyStore.integrity_check_chunked
-    V4ReadOnlyStore.integrity_check = tracking
+    engine_module.audit_snapshot_database = tracking
     V4ReadOnlyStore.integrity_check_chunked = tracking_chunked
     try:
         async def scenario():
@@ -1804,23 +1828,23 @@ def test_integrity_scans_never_overlap_in_either_direction(engine_harness):
 
         asyncio.run(scenario())
     finally:
-        V4ReadOnlyStore.integrity_check = original
+        engine_module.audit_snapshot_database = original
         V4ReadOnlyStore.integrity_check_chunked = original_chunked
 
-    # Full audit (the monolithic whole-database form), then the periodic
-    # chunked scan; never nested.
+    # Full audit (on the completed snapshot), then the bounded live scan;
+    # never nested.
     assert calls == [False, "chunked"]
     assert engine._full_integrity_runs == 1
 
 
-# 25b. The audit loop does not fire a ~66s full scan at every startup: the
-# interval clock starts at launch, not at zero.
+# 25b. The audit loop does not fire a full snapshot + scan cycle at every
+# startup tick: the interval clock starts at launch, not at zero.
 def test_full_integrity_audit_does_not_run_at_startup(engine_harness):
     engine = engine_harness.engine
     ran: list[bool] = []
 
     async def scenario():
-        async def spy():
+        async def spy(**_kwargs):
             ran.append(True)
             return True
 

@@ -297,12 +297,12 @@ def test_chunked_scan_agrees_with_the_monolithic_scan(tmp_path):
         chunked["foreign_key_violations"])
 
 
-def test_chunked_scan_uses_one_statement_per_chunk(tmp_path):
+def test_bounded_scan_releases_every_statement_it_starts(tmp_path):
     """Each chunk is its own read transaction -- that is the whole point.
 
     One statement per chunk means the read-mark is released at every chunk
-    boundary; a single statement covering the whole database is what pinned
-    the WAL for 130 s.
+    boundary; a single statement covering one whole table is what pinned the
+    WAL for over 140 s on the 9.29 GB store.
     """
 
     path = _fresh_db(tmp_path)
@@ -312,38 +312,90 @@ def test_chunked_scan_uses_one_statement_per_chunk(tmp_path):
     finally:
         store.close()
     view = READER_DIAGNOSTICS.snapshot()
-    # One table listing + quick_check and foreign_key_check per table.
-    assert view["counters"]["statements_started"] == 1 + 2 * result["chunks"]
+    # Every table/foreign-key chunk is exactly one statement, so the statement
+    # count is at least the chunk count and every one of them closed.
+    assert view["counters"]["statements_started"] >= result["chunks"]
     assert view["counters"]["statements_started"] == (
         view["counters"]["statements_completed"])
     # Nothing left holding a snapshot.
     assert view["active_reader_count"] == 0
+    # No read-mark hold exceeded the declared chunk bound.
+    assert view["max_statement_ms"] <= result["chunk_bound_ms"]
+    assert result["chunks_over_bound"] == 0
 
 
-def test_chunked_scan_covers_every_user_table(tmp_path):
+def test_bounded_scan_cycle_covers_every_user_table_and_foreign_key(tmp_path):
+    """One completed cycle visits every table and every declared foreign key."""
+
     path = _fresh_db(tmp_path)
     store = V4ReadOnlyStore(path, enforce_thread_ownership=False)
     try:
-        expected = len(store.query(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name NOT LIKE 'sqlite_%'"))
-        result = store.integrity_check_chunked()
+        tables = [
+            row["name"] for row in store.query(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%'")
+        ]
+        plan = store._live_integrity_plan()
+        constraints = sum(
+            len(store._foreign_key_constraints(name)) for name in tables)
+        # metadata + one unit per table + one unit per declared constraint
+        assert len(plan["units"]) == 1 + len(tables) + constraints
+        assert {
+            unit["name"] for unit in plan["units"] if unit["kind"] == "table"
+        } == set(tables)
+
+        for _ in range(500):
+            result = store.integrity_check_chunked()
+            if result["cycle_complete"]:
+                break
+        else:  # pragma: no cover - a cycle must terminate
+            raise AssertionError("bounded scan never completed a cycle")
     finally:
         store.close()
-    assert result["chunks"] == expected
+    assert result["completed_cycles"] == 1
+    assert result["last_completed_cycle_ok"] is True
+    assert result["scope"] == "live_bounded_health_check"
 
 
-def test_chunked_scan_reports_a_table_level_problem(tmp_path):
-    """A per-table verdict must still fail closed, and name the table."""
+def test_bounded_scan_reports_a_foreign_key_problem(tmp_path):
+    """A bounded chunk's verdict must fail closed, and name the table."""
 
     path = _fresh_db(tmp_path)
 
     class FailingStore(V4ReadOnlyStore):
-        def _integrity_statement(self, pragma_sql):
-            if pragma_sql.startswith("PRAGMA quick_check") and (
-                    "entries" in pragma_sql):
-                return [("row 5 missing from index ix_entries",)]
-            return super()._integrity_statement(pragma_sql)
+        def _integrity_statement(self, pragma_sql, params=()):
+            # Match the child table of the constraint, not any table merely
+            # named as a parent inside the same statement.
+            if "NOT EXISTS" in pragma_sql and 'FROM "entries" c' in pragma_sql:
+                # rows_read, last_rowid, violations
+                return [(1, 1, 3)]
+            return super()._integrity_statement(pragma_sql, params)
+
+    store = FailingStore(path, enforce_thread_ownership=False)
+    try:
+        for _ in range(500):
+            result = store.integrity_check_chunked()
+            if result["integrity"] != "ok":
+                break
+        else:  # pragma: no cover - the injected violation must be reported
+            raise AssertionError("injected foreign key violation not reported")
+    finally:
+        store.close()
+    assert "entries:" in result["integrity"]
+    assert result["foreign_key_violations"]
+    assert result["foreign_key_violations"][0]["table"] == "entries"
+
+
+def test_bounded_scan_reports_a_metadata_problem(tmp_path):
+    """Database-level invariants fail closed too, not just row-level ones."""
+
+    path = _fresh_db(tmp_path)
+
+    class FailingStore(V4ReadOnlyStore):
+        def _integrity_statement(self, pragma_sql, params=()):
+            if pragma_sql == "PRAGMA user_version":
+                return [(4,)]
+            return super()._integrity_statement(pragma_sql, params)
 
     store = FailingStore(path, enforce_thread_ownership=False)
     try:
@@ -351,7 +403,80 @@ def test_chunked_scan_reports_a_table_level_problem(tmp_path):
     finally:
         store.close()
     assert result["integrity"] != "ok"
-    assert "entries:" in result["integrity"]
+    assert "user_version" in result["integrity"]
+
+
+def test_bounded_scan_chunk_cost_does_not_track_table_size(tmp_path):
+    """The bound is a row count, not a table -- the defect being fixed.
+
+    A chunk over a table with 40x the rows must read the same number of rows,
+    which is what makes the read-mark hold independent of database size.
+    """
+
+    path = _fresh_db(tmp_path)
+    writer = sqlite3.connect(path)
+    writer.execute("CREATE TABLE small_probe (x INTEGER)")
+    writer.execute("CREATE TABLE large_probe (x INTEGER)")
+    writer.executemany(
+        "INSERT INTO small_probe (x) VALUES (?)", [(i,) for i in range(100)])
+    writer.executemany(
+        "INSERT INTO large_probe (x) VALUES (?)", [(i,) for i in range(4_000)])
+    writer.commit()
+    writer.close()
+
+    store = V4ReadOnlyStore(path, enforce_thread_ownership=False)
+    try:
+        plan = store._live_integrity_plan()
+        units = {unit["name"]: unit for unit in plan["units"]
+                 if unit["kind"] == "table"}
+        small = store._live_integrity_table_unit(
+            units["small_probe"], after_rowid=0, max_rows=50)
+        large = store._live_integrity_table_unit(
+            units["large_probe"], after_rowid=0, max_rows=50)
+    finally:
+        store.close()
+    assert small["rows_read"] == large["rows_read"] == 50
+    assert large["exhausted"] is False       # resumable, not truncated silently
+    assert large["last_rowid"] == 50         # and it says exactly where to resume
+
+
+def test_bounded_scan_resumes_without_gaps_or_duplicates(tmp_path):
+    """Resumption is exact: every row once, no row skipped."""
+
+    path = _fresh_db(tmp_path)
+    writer = sqlite3.connect(path)
+    writer.execute("CREATE TABLE walk_probe (x INTEGER)")
+    writer.executemany(
+        "INSERT INTO walk_probe (x) VALUES (?)", [(i,) for i in range(1_000)])
+    # A hole in the rowid sequence must not confuse the cursor.
+    writer.execute("DELETE FROM walk_probe WHERE rowid BETWEEN 300 AND 400")
+    writer.commit()
+    writer.close()
+
+    store = V4ReadOnlyStore(path, enforce_thread_ownership=False)
+    try:
+        plan = store._live_integrity_plan()
+        unit = next(unit for unit in plan["units"]
+                    if unit["kind"] == "table" and unit["name"] == "walk_probe")
+        expected = store.query_one("SELECT count(*) AS c FROM walk_probe")["c"]
+        after = 0
+        seen = 0
+        windows: list[tuple[int, int]] = []
+        while True:
+            step = store._live_integrity_table_unit(
+                unit, after_rowid=after, max_rows=37)
+            seen += step["rows_read"]
+            windows.append((after, step["last_rowid"]))
+            after = step["last_rowid"]
+            if step["exhausted"]:
+                break
+    finally:
+        store.close()
+    assert seen == expected                      # every row exactly once
+    starts = [start for start, _ in windows]
+    ends = [end for _, end in windows]
+    assert starts == [0, *ends[:-1]]             # each window resumes where the
+    assert all(b >= a for a, b in windows)       # previous one ended: no gaps
 
 
 def test_chunked_scan_releases_its_snapshot_when_a_chunk_raises(tmp_path):
@@ -436,13 +561,15 @@ def test_integrity_job_on_the_worker_releases_between_chunks(tmp_path):
         worker.stop()
     assert result["integrity"] == "ok"
     assert result["chunked"] is True
+    assert result["bounded"] is True
     view = READER_DIAGNOSTICS.snapshot()
     ops = view["ops"]
     key = "statement:diag-integrity-worker:sqlite_integrity_check"
-    assert ops[key]["count"] == 1 + 2 * result["chunks"]
-    # The longest single pin is one chunk, never the whole scan.
+    assert ops[key]["count"] >= result["chunks"]
+    # The longest single pin is one chunk, never the whole pass.
     assert ops[key]["max_ms"] <= ops[
         "job:diag-integrity-worker:sqlite_integrity_check"]["max_ms"]
+    assert ops[key]["max_ms"] <= result["chunk_bound_ms"]
     assert view["active_reader_count"] == 0
 
 

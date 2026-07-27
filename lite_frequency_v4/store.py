@@ -44,6 +44,42 @@ _SECRET_KEY_RE = re.compile(
 )
 
 
+def _now_ms() -> int:
+    """Wall clock in milliseconds; the store keeps its own so it stays
+    import-light (``diagnostics``/``runtime`` both import heavier modules)."""
+
+    return int(time.time() * 1000)
+
+
+def _quote_ident(name: str) -> str:
+    """Escape a SQLite identifier for interpolation inside double quotes.
+
+    Every identifier this is applied to comes from ``sqlite_master`` or a
+    ``PRAGMA``, never from a caller, but doubling embedded quotes keeps the
+    generated SQL well-formed for any legal schema name.
+    """
+
+    return str(name).replace('"', '""')
+
+
+def _remove_sqlite_files(path: Path) -> None:
+    """Delete a SQLite database file and its sidecars, ignoring absence.
+
+    Only ever called on audit-snapshot paths the runtime created itself; the
+    live database is never a legal argument (:meth:`V4Store.snapshot_backup`
+    rejects it before any deletion happens).
+    """
+
+    for suffix in ("", "-wal", "-shm", "-journal"):
+        candidate = Path(f"{path}{suffix}")
+        try:
+            candidate.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            continue
+
+
 class V4StoreError(RuntimeError):
     """Base class for fail-closed persistence errors."""
 
@@ -4877,69 +4913,673 @@ class V4Store:
         return {"integrity": "ok" if result == ["ok"] else "; ".join(result),
                 "foreign_key_violations": fk}
 
-    def _integrity_statement(self, pragma_sql: str) -> list[Any]:
+    def _integrity_statement(
+        self, pragma_sql: str, params: Iterable[Any] = (),
+    ) -> list[Any]:
         """Execute one bounded integrity statement on its own read snapshot.
 
         Read-only subclasses override this to record the statement's lifetime
-        in the reader diagnostics; the SQL itself is a fixed PRAGMA with a
-        quoted table name, never user input.
+        in the reader diagnostics.  The SQL is always built from ``PRAGMA``
+        output or ``sqlite_master`` identifiers, never from caller input, and
+        every value that varies per chunk is bound as a parameter.  Fetching to
+        exhaustion inside this call is what releases the read snapshot at the
+        chunk boundary rather than at the end of the scan.
         """
 
         self._assert_owner()
         with self._lock:
-            return self._conn.execute(pragma_sql).fetchall()
+            return self._conn.execute(pragma_sql, tuple(params)).fetchall()
+
+    # ---- bounded, resumable live integrity health check -------------------
+    #
+    # ``integrity_check_chunked`` used to cut the scan at one table per read
+    # transaction.  That bound held while the largest table was small; it is not
+    # a bound at all now.  Measured on the 9.29 GB store, a single
+    # ``PRAGMA quick_check("source_events")`` (3.18 M rows) held one WAL
+    # read-mark for **over 140 s** -- the checkpointer cannot pass an open
+    # read-mark, so the log grew monotonically 73 MB -> 246 MB and the dashboard
+    # export missed its freshness contract twice.  A chunk whose cost is "one
+    # table" grows with the table, so it is replaced below by a chunk whose cost
+    # is a fixed row count, resumable across passes.
+    #
+    # This is deliberately a *health* check, not a full audit.  It proves that
+    # every page it touches decodes, that declared foreign keys resolve, and
+    # that database metadata is stable.  It does **not** verify index content
+    # against table content or UNIQUE/CHECK constraints; only
+    # ``PRAGMA integrity_check`` does that, and it runs against a completed
+    # snapshot in :meth:`snapshot_backup` / the full audit, never against the
+    # live database.
+
+    #: Rows a unit's first chunk reads before it has any timing history, and
+    #: the range adaptation may move it in.  A new unit always starts small:
+    #: measured on the 9.29 GB store, carrying one global row count across
+    #: units let a cheap unit calibrate up to the ceiling and the next,
+    #: far more expensive unit then overshot its bound on its first chunk
+    #: (1,594 ms against a 1,000 ms bound).  Chunk size is therefore per unit.
+    LIVE_INTEGRITY_START_ROWS = 2_000
+    LIVE_INTEGRITY_MIN_ROWS = 250
+    #: Measured on the production store, a 45 k-row chunk reached 766 ms when
+    #: its pages missed the OS cache.  Live write load is slower still, so the
+    #: ceiling is held well under the bound rather than at it.
+    LIVE_INTEGRITY_MAX_ROWS = 25_000
+    #: Wall-clock a single chunk aims for.  Chunk size adapts toward it, so no
+    #: chunk's cost tracks total table size on any hardware.
+    LIVE_INTEGRITY_CHUNK_TARGET_MS = 250.0
+    #: Hard ceiling used for adaptation and for the honest "was any chunk over
+    #: its bound?" report.  A chunk cannot be interrupted mid-statement, so the
+    #: bound is enforced by shrinking the next chunk, not by aborting this one.
+    LIVE_INTEGRITY_CHUNK_MAX_MS = 1_000.0
+    #: Wall-clock one *pass* may spend before yielding, whatever remains.
+    LIVE_INTEGRITY_PASS_BUDGET_MS = 1_500.0
+
+    def _live_integrity_plan(self) -> dict[str, Any]:
+        """Build (and cache) the ordered unit plan for one live scan cycle.
+
+        The plan is derived from the schema only, so it is rebuilt exactly when
+        ``schema_version`` moves.  Building it costs one tiny statement per
+        table; every statement is its own read transaction.
+        """
+
+        signature = str(self._integrity_statement(
+            "PRAGMA schema_version")[0][0])
+        cached = getattr(self, "_live_integrity_plan_cache", None)
+        if cached is not None and cached.get("signature") == signature:
+            return cached
+
+        tables = [str(row[0]) for row in self._integrity_statement(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        units: list[dict[str, Any]] = [{"kind": "metadata", "name": "__database__"}]
+        for name in tables:
+            columns = [
+                str(row[1]) for row in self._integrity_statement(
+                    f'PRAGMA table_info("{_quote_ident(name)}")')
+            ]
+            if not columns:
+                continue
+            units.append({"kind": "table", "name": name, "columns": tuple(columns)})
+            for constraint in self._foreign_key_constraints(name):
+                units.append({
+                    "kind": "foreign_key", "name": name,
+                    "constraint": constraint,
+                })
+        plan = {
+            "signature": signature,
+            "units": tuple(units),
+            "tables": tuple(tables),
+        }
+        self._live_integrity_plan_cache = plan
+        return plan
+
+    def _foreign_key_constraints(self, table: str) -> tuple[dict[str, Any], ...]:
+        """Resolve ``PRAGMA foreign_key_list`` into joinable column pairs.
+
+        Composite constraints share an ``id`` across rows and are grouped back
+        together.  A ``to`` of NULL means "the parent's primary key", which is
+        resolved here so the generated check never guesses.
+        """
+
+        rows = self._integrity_statement(
+            f'PRAGMA foreign_key_list("{_quote_ident(table)}")')
+        grouped: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            record = dict(row)
+            key = int(record["id"])
+            entry = grouped.setdefault(
+                key, {"parent": str(record["table"]), "from": [], "to": []})
+            entry["from"].append(str(record["from"]))
+            entry["to"].append(
+                None if record["to"] is None else str(record["to"]))
+        constraints: list[dict[str, Any]] = []
+        for key in sorted(grouped):
+            entry = grouped[key]
+            parent = entry["parent"]
+            targets = entry["to"]
+            if any(target is None for target in targets):
+                primary = [
+                    str(row[1]) for row in sorted(
+                        (
+                            row for row in self._integrity_statement(
+                                f'PRAGMA table_info("{_quote_ident(parent)}")')
+                            if int(row[5]) > 0
+                        ),
+                        key=lambda row: int(row[5]),
+                    )
+                ]
+                if len(primary) != len(targets):
+                    # Cannot resolve the implied parent key; the full audit
+                    # covers it and the live check reports it honestly.
+                    constraints.append({
+                        "id": key, "parent": parent,
+                        "from": tuple(entry["from"]), "to": (),
+                        "unsupported": "unresolved_parent_key",
+                    })
+                    continue
+                targets = primary
+            constraints.append({
+                "id": key, "parent": parent,
+                "from": tuple(entry["from"]), "to": tuple(targets),
+                "unsupported": "",
+            })
+        return tuple(constraints)
+
+    def _live_integrity_metadata_unit(self) -> tuple[list[str], dict[str, Any]]:
+        """Database-level invariants: schema, version, page and freelist state."""
+
+        readings: dict[str, Any] = {}
+        problems: list[str] = []
+        for pragma in (
+            "schema_version", "user_version", "application_id",
+            "page_size", "page_count", "freelist_count",
+        ):
+            rows = self._integrity_statement(f"PRAGMA {pragma}")
+            readings[pragma] = int(rows[0][0]) if rows else None
+        rows = self._integrity_statement(
+            "SELECT count(*) FROM sqlite_master")
+        readings["sqlite_master_objects"] = int(rows[0][0]) if rows else None
+        if readings.get("user_version") != SCHEMA_VERSION:
+            problems.append(
+                f"__database__: user_version {readings.get('user_version')} "
+                f"!= {SCHEMA_VERSION}")
+        page_count = readings.get("page_count") or 0
+        freelist = readings.get("freelist_count") or 0
+        if freelist > page_count:
+            problems.append(
+                f"__database__: freelist_count {freelist} exceeds "
+                f"page_count {page_count}")
+        return problems, readings
+
+    def _live_integrity_table_unit(
+        self, unit: Mapping[str, Any], *, after_rowid: int, max_rows: int,
+    ) -> dict[str, Any]:
+        """Decode every column of one bounded rowid window of one table.
+
+        Cost is bounded by ``max_rows``, never by the table's size.  Reading the
+        columns (not just the rowid) forces SQLite to decode the record payload
+        and follow overflow pages, so a malformed page raises here rather than
+        being silently skipped by a rowid-only scan.
+        """
+
+        name = _quote_ident(str(unit["name"]))
+        columns = tuple(unit["columns"])
+        checksum_terms = " + ".join(
+            f'coalesce(length("{_quote_ident(column)}"), 0)'
+            for column in columns
+        )
+        sql = (
+            "SELECT count(*) AS rows_read, max(rid) AS last_rowid, "
+            "total(chk) AS decode_checksum FROM ("
+            f'SELECT rowid AS rid, ({checksum_terms}) AS chk '
+            f'FROM "{name}" WHERE rowid > ? ORDER BY rowid LIMIT ?)'
+        )
+        rows = self._integrity_statement(sql, (int(after_rowid), int(max_rows)))
+        record = rows[0] if rows else None
+        rows_read = int(record[0]) if record is not None else 0
+        last_rowid = (
+            int(record[1]) if record is not None and record[1] is not None
+            else int(after_rowid)
+        )
+        checksum = float(record[2] or 0.0) if record is not None else 0.0
+        return {
+            "rows_read": rows_read,
+            "last_rowid": last_rowid,
+            "decode_checksum": checksum,
+            "exhausted": rows_read < int(max_rows),
+            "problems": [],
+        }
+
+    def _live_integrity_foreign_key_unit(
+        self, unit: Mapping[str, Any], *, after_rowid: int, max_rows: int,
+    ) -> dict[str, Any]:
+        """Verify one declared foreign key over a bounded rowid window."""
+
+        constraint = unit["constraint"]
+        child = _quote_ident(str(unit["name"]))
+        if constraint.get("unsupported"):
+            return {
+                "rows_read": 0, "last_rowid": int(after_rowid),
+                "exhausted": True, "problems": [],
+                "unsupported": str(constraint["unsupported"]),
+            }
+        parent = _quote_ident(str(constraint["parent"]))
+        pairs = tuple(zip(constraint["from"], constraint["to"]))
+        not_null = " AND ".join(
+            f'c."{_quote_ident(source)}" IS NOT NULL' for source, _ in pairs)
+        matched = " AND ".join(
+            f'p."{_quote_ident(target)}" = c."{_quote_ident(source)}"'
+            for source, target in pairs
+        )
+        sql = (
+            "SELECT count(*) AS rows_read, max(rid) AS last_rowid, "
+            "total(bad) AS violations FROM ("
+            "SELECT c.rowid AS rid, CASE WHEN "
+            f"({not_null}) AND NOT EXISTS("
+            f'SELECT 1 FROM "{parent}" p WHERE {matched}'
+            ") THEN 1 ELSE 0 END AS bad "
+            f'FROM "{child}" c WHERE c.rowid > ? ORDER BY c.rowid LIMIT ?)'
+        )
+        rows = self._integrity_statement(sql, (int(after_rowid), int(max_rows)))
+        record = rows[0] if rows else None
+        rows_read = int(record[0]) if record is not None else 0
+        last_rowid = (
+            int(record[1]) if record is not None and record[1] is not None
+            else int(after_rowid)
+        )
+        violations = int(record[2] or 0) if record is not None else 0
+        problems: list[str] = []
+        fk_rows: list[dict[str, Any]] = []
+        if violations:
+            detail = {
+                "table": str(unit["name"]),
+                "parent": str(constraint["parent"]),
+                "fkid": int(constraint["id"]),
+                "rows": violations,
+                "rowid_window_start": int(after_rowid),
+                "rowid_window_end": last_rowid,
+            }
+            fk_rows.append(detail)
+            problems.append(
+                f"{unit['name']}: {violations} row(s) violate foreign key "
+                f"{constraint['id']} -> {constraint['parent']}")
+        return {
+            "rows_read": rows_read,
+            "last_rowid": last_rowid,
+            "exhausted": rows_read < int(max_rows),
+            "problems": problems,
+            "foreign_key_violations": fk_rows,
+        }
+
+    def live_integrity_state(self) -> dict[str, Any]:
+        """Return the resumable cursor for the live integrity scan."""
+
+        state = getattr(self, "_live_integrity_cursor", None)
+        if state is None:
+            state = {
+                "signature": "",
+                "cycle": 0,
+                "unit_index": 0,
+                "after_rowid": 0,
+                "units_total": 0,
+                "cycle_started_ts_ms": 0,
+                "cycle_rows_scanned": 0,
+                "cycle_chunks": 0,
+                "cycle_max_chunk_ms": 0.0,
+                "cycle_problems": (),
+                "cycle_foreign_key_violations": (),
+                # Per-unit calibrated chunk sizes, carried across cycles so the
+                # second pass over a unit starts already sized for it.
+                "unit_rows": {},
+                "rows_per_chunk": self.LIVE_INTEGRITY_START_ROWS,
+                "last_completed_cycle_ts_ms": 0,
+                "last_completed_cycle_ok": None,
+                "last_completed_cycle_duration_ms": 0.0,
+                "completed_cycles": 0,
+                "chunks_over_bound": 0,
+            }
+            self._live_integrity_cursor = state
+        return state
 
     def integrity_check_chunked(self) -> dict[str, Any]:
-        """Per-table integrity scan that never holds one long read snapshot.
+        """One bounded, resumable pass of the live integrity health check.
 
-        A monolithic ``PRAGMA quick_check`` on this evidence store is a single
-        read transaction measured at 39 s cold and 130 s under live load.  In
-        WAL mode that one statement pins the checkpointer's read-mark for its
-        whole duration: no PASSIVE backfill can pass it and no RESTART or
-        TRUNCATE can reset the log, so the WAL grows by the full write volume
-        of the scan (~110 MB/min measured).  Scanning table by table performs
-        the same per-table corruption and foreign-key detection while giving
-        every statement its own snapshot, so the longest pin drops from the
-        whole-database scan to the largest single table (8.4 s measured cold).
+        Each pass runs whole chunks until :attr:`LIVE_INTEGRITY_PASS_BUDGET_MS`
+        is spent, then returns a resumable cursor.  Every chunk is one read
+        transaction over a fixed number of rows, so no read-mark hold grows with
+        the database: the measured worst case falls from >140 s (one table) to
+        the adaptive chunk target.
 
-        Consistency: each table is validated against a point-in-time snapshot;
-        different tables may be validated against slightly different snapshots.
-        That is sound for corruption detection -- every committed page state a
-        chunk sees must still be internally consistent -- and matches how the
-        result is consumed (a boolean integrity gate).  Database-level
-        structures not owned by any one table (freelist bookkeeping) remain
-        covered by the infrequent monolithic full audit, which deliberately
-        keeps :meth:`integrity_check` semantics.
+        The returned mapping keeps the historical keys (``integrity``,
+        ``foreign_key_violations``, ``chunked``, ``chunks``, ``max_chunk_ms``,
+        ``duration_ms``) so every existing consumer and gate is unchanged, and
+        adds explicit coverage fields.  ``integrity`` reports what this scan has
+        *found*, and the coverage fields report how much has been *looked at* --
+        the two are deliberately separate so a partial pass can never read as a
+        completed audit.
         """
 
         self._assert_owner()
         started = time.monotonic()
-        tables = [str(row[0]) for row in self._integrity_statement(
-            "SELECT name FROM sqlite_master WHERE type='table' "
-            "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
-        problems: list[str] = []
-        fk_rows: list[dict[str, Any]] = []
-        max_chunk_ms = 0.0
-        for name in tables:
-            quoted = name.replace('"', '""')
+        budget_s = self.LIVE_INTEGRITY_PASS_BUDGET_MS / 1_000.0
+        plan = self._live_integrity_plan()
+        state = self.live_integrity_state()
+        if state["signature"] != plan["signature"]:
+            state.update({
+                "signature": plan["signature"],
+                "unit_index": 0,
+                "after_rowid": 0,
+                "cycle_started_ts_ms": _now_ms(),
+                "cycle_rows_scanned": 0,
+                "cycle_chunks": 0,
+                "cycle_max_chunk_ms": 0.0,
+                "cycle_problems": (),
+                "cycle_foreign_key_violations": (),
+                # A schema change invalidates the unit ordering the calibration
+                # was keyed to, so it is discarded rather than misapplied.
+                "unit_rows": {},
+            })
+        units = plan["units"]
+        state["units_total"] = len(units)
+        if not state["cycle_started_ts_ms"]:
+            state["cycle_started_ts_ms"] = _now_ms()
+
+        problems = list(state["cycle_problems"])
+        fk_rows = list(state["cycle_foreign_key_violations"])
+        pass_chunks = 0
+        pass_rows = 0
+        pass_max_chunk_ms = 0.0
+        cycle_completed = False
+        metadata: dict[str, Any] = {}
+
+        while state["unit_index"] < len(units):
+            if (time.monotonic() - started) >= budget_s and pass_chunks:
+                break
+            unit_index = int(state["unit_index"])
+            unit = units[unit_index]
+            unit_rows = state["unit_rows"]
+            rows_per_chunk = int(
+                unit_rows.get(unit_index, self.LIVE_INTEGRITY_START_ROWS))
             chunk_started = time.monotonic()
-            result = [str(row[0]) for row in self._integrity_statement(
-                f'PRAGMA quick_check("{quoted}")')]
-            if result != ["ok"]:
-                problems.extend(f"{name}: {line}" for line in result)
-            fk_rows.extend(
-                dict(row) for row in self._integrity_statement(
-                    f'PRAGMA foreign_key_check("{quoted}")'))
-            max_chunk_ms = max(
-                max_chunk_ms, (time.monotonic() - chunk_started) * 1_000.0)
+            if unit["kind"] == "metadata":
+                unit_problems, metadata = self._live_integrity_metadata_unit()
+                problems.extend(unit_problems)
+                advance = True
+                rows_read = 0
+            elif unit["kind"] == "table":
+                result = self._live_integrity_table_unit(
+                    unit, after_rowid=int(state["after_rowid"]),
+                    max_rows=rows_per_chunk)
+                problems.extend(result["problems"])
+                rows_read = int(result["rows_read"])
+                state["after_rowid"] = int(result["last_rowid"])
+                advance = bool(result["exhausted"])
+            else:
+                result = self._live_integrity_foreign_key_unit(
+                    unit, after_rowid=int(state["after_rowid"]),
+                    max_rows=rows_per_chunk)
+                problems.extend(result["problems"])
+                fk_rows.extend(result.get("foreign_key_violations") or ())
+                rows_read = int(result["rows_read"])
+                state["after_rowid"] = int(result["last_rowid"])
+                advance = bool(result["exhausted"])
+            chunk_ms = (time.monotonic() - chunk_started) * 1_000.0
+            pass_chunks += 1
+            pass_rows += rows_read
+            pass_max_chunk_ms = max(pass_max_chunk_ms, chunk_ms)
+            state["cycle_chunks"] = int(state["cycle_chunks"]) + 1
+            state["cycle_rows_scanned"] = int(state["cycle_rows_scanned"]) + rows_read
+            state["cycle_max_chunk_ms"] = max(
+                float(state["cycle_max_chunk_ms"]), chunk_ms)
+            if chunk_ms > self.LIVE_INTEGRITY_CHUNK_MAX_MS:
+                state["chunks_over_bound"] = int(state["chunks_over_bound"]) + 1
+            adapted = self._adapt_chunk_rows(
+                rows_per_chunk, chunk_ms, rows_read)
+            unit_rows[unit_index] = adapted
+            state["rows_per_chunk"] = adapted
+            if advance:
+                state["unit_index"] = int(state["unit_index"]) + 1
+                state["after_rowid"] = 0
+
+        if state["unit_index"] >= len(units):
+            cycle_completed = True
+            state["cycle"] = int(state["cycle"]) + 1
+            state["completed_cycles"] = int(state["completed_cycles"]) + 1
+            state["last_completed_cycle_ts_ms"] = _now_ms()
+            state["last_completed_cycle_ok"] = not problems and not fk_rows
+            state["last_completed_cycle_duration_ms"] = round(
+                max(0, _now_ms() - int(state["cycle_started_ts_ms"])), 1)
+            # A completed cycle publishes its verdict and starts the next one
+            # from a clean slate, so a transient finding cannot outlive the
+            # cycle that observed it.
+            state["unit_index"] = 0
+            state["after_rowid"] = 0
+            state["cycle_started_ts_ms"] = _now_ms()
+            state["cycle_rows_scanned"] = 0
+            state["cycle_chunks"] = 0
+            state["cycle_max_chunk_ms"] = 0.0
+            state["cycle_problems"] = ()
+            state["cycle_foreign_key_violations"] = ()
+        else:
+            state["cycle_problems"] = tuple(problems)
+            state["cycle_foreign_key_violations"] = tuple(fk_rows)
+
         return {
             "integrity": "ok" if not problems else "; ".join(problems),
             "foreign_key_violations": fk_rows,
             "chunked": True,
-            "chunks": len(tables),
-            "max_chunk_ms": round(max_chunk_ms, 1),
+            "bounded": True,
+            "chunks": pass_chunks,
+            "max_chunk_ms": round(pass_max_chunk_ms, 1),
             "duration_ms": round((time.monotonic() - started) * 1_000.0, 1),
+            "rows_scanned": pass_rows,
+            "rows_per_chunk": int(state["rows_per_chunk"]),
+            "chunk_bound_ms": self.LIVE_INTEGRITY_CHUNK_MAX_MS,
+            "chunks_over_bound": int(state["chunks_over_bound"]),
+            "unit_index": int(state["unit_index"]),
+            "units_total": int(state["units_total"]),
+            "progress_pct": (
+                round(100.0 * int(state["unit_index"]) / len(units), 2)
+                if units else 100.0
+            ),
+            "cycle": int(state["cycle"]),
+            "cycle_complete": cycle_completed,
+            "completed_cycles": int(state["completed_cycles"]),
+            "last_completed_cycle_ts_ms": (
+                int(state["last_completed_cycle_ts_ms"]) or None),
+            "last_completed_cycle_ok": state["last_completed_cycle_ok"],
+            "last_completed_cycle_duration_ms": float(
+                state["last_completed_cycle_duration_ms"]),
+            "scope": "live_bounded_health_check",
+            "metadata": metadata,
         }
+
+    def _adapt_chunk_rows(
+        self, rows_per_chunk: int, chunk_ms: float, rows_read: int,
+    ) -> int:
+        """Move the chunk size toward the wall-clock target, within bounds.
+
+        Adaptation is what keeps the bound true on hardware this was never
+        measured on: a chunk that overran halves, a chunk well inside the target
+        grows by a quarter, and both are clamped.  A chunk that read nothing
+        (an exhausted unit) carries no timing signal and never adapts.
+        """
+
+        if rows_read <= 0:
+            return int(rows_per_chunk)
+        if chunk_ms > self.LIVE_INTEGRITY_CHUNK_TARGET_MS * 1.5:
+            scaled = max(1, int(rows_per_chunk // 2))
+        elif chunk_ms < self.LIVE_INTEGRITY_CHUNK_TARGET_MS * 0.5:
+            scaled = int(rows_per_chunk * 1.25) + 1
+        else:
+            scaled = int(rows_per_chunk)
+        return max(
+            self.LIVE_INTEGRITY_MIN_ROWS,
+            min(self.LIVE_INTEGRITY_MAX_ROWS, scaled),
+        )
+
+    # ---- incremental snapshot backup for the off-live full audit ----------
+
+    def snapshot_backup(
+        self,
+        destination: str | Path,
+        *,
+        pages_per_step: int = 512,
+        max_seconds: float = 240.0,
+        max_restarts: int = 8,
+        inter_step_pause_s: float = 0.0,
+        should_cancel: Optional[Callable[[], bool]] = None,
+        progress_sink: Optional[Callable[[dict[str, Any]], None]] = None,
+    ) -> dict[str, Any]:
+        """Copy this database to ``destination`` in bounded page steps.
+
+        Uses SQLite's online backup API.  Each ``sqlite3_backup_step`` opens and
+        closes its own read transaction on the source, so the source read-mark
+        is held per step (milliseconds) and never for the copy's duration --
+        that is the whole point: the full ``PRAGMA integrity_check`` must never
+        again run against the live database.
+
+        The API restarts the copy from page 1 whenever the source is written by
+        any *other* connection.  Measured on a WAL database with one external
+        writer committing five times per second, a 206 MB copy restarted 218
+        times in 45 s and never converged, while the same copy with a quiet
+        source converged in 50 steps.  The copy therefore succeeds in a
+        quiescent window and reports ``DEFERRED_SOURCE_CHURN`` otherwise; it
+        never silently produces a torn image, and a partial destination is
+        always removed.
+
+        Returns a manifest describing what actually happened.  The caller is
+        responsible for auditing the completed file; this method only produces
+        it.
+        """
+
+        self._assert_owner()
+        if isinstance(pages_per_step, bool) or int(pages_per_step) < 1:
+            raise ValueError("pages_per_step must be a positive integer")
+        if float(max_seconds) <= 0:
+            raise ValueError("max_seconds must be positive")
+        if isinstance(max_restarts, bool) or int(max_restarts) < 0:
+            raise ValueError("max_restarts must be a non-negative integer")
+        target = Path(destination)
+        source = Path(self.path).resolve()
+        if target.resolve(strict=False) == source:
+            raise ValueError("snapshot destination must not be the live database")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        partial = target.with_name(target.name + ".partial")
+        _remove_sqlite_files(partial)
+        _remove_sqlite_files(target)
+
+        started = time.monotonic()
+        stats = {
+            "steps": 0, "restarts": 0, "non_progress_steps": 0,
+            "pages_copied": 0, "page_count": 0, "remaining": 0,
+            "max_step_ms": 0.0, "total_step_ms": 0.0,
+        }
+        previous_remaining: Optional[int] = None
+        step_started = [time.monotonic()]
+        outcome = {"status": "COMPLETED", "reason": ""}
+
+        class _StopBackup(Exception):
+            """Internal signal: end the copy and let sqlite3 finish cleanly."""
+
+        def _progress(status: int, remaining: int, page_count: int) -> None:
+            nonlocal previous_remaining
+            now = time.monotonic()
+            step_ms = max(0.0, (now - step_started[0]) * 1_000.0)
+            stats["steps"] += 1
+            stats["max_step_ms"] = max(stats["max_step_ms"], step_ms)
+            stats["total_step_ms"] += step_ms
+            stats["remaining"] = int(remaining)
+            stats["page_count"] = int(page_count)
+            stats["pages_copied"] = max(0, int(page_count) - int(remaining))
+            if previous_remaining is not None and int(remaining) >= previous_remaining:
+                # A step that copied pages always reduces ``remaining``.  It
+                # rises when SQLite restarted the copy from page 1, and stays
+                # flat when the restart landed exactly where the step ended or
+                # the step was contended.  Both mean the copy did not advance,
+                # which is the condition the budget exists to bound; only the
+                # unambiguous case is reported as a restart.
+                stats["non_progress_steps"] += 1
+                if int(remaining) > previous_remaining:
+                    stats["restarts"] += 1
+            previous_remaining = int(remaining)
+            if progress_sink is not None:
+                try:
+                    progress_sink(dict(stats))
+                except Exception:  # progress reporting must never fail a copy
+                    pass
+            if stats["non_progress_steps"] > int(max_restarts):
+                outcome["status"] = "DEFERRED_SOURCE_CHURN"
+                outcome["reason"] = (
+                    f"copy failed to advance on {stats['non_progress_steps']} "
+                    f"steps ({stats['restarts']} confirmed restarts)")
+                raise _StopBackup()
+            if should_cancel is not None and should_cancel():
+                outcome["status"] = "CANCELLED"
+                outcome["reason"] = "cancellation requested"
+                raise _StopBackup()
+            if (now - started) > float(max_seconds):
+                outcome["status"] = "DEADLINE_EXCEEDED"
+                outcome["reason"] = (
+                    f"copy exceeded {float(max_seconds):.1f}s budget")
+                raise _StopBackup()
+            # Pausing here is outside sqlite3_backup_step, so the source read
+            # transaction is already closed: this yields the read-mark to the
+            # checkpointer rather than holding it.
+            if inter_step_pause_s > 0:
+                time.sleep(float(inter_step_pause_s))
+            step_started[0] = time.monotonic()
+
+        identity = self._snapshot_source_identity()
+        destination_connection: Optional[sqlite3.Connection] = None
+        try:
+            destination_connection = sqlite3.connect(
+                partial, isolation_level=None)
+            with self._lock:
+                self._conn.backup(
+                    destination_connection, pages=int(pages_per_step),
+                    progress=_progress)
+        except _StopBackup:
+            pass
+        except sqlite3.Error as exc:
+            outcome["status"] = "FAILED"
+            outcome["reason"] = f"{type(exc).__name__}:{exc}"[:200]
+        except Exception as exc:  # noqa: BLE001 - a copy must never crash a worker
+            outcome["status"] = "FAILED"
+            outcome["reason"] = f"{type(exc).__name__}:{exc}"[:200]
+        finally:
+            if destination_connection is not None:
+                try:
+                    destination_connection.close()
+                except sqlite3.Error:
+                    pass
+
+        duration_ms = (time.monotonic() - started) * 1_000.0
+        completed = outcome["status"] == "COMPLETED"
+        if completed:
+            try:
+                partial.replace(target)
+            except OSError as exc:
+                completed = False
+                outcome["status"] = "FAILED"
+                outcome["reason"] = f"publish failed: {exc}"[:200]
+        if not completed:
+            # A partial image is never left behind: it could otherwise be
+            # mistaken for a snapshot and audited as if it were complete.
+            _remove_sqlite_files(partial)
+            _remove_sqlite_files(target)
+
+        return {
+            "status": outcome["status"],
+            "reason": outcome["reason"],
+            "completed": completed,
+            "path": str(target) if completed else "",
+            "bytes": target.stat().st_size if completed and target.exists() else 0,
+            "duration_ms": round(duration_ms, 1),
+            "steps": int(stats["steps"]),
+            "restarts": int(stats["restarts"]),
+            "non_progress_steps": int(stats["non_progress_steps"]),
+            "pages_copied": int(stats["pages_copied"]),
+            "page_count": int(stats["page_count"]),
+            "pages_remaining": int(stats["remaining"]),
+            "pages_per_step": int(pages_per_step),
+            "max_step_ms": round(float(stats["max_step_ms"]), 3),
+            "mean_step_ms": round(
+                float(stats["total_step_ms"]) / max(1, int(stats["steps"])), 3),
+            "source_identity": identity,
+            "source_as_of_ms": _now_ms(),
+        }
+
+    def _snapshot_source_identity(self) -> dict[str, Any]:
+        """Identity of the source database at the moment a copy begins."""
+
+        readings: dict[str, Any] = {}
+        for pragma in (
+            "schema_version", "user_version", "application_id",
+            "page_size", "page_count",
+        ):
+            rows = self._integrity_statement(f"PRAGMA {pragma}")
+            readings[pragma] = int(rows[0][0]) if rows else None
+        readings["path"] = str(self.path)
+        return readings
 
     def database_size_bytes(self) -> int:
         return sum(
@@ -5045,6 +5685,142 @@ class V4Store:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
+
+
+def audit_snapshot_database(
+    snapshot_path: str | Path,
+    *,
+    expected_identity: Optional[Mapping[str, Any]] = None,
+    busy_timeout_ms: int = 5_000,
+) -> dict[str, Any]:
+    """Run the full SQLite integrity audit against a completed snapshot.
+
+    This is the only place ``PRAGMA integrity_check`` (B-tree ordering, index
+    content against table content, UNIQUE/CHECK/NOT NULL) is executed, and it
+    never touches the live database: the argument is a file produced by
+    :meth:`V4Store.snapshot_backup` and verified complete before the expensive
+    pass begins.
+
+    The order is deliberate and fail-closed: identity first (is this a snapshot
+    of the database we think it is?), then ``quick_check`` (is the file even
+    structurally readable?), then the full ``integrity_check`` and
+    ``foreign_key_check``.  A failure at any stage stops the audit and is
+    reported as the verdict rather than swallowed.
+    """
+
+    path = Path(snapshot_path)
+    started = time.monotonic()
+    result: dict[str, Any] = {
+        "status": "UNKNOWN",
+        "ok": None,
+        "integrity": "UNKNOWN",
+        "foreign_key_violations": [],
+        "quick_check": "",
+        "identity": {},
+        "identity_matches": None,
+        "failure_reason": "",
+        "snapshot_bytes": 0,
+        "duration_ms": 0.0,
+        "quick_check_ms": 0.0,
+        "integrity_check_ms": 0.0,
+        "foreign_key_check_ms": 0.0,
+    }
+    if not path.exists():
+        result["status"] = "UNAVAILABLE"
+        result["failure_reason"] = "snapshot file is missing"
+        return result
+    result["snapshot_bytes"] = path.stat().st_size
+
+    connection: Optional[sqlite3.Connection] = None
+    try:
+        connection = sqlite3.connect(
+            f"file:{path.as_posix()}?mode=ro", uri=True,
+            timeout=max(0.1, busy_timeout_ms / 1000.0), isolation_level=None)
+        connection.row_factory = sqlite3.Row
+        connection.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
+        connection.execute("PRAGMA query_only=ON")
+
+        identity = {
+            pragma: int(connection.execute(f"PRAGMA {pragma}").fetchone()[0])
+            for pragma in (
+                "schema_version", "user_version", "application_id",
+                "page_size", "page_count",
+            )
+        }
+        result["identity"] = identity
+        if expected_identity:
+            # ``schema_version`` and ``page_count`` legitimately move while a
+            # copy runs; the audit pins the fields that must not change for the
+            # snapshot to be a snapshot *of this store*.
+            mismatches = [
+                key for key in ("user_version", "application_id", "page_size")
+                if key in expected_identity
+                and expected_identity[key] is not None
+                and identity.get(key) != expected_identity[key]
+            ]
+            result["identity_matches"] = not mismatches
+            if mismatches:
+                result["status"] = "IDENTITY_MISMATCH"
+                result["failure_reason"] = (
+                    "snapshot identity differs from source: "
+                    + ",".join(mismatches))
+                result["ok"] = False
+                return result
+
+        mark = time.monotonic()
+        quick = [
+            str(row[0]) for row in connection.execute("PRAGMA quick_check").fetchall()
+        ]
+        result["quick_check_ms"] = round((time.monotonic() - mark) * 1_000.0, 1)
+        result["quick_check"] = "ok" if quick == ["ok"] else "; ".join(quick)
+        if quick != ["ok"]:
+            result["status"] = "SNAPSHOT_CORRUPT"
+            result["integrity"] = result["quick_check"]
+            result["failure_reason"] = "snapshot failed quick_check"
+            result["ok"] = False
+            return result
+
+        mark = time.monotonic()
+        full = [
+            str(row[0]) for row in
+            connection.execute("PRAGMA integrity_check").fetchall()
+        ]
+        result["integrity_check_ms"] = round(
+            (time.monotonic() - mark) * 1_000.0, 1)
+        result["integrity"] = "ok" if full == ["ok"] else "; ".join(full)
+
+        mark = time.monotonic()
+        violations = [
+            dict(row) for row in
+            connection.execute("PRAGMA foreign_key_check").fetchall()
+        ]
+        result["foreign_key_check_ms"] = round(
+            (time.monotonic() - mark) * 1_000.0, 1)
+        result["foreign_key_violations"] = violations
+
+        ok = full == ["ok"] and not violations
+        result["ok"] = ok
+        result["status"] = "COMPLETED_OK" if ok else "COMPLETED_FAILED"
+        if not ok:
+            result["failure_reason"] = (
+                result["integrity"] if full != ["ok"]
+                else f"{len(violations)} foreign key violation(s)")
+    except sqlite3.Error as exc:
+        result["status"] = "FAILED"
+        result["ok"] = False
+        result["failure_reason"] = f"{type(exc).__name__}:{exc}"[:200]
+    except Exception as exc:  # noqa: BLE001 - an audit must never crash a worker
+        result["status"] = "FAILED"
+        result["ok"] = False
+        result["failure_reason"] = f"{type(exc).__name__}:{exc}"[:200]
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except sqlite3.Error:
+                pass
+    result["duration_ms"] = round((time.monotonic() - started) * 1_000.0, 1)
+    return result
 
 
 class V4ReadOnlyStore(V4Store):
@@ -5219,13 +5995,15 @@ class V4ReadOnlyStore(V4Store):
             token, rows=len(result.get("foreign_key_violations") or ()))
         return result
 
-    def _integrity_statement(self, pragma_sql: str) -> list[Any]:
-        # Each chunk of the chunked integrity scan is one read transaction;
+    def _integrity_statement(
+        self, pragma_sql: str, params: Iterable[Any] = (),
+    ) -> list[Any]:
+        # Each chunk of the live integrity scan is one read transaction;
         # registering per chunk is what proves the snapshot is released at
         # every chunk boundary rather than held across the whole scan.
         token = READER_DIAGNOSTICS.begin_statement(conn_id=id(self._conn))
         try:
-            rows = super()._integrity_statement(pragma_sql)
+            rows = super()._integrity_statement(pragma_sql, params)
         except BaseException as exc:
             READER_DIAGNOSTICS.end_statement(
                 token, error=f"{type(exc).__name__}"[:120])

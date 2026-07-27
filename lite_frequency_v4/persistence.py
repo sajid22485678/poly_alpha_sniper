@@ -513,6 +513,10 @@ class V4PersistenceWriter:
         self._lifecycle_lock = threading.Lock()
         self._sequence = 0
         self._sequence_lock = threading.Lock()
+        # Set only for the duration of an explicitly requested quiescent window
+        # (the audit snapshot copy).  It suppresses the periodic diagnostic
+        # sample and nothing else; critical evidence is never affected.
+        self._quiescent_window = threading.Event()
         self._metrics_lock = threading.Lock()
         self._metrics: dict[str, Any] = {
             "state": "NEW", "worker_thread_id": 0,
@@ -740,6 +744,24 @@ class V4PersistenceWriter:
             "avg": sum(ordered) / len(ordered), "p50": percentile(0.50),
             "p95": percentile(0.95), "max": float(ordered[-1]),
         }
+
+    def begin_quiescent_window(self) -> None:
+        """Suppress the periodic diagnostic sample until the window ends.
+
+        Requested only around the audit snapshot copy, which cannot converge
+        while any connection writes the source.  Queued commands continue to be
+        processed and committed; only the 1 Hz ``persistence_worker_samples``
+        row is withheld, and the count withheld is published.
+        """
+
+        self._quiescent_window.set()
+
+    def end_quiescent_window(self) -> None:
+        self._quiescent_window.clear()
+
+    @property
+    def quiescent_window_active(self) -> bool:
+        return self._quiescent_window.is_set()
 
     def metrics(self) -> dict[str, Any]:
         with self._metrics_lock:
@@ -1264,8 +1286,22 @@ class V4PersistenceWriter:
                     self._metrics["heartbeat_ts_ms"] = _now_ms()
                 if (self.sample_interval_s == 0.0
                         or time.monotonic() - last_sample >= self.sample_interval_s):
-                    self._record_sample(store, "RUNNING")
-                    last_sample = time.monotonic()
+                    # The periodic worker sample is diagnostics, not evidence,
+                    # and it is the only writer that runs when the lane is
+                    # otherwise idle.  SQLite's online backup restarts from page
+                    # one on any external write, so a 1 Hz diagnostic row is
+                    # enough to stop an audit snapshot converging forever.  A
+                    # bounded, explicitly requested quiescent window suppresses
+                    # it -- and only it; every queued command is still processed
+                    # and committed exactly as usual.
+                    if self._quiescent_window.is_set():
+                        with self._metrics_lock:
+                            self._metrics["quiescent_samples_skipped"] = int(
+                                self._metrics.get("quiescent_samples_skipped")
+                                or 0) + 1
+                    else:
+                        self._record_sample(store, "RUNNING")
+                        last_sample = time.monotonic()
             self._record_sample(store, "STOPPING")
             if self.checkpoint_on_close:
                 store.checkpoint(mode="PASSIVE", reason="persistence_writer_stop")

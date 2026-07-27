@@ -168,19 +168,42 @@ class FrequencyV4Config:
     maintenance_chunk_rows: int = 250
     maintenance_max_rows_per_pass: int = 4_000
     maintenance_max_seconds_per_pass: float = 1.0
-    # The full ``PRAGMA integrity_check`` (B-tree ordering validation) is far
-    # slower than the periodic ``quick_check`` and must never share the
-    # reporting/export worker.  It runs on the dedicated integrity read worker's
-    # own connection at most once per this interval, and never at startup, so a
-    # multi-GB evidence store scan stays an infrequent offline-style audit rather
-    # than a hot-path job.  Measured on the 6.50 GB production store: quick_check
-    # ~17s, full integrity_check ~66s.
+    # The full ``PRAGMA integrity_check`` (B-tree ordering, index content
+    # against table content, UNIQUE/CHECK) is far slower than the bounded live
+    # health check and must never run against the live database: measured on the
+    # 9.29 GB production store, a live whole-table scan held one WAL read-mark
+    # for over 140 s, the log grew 73 MB -> 246 MB, and the dashboard export
+    # missed its freshness contract.  The audit therefore runs against a
+    # completed incremental snapshot on the dedicated integrity read worker, at
+    # most once per this interval.
     full_integrity_audit_interval_ms: int = 6 * 3_600_000
     # The audit needs its own budget: ``maintenance_worker_timeout_s`` (30s) is
     # shorter than one real full scan, so reusing it would interrupt every audit
-    # at the deadline and never produce a verdict.  Still bounded, so a pathological
-    # scan cannot hold the integrity connection (and the WAL read snapshot) forever.
+    # at the deadline and never produce a verdict.  Still bounded, so a
+    # pathological scan cannot hold the integrity connection forever.
     full_integrity_audit_timeout_s: float = 300.0
+    # Snapshot copy shape.  Each ``sqlite3_backup_step`` opens and closes its own
+    # read transaction, so pages-per-step *is* the read-mark hold: 512 pages is
+    # 2 MB, measured at a 6.9 ms mean and 78 ms max step on the production store.
+    full_integrity_audit_snapshot_pages_per_step: int = 512
+    # Hard wall for one copy attempt.  The measured full copy of the 9.97 GB
+    # store is ~36-65 s depending on cache state; the budget leaves room without
+    # letting a pathological attempt run unbounded.
+    full_integrity_audit_snapshot_budget_s: float = 240.0
+    # SQLite restarts the copy from page 1 whenever another connection writes the
+    # source.  A handful of restarts is a transient; a stream of them means the
+    # source is not quiescent, and the attempt is abandoned honestly rather than
+    # spinning.
+    full_integrity_audit_snapshot_max_restarts: int = 8
+    # Completed snapshots retained after a verdict.  The verdict is the artefact
+    # worth keeping; a multi-gigabyte image is not.
+    full_integrity_audit_snapshot_keep: int = 0
+    # Take the snapshot in the startup quiescent window (the only point at which
+    # the copy can converge, since any concurrent writer restarts it).
+    full_integrity_audit_startup_snapshot: bool = True
+    # Fail-closed staleness policy: a completed audit older than this reports
+    # ``STALE`` rather than continuing to read as a current pass.
+    full_integrity_audit_max_age_ms: int = 7 * 86_400_000
 
     @property
     def exposure_cap_usd(self) -> float:
@@ -279,7 +302,8 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
 
     strict_bools = ("enabled", "dry_run", "live_enabled", "real_orders_possible",
                     "live_adapter_present", "kill_switch_engaged",
-                    "discover_additional_assets")
+                    "discover_additional_assets",
+                    "full_integrity_audit_startup_snapshot")
     for name in strict_bools:
         if type(getattr(cfg, name)) is not bool:
             raise RuntimeError(f"invalid Frequency V4 config field: {name}")
@@ -323,6 +347,10 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "maintenance_chunk_rows": (1, 100_000),
         "maintenance_max_rows_per_pass": (1, 5_000_000),
         "full_integrity_audit_interval_ms": (600_000, 7 * 86_400_000),
+        "full_integrity_audit_snapshot_pages_per_step": (1, 262_144),
+        "full_integrity_audit_snapshot_max_restarts": (0, 10_000),
+        "full_integrity_audit_snapshot_keep": (0, 8),
+        "full_integrity_audit_max_age_ms": (600_000, 90 * 86_400_000),
     }
     for name, (minimum, maximum) in integers.items():
         _strict_integer(getattr(cfg, name), name, minimum=minimum, maximum=maximum)
@@ -345,6 +373,11 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         raise RuntimeError("invalid Frequency V4 config field: maker observation")
     if cfg.rest_recovery_min_ms > cfg.rest_recovery_max_ms:
         raise RuntimeError("invalid Frequency V4 config field: REST recovery")
+    # A staleness limit shorter than the cadence would report every completed
+    # audit as stale before the next one is even due.
+    if cfg.full_integrity_audit_max_age_ms < cfg.full_integrity_audit_interval_ms:
+        raise RuntimeError(
+            "invalid Frequency V4 config field: full_integrity_audit_max_age_ms")
 
     numbers = {
         "discovery_interval_s": (0.25, 3_600.0, True),
@@ -368,6 +401,7 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "maintenance_worker_timeout_s": (0.0, 600.0, True),
         "maintenance_max_seconds_per_pass": (0.0, 30.0, True),
         "full_integrity_audit_timeout_s": (60.0, 600.0, False),
+        "full_integrity_audit_snapshot_budget_s": (10.0, 1_800.0, False),
     }
     for name, (minimum, maximum, strict_minimum) in numbers.items():
         _strict_number(getattr(cfg, name), name, minimum=minimum,

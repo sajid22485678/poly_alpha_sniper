@@ -73,6 +73,7 @@ from .store import (
     UniverseEligibilityError,
     V4StoreError,
     WindowReservationConflict,
+    audit_snapshot_database,
 )
 from .universe import UNIVERSE_POLICY_VERSION, evaluate_market_identity
 from .telemetry import TelemetryOverloadPolicy, V4TelemetryWriter
@@ -90,11 +91,14 @@ from .workers import (
 # gives the reader two generation opportunities inside the <=10 s freshness
 # contract, while integrity and maintenance use separate owner threads.
 DASHBOARD_EXPORT_INTERVAL_MS = 5_000
-# The full ``PRAGMA integrity_check`` is a whole-database scan that grew to
-# multi-minute duration once the evidence store crossed ~3 GB.  Running it
-# every 5 minutes once monopolised the reporting worker and stalled exports.
-# It now has a separate read worker; exports use the last-good cached result.
-INTEGRITY_CHECK_INTERVAL_MS = 1_800_000  # 30 minutes
+# How often the bounded live integrity health check runs one pass.  Each pass
+# is budgeted in milliseconds and resumable, so a frequent cadence costs a small
+# fixed duty cycle instead of one long scan: measured on the 9.29 GB store, a
+# 1.5 s pass covers ~1 M rows and the longest single read transaction is 766 ms.
+# The previous 30-minute cadence existed only because a pass was a whole-database
+# scan; it no longer is, and frequent small passes keep the cached verdict fresh
+# without ever pinning the WAL.
+INTEGRITY_CHECK_INTERVAL_MS = 15_000  # 15 seconds
 INTEGRITY_MAX_AGE_MS = 3_600_000  # 1 hour; fail-closed if older
 # A transient runtime/export publish timeout (event-loop stall under heavy
 # maintenance + integrity I/O) must degrade observable readiness, not terminate
@@ -165,10 +169,10 @@ def _compact_reader_snapshot() -> dict[str, Any]:
 
 
 def _run_chunked_integrity(store: Any) -> dict[str, Any]:
-    """Periodic integrity scan that releases its snapshot between tables.
+    """One bounded, resumable pass of the live integrity health check.
 
     Falls back to the whole-database ``quick_check`` only for a store that
-    predates the chunked API (older test doubles); the production read-only
+    predates the bounded API (older test doubles); the production read-only
     store always provides it.
     """
 
@@ -176,6 +180,101 @@ def _run_chunked_integrity(store: Any) -> dict[str, Any]:
     if callable(chunked):
         return chunked()
     return store.integrity_check(quick=True)
+
+
+#: Name of the audit manifest.  Deliberately not matched by the snapshot sweep's
+#: ``full_audit_snapshot*`` glob: the verdict outlives the multi-gigabyte image
+#: it was derived from, and is what makes the cadence survive a restart.
+AUDIT_MANIFEST_NAME = "full_audit_manifest.json"
+
+
+def _read_audit_manifest(directory: Path) -> dict[str, Any]:
+    """Load the last published audit verdict, or an empty mapping.
+
+    Fail-open on absence and fail-closed on damage: an unreadable or malformed
+    manifest is treated as "no audit has completed", which makes one due rather
+    than letting a corrupt file assert a verdict.
+    """
+
+    try:
+        payload = json.loads(
+            (directory / AUDIT_MANIFEST_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    completed = payload.get("completed_ms")
+    if not isinstance(completed, int) or isinstance(completed, bool):
+        return {}
+    return payload
+
+
+def _write_audit_manifest(directory: Path, payload: dict[str, Any]) -> bool:
+    """Publish the audit verdict atomically.
+
+    Runs on the runtime IO worker, never the event loop.  A failure here is
+    reported but never fatal: the worst case is that the next launch believes an
+    audit is due and takes one.
+    """
+
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / AUDIT_MANIFEST_NAME
+        temporary = directory / f"{AUDIT_MANIFEST_NAME}.tmp"
+        temporary.write_text(
+            json.dumps(payload, sort_keys=True), encoding="utf-8")
+        temporary.replace(target)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _sweep_audit_snapshot_dir(directory: Path, keep: int) -> dict[str, Any]:
+    """Delete audit snapshots and partial images beyond ``keep`` newest.
+
+    Module-level so it runs on the runtime IO worker's thread rather than the
+    event loop.  It is deliberately scoped to the derived audit directory and
+    to the fixed audit filename prefix, so it can never reach the live database
+    or any other runtime artefact.
+    """
+
+    removed: list[str] = []
+    kept: list[str] = []
+    try:
+        if not directory.is_dir():
+            return {"removed": removed, "kept": kept}
+        candidates = sorted(
+            (
+                path for path in directory.glob("full_audit_snapshot*")
+                if path.is_file()
+            ),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        survivors = 0
+        for path in candidates:
+            # Sidecars and partials are never "kept": only a published,
+            # complete ``.db`` counts against the retention budget.
+            publishable = path.suffix == ".db" and ".partial" not in path.name
+            if publishable and survivors < max(0, int(keep)):
+                survivors += 1
+                kept.append(path.name)
+                continue
+            if publishable and survivors >= max(0, int(keep)):
+                try:
+                    path.unlink()
+                    removed.append(path.name)
+                except OSError:
+                    continue
+                continue
+            try:
+                path.unlink()
+                removed.append(path.name)
+            except OSError:
+                continue
+    except OSError:
+        return {"removed": removed, "kept": kept}
+    return {"removed": removed, "kept": kept}
 
 
 def _nonnegative_counter(value: Any) -> Optional[int]:
@@ -541,12 +640,14 @@ class FrequencyV4Engine:
         self._integrity_scan_in_progress = False
         self._last_integrity_success: Optional[bool] = None
         self._last_integrity_failure = ""
-        # The full ``integrity_check`` (B-tree ordering) audit runs on the
-        # dedicated integrity read worker's own connection at most once per
-        # ``full_integrity_audit_interval_ms``.  It is single-flight, mutually
-        # exclusive with the periodic quick scan, and never touches the
-        # reporting/export or maintenance workers, so it can stall neither the
-        # export cadence nor WAL checkpoint decisions.
+        # The full ``integrity_check`` (B-tree ordering, index content against
+        # table content, UNIQUE/CHECK) audit runs on the dedicated integrity
+        # read worker at most once per ``full_integrity_audit_interval_ms``, and
+        # it runs against a *completed incremental snapshot*, never against the
+        # live database.  It is single-flight, mutually exclusive with the
+        # bounded live scan, and never touches the reporting/export or
+        # maintenance workers, so it can stall neither the export cadence nor
+        # WAL checkpoint decisions.
         self._full_integrity_inflight = False
         self._full_integrity_audit_started_ms = 0
         self._full_integrity_audit_completed_ms = 0
@@ -556,6 +657,16 @@ class FrequencyV4Engine:
         self._last_full_integrity_ts_ms = 0
         self._full_integrity_runs = 0
         self._full_integrity_result: dict[str, Any] = {}
+        # Snapshot-audit lifecycle, reported separately from the live check so
+        # a bounded runtime probe can never be mistaken for a full audit.
+        self._full_audit_status = "UNKNOWN"
+        self._full_audit_snapshot: dict[str, Any] = {}
+        self._full_audit_snapshot_identity: dict[str, Any] = {}
+        self._full_audit_snapshot_ready = False
+        self._full_audit_snapshot_reason = ""
+        self._full_audit_source_as_of_ms = 0
+        self._full_audit_completed_ms = 0
+        self._full_audit_failure_reason = ""
         # Runtime/export publish degradation: a transient worker timeout or a
         # momentary queue-full/not-running state must degrade readiness (and keep
         # retrying on the next heartbeat) instead of terminating the loop.  The
@@ -932,9 +1043,21 @@ class FrequencyV4Engine:
                 (self._last_integrity or {}).get("max_chunk_ms")),
             "last_integrity_success": self._last_integrity_success,
             "last_integrity_failure": self._last_integrity_failure or None,
-            # Full integrity audit runs on the dedicated integrity connection at
-            # most once per the long interval; it never blocks the reporting or
-            # maintenance paths.  Exposed for offline-style observability.
+            # -- bounded live health check -------------------------------
+            # Reported separately from the full audit below.  This scan proves
+            # every page it read decodes and every declared foreign key
+            # resolves; it does not verify index content or UNIQUE/CHECK
+            # constraints, so it is never described as a full audit and its
+            # coverage is published rather than implied.
+            **self._live_integrity_state(),
+            # -- full SQLite integrity audit -----------------------------
+            # Runs ``PRAGMA integrity_check`` against a completed incremental
+            # snapshot on the dedicated integrity worker.  It never executes
+            # against the live database: measured on this store, the live full
+            # scan held one WAL read-mark for minutes and the log grew by the
+            # whole write volume of the scan.
+            **self._full_audit_state(),
+            # Retained legacy keys so every existing consumer keeps working.
             "full_integrity_audit_in_progress": self._full_integrity_inflight,
             "full_integrity_audit_started_ts_ms": (
                 self._full_integrity_audit_started_ms or None),
@@ -3843,69 +3966,413 @@ class FrequencyV4Engine:
             self._integrity_runs += 1
             self._integrity_inflight = False
 
-    async def _run_full_integrity_audit(self) -> bool:
-        """Infrequent full ``PRAGMA integrity_check`` on the integrity connection.
+    # ---- full SQLite integrity audit, off the live database --------------
+    #
+    # The audit keeps true ``PRAGMA integrity_check`` semantics (B-tree
+    # ordering, index content against table content, UNIQUE/CHECK/NOT NULL) but
+    # never runs them against the live store.  It has two stages, each a
+    # separate bounded job on the dedicated integrity worker:
+    #
+    #   1. *snapshot* -- SQLite's online backup API copies the database in
+    #      bounded page steps.  Each step opens and closes its own read
+    #      transaction, so the source read-mark is held per step (measured mean
+    #      6.9 ms, max 78 ms on the 9.29 GB store) instead of for the copy.
+    #   2. *verdict* -- the completed snapshot file is verified for identity,
+    #      quick-checked, then fully integrity-checked.  Nothing in this stage
+    #      touches the live database at all.
+    #
+    # The backup API restarts from page 1 whenever another connection writes the
+    # source.  Measured with one external writer committing five times per
+    # second, a 206 MB copy restarted 218 times in 45 s and never converged,
+    # while the same copy against a quiet source converged with zero restarts.
+    # The snapshot is therefore taken in the runtime's own quiescent startup
+    # window; a copy attempted under live write load reports
+    # ``DEFERRED_SOURCE_CHURN`` and is retried, never silently torn.
 
-        The full B-tree ordering validation is an offline-style audit: measured
-        at ~66s on the 6.50 GB production evidence store versus ~17s for the
-        periodic ``quick_check``.  It runs on the dedicated ``integrity_worker``
-        -- its own thread and read-only connection, shared with nothing but the
-        quick scan, which it is mutually exclusive with.  It therefore touches
-        neither the ``report_worker`` (so the 5s export cadence is untouched) nor
-        the ``maintenance_worker`` (so WAL checkpoint decisions and retention are
-        untouched).  It is gated by the long ``full_integrity_audit_interval_ms``
-        and carries its own bounded ``full_integrity_audit_timeout_s``, because
-        the 30s maintenance budget is shorter than one real scan and would
-        interrupt every audit at the deadline without ever producing a verdict.
+    def _audit_snapshot_dir(self) -> Path:
+        return Path(self.cfg.db_path).parent / "integrity_audit"
 
-        A failure fails closed for operational readiness without killing an
-        otherwise safe runtime: ``_last_full_integrity_success`` surfaces it in
-        the published state and the periodic quick scan remains the authoritative
-        execution gate.
+    def _audit_snapshot_path(self) -> Path:
+        return self._audit_snapshot_dir() / "full_audit_snapshot.db"
 
-        Returns ``True`` when the audit actually ran, ``False`` when it deferred,
-        so the caller does not consume a whole audit interval on a deferral.
+    def _full_audit_due(self, now: Optional[int] = None) -> bool:
+        """Is a fresh full audit due under the configured cadence?"""
+
+        current = now_ms() if now is None else int(now)
+        last = int(self._full_audit_completed_ms or 0)
+        if not last:
+            return True
+        return current - last >= int(self.cfg.full_integrity_audit_interval_ms)
+
+    def _full_audit_age_ms(self, now: Optional[int] = None) -> Optional[int]:
+        if not self._full_audit_completed_ms:
+            return None
+        current = now_ms() if now is None else int(now)
+        return max(0, current - int(self._full_audit_completed_ms))
+
+    def _full_audit_state(self) -> dict[str, Any]:
+        """Published, deliberately separate view of the full audit.
+
+        Fail-closed: an audit that has never completed, or whose result is older
+        than ``full_integrity_audit_max_age_ms``, reports ``UNKNOWN``/``STALE``
+        rather than inheriting the bounded live check's verdict.
         """
+
+        age_ms = self._full_audit_age_ms()
+        status = self._full_audit_status or "UNKNOWN"
+        if status == "COMPLETED_OK" and age_ms is not None and (
+                age_ms > int(self.cfg.full_integrity_audit_max_age_ms)):
+            status = "STALE"
+        snapshot = self._full_audit_snapshot or {}
+        return {
+            "full_audit_status": status,
+            "full_audit_ok": self._last_full_integrity_success,
+            "full_audit_scope": "full_integrity_check_on_completed_snapshot",
+            "full_audit_source_as_of_ms": self._full_audit_source_as_of_ms or None,
+            "full_audit_completed_ms": self._full_audit_completed_ms or None,
+            "full_audit_age_ms": age_ms,
+            "full_audit_max_age_ms": int(self.cfg.full_integrity_audit_max_age_ms),
+            "full_audit_interval_ms": int(
+                self.cfg.full_integrity_audit_interval_ms),
+            "full_audit_failure_reason": self._full_audit_failure_reason or None,
+            "full_audit_runs_on_live_database": False,
+            "full_audit_snapshot_identity": (
+                self._full_audit_snapshot_identity or None),
+            # Path is published as a name only: the directory is derived from
+            # the configured database path and adds nothing but noise.
+            "full_audit_snapshot_name": (
+                self._audit_snapshot_path().name
+                if self._full_audit_snapshot_ready else None),
+            "full_audit_snapshot_ready": bool(self._full_audit_snapshot_ready),
+            "full_audit_snapshot_status": str(snapshot.get("status") or "NONE"),
+            "full_audit_snapshot_progress_pages": int(
+                snapshot.get("pages_copied") or 0),
+            "full_audit_snapshot_total_pages": int(
+                snapshot.get("page_count") or 0),
+            "full_audit_snapshot_progress_pct": (
+                round(
+                    100.0 * float(snapshot.get("pages_copied") or 0)
+                    / float(snapshot["page_count"]), 2)
+                if snapshot.get("page_count") else None
+            ),
+            "full_audit_snapshot_steps": int(snapshot.get("steps") or 0),
+            "full_audit_snapshot_restarts": int(snapshot.get("restarts") or 0),
+            "full_audit_snapshot_max_step_ms": float(
+                snapshot.get("max_step_ms") or 0.0),
+            "full_audit_snapshot_duration_ms": float(
+                snapshot.get("duration_ms") or 0.0),
+            "full_audit_integrity_check_ms": float(
+                (self._full_integrity_result or {}).get("integrity_check_ms")
+                or 0.0),
+        }
+
+    def _live_integrity_state(self) -> dict[str, Any]:
+        """Published view of the bounded live health check and its coverage."""
+
+        result = self._last_integrity or {}
+        return {
+            "live_integrity_health": (
+                "OK" if self._last_integrity_ok
+                else "UNKNOWN" if self._last_integrity_ok is None
+                else "DEGRADED"
+            ),
+            "live_integrity_scope": str(
+                result.get("scope") or "live_bounded_health_check"),
+            "live_integrity_bounded": bool(result.get("bounded")),
+            "live_integrity_last_pass_ms": float(result.get("duration_ms") or 0.0),
+            "live_integrity_max_chunk_ms": float(
+                result.get("max_chunk_ms") or 0.0),
+            "live_integrity_chunk_bound_ms": float(
+                result.get("chunk_bound_ms") or 0.0),
+            "live_integrity_chunks_over_bound": int(
+                result.get("chunks_over_bound") or 0),
+            "live_integrity_rows_per_chunk": int(
+                result.get("rows_per_chunk") or 0),
+            "live_integrity_progress": {
+                "unit_index": int(result.get("unit_index") or 0),
+                "units_total": int(result.get("units_total") or 0),
+                "progress_pct": float(result.get("progress_pct") or 0.0),
+                "rows_scanned_last_pass": int(result.get("rows_scanned") or 0),
+            },
+            "live_integrity_cycles_completed": int(
+                result.get("completed_cycles") or 0),
+            "live_integrity_last_completed_ms": (
+                result.get("last_completed_cycle_ts_ms") or None),
+            "live_integrity_last_completed_ok": result.get(
+                "last_completed_cycle_ok"),
+        }
+
+    async def _run_full_audit_snapshot(self, *, reason: str) -> dict[str, Any]:
+        """Stage 1: copy the database to a snapshot in bounded page steps."""
+
+        integrity_worker = self.integrity_worker
+        if integrity_worker is None or self._full_integrity_inflight:
+            return {"status": "DEFERRED_WORKER_BUSY", "completed": False}
+        self._full_integrity_inflight = True
+        self._full_audit_status = "SNAPSHOT_IN_PROGRESS"
+        self._full_audit_snapshot_ready = False
+        started = time.monotonic()
+        destination = self._audit_snapshot_path()
+        pages_per_step = int(self.cfg.full_integrity_audit_snapshot_pages_per_step)
+        budget_s = float(self.cfg.full_integrity_audit_snapshot_budget_s)
+        max_restarts = int(self.cfg.full_integrity_audit_snapshot_max_restarts)
+        stopping = self._stopping
+
+        def _progress(stats: dict[str, Any]) -> None:
+            # Published from the worker thread; a plain dict assignment is the
+            # only mutation, so the reporting path always sees a whole record.
+            self._full_audit_snapshot = {
+                **stats, "status": "SNAPSHOT_IN_PROGRESS"}
+
+        # The persistence writer's 1 Hz diagnostic sample is the only writer
+        # running in the startup window, and SQLite restarts the copy from page
+        # one on any external write -- so without this the snapshot could never
+        # converge.  Bounded strictly by the copy, and always released.
+        persistence = self.persistence
+        if persistence is not None:
+            try:
+                persistence.begin_quiescent_window()
+            except Exception as exc:  # noqa: BLE001 - never block the audit
+                self._last_error = (
+                    f"audit_quiesce:{type(exc).__name__}:{exc}")[:240]
+        try:
+            manifest = await integrity_worker.run_report(
+                lambda store: store.snapshot_backup(
+                    destination,
+                    pages_per_step=pages_per_step,
+                    max_seconds=budget_s,
+                    max_restarts=max_restarts,
+                    should_cancel=stopping.is_set,
+                    progress_sink=_progress,
+                ),
+                timeout_s=budget_s + 60.0,
+                name="full_audit_snapshot",
+            )
+            self._full_audit_snapshot = dict(manifest)
+            self._full_audit_snapshot_identity = dict(
+                manifest.get("source_identity") or {})
+            self._full_audit_snapshot_ready = bool(manifest.get("completed"))
+            self._full_audit_source_as_of_ms = int(
+                manifest.get("source_as_of_ms") or now_ms())
+            if manifest.get("completed"):
+                self._full_audit_status = "SNAPSHOT_READY"
+                self._full_audit_failure_reason = ""
+            else:
+                self._full_audit_status = str(manifest.get("status") or "FAILED")
+                self._full_audit_failure_reason = str(
+                    manifest.get("reason") or "")[:200]
+            self._full_audit_snapshot_reason = str(reason)
+            return dict(manifest)
+        except Exception as exc:  # noqa: BLE001 - a copy must not crash the runtime
+            self._full_audit_status = "SNAPSHOT_FAILED"
+            self._full_audit_failure_reason = f"{type(exc).__name__}:{exc}"[:200]
+            self._full_audit_snapshot_ready = False
+            self._last_error = (
+                f"full_audit_snapshot:{type(exc).__name__}:{exc}")[:240]
+            return {"status": "SNAPSHOT_FAILED", "completed": False}
+        finally:
+            if persistence is not None:
+                try:
+                    persistence.end_quiescent_window()
+                except Exception as exc:  # noqa: BLE001 - must always release
+                    self._last_error = (
+                        f"audit_unquiesce:{type(exc).__name__}:{exc}")[:240]
+            self._last_full_integrity_duration_ms = (
+                (time.monotonic() - started) * 1_000.0)
+            self._full_integrity_inflight = False
+
+    async def _run_full_audit_verdict(self) -> bool:
+        """Stage 2: audit the completed snapshot, then clean it up."""
+
         integrity_worker = self.integrity_worker
         if (integrity_worker is None
                 or self._full_integrity_inflight
-                or self._integrity_inflight):
+                or not self._full_audit_snapshot_ready):
             return False
         self._full_integrity_inflight = True
+        self._full_audit_status = "AUDIT_IN_PROGRESS"
         self._full_integrity_audit_started_ms = now_ms()
         started = time.monotonic()
+        snapshot_path = self._audit_snapshot_path()
+        expected = dict(self._full_audit_snapshot_identity or {})
+        keep = int(self.cfg.full_integrity_audit_snapshot_keep)
         try:
             result = await integrity_worker.run_report(
-                lambda store: store.integrity_check(quick=False),
+                lambda _store: audit_snapshot_database(
+                    snapshot_path, expected_identity=expected),
                 timeout_s=self.cfg.full_integrity_audit_timeout_s,
-                name="full_integrity_audit",
+                name="full_audit_verdict",
             )
-            ok = bool(
-                result.get("integrity") == "ok"
-                and not result.get("foreign_key_violations"))
+            ok = bool(result.get("ok"))
             self._full_integrity_result = dict(result)
+            self._full_audit_status = str(result.get("status") or "UNKNOWN")
             self._last_full_integrity_success = ok
-            self._last_full_integrity_failure = ""
+            self._full_audit_failure_reason = str(
+                result.get("failure_reason") or "")[:200]
+            self._last_full_integrity_failure = self._full_audit_failure_reason
+            self._full_audit_completed_ms = now_ms()
             if not ok:
                 self._last_error = (
-                    f"full_integrity_degraded:{result.get('integrity')}")[:240]
+                    f"full_audit_degraded:{result.get('integrity')}")[:240]
         except Exception as exc:  # noqa: BLE001 - audit must not crash the runtime
             self._full_integrity_result = {
                 "integrity": "UNKNOWN",
                 "foreign_key_violations": [],
                 "error": f"{type(exc).__name__}:{exc}"[:200],
             }
+            self._full_audit_status = "FAILED"
             self._last_full_integrity_success = False
-            self._last_full_integrity_failure = f"{type(exc).__name__}:{exc}"[:200]
-            self._last_error = f"full_integrity:{type(exc).__name__}:{exc}"[:240]
+            self._full_audit_failure_reason = f"{type(exc).__name__}:{exc}"[:200]
+            self._last_full_integrity_failure = self._full_audit_failure_reason
+            self._last_error = f"full_audit:{type(exc).__name__}:{exc}"[:240]
         finally:
             self._last_full_integrity_duration_ms = (
                 (time.monotonic() - started) * 1_000.0)
             self._last_full_integrity_ts_ms = now_ms()
             self._full_integrity_audit_completed_ms = now_ms()
             self._full_integrity_runs += 1
+            self._full_audit_snapshot_ready = False
             self._full_integrity_inflight = False
+            # The verdict is the artefact worth keeping; the multi-gigabyte
+            # image is not.  Cleanup runs whether the audit passed or failed,
+            # and the manifest is published either way so the cadence -- and an
+            # honest failure -- both survive a restart.
+            await self._publish_audit_manifest(self._full_integrity_result)
+            await self._sweep_audit_snapshots(keep=keep)
         return True
+
+    async def _sweep_audit_snapshots(self, *, keep: int = 0) -> None:
+        """Remove audit snapshots and partials beyond ``keep`` newest.
+
+        Always safe: it only ever touches files inside the derived audit
+        directory, never the live database or its sidecars.
+        """
+
+        worker = self.runtime_io_worker
+        directory = self._audit_snapshot_dir()
+        try:
+            if worker is not None:
+                await worker.run_io(
+                    _sweep_audit_snapshot_dir, directory, int(keep),
+                    timeout_s=10.0, name="audit_snapshot_sweep")
+            else:
+                await asyncio.to_thread(
+                    _sweep_audit_snapshot_dir, directory, int(keep))
+        except Exception as exc:  # noqa: BLE001 - cleanup must never be fatal
+            self._last_error = (
+                f"audit_snapshot_sweep:{type(exc).__name__}:{exc}")[:240]
+
+    async def _load_audit_manifest(self) -> dict[str, Any]:
+        """Seed the audit cadence from the last published verdict.
+
+        Without this the completion timestamp would be process-local and every
+        launch would look overdue -- which is exactly the "a full audit at every
+        startup" behaviour the cadence exists to prevent.
+        """
+
+        directory = self._audit_snapshot_dir()
+        try:
+            if self.runtime_io_worker is not None:
+                manifest = await self.runtime_io_worker.run_io(
+                    _read_audit_manifest, directory,
+                    timeout_s=10.0, name="audit_manifest_read")
+            else:
+                manifest = await asyncio.to_thread(
+                    _read_audit_manifest, directory)
+        except Exception as exc:  # noqa: BLE001 - a missing verdict is not fatal
+            self._last_error = (
+                f"audit_manifest_read:{type(exc).__name__}:{exc}")[:240]
+            return {}
+        if not manifest:
+            return {}
+        self._full_audit_completed_ms = int(manifest.get("completed_ms") or 0)
+        self._full_audit_status = str(manifest.get("status") or "UNKNOWN")
+        self._last_full_integrity_success = manifest.get("ok")
+        self._full_audit_source_as_of_ms = int(
+            manifest.get("source_as_of_ms") or 0)
+        self._full_audit_failure_reason = str(
+            manifest.get("failure_reason") or "")[:200]
+        self._full_audit_snapshot_identity = dict(
+            manifest.get("source_identity") or {})
+        return manifest
+
+    async def _publish_audit_manifest(self, result: Mapping[str, Any]) -> None:
+        payload = {
+            "status": str(result.get("status") or "UNKNOWN"),
+            "ok": result.get("ok"),
+            "completed_ms": int(self._full_audit_completed_ms or now_ms()),
+            "source_as_of_ms": int(self._full_audit_source_as_of_ms or 0),
+            "failure_reason": str(result.get("failure_reason") or "")[:200],
+            "integrity": str(result.get("integrity") or ""),
+            "foreign_key_violations": len(
+                result.get("foreign_key_violations") or ()),
+            "integrity_check_ms": result.get("integrity_check_ms"),
+            "quick_check_ms": result.get("quick_check_ms"),
+            "snapshot_bytes": result.get("snapshot_bytes"),
+            "source_identity": dict(self._full_audit_snapshot_identity or {}),
+            "snapshot": {
+                key: (self._full_audit_snapshot or {}).get(key)
+                for key in ("steps", "restarts", "non_progress_steps",
+                            "pages_copied", "page_count", "duration_ms",
+                            "max_step_ms", "mean_step_ms")
+            },
+            "scope": "full_integrity_check_on_completed_snapshot",
+            "session_id": self.session_id,
+        }
+        directory = self._audit_snapshot_dir()
+        try:
+            if self.runtime_io_worker is not None:
+                await self.runtime_io_worker.run_io(
+                    _write_audit_manifest, directory, payload,
+                    timeout_s=10.0, name="audit_manifest_write")
+            else:
+                await asyncio.to_thread(
+                    _write_audit_manifest, directory, payload)
+        except Exception as exc:  # noqa: BLE001 - publishing is never fatal
+            self._last_error = (
+                f"audit_manifest_write:{type(exc).__name__}:{exc}")[:240]
+
+    async def _maybe_snapshot_for_full_audit(self) -> bool:
+        """Take the audit snapshot in the startup quiescent window, if due.
+
+        Any leftover image from a previous launch is swept first: it belongs to
+        a source state this runtime can no longer attest to, and auditing it
+        would publish a verdict about the wrong database.
+        """
+
+        await self._load_audit_manifest()
+        await self._sweep_audit_snapshots(keep=0)
+        self._full_audit_snapshot_ready = False
+        if not bool(self.cfg.full_integrity_audit_startup_snapshot):
+            self._full_audit_status = "DISABLED"
+            return False
+        if self._stopping.is_set() or not self._full_audit_due():
+            return False
+        manifest = await self._run_full_audit_snapshot(
+            reason="startup_quiescent_window")
+        return bool(manifest.get("completed"))
+
+    async def _run_full_integrity_audit(
+        self, *, allow_snapshot: bool = True, reason: str = "scheduled",
+    ) -> bool:
+        """Advance the full audit by one stage.
+
+        Returns ``True`` when a stage actually ran, ``False`` when it deferred,
+        so a deferral never consumes a whole audit interval.
+        """
+
+        if self.integrity_worker is None or self._integrity_inflight:
+            # The two scans share the integrity connection and are mutually
+            # exclusive in both directions.
+            return False
+        if self._full_audit_snapshot_ready:
+            return await self._run_full_audit_verdict()
+        if not allow_snapshot:
+            return False
+        manifest = await self._run_full_audit_snapshot(reason=reason)
+        if not manifest.get("completed"):
+            return False
+        return await self._run_full_audit_verdict()
 
     async def _run_dashboard_export(self) -> None:
         """Off-loop whole-database dashboard export (single-flight, atomic write)."""
@@ -3985,31 +4452,35 @@ class FrequencyV4Engine:
                 pass
 
     async def _full_integrity_audit_loop(self) -> None:
-        """Run the infrequent full integrity audit off the reporting path.
+        """Advance the snapshot-based full audit off every hot path.
 
-        The full ``PRAGMA integrity_check`` (B-tree ordering validation) runs on
-        the dedicated integrity connection at most once per the long
-        ``full_integrity_audit_interval_ms``.  It is its own task so the periodic
-        quick scan, dashboard export and checkpoint/retention cadence are never
-        delayed by it.
+        Its own task, so neither the bounded live scan, the dashboard export nor
+        the checkpoint/retention cadence is ever delayed by it.
 
-        The clock starts at launch rather than at zero: a ~66s full scan at every
-        startup would compete with the startup quick scan that gates execution,
-        for no benefit -- startup already runs its own repository-approved
-        validation.  A deferred audit (quick scan in flight) does not consume the
-        interval, so it is retried on the next tick instead of being silently
-        skipped for another six hours.
+        Two things run here.  A snapshot taken in the startup quiescent window
+        leaves a ready image behind; this loop performs its verdict immediately,
+        against the file, with the live database untouched.  Otherwise the loop
+        waits out ``full_integrity_audit_interval_ms`` and then attempts a full
+        cycle -- which, under live write load, is expected to report
+        ``DEFERRED_SOURCE_CHURN`` rather than produce a torn image.  A deferral
+        does not consume the interval, so it is retried on the next tick instead
+        of being silently skipped for another window.
         """
 
         last_audit_ms = self._last_full_integrity_ts_ms or now_ms()
         while not self._stopping.is_set():
             current = now_ms()
-            if (current - last_audit_ms
+            if self._full_audit_snapshot_ready:
+                # A startup snapshot is already on disk: audit it now.  Nothing
+                # about this stage reads the live database.
+                if await self._run_full_audit_verdict():
+                    last_audit_ms = now_ms()
+            elif (current - last_audit_ms
                     >= self.cfg.full_integrity_audit_interval_ms):
-                if await self._run_full_integrity_audit():
+                if await self._run_full_integrity_audit(reason="scheduled"):
                     last_audit_ms = current
             try:
-                await asyncio.wait_for(self._stopping.wait(), timeout=60.0)
+                await asyncio.wait_for(self._stopping.wait(), timeout=5.0)
             except asyncio.TimeoutError:
                 pass
 
@@ -4466,6 +4937,15 @@ class FrequencyV4Engine:
         # integrity state. Sources still start when clean so recovery remains
         # observable; executable candidates are gated by the result.
         await self._run_integrity_check()
+        # The one window in this runtime's life where the store is genuinely
+        # quiescent: the writer and telemetry lanes are started but idle, no
+        # producer is connected, and no reporting/maintenance loop is running
+        # yet.  SQLite's incremental backup restarts from page 1 on any external
+        # write, so this is the only point at which a consistent whole-database
+        # snapshot can be taken without pinning a read-mark for the duration of
+        # the copy.  It is bounded, cancellable, and skipped entirely when an
+        # audit is not due.
+        await self._maybe_snapshot_for_full_audit()
         starting_state = self._runtime_state("STARTING")
         self._last_published_state = await self.runtime_io_worker.run_io(
             self.runtime.publish,
@@ -4704,6 +5184,18 @@ class FrequencyV4Engine:
         finally:
             await self.gamma.close()
             await self.clob.close()
+            # A snapshot copy in flight observes ``_stopping`` through its
+            # cancellation hook and unwinds at the next bounded step, deleting
+            # its own partial.  This sweep is the belt-and-braces pass for an
+            # image left by a copy that was killed rather than cancelled: a
+            # partial must never survive to be audited as if it were complete.
+            try:
+                await self._sweep_audit_snapshots(
+                    keep=int(self.cfg.full_integrity_audit_snapshot_keep))
+            except Exception as exc:  # noqa: BLE001 - cleanup is never fatal
+                self._last_error = (
+                    f"audit_snapshot_shutdown_sweep:{type(exc).__name__}:{exc}"
+                )[:240]
             for worker in (
                 self.maintenance_worker, self.integrity_worker,
                 self.report_worker, self.read_worker,
