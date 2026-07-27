@@ -22,6 +22,13 @@ MODULE = "lite_frequency_v4.bot"
 LAUNCH_NONCE_ENV = "POLY_ALPHA_FREQUENCY_V4_LAUNCH_NONCE"
 FIXED_SHARES = 5.0
 
+# Bounded retry budget for the Windows atomic-replace PermissionError described
+# in ``_atomic_replace``.  Five attempts at 10 ms apart bounds the worst-case
+# stall to ~40 ms while leaving ample time for a transient reader/AV handle to
+# release; a genuinely persistent permission error still propagates.
+_ATOMIC_REPLACE_ATTEMPTS = 5
+_ATOMIC_REPLACE_BACKOFF_S = 0.010
+
 
 def now_ms() -> int:
     return int(time.time() * 1000)
@@ -48,9 +55,39 @@ def atomic_json(path: Path, payload: dict[str, Any]) -> None:
             json.dumps(payload, sort_keys=True, separators=(",", ":")),
             encoding="utf-8",
         )
-        os.replace(temporary, path)
+        _atomic_replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _atomic_replace(temporary: Path, path: Path) -> None:
+    """Atomically replace ``path`` with ``temporary``, tolerating Windows AV/reader locks.
+
+    On POSIX ``os.replace`` is atomic even when readers hold the destination
+    open.  On Windows the same call raises ``PermissionError [WinError 5]`` if
+    another process (the status probe, the dashboard, or an antivirus scanner)
+    has the destination open at the instant of the replace.  That contention is
+    transient -- the reader releases in milliseconds -- but a single unhandled
+    failure here killed the heartbeat/export critical task and terminated the
+    runtime (the historical ``v4-heartbeat-export`` fatal exit).  Retry a bounded
+    number of times on ``PermissionError`` only; any other error, and a
+    permission error that persists past the budget, propagates so the failure is
+    still surfaced and captured by the fatal diagnostics path.
+    """
+    last_exc: Optional[PermissionError] = None
+    for attempt in range(_ATOMIC_REPLACE_ATTEMPTS):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError as exc:
+            last_exc = exc
+            # WinError 5 from a concurrent reader/AV handle; the destination
+            # becomes replaceable once that handle closes.  Sleep briefly and
+            # retry.  Any non-permission error escapes immediately below.
+            if attempt < _ATOMIC_REPLACE_ATTEMPTS - 1:
+                time.sleep(_ATOMIC_REPLACE_BACKOFF_S)
+    assert last_exc is not None  # loop only exits without return by raising
+    raise last_exc
 
 
 def pid_alive(pid: int) -> bool:

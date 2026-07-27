@@ -19,6 +19,7 @@ from poly_alpha_sniper.lite_frequency_v4.runtime import (
     MODE,
     MODULE,
     V4RuntimeFiles,
+    atomic_json,
     immutable_safety_state,
 )
 
@@ -342,3 +343,100 @@ def test_engine_and_entrypoint_ast_expose_no_order_cancel_signing_calls():
         assert not any(fragment in imported for fragment in forbidden_import_fragments
                        for imported in imports)
         assert forbidden_calls.isdisjoint(calls)
+
+
+def test_atomic_json_recovers_from_transient_replace_permission_error(
+        tmp_path, monkeypatch):
+    """The heartbeat/export fatal exit must not recur under a transient AV/reader lock.
+
+    The historical ``RuntimeError: critical Frequency V4 task failed:
+    v4-heartbeat-export`` was caused by ``os.replace`` inside ``atomic_json``
+    raising ``PermissionError [WinError 5]`` when another process (status probe,
+    dashboard, antivirus) held the destination open at the instant of the
+    replace.  The contention is transient -- the reader releases in milliseconds
+    -- but a single unhandled failure killed the critical heartbeat/export task.
+    ``atomic_json`` now retries a bounded number of times on ``PermissionError``
+    only, so a transient lock is ridden over and the publish succeeds.
+    """
+    target = tmp_path / "state.json"
+    real_replace = os.replace
+    attempts = {"count": 0}
+
+    def flaky_replace(src, dst, *, cancellation_token=None):  # type: ignore[no-untyped-def]
+        attempts["count"] += 1
+        # The first two attempts collide with a concurrent reader/AV handle
+        # (WinError 5); the third succeeds once that handle releases.
+        if attempts["count"] <= 2:
+            raise PermissionError(5, "Access is denied")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr("poly_alpha_sniper.lite_frequency_v4.runtime.os.replace",
+                        flaky_replace)
+
+    atomic_json(target, {"state": "RUNNING", "n": 1})
+
+    assert attempts["count"] == 3
+    assert target.exists()
+    assert json.loads(target.read_text(encoding="utf-8")) == {"n": 1, "state": "RUNNING"}
+    # No stray temp file remains.
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name.startswith("state.json.tmp")]
+    assert leftovers == []
+
+
+def test_atomic_json_propagates_persistent_replace_permission_error(
+        tmp_path, monkeypatch):
+    """A persistent permission error must still surface, not be swallowed.
+
+    The retry budget is finite: a permission error that never clears (a genuine
+    access-denied, not transient reader contention) must propagate so the
+    failure is still captured by the fatal diagnostics path instead of being
+    silently masked into a false-successful publish.
+    """
+    target = tmp_path / "state.json"
+
+    def always_denied(src, dst, *, cancellation_token=None):  # type: ignore[no-untyped-def]
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr("poly_alpha_sniper.lite_frequency_v4.runtime.os.replace",
+                        always_denied)
+
+    with pytest.raises(PermissionError):
+        atomic_json(target, {"state": "RUNNING"})
+    # The destination was never written, and the temp file was cleaned up.
+    assert not target.exists()
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name.startswith("state.json.tmp")]
+    assert leftovers == []
+
+
+def test_atomic_json_propagates_non_permission_errors_immediately(
+        tmp_path, monkeypatch):
+    """Only PermissionError is retried; any other error propagates at once.
+
+    The retry must not turn an unrelated write/replace failure (disk full, OS
+    error) into a multi-second stall or mask it as a permission issue.
+    """
+    target = tmp_path / "state.json"
+
+    def os_error(src, dst, *, cancellation_token=None):  # type: ignore[no-untyped-def]
+        raise OSError("disk full")
+
+    monkeypatch.setattr("poly_alpha_sniper.lite_frequency_v4.runtime.os.replace",
+                        os_error)
+
+    with pytest.raises(OSError):
+        atomic_json(target, {"state": "RUNNING"})
+    assert not target.exists()
+
+
+def test_atomic_json_normal_path_is_unaffected(tmp_path):
+    """The retry must add zero overhead when there is no contention.
+
+    A single successful replace must complete in one attempt with no sleeps, so
+    the fix does not slow down the common heartbeat/export publish.
+    """
+    target = tmp_path / "state.json"
+    atomic_json(target, {"state": "RUNNING", "ts": 1})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"state": "RUNNING", "ts": 1}
+    # Overwriting an existing file must also work (the heartbeat republishes).
+    atomic_json(target, {"state": "RUNNING", "ts": 2})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"state": "RUNNING", "ts": 2}
