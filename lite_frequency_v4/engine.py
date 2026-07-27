@@ -4106,7 +4106,9 @@ class FrequencyV4Engine:
         """Stage 1: copy the database to a snapshot in bounded page steps."""
 
         integrity_worker = self.integrity_worker
-        if integrity_worker is None or self._full_integrity_inflight:
+        if (integrity_worker is None
+                or self._full_integrity_inflight
+                or self._integrity_inflight):
             return {"status": "DEFERRED_WORKER_BUSY", "completed": False}
         self._full_integrity_inflight = True
         self._full_audit_status = "SNAPSHOT_IN_PROGRESS"
@@ -4182,11 +4184,20 @@ class FrequencyV4Engine:
             self._full_integrity_inflight = False
 
     async def _run_full_audit_verdict(self) -> bool:
-        """Stage 2: audit the completed snapshot, then clean it up."""
+        """Stage 2: audit the completed snapshot, then clean it up.
+
+        The two scans share one connection and are mutually exclusive in both
+        directions.  ``_integrity_inflight`` is checked here as well as in
+        :meth:`_run_full_integrity_audit` because the audit loop reaches this
+        stage directly whenever a startup snapshot is waiting -- and the live
+        scan now runs every 15 s, so a collision is the common case, not a rare
+        one.
+        """
 
         integrity_worker = self.integrity_worker
         if (integrity_worker is None
                 or self._full_integrity_inflight
+                or self._integrity_inflight
                 or not self._full_audit_snapshot_ready):
             return False
         self._full_integrity_inflight = True
@@ -4196,13 +4207,27 @@ class FrequencyV4Engine:
         snapshot_path = self._audit_snapshot_path()
         expected = dict(self._full_audit_snapshot_identity or {})
         keep = int(self.cfg.full_integrity_audit_snapshot_keep)
+        deferred = False
         try:
-            result = await integrity_worker.run_report(
-                lambda _store: audit_snapshot_database(
-                    snapshot_path, expected_identity=expected),
-                timeout_s=self.cfg.full_integrity_audit_timeout_s,
-                name="full_audit_verdict",
-            )
+            try:
+                result = await integrity_worker.run_report(
+                    lambda _store: audit_snapshot_database(
+                        snapshot_path, expected_identity=expected),
+                    timeout_s=self.cfg.full_integrity_audit_timeout_s,
+                    name="full_audit_verdict",
+                )
+            except (V4WorkerQueueFull, V4WorkerNotRunning) as exc:
+                # The job never reached the worker, so nothing was audited.  A
+                # completed snapshot is expensive -- 62 s and 9.97 GB on the
+                # production store -- and must survive a submission that merely
+                # collided with the live scan.  Retried on the next tick with
+                # the image intact; the cadence is not consumed and no verdict
+                # is published, because there is no verdict.
+                deferred = True
+                self._full_audit_status = "SNAPSHOT_READY"
+                self._full_audit_failure_reason = (
+                    f"audit submission deferred: {type(exc).__name__}")[:200]
+                return False
             ok = bool(result.get("ok"))
             self._full_integrity_result = dict(result)
             self._full_audit_status = str(result.get("status") or "UNKNOWN")
@@ -4228,17 +4253,19 @@ class FrequencyV4Engine:
         finally:
             self._last_full_integrity_duration_ms = (
                 (time.monotonic() - started) * 1_000.0)
-            self._last_full_integrity_ts_ms = now_ms()
-            self._full_integrity_audit_completed_ms = now_ms()
-            self._full_integrity_runs += 1
-            self._full_audit_snapshot_ready = False
             self._full_integrity_inflight = False
-            # The verdict is the artefact worth keeping; the multi-gigabyte
-            # image is not.  Cleanup runs whether the audit passed or failed,
-            # and the manifest is published either way so the cadence -- and an
-            # honest failure -- both survive a restart.
-            await self._publish_audit_manifest(self._full_integrity_result)
-            await self._sweep_audit_snapshots(keep=keep)
+            if not deferred:
+                self._last_full_integrity_ts_ms = now_ms()
+                self._full_integrity_audit_completed_ms = now_ms()
+                self._full_integrity_runs += 1
+                self._full_audit_snapshot_ready = False
+                # The verdict is the artefact worth keeping; the multi-gigabyte
+                # image is not.  Cleanup runs whether the audit passed or
+                # failed, and the manifest is published either way so an honest
+                # failure survives a restart -- without a completion timestamp,
+                # so it does not also consume the cadence.
+                await self._publish_audit_manifest(self._full_integrity_result)
+                await self._sweep_audit_snapshots(keep=keep)
         return True
 
     async def _sweep_audit_snapshots(self, *, keep: int = 0) -> None:
@@ -4297,10 +4324,14 @@ class FrequencyV4Engine:
         return manifest
 
     async def _publish_audit_manifest(self, result: Mapping[str, Any]) -> None:
+        # ``completed_ms`` is what satisfies the cadence, so it is written only
+        # when a real verdict exists.  An infrastructure failure publishes the
+        # failure with a zero timestamp, which leaves the next audit due rather
+        # than letting "the audit could not run" pass for "the audit ran".
         payload = {
             "status": str(result.get("status") or "UNKNOWN"),
             "ok": result.get("ok"),
-            "completed_ms": int(self._full_audit_completed_ms or now_ms()),
+            "completed_ms": int(self._full_audit_completed_ms or 0),
             "source_as_of_ms": int(self._full_audit_source_as_of_ms or 0),
             "failure_reason": str(result.get("failure_reason") or "")[:200],
             "integrity": str(result.get("integrity") or ""),
@@ -4897,7 +4928,12 @@ class FrequencyV4Engine:
             self.cfg.db_path,
             worker_name="lite-frequency-v4-integrity-read-worker",
             worker_kind="READ_INTEGRITY",
-            queue_capacity=1,
+            # Two: the live scan now runs every 15 s and the full audit's
+            # verdict is a single multi-minute job, so a submission that
+            # collides with an in-flight scan must queue rather than be
+            # rejected.  Depth is still bounded to exactly the two jobs this
+            # worker owns, so nothing can pile up behind them.
+            queue_capacity=2,
             busy_timeout_ms=self.cfg.sqlite_busy_timeout_ms,
             default_timeout_s=self.cfg.reporting_worker_timeout_s,
         )

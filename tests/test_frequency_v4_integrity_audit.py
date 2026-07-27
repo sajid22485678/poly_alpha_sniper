@@ -743,6 +743,89 @@ def test_quiescent_window_is_released_even_when_the_copy_fails(engine_harness):
     assert persistence.quiescent_window_active is False
 
 
+def test_a_collided_verdict_keeps_its_snapshot_and_retries(engine_harness):
+    """A submission that never reached the worker must not destroy the image.
+
+    Measured in the first gate attempt: the integrity worker's queue held one
+    job, the live scan now runs every 15 s, and the verdict's submission was
+    rejected with ``V4WorkerQueueFull``.  The failure path then swept a
+    completed 9.97 GB snapshot that had taken 62 s to produce, and published a
+    manifest whose timestamp satisfied the six-hour cadence -- so nothing was
+    audited and nothing would be for six hours.
+    """
+    from poly_alpha_sniper.lite_frequency_v4.engine import _read_audit_manifest
+    from poly_alpha_sniper.lite_frequency_v4.workers import V4WorkerQueueFull
+
+    engine = engine_harness.engine
+    manifest = asyncio.run(engine._run_full_audit_snapshot(reason="test"))
+    assert manifest["completed"] is True
+    assert engine._full_audit_snapshot_ready is True
+    snapshot = engine._audit_snapshot_path()
+    assert snapshot.exists()
+
+    real = engine.integrity_worker.run_report
+
+    async def rejecting(*_args, **_kwargs):
+        raise V4WorkerQueueFull("integrity worker queue is full (1)")
+
+    engine.integrity_worker.run_report = rejecting
+    try:
+        assert asyncio.run(engine._run_full_audit_verdict()) is False
+    finally:
+        engine.integrity_worker.run_report = real
+
+    # The image survives, the audit is still pending, and no verdict was faked.
+    assert snapshot.exists()
+    assert engine._full_audit_snapshot_ready is True
+    assert engine._full_audit_status == "SNAPSHOT_READY"
+    assert engine._full_integrity_inflight is False
+    assert engine._full_integrity_runs == 0
+    assert engine._full_audit_completed_ms == 0
+    assert _read_audit_manifest(engine._audit_snapshot_dir()) == {}
+
+    # And the retry succeeds against the very same snapshot.
+    assert asyncio.run(engine._run_full_audit_verdict()) is True
+    assert engine._full_audit_status == "COMPLETED_OK"
+    assert engine._full_audit_completed_ms > 0
+    assert not snapshot.exists()
+
+
+def test_the_two_scans_never_share_the_integrity_worker(engine_harness):
+    engine = engine_harness.engine
+    engine._full_audit_snapshot_ready = True
+
+    engine._integrity_inflight = True
+    assert asyncio.run(engine._run_full_audit_verdict()) is False
+    assert asyncio.run(
+        engine._run_full_audit_snapshot(reason="t"))["completed"] is False
+    engine._integrity_inflight = False
+
+    engine._full_integrity_inflight = True
+    assert asyncio.run(engine._run_full_audit_verdict()) is False
+    engine._full_integrity_inflight = False
+
+
+def test_a_failed_audit_does_not_satisfy_the_cadence(engine_harness):
+    from poly_alpha_sniper.lite_frequency_v4.engine import _read_audit_manifest
+
+    engine = engine_harness.engine
+    manifest = asyncio.run(engine._run_full_audit_snapshot(reason="test"))
+    assert manifest["completed"] is True
+
+    async def exploding(*_args, **_kwargs):
+        raise RuntimeError("audit worker blew up")
+
+    engine.integrity_worker.run_report = exploding
+    assert asyncio.run(engine._run_full_audit_verdict()) is True
+    assert engine._full_audit_status == "FAILED"
+    assert engine._full_audit_completed_ms == 0
+    published = _read_audit_manifest(engine._audit_snapshot_dir())
+    # Published (the failure is evidence) but with no completion timestamp, so
+    # the next launch is still due for an audit.
+    assert published == {} or published.get("completed_ms") == 0
+    assert engine._full_audit_due() is True
+
+
 def test_a_damaged_audit_manifest_makes_an_audit_due(engine_harness):
     from poly_alpha_sniper.lite_frequency_v4.engine import (
         AUDIT_MANIFEST_NAME,
