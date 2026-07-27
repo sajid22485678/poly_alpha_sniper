@@ -46,14 +46,19 @@ def _controller(*, maximum: int = 32, capacity: int = 20_000):
     )
 
 
-def _drive(controller, depths, *, admitted=20, committed=20, tick0=1):
-    """Run the controller across an explicit depth series and return the last decision."""
+def _drive(controller, depths, *, admitted=20, committed=20, tick0=1,
+           overload_handled=0):
+    """Run the controller across an explicit depth series and return the last decision.
+
+    ``overload_handled`` mirrors what the writer records whenever the shedding
+    policy resolves an admission, which is what marks an overload as *controlled*.
+    """
 
     decision = None
     for offset, depth in enumerate(depths):
         tick = float(tick0 + offset)
         controller.add(tick, queue_depth=depth, offered=admitted,
-                       admitted=admitted)
+                       admitted=admitted, overload_handled=overload_handled)
         controller.observe_commit(
             now=tick, rows=committed, logical_rows=committed,
             transaction_ms=5.0, total_ms=5.0, queue_depth=depth)
@@ -201,6 +206,91 @@ def test_alternating_policy_sampling_does_not_reset_safe_recovery():
             queued_logical=offset % 3)
     assert decision.recovery_healthy_windows >= 10
     assert decision.current_operational_healthy is True
+
+
+def test_inflight_rows_do_not_look_like_a_service_imbalance():
+    """The recovery window excludes the current second.
+
+    A row admitted in the window's last included second and acknowledged in the
+    excluded current second belongs to neither the committed sum nor the queue.
+    Counting it as a service deficit produced a phantom ``service_imbalance``
+    under ordinary bursty load.
+    """
+    controller = _controller()
+    decision = None
+    for offset in range(60):
+        tick = float(1 + offset)
+        # Every admitted row is handed to the sink but acknowledged a beat
+        # later, so the queue reads empty while rows are still in flight.
+        controller.add(tick, queue_depth=0, offered=20, admitted=20)
+        controller.observe_commit(
+            now=tick, rows=20, logical_rows=20, transaction_ms=5.0,
+            total_ms=5.0, queue_depth=0)
+        decision = controller.decide(
+            now=tick, queue_depth=0, transaction_budget_ms=250.0,
+            queued_logical=0, inflight_logical=20)
+    assert "service_imbalance" not in decision.recovery_blockers
+    assert decision.current_operational_healthy is True
+
+
+def test_unaccounted_rows_still_report_a_service_imbalance():
+    """Conservation must still bite when rows really are unaccounted."""
+
+    controller = _controller()
+    decision = None
+    for offset in range(40):
+        tick = float(1 + offset)
+        # 20 admitted, only 5 ever committed, nothing queued or in flight.
+        controller.add(tick, queue_depth=0, offered=20, admitted=20)
+        controller.observe_commit(
+            now=tick, rows=5, logical_rows=5, transaction_ms=5.0,
+            total_ms=5.0, queue_depth=0)
+        decision = controller.decide(
+            now=tick, queue_depth=0, transaction_budget_ms=250.0,
+            queued_logical=0, inflight_logical=0)
+    assert "service_imbalance" in decision.recovery_blockers
+
+
+def test_safe_high_water_entry_does_not_reset_the_settle_clock():
+    """Engaging the shedding policy is not a setback when nothing was lost."""
+
+    controller = _controller()
+    # Build a healthy streak on a shallow draining queue.
+    decision = _drive(controller, [1, 0, 2, 1] * 20)
+    assert decision.recovery_healthy_windows >= 10
+    established = decision.recovery_healthy_windows
+
+    # Now cross the high-water mark briefly with zero loss, then drain.  Being
+    # above low water legitimately pauses the streak while it lasts; what must
+    # NOT happen is the 20 s settle clock restarting, because that would keep
+    # the lane un-certifiable long after the burst has cleared.
+    burst = [controller.high_water + 5, controller.high_water + 2, 3, 1, 0, 2]
+    after = _drive(controller, burst * 6, tick0=200, overload_handled=8)
+    assert "settling" not in after.recovery_blockers
+    assert after.recovery_blockers == ()
+    assert established >= 10
+
+    # With the burst cleared, the streak rebuilds promptly rather than waiting
+    # out a fresh settle interval.
+    calm = _drive(controller, [1, 0, 2] * 8, tick0=400, overload_handled=8)
+    assert "settling" not in calm.recovery_blockers
+    assert calm.recovery_healthy_windows >= 10
+    assert calm.current_operational_healthy is True
+
+
+def test_lossy_high_water_entry_still_resets_the_settle_clock():
+    """A capacity setback that actually cost rows is still a setback."""
+
+    controller = _controller()
+    decision = _drive(controller, [1, 0, 2, 1] * 20)
+    assert decision.recovery_healthy_windows >= 10
+    # Cross high water *and* lose a row in the same window.
+    controller.add(300.0, queue_depth=controller.high_water + 5,
+                   admitted=20, lost=2)
+    after = controller.decide(
+        now=301.0, queue_depth=controller.high_water + 5,
+        transaction_budget_ms=250.0, queued_logical=0)
+    assert after.recovery_healthy_windows == 0
 
 
 # ---------------------------------------------------------------------------

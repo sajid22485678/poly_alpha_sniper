@@ -552,7 +552,8 @@ def _capacity_state(
     return TelemetryCapacityState.WITHIN_CAPACITY.value
 
 
-def _service_balanced(view: _WindowView, *, queued_logical: int) -> bool:
+def _service_balanced(view: _WindowView, *, queued_logical: int,
+                      inflight_logical: int = 0) -> bool:
     """Is every logical row admitted in this window accounted for?
 
     The previous test compared ``committed`` (physical rows the sink wrote)
@@ -564,11 +565,18 @@ def _service_balanced(view: _WindowView, *, queued_logical: int) -> bool:
 
     Conservation is the honest test, in one consistent unit: every admitted
     logical row has either reached the sink, been explicitly lost, or is still
-    held by the lane.
+    held by the lane -- queued *or* in flight inside the sink.
+
+    The in-flight term matters at the window boundary: the recovery view
+    excludes the current second, so a row admitted in the window's last included
+    second and acknowledged in the excluded current second appears in neither
+    ``logical_committed`` nor ``queued_logical``.  Without it the lane reported
+    a phantom service imbalance under ordinary bursty load.
     """
 
     return (
-        view.logical_committed + view.lost + max(0, int(queued_logical))
+        view.logical_committed + view.lost
+        + max(0, int(queued_logical)) + max(0, int(inflight_logical))
         >= view.admitted
     )
 
@@ -1029,6 +1037,7 @@ class _AdaptiveTelemetryController:
         advance_state: bool = True,
         queued_logical: Optional[int] = None,
         oldest_age_s: float = 0.0,
+        inflight_logical: int = 0,
     ) -> _ControlDecision:
         # Logical rows still held by the lane.  Defaults to the pending count,
         # which is a lower bound (one pending can carry several aggregated
@@ -1206,12 +1215,22 @@ class _AdaptiveTelemetryController:
             # throughput-exceeds-deadline-safe-capacity path is the steady
             # state the shedding policy exists to absorb, and exiting overload
             # is recovery progress, not a setback.
+            # ...and even that path is only a setback when it actually cost
+            # something.  Crossing the high-water mark is how the shedding
+            # policy engages; if nothing was lost, no admission overflowed and
+            # the queue is not accumulating, the lane absorbed the burst exactly
+            # as designed and the healthy streak must survive it.  Measured on
+            # the soak, resetting here unconditionally left ``settling`` as a
+            # standing blocker under normal fluctuating load.
             if (self._overload_active and not prior_overload
-                    and self._overload_reason == "queue_high_water"):
+                    and self._overload_reason == "queue_high_water"
+                    and (recovery_view.lost
+                         or recovery_view.admission_overflow)):
                 self._reset_settle(now)
 
             service_balanced = _service_balanced(
-                recovery_view, queued_logical=queued_logical)
+                recovery_view, queued_logical=queued_logical,
+                inflight_logical=inflight_logical)
             depth_nonincreasing = _queue_not_accumulating(
                 recovery_view, queue_depth=queue_depth,
                 low_water=self.low_water, high_water=self.high_water,
@@ -1253,7 +1272,8 @@ class _AdaptiveTelemetryController:
             self._healthy_streak = self._healthy_streak + 1 if healthy else 0
 
         service_balanced = _service_balanced(
-            recovery_view, queued_logical=queued_logical)
+                recovery_view, queued_logical=queued_logical,
+                inflight_logical=inflight_logical)
         depth_nonincreasing = _queue_not_accumulating(
             recovery_view, queue_depth=queue_depth,
             low_water=self.low_water, high_water=self.high_water,
@@ -1719,6 +1739,7 @@ class V4TelemetryWriter:
             advance_state=advance_state,
             queued_logical=self._queued_logical,
             oldest_age_s=self._oldest_queued_age_s(now),
+            inflight_logical=self._inflight_logical,
         )
         if advance_state:
             self._physical_batch_ceiling = decision.selected_chunk
