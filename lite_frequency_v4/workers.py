@@ -19,6 +19,7 @@ import threading
 import time
 from typing import Any, Callable, Generic, Iterable, Optional, TypeVar, cast
 
+from .reader_diag import READER_DIAGNOSTICS
 from .store import V4ReadOnlyStore, V4Store
 
 
@@ -369,6 +370,12 @@ class _DedicatedStoreWorker(Generic[StoreT]):
             store.connection.rollback()
             raise V4WorkerInvariantError("worker job leaked an open transaction")
 
+    def _job_started(self, item: _WorkItem) -> None:
+        """Diagnostics hook: one job began on the owner thread (no-op here)."""
+
+    def _job_finished(self, item: _WorkItem, error: Optional[BaseException]) -> None:
+        """Diagnostics hook: the job from ``_job_started`` ended (no-op here)."""
+
     def _validate_result(self, store: StoreT, result: Any) -> None:
         if result is store or result is store.connection or isinstance(
             result, (sqlite3.Connection, sqlite3.Cursor)
@@ -395,6 +402,10 @@ class _DedicatedStoreWorker(Generic[StoreT]):
             self._current_kind = item.kind
             self._current_started_monotonic = started
             self._touch_heartbeat_locked()
+        try:
+            self._job_started(item)
+        except Exception:  # diagnostics must never fail the job itself
+            pass
 
         error: Optional[BaseException] = None
         result: Any = None
@@ -437,6 +448,10 @@ class _DedicatedStoreWorker(Generic[StoreT]):
         except BaseException as exc:
             if error is None:
                 error = exc
+        try:
+            self._job_finished(item, error)
+        except Exception:  # diagnostics must never fail the job itself
+            pass
 
         finished = time.monotonic()
         duration_ms = max(0.0, (finished - started) * 1_000.0)
@@ -742,6 +757,23 @@ class V4ReadWorker(_DedicatedStoreWorker[V4ReadOnlyStore]):
         if query_only is None or int(query_only[0]) != 1:
             connection.execute("PRAGMA query_only=ON")
             raise V4WorkerInvariantError("read worker query_only invariant changed")
+
+    def _job_started(self, item: _WorkItem) -> None:
+        # Job-scope reader occupancy: every logical read operation on this
+        # worker registers so WAL reclamation can see which reader was live
+        # while a checkpoint made (or failed to make) progress.  Statement
+        # scope is registered separately by the read-only store itself.
+        self._diag_job_token = READER_DIAGNOSTICS.begin_job(
+            self.worker_name, item.name, item.kind)
+
+    def _job_finished(self, item: _WorkItem, error: Optional[BaseException]) -> None:
+        token = getattr(self, "_diag_job_token", 0)
+        self._diag_job_token = 0
+        READER_DIAGNOSTICS.end_job(
+            token,
+            error=(f"{type(error).__name__}:{error}"[:120]
+                   if error is not None else None),
+        )
 
     def submit_query(
         self,

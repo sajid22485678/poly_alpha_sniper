@@ -812,6 +812,10 @@ def build_frequency_v4_dashboard(
             "latest_maintenance": latest_maintenance,
             "runtime_io": runtime_io,
             "latest_checkpoint": latest_checkpoint,
+            # Reader-lifetime diagnostics: which SQLite read operations are
+            # live right now and how old their snapshots are.  Sourced from
+            # the published runtime state so the export never re-derives it.
+            "sqlite_readers": _mapping(persistence.get("sqlite_readers")),
             "connection_ownership": {
                 "critical_writer": "dedicated_writer_thread",
                 "telemetry": "dedicated_aggregator_and_writer_connection",

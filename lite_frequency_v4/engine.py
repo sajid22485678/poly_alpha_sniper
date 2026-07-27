@@ -54,6 +54,7 @@ from .maintenance import (
 )
 from .polymarket_ws import PolymarketMarketWS
 from .positions import evaluate_exit_vs_hold
+from .reader_diag import READER_DIAGNOSTICS
 from .persistence import (
     V4PersistenceCommand,
     V4PersistenceError,
@@ -104,6 +105,11 @@ REPORTING_EXPORT_RECOVERY_PUBLISHES = 3
 # against a WAL that has already grown by ~110 MB.
 MAINTENANCE_IDLE_INTERVAL_S = 60.0
 MAINTENANCE_PRESSURE_INTERVAL_S = 5.0
+# A read statement older than this is a long reader for diagnostics purposes:
+# ordinary export/operational statements complete in milliseconds, so anything
+# past this bound is an integrity scan or a genuinely stuck reader.  This is a
+# reporting threshold only; it gates no execution decision.
+READER_LONG_THRESHOLD_MS = 5_000.0
 # Sentinels marking an event-count bucket whose channel/asset/event attribution
 # was deliberately coarsened to keep the aggregation buffer bounded.  The event
 # volume is conserved exactly; only the attribution is coarser, and these values
@@ -144,6 +150,16 @@ _TELEMETRY_LIFETIME_COUNTER_ALIASES: dict[str, tuple[str, ...]] = {
     "true_lost_critical_rows": (
         "true_lost_critical_rows", "critical_evidence_lost_count"),
 }
+
+
+def _compact_reader_snapshot() -> dict[str, Any]:
+    """Bounded active-reader view for per-checkpoint correlation.
+
+    Module-level (not a bound method) so the maintenance worker can call it
+    from its own thread without capturing the engine.
+    """
+
+    return READER_DIAGNOSTICS.snapshot(compact=True)
 
 
 def _nonnegative_counter(value: Any) -> Optional[int]:
@@ -929,6 +945,7 @@ class FrequencyV4Engine:
                 ),
                 "latest_checkpoint": dict(self._checkpoint_state),
                 "latest_maintenance": dict(self._maintenance_result),
+                "sqlite_readers": READER_DIAGNOSTICS.snapshot(),
                 "db_size_bytes": self._database_size_cache,
                 "wal_size_bytes": self._wal_size_cache,
                 "wal_reclamation": {
@@ -4030,7 +4047,12 @@ class FrequencyV4Engine:
                 if self.report_worker is not None else {}
             )
             reporting_active = bool(reporting.get("current_job"))
-            reporting_duration = float(reporting.get("current_duration_ms") or 0.0)
+            # Worker health publishes the running job's age as
+            # ``current_job_age_ms``; the previous ``current_duration_ms`` key
+            # never existed, so every long-reader duration read as 0.0 and
+            # ``long_reader_count`` could never arm.  The reclamation policy
+            # explicitly defers to long readers, so it must see real ages.
+            reporting_duration = float(reporting.get("current_job_age_ms") or 0.0)
             operational = (
                 self.read_worker.health() if self.read_worker is not None else {}
             )
@@ -4038,14 +4060,14 @@ class FrequencyV4Engine:
             # all of them -- not just the reporting worker.
             operational_active = bool(operational.get("current_job"))
             operational_duration = float(
-                operational.get("current_duration_ms") or 0.0)
+                operational.get("current_job_age_ms") or 0.0)
             integrity_reads = (
                 self.integrity_worker.health()
                 if self.integrity_worker is not None else {}
             )
             integrity_active = bool(integrity_reads.get("current_job"))
             integrity_duration = float(
-                integrity_reads.get("current_duration_ms") or 0.0)
+                integrity_reads.get("current_job_age_ms") or 0.0)
             runtime_health = self._runtime_state_name(current)
             snapshot = MaintenanceSnapshot(
                 now_ms=current,
@@ -4134,6 +4156,7 @@ class FrequencyV4Engine:
                 run_bounded_maintenance_pass,
                 snapshot=snapshot,
                 policy=policy,
+                reader_snapshot_provider=_compact_reader_snapshot,
                 timeout_s=self.cfg.maintenance_worker_timeout_s,
                 name="bounded_checkpoint_retention",
             )
@@ -4313,6 +4336,12 @@ class FrequencyV4Engine:
                 self.cfg.writer_heartbeat_interval_ms / 1_000.0),
         )
         self.telemetry.start()
+        # Reader-lifetime diagnostics observe every read-worker job and every
+        # read statement from here on; WAL size correlation needs the path.
+        READER_DIAGNOSTICS.configure(
+            wal_path=f"{self.cfg.db_path}-wal",
+            long_reader_threshold_ms=READER_LONG_THRESHOLD_MS,
+        )
         self.read_worker = V4ReadWorker(
             self.cfg.db_path,
             worker_name="lite-frequency-v4-operational-read-worker",

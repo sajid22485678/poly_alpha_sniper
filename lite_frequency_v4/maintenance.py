@@ -251,6 +251,13 @@ class CheckpointResult:
     record_attempted: bool = False
     recorded: bool = False
     record_error: Optional[str] = None
+    # Active-reader correlation, captured on the maintenance worker at the
+    # instant the checkpoint began and again when it finished.  This is what
+    # ties a zero-progress checkpoint to the concrete reader that pinned it.
+    # Optional and excluded from the persisted checkpoint_runs record so the
+    # database schema is untouched.
+    readers_at_start: Optional[Mapping[str, Any]] = None
+    readers_at_end: Optional[Mapping[str, Any]] = None
 
     @property
     def successful(self) -> bool:
@@ -483,12 +490,18 @@ def perform_checkpoint(
     wall_clock_ms: Optional[Callable[[], int]] = None,
     monotonic: Optional[Callable[[], float]] = None,
     wal_size_reader: Optional[Callable[[], int]] = None,
+    reader_snapshot_provider: Optional[Callable[[], Mapping[str, Any]]] = None,
 ) -> CheckpointResult:
     """Execute and account for one policy-approved checkpoint.
 
     This function catches operation and recording failures so a maintenance
     fault cannot escape into source tasks. It must be called on the dedicated
     maintenance worker, never from an active asyncio loop.
+
+    ``reader_snapshot_provider`` supplies a bounded view of the currently
+    active SQLite readers; when given, it is sampled immediately before and
+    after the checkpoint so a zero-progress outcome can be attributed to the
+    concrete reader that held the WAL read-mark.
     """
 
     clock = wall_clock_ms or _wall_clock_ms
@@ -533,6 +546,7 @@ def perform_checkpoint(
     background_deferred = False
     already_recorded = False
     operation_duration_ms: Optional[float] = None
+    readers_at_start = _safe_reader_snapshot(reader_snapshot_provider)
     try:
         before_wal = _read_wal_bytes(
             store, fallback=snapshot_wal(decision), reader=wal_size_reader
@@ -603,6 +617,8 @@ def perform_checkpoint(
         frames_checkpointed=checkpointed,
         database_bytes=_database_bytes(store),
         failure_reason=failure,
+        readers_at_start=readers_at_start,
+        readers_at_end=_safe_reader_snapshot(reader_snapshot_provider),
     )
     if background_deferred:
         return result
@@ -619,6 +635,7 @@ def run_bounded_maintenance_pass(
     wall_clock_ms: Optional[Callable[[], int]] = None,
     monotonic: Optional[Callable[[], float]] = None,
     wal_size_reader: Optional[Callable[[], int]] = None,
+    reader_snapshot_provider: Optional[Callable[[], Mapping[str, Any]]] = None,
 ) -> MaintenancePassResult:
     """Run one incremental, row/time-budgeted pass.
 
@@ -688,6 +705,7 @@ def run_bounded_maintenance_pass(
             wall_clock_ms=clock,
             monotonic=monotonic_clock,
             wal_size_reader=wal_size_reader,
+            reader_snapshot_provider=reader_snapshot_provider,
         )
         if checkpoint.status in {
             CheckpointStatus.BUSY,
@@ -824,6 +842,20 @@ def run_bounded_maintenance_pass(
 
 def _skip(snapshot: MaintenanceSnapshot, reason: str) -> CheckpointDecision:
     return CheckpointDecision(False, None, reason, snapshot)
+
+
+def _safe_reader_snapshot(
+    provider: Optional[Callable[[], Mapping[str, Any]]],
+) -> Optional[dict[str, Any]]:
+    """One bounded reader observation; a diagnostics fault must stay silent."""
+
+    if provider is None:
+        return None
+    try:
+        observed = provider()
+    except Exception:  # noqa: BLE001 - diagnostics never fail a checkpoint
+        return None
+    return dict(observed) if isinstance(observed, Mapping) else None
 
 
 def _live_reclaim_is_safe(

@@ -19,6 +19,7 @@ import threading
 import time
 from typing import Any, Callable, Iterable, Iterator, Mapping, Optional
 
+from .reader_diag import READER_DIAGNOSTICS
 from .universe import evaluate_persisted_market
 
 
@@ -5041,3 +5042,52 @@ class V4ReadOnlyStore(V4Store):
                     "V4 read-only connection closed outside its owner thread")
             self._conn.close()
             self._closed = True
+
+    # -- reader-lifetime diagnostics --------------------------------------
+    #
+    # Every read statement on this connection is one SQLite read transaction:
+    # ``query``/``query_one`` execute-and-fetch to exhaustion, so the read
+    # snapshot begins at ``execute`` and is released when the cursor drains.
+    # Registering exactly that interval gives WAL reclamation the true
+    # read-mark hold times.  Only these read-only stores register: the writer
+    # and maintenance connections are not WAL readers in the sense that gates
+    # checkpoint progress, and instrumenting them would only add noise.
+
+    def query(self, sql: str, params: Iterable[Any] = ()) -> list[dict[str, Any]]:
+        token = READER_DIAGNOSTICS.begin_statement(conn_id=id(self._conn))
+        try:
+            rows = super().query(sql, params)
+        except BaseException as exc:
+            READER_DIAGNOSTICS.end_statement(
+                token, error=f"{type(exc).__name__}"[:120])
+            raise
+        READER_DIAGNOSTICS.end_statement(token, rows=len(rows))
+        return rows
+
+    def query_one(
+        self, sql: str, params: Iterable[Any] = ()
+    ) -> Optional[dict[str, Any]]:
+        token = READER_DIAGNOSTICS.begin_statement(conn_id=id(self._conn))
+        try:
+            row = super().query_one(sql, params)
+        except BaseException as exc:
+            READER_DIAGNOSTICS.end_statement(
+                token, error=f"{type(exc).__name__}"[:120])
+            raise
+        READER_DIAGNOSTICS.end_statement(token, rows=1 if row is not None else 0)
+        return row
+
+    def integrity_check(self, *, quick: bool = False) -> dict[str, Any]:
+        # The one deliberately long single-statement reader in the system: a
+        # multi-GB ``quick_check``/``integrity_check`` holds its read snapshot
+        # for tens of seconds, so its lifetime must be visible to reclamation.
+        token = READER_DIAGNOSTICS.begin_statement(conn_id=id(self._conn))
+        try:
+            result = super().integrity_check(quick=quick)
+        except BaseException as exc:
+            READER_DIAGNOSTICS.end_statement(
+                token, error=f"{type(exc).__name__}"[:120])
+            raise
+        READER_DIAGNOSTICS.end_statement(
+            token, rows=len(result.get("foreign_key_violations") or ()))
+        return result

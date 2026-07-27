@@ -151,6 +151,13 @@ def sample_once(
     checkpoint = persistence.get("latest_checkpoint") or {}
     runtime = export.get("runtime") or {}
     reconciliation = model.get("accounting_reconciliation") or {}
+    # Reader-lifetime diagnostics come from the ~2s state publish, which is
+    # fresher than the 5s export; the in-memory latest checkpoint carries the
+    # per-checkpoint reader correlation that never enters the database row.
+    state_persistence = state.get("persistence") or {}
+    readers = state_persistence.get("sqlite_readers") or {}
+    state_checkpoint = state_persistence.get("latest_checkpoint") or {}
+    ckpt_readers = state_checkpoint.get("readers_at_start") or {}
 
     hb_ts = int(heartbeat.get("ts_ms") or 0)
     generated = int(export.get("generated_ts_ms") or 0)
@@ -233,6 +240,37 @@ def sample_once(
         "checkpoint_before_wal_bytes": checkpoint.get("before_wal_bytes"),
         "checkpoint_after_wal_bytes": checkpoint.get("after_wal_bytes"),
         "checkpoint_success": checkpoint.get("success"),
+        "checkpoint_status": state_checkpoint.get("status"),
+        "checkpoint_frames_total": state_checkpoint.get("frames_total"),
+        "checkpoint_frames_checkpointed": state_checkpoint.get(
+            "frames_checkpointed"),
+        "checkpoint_busy_result": state_checkpoint.get("busy_result"),
+        "checkpoint_duration_ms": state_checkpoint.get("duration_ms"),
+        "checkpoint_started_ts_ms": state_checkpoint.get("started_ts_ms"),
+        # --- SQLite reader lifetimes ---------------------------------------
+        "active_reader_count": readers.get("active_reader_count"),
+        "active_job_count": readers.get("active_job_count"),
+        "oldest_reader_age_ms": readers.get("oldest_reader_age_ms"),
+        "oldest_reader_name": readers.get("oldest_reader_name"),
+        "oldest_reader_worker": readers.get("oldest_reader_worker"),
+        "oldest_job_age_ms": readers.get("oldest_job_age_ms"),
+        "oldest_job_name": readers.get("oldest_job_name"),
+        "readers_over_threshold": readers.get("readers_over_threshold"),
+        "last_reader_release_ms": readers.get("last_reader_release_ms"),
+        "max_statement_ms": readers.get("max_statement_ms"),
+        "max_job_ms": readers.get("max_job_ms"),
+        "reader_counters": readers.get("counters"),
+        "reader_ops": readers.get("ops"),
+        "checkpoint_readers_at_start": {
+            "active_reader_count": ckpt_readers.get("active_reader_count"),
+            "active_job_count": ckpt_readers.get("active_job_count"),
+            "oldest_reader_age_ms": ckpt_readers.get("oldest_reader_age_ms"),
+            "oldest_reader_name": ckpt_readers.get("oldest_reader_name"),
+            "oldest_reader_worker": ckpt_readers.get("oldest_reader_worker"),
+            "oldest_job_age_ms": ckpt_readers.get("oldest_job_age_ms"),
+            "oldest_job_name": ckpt_readers.get("oldest_job_name"),
+            "wal_bytes": ckpt_readers.get("wal_bytes"),
+        } if ckpt_readers else None,
         # --- integrity ------------------------------------------------------
         "integrity_runs": state.get("integrity_check_runs"),
         "integrity_scan_in_progress": state.get("integrity_scan_in_progress"),
@@ -242,6 +280,8 @@ def sample_once(
             "sqlite_integrity"),
         "export_runs": state.get("dashboard_export_runs"),
         "export_ok": state.get("dashboard_export_ok"),
+        "export_duration_ms": state.get("dashboard_export_ms"),
+        "maintenance_duration_ms": state.get("maintenance_ms"),
         "reporting_export_degraded": state.get("reporting_export_degraded"),
         # --- sessions -------------------------------------------------------
         "open_runtime_sessions_export": runtime.get(
@@ -350,6 +390,8 @@ def _line(row: Mapping[str, Any]) -> str:
         f"mm={row['reconciliation_mismatch']} "
         f"wal={round((row['wal_bytes'] or 0) / 1e6, 1)}MB "
         f"q={row['queue_depth']} age={row['queue_oldest_age_s']} "
+        f"rdrs={row.get('active_reader_count')}"
+        f"/{row.get('oldest_reader_age_ms')} "
         f"iscan={row['integrity_runs']} blk={blockers}"
     )
 
