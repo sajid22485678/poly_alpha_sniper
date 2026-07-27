@@ -99,6 +99,8 @@ class SectionState:
     refresh_reason: str
     refresh_duration_ms: float
     max_age_ms: int
+    min_refresh_interval_ms: int
+    source_changed: bool
     stale: bool
     available: bool
     error: Optional[str]
@@ -114,6 +116,11 @@ class SectionState:
             "refresh_reason": self.refresh_reason,
             "refresh_duration_ms": round(self.refresh_duration_ms, 3),
             "max_age_ms": self.max_age_ms,
+            "min_refresh_interval_ms": self.min_refresh_interval_ms,
+            # True when this value predates writes that have already landed.
+            # Bounded by ``min_refresh_interval_ms`` and always published with
+            # ``age_ms``; distinct from ``stale``, which means a refresh failed.
+            "source_changed_since": self.source_changed,
             "stale": self.stale,
             "available": self.available,
             "source_version": self.version,
@@ -164,6 +171,7 @@ class ExportSectionCache:
         build: Callable[[], Any],
         tier: str = TIER_ANALYTICAL,
         max_age_ms: int = 30_000,
+        min_refresh_interval_ms: int = 0,
         stale_limit_ms: Optional[int] = None,
         required: bool = True,
         empty: Callable[[], Any] = lambda: None,
@@ -195,26 +203,37 @@ class ExportSectionCache:
         with self._lock:
             entry = self._entries.get(name)
 
+        age = (
+            max(0, now_ms - entry.source_as_of_ms) if entry is not None else 0)
+        changed = entry is not None and entry.version != token
+        floor = max(0, int(min_refresh_interval_ms))
         if tier == TIER_CRITICAL:
             reason = "critical_always_refresh"
         elif entry is None:
             reason = "first"
-        elif entry.version != token:
-            reason = "source_changed"
-        elif now_ms - entry.source_as_of_ms >= int(max_age_ms):
+        elif age >= int(max_age_ms):
             reason = "max_age"
+        elif changed and age >= floor:
+            reason = "source_changed"
         else:
-            # Reuse: the source has not changed and the value is inside its
-            # declared age bound.  This is the only path that skips work.
+            # Reuse.  Either the source has not moved -- in which case this is
+            # exact, not merely fresh enough -- or it has, and the section's
+            # declared minimum refresh interval says a twelve-hour rollup is
+            # not worth re-deriving every five seconds.  The second case is
+            # published as ``source_changed_since`` with its true ``age_ms``,
+            # so a bounded lag is visible rather than implied.
             with self._lock:
                 self._hits += 1
             return SectionState(
                 name=name, tier=tier, value=entry.value, version=entry.version,
                 source_as_of_ms=entry.source_as_of_ms, generated_at_ms=now_ms,
-                age_ms=max(0, now_ms - entry.source_as_of_ms), cache_hit=True,
-                refresh_reason="unchanged_source",
+                age_ms=age, cache_hit=True,
+                refresh_reason=(
+                    "within_refresh_interval" if changed
+                    else "unchanged_source"),
                 refresh_duration_ms=entry.refresh_duration_ms,
-                max_age_ms=int(max_age_ms), stale=False, available=True,
+                max_age_ms=int(max_age_ms), min_refresh_interval_ms=floor,
+                source_changed=changed, stale=False, available=True,
                 error=None,
             )
 
@@ -235,11 +254,7 @@ class ExportSectionCache:
                 # depends on: fail closed and let the last published export
                 # remain, rather than publish a structurally incomplete one.
                 raise
-            age = (
-                max(0, now_ms - entry.source_as_of_ms)
-                if entry is not None else None
-            )
-            if entry is not None and age is not None and age <= limit:
+            if entry_usable and entry is not None:
                 # Bounded degraded reuse, explicitly marked.  Never silent.
                 with self._lock:
                     self._degraded += 1
@@ -250,7 +265,8 @@ class ExportSectionCache:
                     generated_at_ms=now_ms, age_ms=age, cache_hit=True,
                     refresh_reason="refresh_failed_retained_stale",
                     refresh_duration_ms=duration_ms,
-                    max_age_ms=int(max_age_ms), stale=True, available=True,
+                    max_age_ms=int(max_age_ms), min_refresh_interval_ms=floor,
+                    source_changed=changed, stale=True, available=True,
                     error=detail,
                 )
             with self._lock:
@@ -260,6 +276,7 @@ class ExportSectionCache:
                 source_as_of_ms=0, generated_at_ms=now_ms, age_ms=0,
                 cache_hit=False, refresh_reason="refresh_failed_unavailable",
                 refresh_duration_ms=duration_ms, max_age_ms=int(max_age_ms),
+                min_refresh_interval_ms=floor, source_changed=False,
                 stale=False, available=False, error=detail,
             )
 
@@ -282,6 +299,7 @@ class ExportSectionCache:
             source_as_of_ms=now_ms, generated_at_ms=now_ms, age_ms=0,
             cache_hit=False, refresh_reason=reason,
             refresh_duration_ms=duration_ms, max_age_ms=int(max_age_ms),
+            min_refresh_interval_ms=floor, source_changed=False,
             stale=False, available=True, error=None,
         )
 
@@ -390,7 +408,8 @@ class SectionResolver:
     def section(
         self, name: str, *, build: Callable[[], Any],
         groups: tuple[str, ...] = (), tier: str = TIER_ANALYTICAL,
-        max_age_ms: int = 30_000, extra_version: str = "",
+        max_age_ms: int = 30_000, min_refresh_interval_ms: int = 0,
+        extra_version: str = "",
     ) -> Any:
         """Resolve one section, returning its value and recording provenance."""
 
@@ -405,11 +424,13 @@ class SectionResolver:
             state = _uncached_state(
                 name, tier=tier, build=build, now_ms=self.now_ms,
                 version=token, max_age_ms=max_age_ms,
+                min_refresh_interval_ms=min_refresh_interval_ms,
             )
         else:
             state = self.cache.resolve(
                 name, now_ms=self.now_ms, version=token, build=build,
                 tier=tier, max_age_ms=max_age_ms,
+                min_refresh_interval_ms=min_refresh_interval_ms,
                 required=name in REQUIRED_SECTIONS,
                 empty=EMPTY_SECTION.get(name, lambda: None),
             )
@@ -426,7 +447,7 @@ class SectionResolver:
 
 def _uncached_state(
     name: str, *, tier: str, build: Callable[[], Any], now_ms: int,
-    version: str, max_age_ms: int,
+    version: str, max_age_ms: int, min_refresh_interval_ms: int = 0,
 ) -> SectionState:
     """Compute a section with no cache: every build is a fresh read."""
 
@@ -440,7 +461,8 @@ def _uncached_state(
         source_as_of_ms=int(now_ms), generated_at_ms=int(now_ms), age_ms=0,
         cache_hit=False, refresh_reason="uncached",
         refresh_duration_ms=duration_ms, max_age_ms=int(max_age_ms),
-        stale=False, available=True, error=None,
+        min_refresh_interval_ms=max(0, int(min_refresh_interval_ms)),
+        source_changed=False, stale=False, available=True, error=None,
     )
 
 
@@ -487,44 +509,57 @@ EMPTY_SECTION: dict[str, Callable[[], Any]] = {
     "sources": list,
 }
 
-#: Declared refresh policy per cached section: (tier, max age, version groups).
+#: Declared refresh policy per cached section:
+#: ``(tier, max_age_ms, min_refresh_interval_ms, version groups)``.
+#:
+#: ``max_age_ms`` is the staleness ceiling -- recompute at least this often
+#: even when the source has not moved.  ``min_refresh_interval_ms`` is the
+#: opposite bound, and it is what a version alone cannot provide: a section
+#: whose source advances on essentially every write (``decisions`` gained rows
+#: in 129 of 135 measured builds) would otherwise be invalidated continuously
+#: and never benefit from being cached at all.  A twelve-hour rollup does not
+#: change materially in five seconds, so the floor stops it being re-derived
+#: at export cadence; the resulting lag is published as ``age_ms`` with
+#: ``source_changed_since``.
 #:
 #: Critical runtime evidence -- the safety tuple, runtime/session state, the
 #: capital ledger, open positions, integrity, database and WAL sizes, the live
 #: five-minute window universe and the latest candidates -- is deliberately
 #: absent: it is recomputed on every build and never served from here.
-SECTION_POLICY: dict[str, tuple[str, int, tuple[str, ...]]] = {
-    # Rolling funnel counters.  Sourced from event_buckets and window_funnel,
-    # which the measured profile showed changing in 4 of 103 builds.
-    "frequency": (TIER_ANALYTICAL, 20_000, ("event_buckets", "entries")),
+SECTION_POLICY: dict[str, tuple[str, int, int, tuple[str, ...]]] = {
+    # Rolling funnel counters over event_buckets and window_funnel.
+    "frequency": (TIER_ANALYTICAL, 30_000, 10_000,
+                  ("event_buckets", "entries")),
     # Cohort-scoped terminal-trade performance: changes only when a trade
-    # resolves, and the version observes verification flags in place.
-    "performance": (TIER_ANALYTICAL, 30_000, ("trade_evidence",)),
+    # resolves, and the version observes verification flags in place, so the
+    # version alone is an exact signal and needs no floor.
+    "performance": (TIER_ANALYTICAL, 30_000, 0, ("trade_evidence",)),
     # Whole-history aggregate, explicitly labelled non-authoritative: the
-    # single most expensive statement in the profile, changed once in 103.
-    "legacy_performance": (TIER_HISTORICAL, 120_000, ("trade_evidence",)),
-    "compound_preview": (TIER_ANALYTICAL, 30_000, ("trade_evidence",)),
+    # single most expensive statement in the baseline profile.
+    "legacy_performance": (TIER_HISTORICAL, 120_000, 0, ("trade_evidence",)),
+    "compound_preview": (TIER_ANALYTICAL, 30_000, 0, ("trade_evidence",)),
     # Depends on frequency and performance as well as its own queries; its
     # version is composed from theirs so it can never mix generations.
-    "acceptance_gate": (TIER_ANALYTICAL, 30_000, ("trade_evidence",)),
-    # 12-hour decision/maker rollups over the two largest scanned tables.
-    "execution": (TIER_ANALYTICAL, 20_000, ("decisions", "maker")),
-    "rejects": (TIER_ANALYTICAL, 20_000, ("rejects",)),
-    "insufficient_rejects": (TIER_ANALYTICAL, 30_000, ("rejects",)),
-    "universe_rejects": (TIER_ANALYTICAL, 20_000, ("rejects",)),
-    "universe_durations": (TIER_ANALYTICAL, 60_000, ("markets",)),
-    "recent_entries": (TIER_ANALYTICAL, 15_000, ("entries",)),
-    "terminal_trades": (TIER_ANALYTICAL, 15_000, ("trade_evidence",)),
+    "acceptance_gate": (TIER_ANALYTICAL, 30_000, 0, ("trade_evidence",)),
+    # Twelve-hour decision/maker rollups.  Their sources advance constantly,
+    # so the floor -- not the version -- is what bounds their cost.
+    "execution": (TIER_ANALYTICAL, 60_000, 20_000, ("decisions", "maker")),
+    "rejects": (TIER_ANALYTICAL, 60_000, 20_000, ("rejects",)),
+    "insufficient_rejects": (TIER_ANALYTICAL, 60_000, 30_000, ("rejects",)),
+    "universe_rejects": (TIER_ANALYTICAL, 60_000, 20_000, ("rejects",)),
+    "universe_durations": (TIER_ANALYTICAL, 60_000, 0, ("markets",)),
+    "recent_entries": (TIER_ANALYTICAL, 15_000, 0, ("entries",)),
+    "terminal_trades": (TIER_ANALYTICAL, 15_000, 0, ("trade_evidence",)),
     # Per-channel source health.  Every row carries its own sample_ts_ms, and
     # execution gating uses the engine's in-loop health, not this display copy.
-    "sources": (TIER_ANALYTICAL, 15_000, ()),
+    "sources": (TIER_ANALYTICAL, 15_000, 0, ()),
 }
 
 
-def policy(name: str) -> tuple[str, int, tuple[str, ...]]:
-    """Declared (tier, max_age_ms, version groups) for one section."""
+def policy(name: str) -> tuple[str, int, int, tuple[str, ...]]:
+    """Declared (tier, max_age_ms, min_refresh_interval_ms, groups)."""
 
-    return SECTION_POLICY.get(name, (TIER_ANALYTICAL, 30_000, ()))
+    return SECTION_POLICY.get(name, (TIER_ANALYTICAL, 30_000, 0, ()))
 
 
 __all__ = [

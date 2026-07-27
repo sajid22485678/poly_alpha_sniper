@@ -302,9 +302,10 @@ def _section(
 
     if sections is None:
         return build()
-    tier, max_age_ms, groups = policy(name)
+    tier, max_age_ms, min_refresh_interval_ms, groups = policy(name)
     return sections.section(
-        name, build=build, groups=groups, tier=tier, max_age_ms=max_age_ms)
+        name, build=build, groups=groups, tier=tier, max_age_ms=max_age_ms,
+        min_refresh_interval_ms=min_refresh_interval_ms)
 
 
 def _latest_candidates(store: Any, limit: int = 12) -> list[dict[str, Any]]:

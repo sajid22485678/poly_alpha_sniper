@@ -22,6 +22,7 @@ from poly_alpha_sniper.lite_frequency_v4.export import (
 from poly_alpha_sniper.lite_frequency_v4.export_cache import (
     ExportSectionCache,
     SECTION_POLICY,
+    policy,
 )
 from poly_alpha_sniper.lite_frequency_v4.export_profile import EXPORT_PROFILE
 from tests.test_frequency_v4_export import (
@@ -176,10 +177,20 @@ def test_a_changed_source_reruns_only_the_affected_section(built):
         "taxonomy": "ECONOMIC", "reason": "negative_edge",
         "recoverable": False,
     })
-    payload = build(NOW + 1_000)
+    # Inside its refresh floor the new row is not re-derived, but the lag is
+    # declared rather than implied.
+    inside = build(NOW + 1_000)["export_freshness"]["sections"]["rejects"]
+    assert inside["cache_hit"] is True
+    assert inside["refresh_reason"] == "within_refresh_interval"
+    assert inside["source_changed_since"] is True
+    assert inside["age_ms"] == 1_000
+
+    _tier, _max_age, floor, _groups = SECTION_POLICY["rejects"]
+    payload = build(NOW + floor)
     sections = payload["export_freshness"]["sections"]
     assert sections["rejects"]["refresh_reason"] == "source_changed"
     assert sections["rejects"]["cache_hit"] is False
+    assert sections["rejects"]["source_changed_since"] is False
     # A section that does not depend on reject rows keeps its cached read.
     assert sections["performance"]["cache_hit"] is True
     assert sections["legacy_performance"]["cache_hit"] is True
@@ -206,11 +217,16 @@ def _break_sources(monkeypatch, message: str = "database is locked") -> None:
     monkeypatch.setattr(V4Store, "latest_source_health", boom)
 
 
+def _rejects_max_age() -> int:
+    return SECTION_POLICY["rejects"][1]
+
+
 def test_a_stale_section_is_marked_and_fails_readiness_closed(built, monkeypatch):
     build, *_ = built
     build(NOW)
     _break_rejects(monkeypatch)
-    payload = build(NOW + 25_000)
+    age = _rejects_max_age()
+    payload = build(NOW + age)
     freshness = payload["export_freshness"]
     assert freshness["stale_sections"] == ["rejects"]
     assert freshness["degraded_sections"] == ["rejects"]
@@ -219,7 +235,7 @@ def test_a_stale_section_is_marked_and_fails_readiness_closed(built, monkeypatch
     record = freshness["sections"]["rejects"]
     assert record["stale"] is True
     assert record["source_as_of_ms"] == NOW
-    assert record["age_ms"] == 25_000
+    assert record["age_ms"] == age
     assert "RuntimeError" in record["error"]
     reasons = payload["persistence"]["operational_degraded_reasons"]
     assert "export_section_stale:rejects" in reasons
@@ -243,12 +259,13 @@ def test_an_excessively_stale_required_section_stops_publishing(
     build, *_ = built
     build(NOW)
     _break_rejects(monkeypatch, "still gone")
+    age = _rejects_max_age()
     # Inside the stale limit the last value is retained and marked...
-    assert build(NOW + 25_000)["export_freshness"]["stale_sections"] == [
+    assert build(NOW + age)["export_freshness"]["stale_sections"] == [
         "rejects"]
     # ...but past it there is nothing honest left to publish.
     with pytest.raises(RuntimeError, match="still gone"):
-        build(NOW + 20_000 * 4 + 1)
+        build(NOW + age * 4 + 1)
 
 
 def test_an_unavailable_optional_section_clears_completeness(built, monkeypatch):

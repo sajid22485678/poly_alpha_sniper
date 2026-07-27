@@ -75,12 +75,117 @@ def test_missing_component_makes_the_version_unestablished():
     assert not version_is_established(token)
 
 
-def test_every_declared_section_has_a_policy():
+def test_every_declared_section_has_a_coherent_policy():
     for name in SECTION_POLICY:
-        tier, max_age, groups = policy(name)
+        tier, max_age, min_interval, groups = policy(name)
         assert tier in (TIER_ANALYTICAL, TIER_HISTORICAL)
         assert 1_000 <= max_age <= 300_000
+        # The staleness ceiling must never be tighter than the refresh floor,
+        # or a section could be simultaneously due and forbidden to refresh.
+        assert 0 <= min_interval <= max_age
         assert isinstance(groups, tuple)
+    # An undeclared section still gets a safe, floor-free default.
+    assert policy("not_declared") == (TIER_ANALYTICAL, 30_000, 0, ())
+
+
+def test_a_refresh_floor_bounds_a_continuously_changing_source(cache):
+    """A version that moves every build must not defeat the cache."""
+
+    build = Counter()
+    # Source advances on every call, as `decisions` does in production.
+    for tick, version in enumerate(("v1", "v2", "v3", "v4"), start=0):
+        state = cache.resolve(
+            "execution", now_ms=1_000 + tick * 5_000, version=version,
+            build=build, max_age_ms=60_000, min_refresh_interval_ms=20_000)
+    assert build.calls == 1
+    assert state.cache_hit is True
+    assert state.refresh_reason == "within_refresh_interval"
+    # The lag is declared, not implied.
+    assert state.source_changed is True
+    assert state.age_ms == 15_000
+    assert state.provenance()["source_changed_since"] is True
+    assert state.provenance()["min_refresh_interval_ms"] == 20_000
+    # Past the floor the changed source is picked up.
+    state = cache.resolve(
+        "execution", now_ms=1_000 + 20_000, version="v5", build=build,
+        max_age_ms=60_000, min_refresh_interval_ms=20_000)
+    assert build.calls == 2
+    assert state.refresh_reason == "source_changed"
+    assert state.source_changed is False
+    assert state.age_ms == 0
+
+
+def test_an_unchanged_source_inside_the_floor_is_exact_not_lagging(cache):
+    build = Counter()
+    cache.resolve("execution", now_ms=1_000, version="v1", build=build,
+                  max_age_ms=60_000, min_refresh_interval_ms=20_000)
+    state = cache.resolve("execution", now_ms=6_000, version="v1",
+                          build=build, max_age_ms=60_000,
+                          min_refresh_interval_ms=20_000)
+    assert state.refresh_reason == "unchanged_source"
+    assert state.source_changed is False
+
+
+def test_the_staleness_ceiling_still_wins_over_the_refresh_floor(cache):
+    build = Counter()
+    cache.resolve("execution", now_ms=1_000, version="v1", build=build,
+                  max_age_ms=60_000, min_refresh_interval_ms=20_000)
+    state = cache.resolve("execution", now_ms=61_000, version="v1",
+                          build=build, max_age_ms=60_000,
+                          min_refresh_interval_ms=20_000)
+    assert build.calls == 2
+    assert state.refresh_reason == "max_age"
+
+
+def test_decision_histogram_rewrite_is_equivalent_and_seek_only(tmp_path):
+    """The loose index scan must match GROUP BY exactly and never scan."""
+
+    import sqlite3
+
+    from poly_alpha_sniper.lite_frequency_v4.metrics import (
+        DECISION_ACTIONS_12H,
+    )
+    from poly_alpha_sniper.lite_frequency_v4.store import V4Store
+
+    path = tmp_path / "decisions.db"
+    store = V4Store(path)
+    conn = store.connection
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_probe ON decisions(action,decision_ts_ms)")
+    rows = [
+        ("NO_ACTION", 1_000), ("NO_ACTION", 5_000), ("NO_ACTION", 50),
+        ("CROSS_SPREAD", 6_000), ("CROSS_SPREAD", 10),
+        ("SKIP", 20), ("SAFETY_FAIL", 7_000),
+    ]
+    # Seed through raw SQL so the test needs no full candidate graph.
+    conn.execute("PRAGMA foreign_keys=OFF")
+    for index, (action, ts) in enumerate(rows, start=1):
+        conn.execute(
+            "INSERT INTO decisions(decision_id,candidate_id,decision_seq,"
+            "decision_ts_ms,monotonic_ns,phase,action,economic_gate_passed,"
+            "exact_depth_passed,evidence_fresh,reason) "
+            "VALUES(?,?,?,?,?,'INITIAL',?,0,0,0,'t')",
+            (index, index, index, ts, ts, action),
+        )
+    conn.commit()
+
+    for cutoff in (0, 100, 5_500, 99_999):
+        grouped = conn.execute(
+            "SELECT action,COUNT(*) count FROM decisions WHERE decision_ts_ms>=? "
+            "GROUP BY action ORDER BY count DESC,action", (cutoff,)).fetchall()
+        loose = [
+            (action, count) for action, count in conn.execute(
+                DECISION_ACTIONS_12H, (cutoff,)).fetchall() if count
+        ]
+        loose.sort(key=lambda kv: (-kv[1], kv[0]))
+        assert [tuple(row) for row in grouped] == loose, cutoff
+
+    plan = " / ".join(
+        str(row[-1]) for row in conn.execute(
+            "EXPLAIN QUERY PLAN " + DECISION_ACTIONS_12H, (0,)))
+    assert "SCAN decisions" not in plan
+    assert "SEARCH" in plan
+    store.close()
 
 
 def test_source_version_sql_touches_no_large_table_body():

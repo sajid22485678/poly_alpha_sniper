@@ -19,6 +19,36 @@ TARGET_MIN_ENTRIES_PER_HOUR = 19.0
 TARGET_MAX_ENTRIES_PER_HOUR = 36.0
 FORWARD_TERMINAL_REQUIREMENT = 300
 
+#: Twelve-hour decision histogram, as a loose index scan.
+#:
+#: The obvious form -- ``GROUP BY action WHERE decision_ts_ms>=?`` -- cannot
+#: use ``ix_decisions_action_time(action, decision_ts_ms)`` for the range,
+#: because grouping by the leading column forces SQLite to walk every entry:
+#: ``SCAN decisions USING COVERING INDEX``.  Measured on the live store that is
+#: 272,100 index entries read to answer for the 19,793 rows inside the window
+#: (7.3% selectivity), once per five-second export, and it was the single
+#: largest remaining contributor to the export heavy tail.
+#:
+#: The recursive term walks the *distinct* leading-column values by repeated
+#: ``MIN(action) WHERE action > previous`` seeks -- five of them here -- and
+#: each count is then an exact range seek on both index columns.  Every step of
+#: the plan is a ``SEARCH ... USING COVERING INDEX``; nothing is scanned.  The
+#: result is identical to the grouped form, including for actions with no rows
+#: in the window, which the caller drops exactly as ``GROUP BY`` would.
+DECISION_ACTIONS_12H = """
+    WITH RECURSIVE actions(action) AS (
+        SELECT (SELECT MIN(action) FROM decisions)
+        UNION ALL
+        SELECT (SELECT MIN(d.action) FROM decisions d
+                WHERE d.action>actions.action)
+        FROM actions WHERE actions.action IS NOT NULL
+    )
+    SELECT a.action action,
+           (SELECT COUNT(*) FROM decisions d
+            WHERE d.action=a.action AND d.decision_ts_ms>=?) count
+    FROM actions a WHERE a.action IS NOT NULL
+"""
+
 
 def _query(store: Any, sql: str, params: Iterable[Any] = ()) -> list[dict[str, Any]]:
     return store.query(sql, tuple(params))
@@ -420,12 +450,12 @@ def execution_metrics(store: Any, now_ms: int) -> dict[str, Any]:
     with stage("decisions"):
         actions = {
             str(row["action"]): int(row["count"])
-            for row in _query(
-                store,
-                """SELECT action,COUNT(*) count FROM decisions
-                   WHERE decision_ts_ms>=?
-                   GROUP BY action ORDER BY count DESC,action""",
-                (since,),
+            for row in sorted(
+                (
+                    row for row in _query(store, DECISION_ACTIONS_12H, (since,))
+                    if int(row["count"] or 0)
+                ),
+                key=lambda row: (-int(row["count"]), str(row["action"])),
             )
         }
     with stage("maker_observations"):
@@ -594,10 +624,10 @@ def _resolve(
 
     if sections is None:
         return build()
-    tier, max_age_ms, groups = policy(name)
+    tier, max_age_ms, min_refresh_interval_ms, groups = policy(name)
     return sections.section(
         name, build=build, groups=groups, tier=tier, max_age_ms=max_age_ms,
-        **overrides,
+        min_refresh_interval_ms=min_refresh_interval_ms, **overrides,
     )
 
 
