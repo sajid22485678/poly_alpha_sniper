@@ -957,6 +957,9 @@ def build_frequency_v4_dashboard(
             # operator can always tell "safe but shedding" from "losing rows".
             "telemetry_health_model": {
                 "reported_state": telemetry_reported_state,
+                # Explicit combined name alongside the historical key, so the
+                # honest "safe but shedding" verdict is addressable directly.
+                "health_combined": telemetry_reported_state,
                 "data_safety": telemetry_data_safety,
                 "data_safety_reasons": telemetry.get(
                     "telemetry_data_safety_reasons") or [],
@@ -987,6 +990,15 @@ def build_frequency_v4_dashboard(
                 "data_safety_blocking": telemetry_data_safety_blocking,
                 "queue_depth_slope_per_second": telemetry.get(
                     "queue_depth_slope_per_second"),
+                # The hard bound, published next to the pressure thresholds it
+                # must not be confused with.  Recovery is gated on this, never
+                # on the low-water mark that merely starts the shedding policy.
+                "queue_capacity": telemetry.get("queue_capacity"),
+                "queue_low_water": telemetry.get("queue_low_water"),
+                "queue_high_water": telemetry.get("queue_high_water"),
+                "queue_hard_cap_breached": bool(
+                    "queue_hard_cap_breached" in (
+                        telemetry.get("recovery_blockers") or ())),
             },
             "telemetry_recovery": {
                 "lifetime_raw_telemetry_loss": raw_telemetry_loss,
@@ -997,6 +1009,10 @@ def build_frequency_v4_dashboard(
                 "current_operational_healthy": telemetry_recovery_healthy,
                 "healthy_windows": recovery_healthy_windows,
                 "required_healthy_windows": recovery_required_windows,
+                # Named conjuncts, so "why is this lane not recovering?" is
+                # answered by the export rather than inferred by an operator.
+                "recovery_blockers": list(
+                    telemetry.get("recovery_blockers") or []),
                 "sample_age_ms": recovery_sample_age_ms,
                 "sample_fresh": recovery_sample_fresh,
                 "last_failure_ts_ms": telemetry_last_failure_ts_ms or None,

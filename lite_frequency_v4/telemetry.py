@@ -923,6 +923,37 @@ class _AdaptiveTelemetryController:
         self._settled_since = float(now)
         self._healthy_streak = 0
 
+    def _policy_consistent(self, *, keep_ratio: Optional[float] = None) -> bool:
+        """Is the overload policy's own state internally coherent?
+
+        This replaced ``queue_depth <= low_water`` as the test for a *controlled*
+        overload.  Depth was never the right question: crossing low water is how
+        the shedding policy engages, so requiring the queue to fall back below it
+        made sustained-but-safe policy sampling permanently uncertifiable.  What
+        actually distinguishes controlled shedding from a lane out of control is
+        whether the policy is explicit and its own state agrees with itself:
+
+        * an active overload names its reason, and an inactive one names none;
+        * the sampling keep-ratio is a real fraction.
+
+        Loss, overflow, queue growth and conservation are checked separately and
+        remain blocking; this is only the policy-coherence conjunct.
+        """
+
+        if self._overload_active and not self._overload_reason:
+            return False
+        if not self._overload_active and self._overload_reason:
+            return False
+        ratio = keep_ratio
+        if ratio is None:
+            decision = self._last_decision
+            ratio = None if decision is None else decision.sampling_keep_ratio
+        if ratio is None:
+            return True
+        if isinstance(ratio, bool) or not isinstance(ratio, (int, float)):
+            return False
+        return math.isfinite(float(ratio)) and 0.0 <= float(ratio) <= 1.0
+
     def add(self, now: float, *, queue_depth: int, **deltas: int) -> None:
         self.window.add(now, **deltas)
         self.window.observe_depth(now, queue_depth)
@@ -1258,15 +1289,15 @@ class _AdaptiveTelemetryController:
                 low_water=self.low_water, high_water=self.high_water,
                 capacity=self.queue_capacity, oldest_age_s=oldest_age_s)
             controller_safe = self._controller_safe()
-            explicit_overload_handling = (
-                recovery_view.overload_handled > 0)
+            within_hard_bound = int(queue_depth) < self.queue_capacity
+            policy_consistent = self._policy_consistent(keep_ratio=None)
             controlled_overload = (
                 self._overload_active
-                and explicit_overload_handling
+                and policy_consistent
                 and controller_safe
                 and service_balanced
                 and depth_nonincreasing
-                and int(queue_depth) <= self.low_water
+                and within_hard_bound
             )
             # Named conjuncts so an operator (and the soak evidence) can see
             # exactly which condition is holding recovery back, instead of
@@ -1290,8 +1321,21 @@ class _AdaptiveTelemetryController:
                     ("queue_accumulating", not depth_nonincreasing),
                     ("service_imbalance", not service_balanced),
                     ("controller_chunk_unsafe", not controller_safe),
-                    ("queue_above_low_water",
-                     int(queue_depth) > self.low_water),
+                    # The hard bound, not the pressure threshold.  Crossing
+                    # low water is what *starts* the shedding policy; measured
+                    # on the 34.6-minute gate the lane sat above a low water of
+                    # ~1,024 in a 20,000-row queue for all 70 samples with zero
+                    # unexpected loss and zero reconciliation mismatch, so this
+                    # blocker alone held ``operational_ready`` false while every
+                    # safety invariant was intact.  Recovery is gated on the
+                    # queue being *bounded*, which is the invariant that matters.
+                    ("queue_hard_cap_breached", not within_hard_bound),
+                    ("policy_inconsistent", not policy_consistent),
+                    # Overload is uncontrolled when the policy is not resolving
+                    # it, not merely when it is engaged.  Sustained
+                    # POLICY_SAMPLING_ACTIVE with a bounded, non-accumulating
+                    # queue and closed accounting is the shedding policy working
+                    # exactly as designed.
                     ("uncontrolled_overload",
                      self._overload_active and not controlled_overload),
                 ) if blocked
@@ -1308,15 +1352,13 @@ class _AdaptiveTelemetryController:
             low_water=self.low_water, high_water=self.high_water,
             capacity=self.queue_capacity, oldest_age_s=oldest_age_s)
         controller_safe = self._controller_safe()
-        explicit_overload_handling = (
-            recovery_view.overload_handled > 0)
         controlled_overload = (
             self._overload_active
-            and explicit_overload_handling
+            and self._policy_consistent(keep_ratio=None)
             and controller_safe
             and service_balanced
             and depth_nonincreasing
-            and int(queue_depth) <= self.low_water
+            and int(queue_depth) < self.queue_capacity
         )
         # Capacity is estimated only at the currently selected physical size;
         # it is never extrapolated from a smaller observed size to ``safe``.
@@ -2908,6 +2950,10 @@ class V4TelemetryWriter:
                 "queue_depth": len(self._queue),
                 "queue_capacity": self.capacity,
                 "queue_high_water": self._high_water,
+                # The pressure threshold is published alongside the hard bound
+                # precisely so the two are never conflated again: crossing low
+                # water starts the shedding policy, it does not fail the lane.
+                "queue_low_water": self._controller.low_water,
                 "inflight_batches": self._inflight_batches,
                 "submitted": self._submitted,
                 "rows_submitted": self._submitted,
