@@ -19,6 +19,7 @@ import threading
 import time
 from typing import Any, Callable, Generic, Iterable, Optional, TypeVar, cast
 
+from .export_profile import EXPORT_PROFILE
 from .reader_diag import READER_DIAGNOSTICS
 from .store import V4ReadOnlyStore, V4Store
 
@@ -765,6 +766,13 @@ class V4ReadWorker(_DedicatedStoreWorker[V4ReadOnlyStore]):
         # scope is registered separately by the read-only store itself.
         self._diag_job_token = READER_DIAGNOSTICS.begin_job(
             self.worker_name, item.name, item.kind)
+        # Queue wait belongs to the export's cost budget as much as its query
+        # time does: a build that started 4s after it was requested publishes a
+        # payload that is already 4s old.  Measured here, before the job runs.
+        EXPORT_PROFILE.observe_stage(
+            f"worker.queue_wait.{item.name}",
+            (time.monotonic() - item.enqueued_monotonic) * 1_000.0,
+        )
 
     def _job_finished(self, item: _WorkItem, error: Optional[BaseException]) -> None:
         token = getattr(self, "_diag_job_token", 0)

@@ -158,6 +158,10 @@ def sample_once(
     readers = state_persistence.get("sqlite_readers") or {}
     state_checkpoint = state_persistence.get("latest_checkpoint") or {}
     ckpt_readers = state_checkpoint.get("readers_at_start") or {}
+    profile = state_persistence.get("export_profile") or {}
+    profile_stages = profile.get("stages") or {}
+    build_total = profile_stages.get("build.total") or {}
+    export_freshness = export.get("export_freshness") or {}
 
     hb_ts = int(heartbeat.get("ts_ms") or 0)
     generated = int(export.get("generated_ts_ms") or 0)
@@ -284,6 +288,23 @@ def sample_once(
         "export_runs": state.get("dashboard_export_runs"),
         "export_ok": state.get("dashboard_export_ok"),
         "export_duration_ms": state.get("dashboard_export_ms"),
+        # --- export cost profile -------------------------------------------
+        "export_build_p50_ms": build_total.get("p50_ms"),
+        "export_build_p90_ms": build_total.get("p90_ms"),
+        "export_build_p99_ms": build_total.get("p99_ms"),
+        "export_build_max_ms": build_total.get("max_ms"),
+        "export_build_last_ms": build_total.get("last_ms"),
+        "export_builds": profile.get("builds"),
+        "export_payload_bytes": profile.get("payload_bytes_last"),
+        "export_last_build": profile.get("last_build"),
+        "export_stages": profile_stages,
+        "export_statements": profile.get("statements"),
+        # --- export freshness contract -------------------------------------
+        "export_complete": export_freshness.get("complete"),
+        "export_degraded_sections": export_freshness.get("degraded_sections"),
+        "export_stale_sections": export_freshness.get("stale_sections"),
+        "export_section_cache_hits": export_freshness.get("cache_hits"),
+        "export_section_max_age_ms": export_freshness.get("max_section_age_ms"),
         "maintenance_duration_ms": state.get("maintenance_ms"),
         "reporting_export_degraded": state.get("reporting_export_degraded"),
         # --- sessions -------------------------------------------------------

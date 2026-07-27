@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Callable, Iterable, Optional
 
 from .config import ACTIVE_COHORT
+from .export_profile import stage
 from .risk import conservative_exit_fee_buffer
 
 
@@ -69,42 +70,48 @@ def compute_capital_ledger(
     cohort through ``entries.session_id -> runtime_sessions.cohort``; no
     other session's rows can influence the result.
     """
-    cohort_row = _one(
-        query,
-        """SELECT activation_ts_ms,activation_commit,starting_equity_usd,
-           max_exposure_pct,peak_committed_usd,peak_exposure_pct
-           FROM cohorts WHERE cohort=?""", (str(cohort),),
-    )
+    with stage("cohort"):
+        cohort_row = _one(
+            query,
+            """SELECT activation_ts_ms,activation_commit,starting_equity_usd,
+               max_exposure_pct,peak_committed_usd,peak_exposure_pct
+               FROM cohorts WHERE cohort=?""", (str(cohort),),
+        )
     starting = float(cohort_row.get("starting_equity_usd") or 130.0)
     max_pct = float(cohort_row.get("max_exposure_pct") or 1.0)
-    realized = float(_one(
-        query,
-        """SELECT COALESCE(SUM(pr.net_pnl),0) v FROM pnl_records pr
-           JOIN entries e ON e.entry_id=pr.entry_id
-           JOIN runtime_sessions s ON s.session_id=e.session_id
-           WHERE s.cohort=?""", (str(cohort),),
-    ).get("v") or 0)
-    open_row = _one(
-        query,
-        """SELECT COUNT(*) n,COALESCE(SUM(p.committed_exposure_usd),0) v
-           FROM positions p JOIN entries e ON e.entry_id=p.entry_id
-           JOIN runtime_sessions s ON s.session_id=e.session_id
-           WHERE p.status='OPEN' AND s.cohort=?""", (str(cohort),),
-    )
-    unresolved_row = _one(
-        query,
-        """SELECT COUNT(*) n,COALESCE(SUM(p.committed_exposure_usd),0) v
-           FROM positions p JOIN entries e ON e.entry_id=p.entry_id
-           JOIN runtime_sessions s ON s.session_id=e.session_id
-           WHERE p.status='UNRESOLVED_FINAL' AND s.cohort=?""", (str(cohort),),
-    )
-    reserved = float(_one(
-        query,
-        """SELECT COALESCE(SUM(l.reserved_commitment_usd),0) v
-           FROM window_locks l
-           JOIN runtime_sessions s ON s.session_id=l.session_id
-           WHERE l.state='RESERVED' AND s.cohort=?""", (str(cohort),),
-    ).get("v") or 0)
+    with stage("realized"):
+        realized = float(_one(
+            query,
+            """SELECT COALESCE(SUM(pr.net_pnl),0) v FROM pnl_records pr
+               JOIN entries e ON e.entry_id=pr.entry_id
+               JOIN runtime_sessions s ON s.session_id=e.session_id
+               WHERE s.cohort=?""", (str(cohort),),
+        ).get("v") or 0)
+    with stage("open_positions"):
+        open_row = _one(
+            query,
+            """SELECT COUNT(*) n,COALESCE(SUM(p.committed_exposure_usd),0) v
+               FROM positions p JOIN entries e ON e.entry_id=p.entry_id
+               JOIN runtime_sessions s ON s.session_id=e.session_id
+               WHERE p.status='OPEN' AND s.cohort=?""", (str(cohort),),
+        )
+    with stage("unresolved_positions"):
+        unresolved_row = _one(
+            query,
+            """SELECT COUNT(*) n,COALESCE(SUM(p.committed_exposure_usd),0) v
+               FROM positions p JOIN entries e ON e.entry_id=p.entry_id
+               JOIN runtime_sessions s ON s.session_id=e.session_id
+               WHERE p.status='UNRESOLVED_FINAL' AND s.cohort=?""",
+            (str(cohort),),
+        )
+    with stage("reserved"):
+        reserved = float(_one(
+            query,
+            """SELECT COALESCE(SUM(l.reserved_commitment_usd),0) v
+               FROM window_locks l
+               JOIN runtime_sessions s ON s.session_id=l.session_id
+               WHERE l.state='RESERVED' AND s.cohort=?""", (str(cohort),),
+        ).get("v") or 0)
     open_count = int(open_row.get("n") or 0)
     open_cost = float(open_row.get("v") or 0)
     unresolved_count = int(unresolved_row.get("n") or 0)

@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Iterable, Optional
 
+from .export_profile import stage
+
 
 ROLLING_HOURS = (1, 3, 6, 12)
 TARGET_MIN_ENTRIES_PER_HOUR = 19.0
@@ -67,7 +69,8 @@ def frequency_window(
     pre-activation legacy activity from the authoritative cohort's funnel).
     """
     now_ms = int(now_ms)
-    start = _session_start(store, now_ms, session_id)
+    with stage("session_start"):
+        start = _session_start(store, now_ms, session_id)
     if not_before_ts_ms is not None:
         start = min(now_ms, max(start, int(not_before_ts_ms)))
     if full_session:
@@ -90,36 +93,42 @@ def frequency_window(
     window_cutoff = cutoff // 300_000 * 300_000
     window_filter = "w.window_open_ts_ms>=? AND w.window_open_ts_ms<?"
     window_params = (window_cutoff, now_ms)
-    funnel = _one(
-        store,
-        f"""SELECT COUNT(*) available_asset_windows,
-          COALESCE(SUM(f.available),0) available_marked,
-          COALESCE(SUM(f.eligible),0) eligible_windows,
-          COALESCE(SUM(CASE WHEN f.positive_edge=1
-            AND f.first_positive_edge_ts_ms>=? AND f.first_positive_edge_ts_ms<?
-            THEN 1 ELSE 0 END),0) positive_edge_windows,
-          COALESCE(SUM(f.execution_attempts),0) execution_attempts,
-          COALESCE(SUM(CASE WHEN f.actual_entry=1
-            AND f.entry_ts_ms>=? AND f.entry_ts_ms<? THEN 1 ELSE 0 END),0)
-            actual_entries,
-          COALESCE(SUM(CASE WHEN f.terminal=1
-            AND f.terminal_ts_ms>=? AND f.terminal_ts_ms<? THEN 1 ELSE 0 END),0)
-            terminal_trades,
-          COALESCE(SUM(CASE WHEN f.positive_edge=1
-            AND f.first_positive_edge_ts_ms>=? AND f.first_positive_edge_ts_ms<?
-            AND NOT (f.actual_entry=1 AND f.entry_ts_ms>=? AND f.entry_ts_ms<?)
-            THEN 1 ELSE 0 END),0)
-            missed_opportunities
-          FROM asset_windows w JOIN window_funnel f ON f.window_id=w.window_id
-          WHERE {window_filter}""",
-        (
-            cutoff, now_ms,
-            cutoff, now_ms,
-            cutoff, now_ms,
-            cutoff, now_ms, cutoff, now_ms,
-            *window_params,
-        ),
-    )
+    with stage("funnel"):
+        funnel = _one(
+            store,
+            f"""SELECT COUNT(*) available_asset_windows,
+              COALESCE(SUM(f.available),0) available_marked,
+              COALESCE(SUM(f.eligible),0) eligible_windows,
+              COALESCE(SUM(CASE WHEN f.positive_edge=1
+                AND f.first_positive_edge_ts_ms>=?
+                AND f.first_positive_edge_ts_ms<?
+                THEN 1 ELSE 0 END),0) positive_edge_windows,
+              COALESCE(SUM(f.execution_attempts),0) execution_attempts,
+              COALESCE(SUM(CASE WHEN f.actual_entry=1
+                AND f.entry_ts_ms>=? AND f.entry_ts_ms<? THEN 1 ELSE 0 END),0)
+                actual_entries,
+              COALESCE(SUM(CASE WHEN f.terminal=1
+                AND f.terminal_ts_ms>=? AND f.terminal_ts_ms<?
+                THEN 1 ELSE 0 END),0)
+                terminal_trades,
+              COALESCE(SUM(CASE WHEN f.positive_edge=1
+                AND f.first_positive_edge_ts_ms>=?
+                AND f.first_positive_edge_ts_ms<?
+                AND NOT (f.actual_entry=1
+                  AND f.entry_ts_ms>=? AND f.entry_ts_ms<?)
+                THEN 1 ELSE 0 END),0)
+                missed_opportunities
+              FROM asset_windows w JOIN window_funnel f
+                ON f.window_id=w.window_id
+              WHERE {window_filter}""",
+            (
+                cutoff, now_ms,
+                cutoff, now_ms,
+                cutoff, now_ms,
+                cutoff, now_ms, cutoff, now_ms,
+                *window_params,
+            ),
+        )
     # Expected logical windows are the honest capacity denominator.  If a
     # market was not discovered, that window remains available-but-ineligible
     # and its blocker explains the shortfall rather than silently vanishing.
@@ -131,22 +140,25 @@ def frequency_window(
     entries = int(funnel.get("actual_entries") or 0)
     terminal = int(funnel.get("terminal_trades") or 0)
     missed = int(funnel.get("missed_opportunities") or 0)
-    raw = _one(
-        store,
-        """SELECT COALESCE(SUM(raw_count),0) raw_events,
-           COALESCE(SUM(unique_count),0) unique_source_events,
-           COALESCE(SUM(duplicate_count),0) duplicate_events,
-           COALESCE(SUM(invalid_count),0) invalid_events
-           FROM event_buckets WHERE bucket_start_ts_ms>=? AND bucket_start_ts_ms<?""",
-        (cutoff, now_ms),
-    )
-    assets = _query(
-        store,
-        f"""SELECT DISTINCT w.asset FROM asset_windows w JOIN window_funnel f
-           ON f.window_id=w.window_id WHERE {window_filter} AND f.available=1
-           ORDER BY w.asset""",
-        window_params,
-    )
+    with stage("event_buckets"):
+        raw = _one(
+            store,
+            """SELECT COALESCE(SUM(raw_count),0) raw_events,
+               COALESCE(SUM(unique_count),0) unique_source_events,
+               COALESCE(SUM(duplicate_count),0) duplicate_events,
+               COALESCE(SUM(invalid_count),0) invalid_events
+               FROM event_buckets
+               WHERE bucket_start_ts_ms>=? AND bucket_start_ts_ms<?""",
+            (cutoff, now_ms),
+        )
+    with stage("assets"):
+        assets = _query(
+            store,
+            f"""SELECT DISTINCT w.asset FROM asset_windows w JOIN window_funnel f
+               ON f.window_id=w.window_id WHERE {window_filter} AND f.available=1
+               ORDER BY w.asset""",
+            window_params,
+        )
     eligible_assets = [str(row["asset"]) for row in assets]
     theoretical_capacity_per_hour = len(eligible_assets) * 12
     required_coverage = (
@@ -160,18 +172,21 @@ def frequency_window(
     )
     eligible_coverage = round(entries / eligible * 100.0, 6) if eligible else None
     positive_conversion = round(entries / positive * 100.0, 6) if positive else None
-    blockers = {
-        str(row["reason"]): int(row["count"])
-        for row in _query(
-            store,
-            f"""SELECT COALESCE(NULLIF(f.final_blocker,''),'UNCLASSIFIED') reason,
-               COUNT(*) count FROM asset_windows w JOIN window_funnel f
-               ON f.window_id=w.window_id WHERE {window_filter}
-               AND NOT (f.actual_entry=1 AND f.entry_ts_ms>=? AND f.entry_ts_ms<?)
-               GROUP BY reason ORDER BY count DESC,reason""",
-            (*window_params, cutoff, now_ms),
-        )
-    }
+    with stage("blockers"):
+        blockers = {
+            str(row["reason"]): int(row["count"])
+            for row in _query(
+                store,
+                f"""SELECT
+                   COALESCE(NULLIF(f.final_blocker,''),'UNCLASSIFIED') reason,
+                   COUNT(*) count FROM asset_windows w JOIN window_funnel f
+                   ON f.window_id=w.window_id WHERE {window_filter}
+                   AND NOT (f.actual_entry=1
+                     AND f.entry_ts_ms>=? AND f.entry_ts_ms<?)
+                   GROUP BY reason ORDER BY count DESC,reason""",
+                (*window_params, cutoff, now_ms),
+            )
+        }
     complete_rate = _safe_rate(entries, requested_hours, complete)
     if complete_rate is None:
         rate_status = "INSUFFICIENT_DURATION_NO_EXTRAPOLATION"
@@ -221,17 +236,18 @@ def rolling_frequency(
     store: Any, now_ms: int, *, session_id: Optional[str] = None,
     not_before_ts_ms: Optional[int] = None,
 ) -> dict[str, dict[str, Any]]:
-    result = {
-        f"{hours}h": frequency_window(
-            store, now_ms, hours=hours, session_id=session_id,
+    result: dict[str, dict[str, Any]] = {}
+    for hours in ROLLING_HOURS:
+        with stage(f"{hours}h"):
+            result[f"{hours}h"] = frequency_window(
+                store, now_ms, hours=hours, session_id=session_id,
+                not_before_ts_ms=not_before_ts_ms,
+            )
+    with stage("session"):
+        result["session"] = frequency_window(
+            store, now_ms, hours=0, session_id=session_id, full_session=True,
             not_before_ts_ms=not_before_ts_ms,
         )
-        for hours in ROLLING_HOURS
-    }
-    result["session"] = frequency_window(
-        store, now_ms, hours=0, session_id=session_id, full_session=True,
-        not_before_ts_ms=not_before_ts_ms,
-    )
     return result
 
 
@@ -284,19 +300,20 @@ def performance_metrics(store: Any, *, cohort: Optional[str] = None) -> dict[str
     )
     cohort_where = "WHERE rs.cohort=? " if cohort is not None else ""
     params: tuple[Any, ...] = (str(cohort),) if cohort is not None else ()
-    rows = _query(
-        store,
-        f"""SELECT p.*,e.outcome_side,e.entry_mode,e.selected_net_edge,
-           w.asset,c.dominant_model,x.exit_source
-           FROM pnl_records p JOIN entries e ON e.entry_id=p.entry_id
-           JOIN asset_windows w ON w.window_id=e.window_id
-           JOIN candidates c ON c.candidate_id=e.candidate_id
-           {cohort_join}
-           LEFT JOIN exits x ON x.entry_id=e.entry_id
-           {cohort_where}
-           ORDER BY p.terminal_ts_ms,p.entry_id""",
-        params,
-    )
+    with stage("terminal_rows"):
+        rows = _query(
+            store,
+            f"""SELECT p.*,e.outcome_side,e.entry_mode,e.selected_net_edge,
+               w.asset,c.dominant_model,x.exit_source
+               FROM pnl_records p JOIN entries e ON e.entry_id=p.entry_id
+               JOIN asset_windows w ON w.window_id=e.window_id
+               JOIN candidates c ON c.candidate_id=e.candidate_id
+               {cohort_join}
+               LEFT JOIN exits x ON x.entry_id=e.entry_id
+               {cohort_where}
+               ORDER BY p.terminal_ts_ms,p.entry_id""",
+            params,
+        )
     for row in rows:
         edge = float(row.get("selected_net_edge") or 0)
         row["edge_bucket"] = (
@@ -305,17 +322,18 @@ def performance_metrics(store: Any, *, cohort: Optional[str] = None) -> dict[str
         )
     verified = [row for row in rows if bool(row.get("verified"))]
     excluded = len(rows) - len(verified)
-    return {
-        "all_terminal": _performance(rows),
-        "verified_terminal": _performance(verified),
-        "excluded_unverifiable_rows": excluded,
-        "by_asset": _group_performance(verified, "asset"),
-        "by_side": _group_performance(verified, "outcome_side"),
-        "by_model": _group_performance(verified, "dominant_model"),
-        "by_edge_bucket": _group_performance(verified, "edge_bucket"),
-        "by_entry_mode": _group_performance(verified, "entry_mode"),
-        "by_exit_source": _group_performance(verified, "exit_source"),
-    }
+    with stage("aggregate"):
+        return {
+            "all_terminal": _performance(rows),
+            "verified_terminal": _performance(verified),
+            "excluded_unverifiable_rows": excluded,
+            "by_asset": _group_performance(verified, "asset"),
+            "by_side": _group_performance(verified, "outcome_side"),
+            "by_model": _group_performance(verified, "dominant_model"),
+            "by_edge_bucket": _group_performance(verified, "edge_bucket"),
+            "by_entry_mode": _group_performance(verified, "entry_mode"),
+            "by_exit_source": _group_performance(verified, "exit_source"),
+        }
 
 
 def _risk_of_ruin_estimate(values: list[float], risk_fraction: float) -> Optional[float]:
@@ -348,15 +366,16 @@ def compound_preview(
     )
     cohort_filter = "AND rs.cohort=? " if cohort is not None else ""
     params: tuple[Any, ...] = (str(cohort),) if cohort is not None else ()
-    rows = _query(
-        store,
-        f"""SELECT p.entry_id,p.terminal_ts_ms,p.net_pnl,e.gross_cost
-           FROM pnl_records p JOIN entries e ON e.entry_id=p.entry_id
-           {cohort_join}
-           WHERE p.verified=1 {cohort_filter}
-           ORDER BY p.terminal_ts_ms,p.entry_id""",
-        params,
-    )
+    with stage("verified_rows"):
+        rows = _query(
+            store,
+            f"""SELECT p.entry_id,p.terminal_ts_ms,p.net_pnl,e.gross_cost
+               FROM pnl_records p JOIN entries e ON e.entry_id=p.entry_id
+               {cohort_join}
+               WHERE p.verified=1 {cohort_filter}
+               ORDER BY p.terminal_ts_ms,p.entry_id""",
+            params,
+        )
     fixed_share_equity = float(starting_equity_usd)
     fixed_risk_equity = float(starting_equity_usd)
     peak = fixed_share_equity
@@ -397,27 +416,34 @@ def compound_preview(
 
 def execution_metrics(store: Any, now_ms: int) -> dict[str, Any]:
     since = int(now_ms) - 12 * 3_600_000
-    actions = {
-        str(row["action"]): int(row["count"])
-        for row in _query(
+    with stage("decisions"):
+        actions = {
+            str(row["action"]): int(row["count"])
+            for row in _query(
+                store,
+                """SELECT action,COUNT(*) count FROM decisions
+                   WHERE decision_ts_ms>=?
+                   GROUP BY action ORDER BY count DESC,action""",
+                (since,),
+            )
+        }
+    with stage("maker_observations"):
+        maker = _one(
             store,
-            """SELECT action,COUNT(*) count FROM decisions WHERE decision_ts_ms>=?
-               GROUP BY action ORDER BY count DESC,action""",
+            """SELECT COUNT(*) maker_wait_count,
+               SUM(CASE WHEN outcome='CROSS_SPREAD' THEN 1 ELSE 0 END)
+                 maker_to_cross_count,
+               SUM(CASE WHEN reason LIKE '%edge%expired%'
+                 OR reason='edge_expired' THEN 1 ELSE 0 END) edge_expired,
+               SUM(CASE WHEN reason LIKE '%chase%' THEN 1 ELSE 0 END)
+                 chase_rejected,
+               AVG(actual_duration_ms) average_duration_ms,
+               MIN(actual_duration_ms) min_duration_ms,
+               MAX(actual_duration_ms) max_duration_ms,
+               SUM(maker_fill_assumed) assumed_maker_fills
+               FROM maker_observations WHERE maker_start_ts_ms>=?""",
             (since,),
         )
-    }
-    maker = _one(
-        store,
-        """SELECT COUNT(*) maker_wait_count,
-           SUM(CASE WHEN outcome='CROSS_SPREAD' THEN 1 ELSE 0 END) maker_to_cross_count,
-           SUM(CASE WHEN reason LIKE '%edge%expired%' OR reason='edge_expired' THEN 1 ELSE 0 END) edge_expired,
-           SUM(CASE WHEN reason LIKE '%chase%' THEN 1 ELSE 0 END) chase_rejected,
-           AVG(actual_duration_ms) average_duration_ms,
-           MIN(actual_duration_ms) min_duration_ms,MAX(actual_duration_ms) max_duration_ms,
-           SUM(maker_fill_assumed) assumed_maker_fills
-           FROM maker_observations WHERE maker_start_ts_ms>=?""",
-        (since,),
-    )
     waits = int(maker.get("maker_wait_count") or 0)
     conversions = int(maker.get("maker_to_cross_count") or 0)
     return {
@@ -438,12 +464,15 @@ def execution_metrics(store: Any, now_ms: int) -> dict[str, Any]:
 def reject_taxonomy(store: Any, now_ms: int) -> dict[str, Any]:
     since = int(now_ms) - 12 * 3_600_000
     by_taxonomy: dict[str, dict[str, int]] = defaultdict(dict)
-    for row in _query(
-        store,
-        """SELECT taxonomy,reason,COUNT(*) count FROM reject_events
-           WHERE reject_ts_ms>=? GROUP BY taxonomy,reason ORDER BY count DESC""",
-        (since,),
-    ):
+    with stage("reject_events"):
+        rows = _query(
+            store,
+            """SELECT taxonomy,reason,COUNT(*) count FROM reject_events
+               WHERE reject_ts_ms>=?
+               GROUP BY taxonomy,reason ORDER BY count DESC""",
+            (since,),
+        )
+    for row in rows:
         by_taxonomy[str(row["taxonomy"])][str(row["reason"])] = int(row["count"])
     return {
         "all": dict(sorted(by_taxonomy.items())),
@@ -473,27 +502,31 @@ def acceptance_gate(
     params: tuple[Any, ...] = (str(cohort),) if cohort is not None else ()
     verified = performance["verified_terminal"]
     verified_count = int(verified["count"])
-    unresolved = int(_one(
-        store,
-        f"""SELECT COUNT(*) count FROM entries e {cohort_join}
-           WHERE e.status='UNRESOLVED_FINAL' {cohort_filter}""",
-        params,
-    ).get("count") or 0)
-    conflicts = int(_one(
-        store,
-        """SELECT COUNT(*) count FROM (
-           SELECT window_id FROM entries GROUP BY window_id HAVING COUNT(*)>1)""",
-    ).get("count") or 0)
+    with stage("unresolved"):
+        unresolved = int(_one(
+            store,
+            f"""SELECT COUNT(*) count FROM entries e {cohort_join}
+               WHERE e.status='UNRESOLVED_FINAL' {cohort_filter}""",
+            params,
+        ).get("count") or 0)
+    with stage("conflicts"):
+        conflicts = int(_one(
+            store,
+            """SELECT COUNT(*) count FROM (
+               SELECT window_id FROM entries
+               GROUP BY window_id HAVING COUNT(*)>1)""",
+        ).get("count") or 0)
     duplicates = conflicts
-    incomplete_evidence = int(_one(
-        store,
-        f"""SELECT COUNT(*) count FROM pnl_records p
-           JOIN entries e ON e.entry_id=p.entry_id {cohort_join}
-           WHERE (p.verified=0 OR execution_evidence_complete=0
-           OR fee_evidence_complete=0 OR resolution_evidence_complete=0)
-           {cohort_filter}""",
-        params,
-    ).get("count") or 0)
+    with stage("incomplete_evidence"):
+        incomplete_evidence = int(_one(
+            store,
+            f"""SELECT COUNT(*) count FROM pnl_records p
+               JOIN entries e ON e.entry_id=p.entry_id {cohort_join}
+               WHERE (p.verified=0 OR execution_evidence_complete=0
+               OR fee_evidence_complete=0 OR resolution_evidence_complete=0)
+               {cohort_filter}""",
+            params,
+        ).get("count") or 0)
     pf = verified.get("profit_factor")
     expectancy = verified.get("expectancy")
     frequency_3h = frequencies["3h"].get("entries_per_hour")
@@ -565,17 +598,30 @@ def build_metrics(
     historical aggregate is returned separately, explicitly labelled
     non-authoritative.
     """
-    activation = cohort_activation_ts_ms(store, cohort) if cohort else None
-    frequencies = rolling_frequency(
-        store, now_ms, session_id=session_id, not_before_ts_ms=activation)
-    performance = performance_metrics(store, cohort=cohort)
-    acceptance = acceptance_gate(store, frequencies, performance, cohort=cohort)
+    with stage("cohort_activation"):
+        activation = cohort_activation_ts_ms(store, cohort) if cohort else None
+    with stage("frequency"):
+        frequencies = rolling_frequency(
+            store, now_ms, session_id=session_id, not_before_ts_ms=activation)
+    with stage("performance"):
+        performance = performance_metrics(store, cohort=cohort)
+    with stage("acceptance_gate"):
+        acceptance = acceptance_gate(
+            store, frequencies, performance, cohort=cohort)
     legacy: Optional[dict[str, Any]] = None
     if cohort is not None:
-        legacy = {
-            "label": "NON_AUTHORITATIVE_LEGACY_ALL_HISTORY",
-            "performance": performance_metrics(store),
-        }
+        with stage("legacy_performance"):
+            legacy = {
+                "label": "NON_AUTHORITATIVE_LEGACY_ALL_HISTORY",
+                "performance": performance_metrics(store),
+            }
+    with stage("execution"):
+        execution = execution_metrics(store, now_ms)
+    with stage("rejects"):
+        rejects = reject_taxonomy(store, now_ms)
+    with stage("compound_preview"):
+        compound = compound_preview(
+            store, starting_equity_usd=starting_equity_usd, cohort=cohort)
     return {
         "generated_ts_ms": int(now_ms),
         "cohort": cohort,
@@ -592,10 +638,8 @@ def build_metrics(
         },
         "performance": performance,
         "legacy_non_authoritative": legacy,
-        "execution": execution_metrics(store, now_ms),
-        "rejects": reject_taxonomy(store, now_ms),
-        "compound_preview": compound_preview(
-            store, starting_equity_usd=starting_equity_usd, cohort=cohort
-        ),
+        "execution": execution,
+        "rejects": rejects,
+        "compound_preview": compound,
         "acceptance_gate": acceptance,
     }

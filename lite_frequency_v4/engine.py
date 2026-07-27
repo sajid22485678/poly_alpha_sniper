@@ -54,6 +54,7 @@ from .maintenance import (
 )
 from .polymarket_ws import PolymarketMarketWS
 from .positions import evaluate_exit_vs_hold
+from .export_profile import EXPORT_PROFILE
 from .reader_diag import READER_DIAGNOSTICS
 from .persistence import (
     V4PersistenceCommand,
@@ -977,6 +978,10 @@ class FrequencyV4Engine:
                 "latest_checkpoint": dict(self._checkpoint_state),
                 "latest_maintenance": dict(self._maintenance_result),
                 "sqlite_readers": READER_DIAGNOSTICS.snapshot(),
+                # Named-stage export cost.  ``sqlite_readers`` says which
+                # worker held a read-mark; this says which part of the export
+                # build spent the time, at statement resolution.
+                "export_profile": EXPORT_PROFILE.snapshot(),
                 "db_size_bytes": self._database_size_cache,
                 "wal_size_bytes": self._wal_size_cache,
                 "wal_reclamation": {

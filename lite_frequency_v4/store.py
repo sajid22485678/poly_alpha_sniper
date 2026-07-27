@@ -19,6 +19,7 @@ import threading
 import time
 from typing import Any, Callable, Iterable, Iterator, Mapping, Optional
 
+from .export_profile import EXPORT_PROFILE, row_digest
 from .reader_diag import READER_DIAGNOSTICS
 from .universe import evaluate_persisted_market
 
@@ -5119,27 +5120,89 @@ class V4ReadOnlyStore(V4Store):
 
     def query(self, sql: str, params: Iterable[Any] = ()) -> list[dict[str, Any]]:
         token = READER_DIAGNOSTICS.begin_statement(conn_id=id(self._conn))
+        # perf_counter, not monotonic: on Windows ``time.monotonic`` has ~15.6 ms
+        # granularity, which cannot resolve the individual statements that make
+        # up an export build.  reader_diag keeps its own clock unchanged.
+        started = time.perf_counter()
         try:
             rows = super().query(sql, params)
         except BaseException as exc:
             READER_DIAGNOSTICS.end_statement(
                 token, error=f"{type(exc).__name__}"[:120])
+            self._profile_statement(
+                sql, started, rows=None, params=params, error=True)
             raise
         READER_DIAGNOSTICS.end_statement(token, rows=len(rows))
+        # Named-stage attribution happens *after* the read-mark is released, so
+        # profiling can never extend the snapshot a checkpoint has to wait for.
+        self._profile_statement(sql, started, rows=rows, params=params)
         return rows
 
     def query_one(
         self, sql: str, params: Iterable[Any] = ()
     ) -> Optional[dict[str, Any]]:
         token = READER_DIAGNOSTICS.begin_statement(conn_id=id(self._conn))
+        # perf_counter, not monotonic: on Windows ``time.monotonic`` has ~15.6 ms
+        # granularity, which cannot resolve the individual statements that make
+        # up an export build.  reader_diag keeps its own clock unchanged.
+        started = time.perf_counter()
         try:
             row = super().query_one(sql, params)
         except BaseException as exc:
             READER_DIAGNOSTICS.end_statement(
                 token, error=f"{type(exc).__name__}"[:120])
+            self._profile_statement(
+                sql, started, rows=None, params=params, error=True)
             raise
         READER_DIAGNOSTICS.end_statement(token, rows=1 if row is not None else 0)
+        self._profile_statement(
+            sql, started, rows=([row] if row is not None else []),
+            params=params)
         return row
+
+    def _profile_statement(
+        self, sql: str, started: float, *, rows: Any,
+        params: Iterable[Any] = (), error: bool = False,
+    ) -> None:
+        """Attribute one completed read to the active export stage.
+
+        Inert unless an export build has bound the profiler to this thread.
+        The elapsed time is measured around the SQLite call itself; everything
+        this method does afterwards (naming, digesting, an occasional query
+        plan) is outside the read transaction.
+        """
+
+        if not EXPORT_PROFILE.active:
+            return
+        duration_ms = max(0.0, (time.perf_counter() - started) * 1_000.0)
+        try:
+            name = EXPORT_PROFILE.record_statement(
+                sql, duration_ms,
+                rows=(len(rows) if rows is not None else None),
+                digest=(None if error else row_digest(rows)),
+                error=error,
+            )
+            if EXPORT_PROFILE.wants_plan(name, duration_ms):
+                EXPORT_PROFILE.record_plan(name, self._query_plan(sql, params))
+        except Exception:  # profiling must never fail an export
+            pass
+
+    def _query_plan(self, sql: str, params: Iterable[Any] = ()) -> str:
+        """``EXPLAIN QUERY PLAN`` text for one slow statement.
+
+        Prepared and stepped over a virtual result only -- it touches no table
+        pages, so it neither reads user data nor meaningfully holds a
+        read-mark.  Capture is rate-limited by the profiler to a small fixed
+        number of statements per process.
+        """
+
+        try:
+            with self._lock:
+                rows = self._conn.execute(
+                    f"EXPLAIN QUERY PLAN {sql}", tuple(params)).fetchall()
+            return " / ".join(str(row[-1]) for row in rows)
+        except Exception as exc:
+            return f"plan_unavailable:{type(exc).__name__}"
 
     def integrity_check(self, *, quick: bool = False) -> dict[str, Any]:
         # The one deliberately long single-statement reader in the system: a

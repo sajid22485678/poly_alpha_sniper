@@ -11,6 +11,7 @@ from typing import Any, Mapping, Optional
 
 from .config import ACTIVE_COHORT, LEGACY_COHORT, RUNTIME_LABEL
 from .config import FREQUENCY_V4_ROOT
+from .export_profile import EXPORT_PROFILE, stage
 from .ledger import compute_capital_ledger
 from .metrics import build_metrics
 from .runtime import _discard_temporary, atomic_replace
@@ -197,29 +198,35 @@ def _latest_runtime_health(store: Any, session_id: Optional[str]) -> Optional[di
 
 
 def _universe(store: Any, now_ms: int) -> dict[str, Any]:
-    duration_rows = store.query(
-        """SELECT duration_ms,COUNT(*) markets,COUNT(DISTINCT asset) assets
-           FROM markets GROUP BY duration_ms ORDER BY duration_ms"""
-    )
+    with stage("durations"):
+        duration_rows = store.query(
+            """SELECT duration_ms,COUNT(*) markets,COUNT(DISTINCT asset) assets
+               FROM markets GROUP BY duration_ms ORDER BY duration_ms"""
+        )
     ignored = [row for row in duration_rows if int(row["duration_ms"]) != 300_000]
-    active = store.query(
-        """SELECT w.window_id,w.asset,w.window_open_ts_ms,w.window_close_ts_ms,
-           f.available,f.eligible,f.positive_edge,f.execution_attempts,f.actual_entry,
-           l.eligibility_status,l.reject_reason universe_reject_reason,
-           m.polymarket_market_id,m.slug,mi.event_id,mi.condition_id,
-           mi.yes_token_id,mi.no_token_id,mi.association_valid,mi.token_pair_valid,
-           a.status anchor_status,a.price_to_beat
-           FROM asset_windows w JOIN window_funnel f ON f.window_id=w.window_id
-           LEFT JOIN window_market_links l ON l.window_id=w.window_id AND l.selected=1
-           LEFT JOIN market_identities mi ON mi.market_identity_id=l.market_identity_id
-           LEFT JOIN markets m ON m.market_id=mi.market_id
-           LEFT JOIN anchor_observations a ON a.anchor_observation_id=(
-             SELECT MAX(a2.anchor_observation_id) FROM anchor_observations a2
-             WHERE a2.market_identity_id=mi.market_identity_id)
-           WHERE w.window_open_ts_ms<=? AND w.window_close_ts_ms>?
-           ORDER BY w.asset""",
-        (int(now_ms), int(now_ms)),
-    )
+    with stage("active_windows"):
+        active = store.query(
+            """SELECT w.window_id,w.asset,w.window_open_ts_ms,w.window_close_ts_ms,
+               f.available,f.eligible,f.positive_edge,f.execution_attempts,
+               f.actual_entry,
+               l.eligibility_status,l.reject_reason universe_reject_reason,
+               m.polymarket_market_id,m.slug,mi.event_id,mi.condition_id,
+               mi.yes_token_id,mi.no_token_id,mi.association_valid,
+               mi.token_pair_valid,
+               a.status anchor_status,a.price_to_beat
+               FROM asset_windows w JOIN window_funnel f ON f.window_id=w.window_id
+               LEFT JOIN window_market_links l
+                 ON l.window_id=w.window_id AND l.selected=1
+               LEFT JOIN market_identities mi
+                 ON mi.market_identity_id=l.market_identity_id
+               LEFT JOIN markets m ON m.market_id=mi.market_id
+               LEFT JOIN anchor_observations a ON a.anchor_observation_id=(
+                 SELECT MAX(a2.anchor_observation_id) FROM anchor_observations a2
+                 WHERE a2.market_identity_id=mi.market_identity_id)
+               WHERE w.window_open_ts_ms<=? AND w.window_close_ts_ms>?
+               ORDER BY w.asset""",
+            (int(now_ms), int(now_ms)),
+        )
     exact_count = sum(int(row["markets"]) for row in duration_rows
                       if int(row["duration_ms"]) == 300_000)
     discovered_assets = sorted({str(row["asset"]) for row in active})
@@ -242,15 +249,16 @@ def _universe(store: Any, now_ms: int) -> dict[str, Any]:
         }
         for row in observed_rows
     ]
-    universe_rejects = {
-        str(row["reason"]): int(row["count"])
-        for row in store.query(
-            """SELECT reason,COUNT(*) count FROM reject_events
-               WHERE reason LIKE 'universe%' AND reject_ts_ms>=?
-               GROUP BY reason ORDER BY count DESC""",
-            (int(now_ms) - 12 * 3_600_000,),
-        )
-    }
+    with stage("universe_rejects"):
+        universe_rejects = {
+            str(row["reason"]): int(row["count"])
+            for row in store.query(
+                """SELECT reason,COUNT(*) count FROM reject_events
+                   WHERE reason LIKE 'universe%' AND reject_ts_ms>=?
+                   GROUP BY reason ORDER BY count DESC""",
+                (int(now_ms) - 12 * 3_600_000,),
+            )
+        }
     return {
         "exact_duration_ms": 300_000,
         "exact_five_minute_markets": exact_count,
@@ -277,33 +285,39 @@ def _universe(store: Any, now_ms: int) -> dict[str, Any]:
 
 
 def _latest_candidates(store: Any, limit: int = 12) -> list[dict[str, Any]]:
-    candidates = store.query(
-        """SELECT c.*,w.asset,w.window_open_ts_ms,w.window_close_ts_ms,
-           m.slug,m.polymarket_market_id FROM candidates c
-           JOIN asset_windows w ON w.window_id=c.window_id
-           JOIN market_identities mi ON mi.market_identity_id=c.market_identity_id
-           JOIN markets m ON m.market_id=mi.market_id
-           ORDER BY c.evaluation_ts_ms DESC,c.candidate_id DESC LIMIT ?""",
-        (int(limit),),
-    )
-    for candidate in candidates:
-        candidate["model_contributions"] = store.query(
-            """SELECT model_name,model_version,correlation_group,direction,raw_score,
-               estimated_probability,evidence_age_ms,confidence,reliability,
-               invalidation_reason,expected_net_edge,regime_weight,gated,
-               model_contribution,calibrated FROM model_contributions
-               WHERE candidate_id=? ORDER BY model_name""",
-            (int(candidate["candidate_id"]),),
+    with stage("head"):
+        candidates = store.query(
+            """SELECT c.*,w.asset,w.window_open_ts_ms,w.window_close_ts_ms,
+               m.slug,m.polymarket_market_id FROM candidates c
+               JOIN asset_windows w ON w.window_id=c.window_id
+               JOIN market_identities mi
+                 ON mi.market_identity_id=c.market_identity_id
+               JOIN markets m ON m.market_id=mi.market_id
+               ORDER BY c.evaluation_ts_ms DESC,c.candidate_id DESC LIMIT ?""",
+            (int(limit),),
         )
-        candidate["fair_value_calculations"] = store.query(
-            """SELECT fv.*,s.outcome_side,s.executable_vwap,s.worst_consumed_price,
-               s.spread,s.depth_shares,s.exact_five_share_depth,s.estimated_fee,
-               s.execution_buffer,s.latency_buffer,s.uncertainty_buffer,s.net_edge,
-               s.evidence_fresh,s.selected FROM fair_value_calculations fv
-               JOIN fair_value_sides s USING(fair_value_calculation_id)
-               WHERE fv.candidate_id=? ORDER BY fv.calculation_seq,s.outcome_side""",
-            (int(candidate["candidate_id"]),),
-        )
+    with stage("detail"):
+        for candidate in candidates:
+            candidate["model_contributions"] = store.query(
+                """SELECT model_name,model_version,correlation_group,direction,
+                   raw_score,estimated_probability,evidence_age_ms,confidence,
+                   reliability,invalidation_reason,expected_net_edge,
+                   regime_weight,gated,model_contribution,calibrated
+                   FROM model_contributions
+                   WHERE candidate_id=? ORDER BY model_name""",
+                (int(candidate["candidate_id"]),),
+            )
+            candidate["fair_value_calculations"] = store.query(
+                """SELECT fv.*,s.outcome_side,s.executable_vwap,
+                   s.worst_consumed_price,s.spread,s.depth_shares,
+                   s.exact_five_share_depth,s.estimated_fee,s.execution_buffer,
+                   s.latency_buffer,s.uncertainty_buffer,s.net_edge,
+                   s.evidence_fresh,s.selected FROM fair_value_calculations fv
+                   JOIN fair_value_sides s USING(fair_value_calculation_id)
+                   WHERE fv.candidate_id=?
+                   ORDER BY fv.calculation_seq,s.outcome_side""",
+                (int(candidate["candidate_id"]),),
+            )
     return candidates
 
 
@@ -370,24 +384,29 @@ def build_frequency_v4_dashboard(
     starting_equity = float(_value(
         config, "starting_equity_usd", "research_equity_usd", default=130.0
     ))
-    metrics = build_metrics(
-        store, int(now_ms), session_id=effective_session_id,
-        starting_equity_usd=starting_equity, cohort=ACTIVE_COHORT,
-    )
+    with stage("metrics"):
+        metrics = build_metrics(
+            store, int(now_ms), session_id=effective_session_id,
+            starting_equity_usd=starting_equity, cohort=ACTIVE_COHORT,
+        )
     fee_buffer = float(_value(config, "fee_buffer_usd", default=0.02))
     fee_rate = float(_value(config, "crypto_taker_fee_rate", default=0.07))
     try:
-        ledger = compute_capital_ledger(
-            store.query, cohort=ACTIVE_COHORT,
-            fee_rate=fee_rate, fee_buffer_usd=fee_buffer,
-        ).to_dict()
-        cohort_row = store.query_one(
-            "SELECT * FROM cohorts WHERE cohort=?", (ACTIVE_COHORT,))
-        insufficient_rejects = int((store.query_one(
-            """SELECT COUNT(*) count FROM reject_events re
-               JOIN runtime_sessions rs ON rs.session_id=re.session_id
-               WHERE re.reason IN ('insufficient_capital','cohort_equity_depleted')
-               AND rs.cohort=?""", (ACTIVE_COHORT,)) or {}).get("count") or 0)
+        with stage("ledger"):
+            ledger = compute_capital_ledger(
+                store.query, cohort=ACTIVE_COHORT,
+                fee_rate=fee_rate, fee_buffer_usd=fee_buffer,
+            ).to_dict()
+        with stage("cohort_row"):
+            cohort_row = store.query_one(
+                "SELECT * FROM cohorts WHERE cohort=?", (ACTIVE_COHORT,))
+        with stage("insufficient_rejects"):
+            insufficient_rejects = int((store.query_one(
+                """SELECT COUNT(*) count FROM reject_events re
+                   JOIN runtime_sessions rs ON rs.session_id=re.session_id
+                   WHERE re.reason IN
+                     ('insufficient_capital','cohort_equity_depleted')
+                   AND rs.cohort=?""", (ACTIVE_COHORT,)) or {}).get("count") or 0)
     except Exception:
         # A pre-cohort read-only fixture cannot report the ledger; the
         # authoritative runtime always can.
@@ -420,21 +439,24 @@ def build_frequency_v4_dashboard(
         }
     else:
         integrity = dict(integrity)
-    open_positions = store.open_positions()
+    with stage("open_positions"):
+        open_positions = store.open_positions()
     exposure = sum(float(row.get("committed_exposure_usd") or 0) for row in open_positions)
-    latest_health = _latest_runtime_health(store, effective_session_id)
+    with stage("runtime_health"):
+        latest_health = _latest_runtime_health(store, effective_session_id)
     runtime_session_query_error: Optional[str] = None
     try:
-        open_runtime_session_count = int((store.query_one(
-            """SELECT COUNT(*) AS count FROM runtime_sessions
-               WHERE strategy_id=? AND mode=? AND ended_ts_ms IS NULL""",
-            (STRATEGY_ID, MODE),
-        ) or {}).get("count") or 0)
-        current_session_open = int((store.query_one(
-            """SELECT COUNT(*) AS count FROM runtime_sessions
-               WHERE session_id=? AND ended_ts_ms IS NULL""",
-            (effective_session_id,),
-        ) or {}).get("count") or 0)
+        with stage("runtime_sessions"):
+            open_runtime_session_count = int((store.query_one(
+                """SELECT COUNT(*) AS count FROM runtime_sessions
+                   WHERE strategy_id=? AND mode=? AND ended_ts_ms IS NULL""",
+                (STRATEGY_ID, MODE),
+            ) or {}).get("count") or 0)
+            current_session_open = int((store.query_one(
+                """SELECT COUNT(*) AS count FROM runtime_sessions
+                   WHERE session_id=? AND ended_ts_ms IS NULL""",
+                (effective_session_id,),
+            ) or {}).get("count") or 0)
     except Exception as exc:
         # Unknown is not zero.  Session evidence is part of the runtime safety
         # contract and must fail closed if the query cannot be completed.
@@ -442,10 +464,12 @@ def build_frequency_v4_dashboard(
         current_session_open = None
         runtime_session_query_error = (
             f"{type(exc).__name__}:{exc}")[:240]
-    try:
-        source_health = store.latest_source_health(session_id=effective_session_id)
-    except TypeError:  # Compatibility for a pre-v2 read-only store in tests.
-        source_health = store.latest_source_health()
+    with stage("source_health"):
+        try:
+            source_health = store.latest_source_health(
+                session_id=effective_session_id)
+        except TypeError:  # Compatibility for a pre-v2 read-only store in tests.
+            source_health = store.latest_source_health()
     nonce = runtime.get("launch_nonce")
     nonce_fingerprint = (
         hashlib.sha256(str(nonce).encode("utf-8")).hexdigest()[:12]
@@ -454,8 +478,10 @@ def build_frequency_v4_dashboard(
     conflicts = metrics["acceptance_gate"]["conflicts"]
     duplicates = metrics["acceptance_gate"]["duplicates"]
     unresolved = metrics["acceptance_gate"]["unresolved_final"]
-    universe = _universe(store, int(now_ms))
-    candidates = _latest_candidates(store)
+    with stage("universe"):
+        universe = _universe(store, int(now_ms))
+    with stage("candidates"):
+        candidates = _latest_candidates(store)
     performance = metrics["performance"]
     compound = metrics["compound_preview"]
     commit = runtime.get("current_commit", runtime.get("git_commit", "UNKNOWN"))
@@ -488,17 +514,19 @@ def build_frequency_v4_dashboard(
     for reasons in metrics["rejects"]["all"].values():
         for reason, count in reasons.items():
             reject_reasons[reason] = reject_reasons.get(reason, 0) + int(count)
-    recent_entries = store.query(
-        """SELECT e.*,w.asset,w.window_open_ts_ms,w.window_close_ts_ms
-           FROM entries e JOIN asset_windows w ON w.window_id=e.window_id
-           ORDER BY e.entry_ts_ms DESC,e.entry_id DESC LIMIT 20"""
-    )
-    terminal_trades = store.query(
-        """SELECT p.*,w.asset,e.outcome_side,e.entry_mode
-           FROM pnl_records p JOIN entries e ON e.entry_id=p.entry_id
-           JOIN asset_windows w ON w.window_id=e.window_id
-           ORDER BY p.terminal_ts_ms DESC,p.pnl_record_id DESC LIMIT 20"""
-    )
+    with stage("recent_entries"):
+        recent_entries = store.query(
+            """SELECT e.*,w.asset,w.window_open_ts_ms,w.window_close_ts_ms
+               FROM entries e JOIN asset_windows w ON w.window_id=e.window_id
+               ORDER BY e.entry_ts_ms DESC,e.entry_id DESC LIMIT 20"""
+        )
+    with stage("terminal_trades"):
+        terminal_trades = store.query(
+            """SELECT p.*,w.asset,e.outcome_side,e.entry_mode
+               FROM pnl_records p JOIN entries e ON e.entry_id=p.entry_id
+               JOIN asset_windows w ON w.window_id=e.window_id
+               ORDER BY p.terminal_ts_ms DESC,p.pnl_record_id DESC LIMIT 20"""
+        )
     persistence = _mapping(runtime.get("persistence"))
     critical = _mapping(persistence.get("critical"))
     telemetry = _mapping(persistence.get("telemetry"))
@@ -708,12 +736,16 @@ def build_frequency_v4_dashboard(
     db_path = Path(store.path)
     wal_path = Path(f"{db_path}-wal")
     shm_path = Path(f"{db_path}-shm")
-    try:
-        latest_checkpoint = store.query_one(
-            "SELECT * FROM checkpoint_runs ORDER BY checkpoint_run_id DESC LIMIT 1"
-        )
-    except Exception:  # A v1 fixture can be exported before migration tests run.
-        latest_checkpoint = None
+    with stage("latest_checkpoint"):
+        try:
+            latest_checkpoint = store.query_one(
+                "SELECT * FROM checkpoint_runs "
+                "ORDER BY checkpoint_run_id DESC LIMIT 1"
+            )
+        except Exception:  # A v1 fixture can be exported before migrations run.
+            latest_checkpoint = None
+    with stage("database_size"):
+        database_size_bytes = store.database_size_bytes()
     # Freshness must distinguish the runtime heartbeat from the export itself.
     # A stale export must not make a fresh runtime heartbeat appear stale, so
     # the runtime heartbeat is the freshest independently-observed signal:
@@ -741,7 +773,7 @@ def build_frequency_v4_dashboard(
     heartbeat_age_ms = (
         max(0, int(now_ms) - int(heartbeat_ts_ms or 0))
         if heartbeat_ts_ms else None)
-    return _json_safe({
+    payload = {
         "schema_version": 3,
         "generated_ts_ms": int(now_ms),
         "export_age_ms": export_age_ms,
@@ -816,6 +848,11 @@ def build_frequency_v4_dashboard(
             # live right now and how old their snapshots are.  Sourced from
             # the published runtime state so the export never re-derives it.
             "sqlite_readers": _mapping(persistence.get("sqlite_readers")),
+            # Named-stage export cost profile (p50/p90/p99/max per stage and
+            # per statement).  Sourced from the published runtime state so the
+            # export never re-derives it, and reflecting the *previous* builds
+            # -- this build's own timings are only complete after it returns.
+            "export_profile": _mapping(persistence.get("export_profile")),
             "connection_ownership": {
                 "critical_writer": "dedicated_writer_thread",
                 "telemetry": "dedicated_aggregator_and_writer_connection",
@@ -932,7 +969,7 @@ def build_frequency_v4_dashboard(
         },
         "database": {
             "path_name": db_path.name,
-            "size_bytes": store.database_size_bytes(),
+            "size_bytes": database_size_bytes,
             "db_bytes": db_path.stat().st_size if db_path.exists() else 0,
             "wal_bytes": wal_path.stat().st_size if wal_path.exists() else 0,
             "shm_bytes": shm_path.stat().st_size if shm_path.exists() else 0,
@@ -942,7 +979,9 @@ def build_frequency_v4_dashboard(
             "legacy_data_included": False,
         },
         "acceptance_gate": metrics["acceptance_gate"],
-    })
+    }
+    with stage("json_safe"):
+        return _json_safe(payload)
 
 
 build_v4_dashboard = build_frequency_v4_dashboard
@@ -1005,16 +1044,22 @@ def write_frequency_v4_dashboard(
     # C1 isolation guard: refuse any path outside the canonical source-root-
     # derived export directory before building or writing anything.
     path = assert_canonical_export_path(output_path)
-    payload = build_frequency_v4_dashboard(
-        store, now_ms=int(now_ms), config=config,
-        runtime_state=runtime_state, session_id=session_id,
-        integrity=integrity,
-    )
-    encoded = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False
-    ) + "\n"
-    _atomic_write(path, encoded)
-    return {"path": str(path), "payload": payload, "bytes": len(encoded.encode("utf-8"))}
+    with EXPORT_PROFILE.build():
+        payload = build_frequency_v4_dashboard(
+            store, now_ms=int(now_ms), config=config,
+            runtime_state=runtime_state, session_id=session_id,
+            integrity=integrity,
+        )
+        with stage("serialize"):
+            encoded = json.dumps(
+                payload, ensure_ascii=False, sort_keys=True, indent=2,
+                allow_nan=False,
+            ) + "\n"
+            encoded_bytes = len(encoded.encode("utf-8"))
+        with stage("publish"):
+            _atomic_write(path, encoded)
+        EXPORT_PROFILE.observe_payload_bytes(encoded_bytes)
+    return {"path": str(path), "payload": payload, "bytes": encoded_bytes}
 
 
 write_v4_dashboard = write_frequency_v4_dashboard
