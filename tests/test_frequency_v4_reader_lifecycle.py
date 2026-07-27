@@ -125,6 +125,72 @@ def test_escalation_cadence_counts_attempts_not_successes():
     assert decide_checkpoint(snapshot, policy).mode is CheckpointMode.PASSIVE
 
 
+def test_engine_arms_the_escalation_clock_on_its_first_maintenance_pass():
+    """The bootstrap deadlock: an unarmed clock can never become due.
+
+    ``_escalation_due`` falls back to the last checkpoint attempt of any mode
+    when no escalation has been recorded.  Under WAL pressure that timestamp
+    is refreshed every ~5 s by the backfill, so an engine that left the clock
+    unset would need an escalation to have already happened before one could
+    happen.  Measured: a full 29-minute run at 5ac88c0 produced 56/56 PASSIVE
+    samples, 243 zero-progress checkpoints, zero escalations and a 1.35 GB
+    WAL.  The clock is therefore armed on the first maintenance pass.
+    """
+
+    import asyncio
+    import types
+
+    from poly_alpha_sniper.lite_frequency_v4 import engine as engine_module
+
+    engine = object.__new__(engine_module.FrequencyV4Engine)
+    engine._maintenance_inflight = False
+    engine.maintenance_worker = None
+    engine._last_escalation_attempt_ts_ms = None
+    engine._maintenance_runs = 0
+    engine._last_maintenance_duration_ms = 0.0
+
+    # maintenance_worker is None, so the pass returns before doing any work --
+    # arming must happen regardless, on the very first pass.
+    assert engine._last_escalation_attempt_ts_ms is None
+    engine._maintenance_inflight = False
+
+    # Re-enter with a worker present but every dependency stubbed to a no-op,
+    # so only the arming step is exercised.
+    calls: list[int] = []
+
+    async def run_maintenance(*_a, **_k):
+        raise RuntimeError("stop after arming")
+
+    engine.maintenance_worker = types.SimpleNamespace(
+        run_maintenance=run_maintenance)
+    engine.read_worker = None
+    engine.report_worker = None
+    engine.integrity_worker = None
+    engine.telemetry = None
+    engine.model_health = types.SimpleNamespace(needs_resample=lambda: False)
+    engine._writer_health = lambda: {"state": "HEALTHY", "queue_depth": 0}
+    engine._runtime_state_name = lambda _c: "RUNNING"
+    engine._open_positions_count = 0
+    engine._wal_size_cache = 0
+    engine._loop_lag_ms = 0.0
+    engine._last_integrity_ok = True
+    engine._checkpoint_state = {}
+    engine._consecutive_no_progress_passive = 0
+    engine._last_error = ""
+    engine.cfg = engine_module.FrequencyV4Config()
+
+    asyncio.run(engine._run_maintenance_pass())
+    assert isinstance(engine._last_escalation_attempt_ts_ms, int)
+    assert engine._last_escalation_attempt_ts_ms > 0
+    calls.append(engine._last_escalation_attempt_ts_ms)
+
+    # Armed once, then owned by the checkpoint result -- not re-armed every
+    # pass, which would reset the cadence and starve the escalation again.
+    engine._maintenance_inflight = False
+    asyncio.run(engine._run_maintenance_pass())
+    assert engine._last_escalation_attempt_ts_ms == calls[0]
+
+
 def test_absent_escalation_timestamp_falls_back_to_prior_behaviour():
     """A caller that does not track escalations keeps the historical cadence."""
 

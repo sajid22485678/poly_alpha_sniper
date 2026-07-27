@@ -643,6 +643,12 @@ class FrequencyV4Engine:
         # When a RESTART/TRUNCATE reclamation was last attempted, in any
         # outcome.  Separate from the last checkpoint attempt of any mode so
         # the cheap pressure-cadence backfill cannot starve the escalation.
+        # Armed on the first maintenance pass rather than left None: the
+        # policy's fallback for an untracked caller is the last checkpoint of
+        # any mode, which the ~5 s backfill keeps permanently fresh, so an
+        # engine that never armed this clock could never become due for its
+        # first escalation -- a bootstrap deadlock that needs an escalation to
+        # have happened before an escalation can happen.
         self._last_escalation_attempt_ts_ms: Optional[int] = None
         self._critical_command_sequence = 0
         self._critical_failure_reason = ""
@@ -4046,6 +4052,11 @@ class FrequencyV4Engine:
         started = time.monotonic()
         try:
             current = now_ms()
+            if self._last_escalation_attempt_ts_ms is None:
+                # Arm the escalation clock from the first maintenance pass, so
+                # the first reclamation becomes due one routine interval later
+                # instead of never (see the attribute's definition).
+                self._last_escalation_attempt_ts_ms = current
             # Recompute model-health quarantine on the maintenance cadence using
             # the read-only worker, so the hot evaluation path only ever reads
             # the cached quarantined set.  The SQL runs on the worker's owner
