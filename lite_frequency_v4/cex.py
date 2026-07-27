@@ -289,7 +289,11 @@ class OkxPublicProvider:
     async def stop(self) -> None:
         self._stop.set()
         if self._ws is not None:
-            await self._ws.close()
+            try:
+                await self._ws.close()
+            except Exception as exc:  # noqa: BLE001 - see the task loop below
+                self.health_state.last_error = (
+                    f"stop_close:{type(exc).__name__}:{exc}")[:240]
         for task in (self._heartbeat_task, self._task):
             if task is not None and not task.done():
                 task.cancel()
@@ -299,10 +303,22 @@ class OkxPublicProvider:
                     await task
                 except asyncio.CancelledError:
                     pass
+                except Exception as exc:  # noqa: BLE001
+                    # A transport that already died is what stopping expects
+                    # to find.  Letting it propagate would abort the engine's
+                    # shutdown sequence before the runtime session is durably
+                    # ended, which is far more damaging than a lost close
+                    # frame.  Record it and finish stopping.
+                    self.health_state.last_error = (
+                        f"stop:{type(exc).__name__}:{exc}")[:240]
         self._heartbeat_task = None
         self._task = None
         if self._owns_session and self._session is not None:
-            await self._session.close()
+            try:
+                await self._session.close()
+            except Exception as exc:  # noqa: BLE001
+                self.health_state.last_error = (
+                    f"stop_session:{type(exc).__name__}:{exc}")[:240]
             self._session = None
         self.health_state.connected = False
         self.health_state.state = "STOPPED"

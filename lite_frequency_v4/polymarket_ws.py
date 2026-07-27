@@ -293,6 +293,16 @@ class PolymarketMarketWS:
                     await task
                 except asyncio.CancelledError:
                     pass
+                except Exception as exc:  # noqa: BLE001 - see below
+                    # A socket that ended without a close handshake is what
+                    # stopping *observes*, not a reason stopping failed.  If
+                    # this propagated it would abort the caller's shutdown
+                    # sequence mid-way -- and in this engine that sequence is
+                    # what durably ends the runtime session, so a peer
+                    # disconnecting rudely would leave the session row open
+                    # forever.  Record it and finish stopping.
+                    self.health_state.last_error = (
+                        f"stop:{type(exc).__name__}:{exc}")[:240]
         self._heartbeat_task = None
         self._task = None
         self._ws = None

@@ -4533,8 +4533,24 @@ class FrequencyV4Engine:
                     )[:240]
 
             # Stop producers first, then drain only already-admitted raw data.
-            await self.poly_ws.stop()
-            await self.okx.stop()
+            #
+            # Neither producer stop may abort this sequence.  Everything that
+            # makes a shutdown *safe* happens below -- draining admitted rows,
+            # stopping the telemetry lane, and above all issuing the session
+            # terminal command -- and an exception here would skip all of it.
+            # That is not hypothetical: a Polymarket socket that ended without
+            # a close frame raised out of ``poly_ws.stop()``, left the runtime
+            # session row open, and published the runtime as FAILED even
+            # though the engine had run cleanly to that point.
+            for producer, label in (
+                (self.poly_ws, "polymarket_ws"), (self.okx, "okx_ws"),
+            ):
+                try:
+                    await producer.stop()
+                except Exception as exc:  # noqa: BLE001 - see above
+                    self._last_error = (
+                        f"producer_stop:{label}:{type(exc).__name__}:{exc}"
+                    )[:240]
             try:
                 await asyncio.wait_for(
                     asyncio.gather(
