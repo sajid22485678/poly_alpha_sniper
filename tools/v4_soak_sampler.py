@@ -275,6 +275,9 @@ def sample_once(
         "integrity_runs": state.get("integrity_check_runs"),
         "integrity_scan_in_progress": state.get("integrity_scan_in_progress"),
         "integrity_scan_duration_ms": state.get("integrity_scan_duration_ms"),
+        "integrity_scan_chunked": state.get("integrity_scan_chunked"),
+        "integrity_scan_chunks": state.get("integrity_scan_chunks"),
+        "integrity_scan_max_chunk_ms": state.get("integrity_scan_max_chunk_ms"),
         "full_integrity_audit_runs": state.get("full_integrity_audit_runs"),
         "sqlite_integrity": (export.get("integrity") or {}).get(
             "sqlite_integrity"),

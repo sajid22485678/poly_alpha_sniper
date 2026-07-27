@@ -779,11 +779,13 @@ def test_heartbeat_loop_does_not_run_whole_db_scans(engine_harness, monkeypatch)
         engine_module, "write_frequency_v4_dashboard",
         lambda *_a, **_k: exports.__setitem__("n", exports["n"] + 1))
 
-    def counting_integrity(_store):
+    def counting_integrity(_store, **_kw):
         integrities["n"] += 1
         return {"integrity": "ok", "foreign_key_violations": []}
 
     monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", counting_integrity)
+    monkeypatch.setattr(
+        V4ReadOnlyStore, "integrity_check_chunked", counting_integrity)
     iterations = {"n": 0}
     original_publish = engine.runtime.publish
 
@@ -926,11 +928,12 @@ def test_slow_export_does_not_block_event_loop(engine_harness, monkeypatch):
 def test_slow_integrity_does_not_block_heartbeat(engine_harness, monkeypatch):
     engine = engine_harness.engine
 
-    def slow_integrity(_store):
+    def slow_integrity(_store, **_kw):
         time.sleep(0.4)
         return {"integrity": "ok", "foreign_key_violations": []}
 
-    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", slow_integrity)
+    monkeypatch.setattr(
+        V4ReadOnlyStore, "integrity_check_chunked", slow_integrity)
     ticks = {"n": 0}
 
     async def heartbeat():
@@ -998,7 +1001,7 @@ def test_integrity_is_single_flight(engine_harness, monkeypatch):
         concurrent["cur"] -= 1
         return {"integrity": "ok", "foreign_key_violations": []}
 
-    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", integrity)
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check_chunked", integrity)
 
     async def scenario():
         await asyncio.gather(
@@ -1029,7 +1032,7 @@ def test_export_failure_does_not_crash(engine_harness, monkeypatch):
 def test_integrity_failure_degrades_health_and_fails_closed(engine_harness, monkeypatch):
     engine = engine_harness.engine
     monkeypatch.setattr(
-        V4ReadOnlyStore, "integrity_check",
+        V4ReadOnlyStore, "integrity_check_chunked",
         lambda _store, **_kw: {
             "integrity": "malformed database", "foreign_key_violations": []})
     asyncio.run(engine._run_integrity_check())
@@ -1542,14 +1545,23 @@ def test_export_never_scans_on_hot_path(engine_harness, monkeypatch):
 def test_engine_export_uses_cached_integrity_without_scanning(
         engine_harness, monkeypatch):
     engine = engine_harness.engine
-    scans: list[bool] = []
+    scans: list[object] = []
     real_integrity_check = V4ReadOnlyStore.integrity_check
+    real_chunked = V4ReadOnlyStore.integrity_check_chunked
 
     def tracking(self, *, quick=False):
         scans.append(quick)
         return real_integrity_check(self, quick=quick)
 
+    def tracking_chunked(self):
+        scans.append("chunked")
+        return real_chunked(self)
+
+    # Both scan entry points are tracked, so "the export added no scan of its
+    # own" is asserted against every path into the database, not just one.
     monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", tracking)
+    monkeypatch.setattr(
+        V4ReadOnlyStore, "integrity_check_chunked", tracking_chunked)
 
     # The real writer refuses any path outside the canonical export directory,
     # so build the real payload and capture it instead of writing it.  Everything
@@ -1564,12 +1576,14 @@ def test_engine_export_uses_cached_integrity_without_scanning(
     monkeypatch.setattr(engine_module, "write_frequency_v4_dashboard", capture)
 
     asyncio.run(engine._run_integrity_check())   # off-loop scan populates cache
-    assert scans == [True]                       # exactly one, and it is quick
+    # Exactly one scan, and it is the chunked form that releases its snapshot
+    # between tables rather than pinning one across the whole database.
+    assert scans == ["chunked"]
     assert engine._last_integrity["integrity"] == "ok"
 
     asyncio.run(engine._run_dashboard_export())
     assert engine._last_export_ok is True, engine._last_error
-    assert scans == [True]                       # export added no scan of its own
+    assert scans == ["chunked"]                  # export added no scan of its own
     assert built[-1]["integrity"]["sqlite_integrity"] == "ok"
     assert "sqlite_integrity_unhealthy" not in (
         built[-1]["persistence"]["critical_blocked_reasons"])
@@ -1579,7 +1593,7 @@ def test_engine_export_uses_cached_integrity_without_scanning(
     engine._last_integrity = {}
     asyncio.run(engine._run_dashboard_export())
     assert engine._last_export_ok is True, engine._last_error
-    assert scans == [True]                       # still no scan on this path
+    assert scans == ["chunked"]                  # still no scan on this path
     assert built[-1]["integrity"]["sqlite_integrity"] == "UNKNOWN"
     assert "sqlite_integrity_unhealthy" in (
         built[-1]["persistence"]["critical_blocked_reasons"])
@@ -1601,7 +1615,8 @@ def test_long_integrity_scan_does_not_block_reporting(engine_harness, monkeypatc
         assert release.wait(timeout=30.0), "test deadlock: scan never released"
         return {"integrity": "ok", "foreign_key_violations": []}
 
-    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", blocking_scan)
+    monkeypatch.setattr(
+        V4ReadOnlyStore, "integrity_check_chunked", blocking_scan)
     # Build the real payload on the real reporting worker; only the canonical-
     # path write is stubbed out, since tmp_path is outside the export root.
     exports: list[dict] = []
@@ -1654,7 +1669,8 @@ def test_integrity_scan_exposes_lifecycle_and_is_single_flight(engine_harness, m
         concurrent["cur"] -= 1
         return {"integrity": "ok", "foreign_key_violations": []}
 
-    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", tracking_scan)
+    monkeypatch.setattr(
+        V4ReadOnlyStore, "integrity_check_chunked", tracking_scan)
 
     async def scenario():
         await asyncio.gather(
@@ -1682,7 +1698,8 @@ def test_integrity_scan_failure_fails_closed_without_crash(engine_harness, monke
     def failing_scan(_store, **_kw):
         raise RuntimeError("scan worker blew up")
 
-    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", failing_scan)
+    monkeypatch.setattr(
+        V4ReadOnlyStore, "integrity_check_chunked", failing_scan)
     asyncio.run(engine._run_integrity_check())          # must not raise
     assert engine._last_integrity_ok is None            # UNKNOWN -> fail closed
     assert engine._last_integrity_success is False
@@ -1747,15 +1764,22 @@ def test_full_integrity_audit_runs_on_dedicated_integrity_worker(engine_harness)
 # consume the audit interval (which would silently skip a whole 6-hour window).
 def test_integrity_scans_never_overlap_in_either_direction(engine_harness):
     engine = engine_harness.engine
-    calls: list[bool] = []
+    calls: list[object] = []
     real_integrity_check = V4ReadOnlyStore.integrity_check
+    real_chunked = V4ReadOnlyStore.integrity_check_chunked
 
     def tracking(self, *, quick=False):
         calls.append(quick)
         return real_integrity_check(self, quick=quick)
 
+    def tracking_chunked(self):
+        calls.append("chunked")
+        return real_chunked(self)
+
     original = V4ReadOnlyStore.integrity_check
+    original_chunked = V4ReadOnlyStore.integrity_check_chunked
     V4ReadOnlyStore.integrity_check = tracking
+    V4ReadOnlyStore.integrity_check_chunked = tracking_chunked
     try:
         async def scenario():
             # A quick scan in flight defers the audit -- and reports that it
@@ -1781,8 +1805,11 @@ def test_integrity_scans_never_overlap_in_either_direction(engine_harness):
         asyncio.run(scenario())
     finally:
         V4ReadOnlyStore.integrity_check = original
+        V4ReadOnlyStore.integrity_check_chunked = original_chunked
 
-    assert calls == [False, True]   # full audit, then quick scan; never nested
+    # Full audit (the monolithic whole-database form), then the periodic
+    # chunked scan; never nested.
+    assert calls == [False, "chunked"]
     assert engine._full_integrity_runs == 1
 
 
@@ -1894,7 +1921,7 @@ def test_integrity_scan_cleans_up_on_success_timeout_and_failure(
         # The worker survived the job: no invariant violation was recorded.
         assert worker.health()["state"] == "RUNNING", label
 
-    real_integrity_check = V4ReadOnlyStore.integrity_check
+    real_chunked = V4ReadOnlyStore.integrity_check_chunked
 
     # --- success -----------------------------------------------------------
     asyncio.run(engine._run_integrity_check())
@@ -1906,11 +1933,11 @@ def test_integrity_scan_cleans_up_on_success_timeout_and_failure(
     # --- worker timeout ----------------------------------------------------
     release = threading.Event()
 
-    def slow(self, *, quick=False):
+    def slow(self):
         release.wait(timeout=30.0)
-        return real_integrity_check(self, quick=quick)
+        return real_chunked(self)
 
-    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", slow)
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check_chunked", slow)
     monkeypatch.setattr(engine.cfg, "reporting_worker_timeout_s", 0.15)
     asyncio.run(engine._run_integrity_check())          # must not raise
     assert engine._last_integrity_ok is None            # UNKNOWN, fail closed
@@ -1923,10 +1950,10 @@ def test_integrity_scan_cleans_up_on_success_timeout_and_failure(
     assert_connection_clean("timeout")
 
     # --- failure -----------------------------------------------------------
-    def boom(self, *, quick=False):
+    def boom(self):
         raise sqlite3.OperationalError("injected scan failure")
 
-    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check", boom)
+    monkeypatch.setattr(V4ReadOnlyStore, "integrity_check_chunked", boom)
     asyncio.run(engine._run_integrity_check())          # must not raise
     assert engine._last_integrity_ok is None
     assert engine._last_integrity_success is False

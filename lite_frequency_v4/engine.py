@@ -162,6 +162,20 @@ def _compact_reader_snapshot() -> dict[str, Any]:
     return READER_DIAGNOSTICS.snapshot(compact=True)
 
 
+def _run_chunked_integrity(store: Any) -> dict[str, Any]:
+    """Periodic integrity scan that releases its snapshot between tables.
+
+    Falls back to the whole-database ``quick_check`` only for a store that
+    predates the chunked API (older test doubles); the production read-only
+    store always provides it.
+    """
+
+    chunked = getattr(store, "integrity_check_chunked", None)
+    if callable(chunked):
+        return chunked()
+    return store.integrity_check(quick=True)
+
+
 def _nonnegative_counter(value: Any) -> Optional[int]:
     if isinstance(value, bool):
         return None
@@ -626,6 +640,10 @@ class FrequencyV4Engine:
         # PASSIVE, and how many WAL bytes checkpoints actually returned.
         self._checkpoint_escalations = 0
         self._wal_bytes_reclaimed_total = 0
+        # When a RESTART/TRUNCATE reclamation was last attempted, in any
+        # outcome.  Separate from the last checkpoint attempt of any mode so
+        # the cheap pressure-cadence backfill cannot starve the escalation.
+        self._last_escalation_attempt_ts_ms: Optional[int] = None
         self._critical_command_sequence = 0
         self._critical_failure_reason = ""
         self.counters: dict[str, int] = {
@@ -892,6 +910,13 @@ class FrequencyV4Engine:
                 self._integrity_scan_completed_ms or None),
             "integrity_scan_duration_ms": round(
                 self._last_integrity_duration_ms, 1),
+            # Chunk accounting proves the scan released its read snapshot
+            # between tables rather than pinning one for the whole scan.
+            "integrity_scan_chunked": bool(
+                (self._last_integrity or {}).get("chunked")),
+            "integrity_scan_chunks": (self._last_integrity or {}).get("chunks"),
+            "integrity_scan_max_chunk_ms": (
+                (self._last_integrity or {}).get("max_chunk_ms")),
             "last_integrity_success": self._last_integrity_success,
             "last_integrity_failure": self._last_integrity_failure or None,
             # Full integrity audit runs on the dedicated integrity connection at
@@ -3740,10 +3765,14 @@ class FrequencyV4Engine:
     async def _run_integrity_check(self) -> None:
         """Off-loop integrity scan on the read-only connection (single-flight).
 
-        Uses ``quick_check`` for the periodic scan: it detects the same
-        structural corruption as the full ``integrity_check`` but skips the
-        expensive B-tree ordering validation, keeping a multi-GB evidence-store
-        scan off the export hot path.
+        Uses the per-table chunked ``quick_check``: it detects the same
+        structural corruption as the whole-database form but runs one bounded
+        read transaction per table instead of one that spans the entire
+        evidence store.  That distinction is a WAL invariant, not a
+        performance tweak -- measured on this database, the monolithic scan
+        held a single read-mark for 130 s under live load, and no checkpoint
+        can reset the WAL past an open read-mark, so the log grew by the full
+        write volume of the scan while it ran.
 
         The scan runs on the dedicated ``integrity_worker`` (a separate owner
         thread and read-only connection from ``report_worker``) so it can never
@@ -3765,7 +3794,7 @@ class FrequencyV4Engine:
         started = time.monotonic()
         try:
             result = await integrity_worker.run_report(
-                lambda store: store.integrity_check(quick=True),
+                _run_chunked_integrity,
                 timeout_s=self.cfg.reporting_worker_timeout_s,
                 name="sqlite_integrity_check",
             )
@@ -3996,8 +4025,17 @@ class FrequencyV4Engine:
             self._consecutive_no_progress_passive = 0
         elif executed and mode == "PASSIVE" and before > 0:
             self._consecutive_no_progress_passive += 1
-        if executed and mode in {"RESTART", "TRUNCATE"}:
-            self._checkpoint_escalations += 1
+        if mode in {"RESTART", "TRUNCATE"}:
+            # The escalation's own cadence reference: every decided reclamation
+            # consumes a slot whether it ran, returned BUSY, or was deferred, so
+            # a refused escalation cannot spin at the pressure cadence.  It is
+            # deliberately separate from the last checkpoint attempt of any
+            # mode, which the ~5 s PASSIVE backfill keeps permanently fresh.
+            self._last_escalation_attempt_ts_ms = int(
+                checkpoint.get("started_ts_ms")
+                or checkpoint.get("completed_ts_ms") or now_ms())
+            if executed:
+                self._checkpoint_escalations += 1
         self._wal_bytes_reclaimed_total += reclaimed
 
     async def _run_maintenance_pass(self) -> None:
@@ -4115,6 +4153,8 @@ class FrequencyV4Engine:
                     self._checkpoint_state.get("completed_ts_ms")
                     if self._checkpoint_state.get("successful") else None
                 ),
+                last_escalation_attempt_ts_ms=(
+                    self._last_escalation_attempt_ts_ms),
             )
             policy = MaintenancePolicy(
                 wal_trigger_bytes=self.cfg.checkpoint_wal_size_trigger_bytes,

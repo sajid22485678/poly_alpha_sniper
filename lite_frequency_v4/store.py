@@ -4876,6 +4876,70 @@ class V4Store:
         return {"integrity": "ok" if result == ["ok"] else "; ".join(result),
                 "foreign_key_violations": fk}
 
+    def _integrity_statement(self, pragma_sql: str) -> list[Any]:
+        """Execute one bounded integrity statement on its own read snapshot.
+
+        Read-only subclasses override this to record the statement's lifetime
+        in the reader diagnostics; the SQL itself is a fixed PRAGMA with a
+        quoted table name, never user input.
+        """
+
+        self._assert_owner()
+        with self._lock:
+            return self._conn.execute(pragma_sql).fetchall()
+
+    def integrity_check_chunked(self) -> dict[str, Any]:
+        """Per-table integrity scan that never holds one long read snapshot.
+
+        A monolithic ``PRAGMA quick_check`` on this evidence store is a single
+        read transaction measured at 39 s cold and 130 s under live load.  In
+        WAL mode that one statement pins the checkpointer's read-mark for its
+        whole duration: no PASSIVE backfill can pass it and no RESTART or
+        TRUNCATE can reset the log, so the WAL grows by the full write volume
+        of the scan (~110 MB/min measured).  Scanning table by table performs
+        the same per-table corruption and foreign-key detection while giving
+        every statement its own snapshot, so the longest pin drops from the
+        whole-database scan to the largest single table (8.4 s measured cold).
+
+        Consistency: each table is validated against a point-in-time snapshot;
+        different tables may be validated against slightly different snapshots.
+        That is sound for corruption detection -- every committed page state a
+        chunk sees must still be internally consistent -- and matches how the
+        result is consumed (a boolean integrity gate).  Database-level
+        structures not owned by any one table (freelist bookkeeping) remain
+        covered by the infrequent monolithic full audit, which deliberately
+        keeps :meth:`integrity_check` semantics.
+        """
+
+        self._assert_owner()
+        started = time.monotonic()
+        tables = [str(row[0]) for row in self._integrity_statement(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        problems: list[str] = []
+        fk_rows: list[dict[str, Any]] = []
+        max_chunk_ms = 0.0
+        for name in tables:
+            quoted = name.replace('"', '""')
+            chunk_started = time.monotonic()
+            result = [str(row[0]) for row in self._integrity_statement(
+                f'PRAGMA quick_check("{quoted}")')]
+            if result != ["ok"]:
+                problems.extend(f"{name}: {line}" for line in result)
+            fk_rows.extend(
+                dict(row) for row in self._integrity_statement(
+                    f'PRAGMA foreign_key_check("{quoted}")'))
+            max_chunk_ms = max(
+                max_chunk_ms, (time.monotonic() - chunk_started) * 1_000.0)
+        return {
+            "integrity": "ok" if not problems else "; ".join(problems),
+            "foreign_key_violations": fk_rows,
+            "chunked": True,
+            "chunks": len(tables),
+            "max_chunk_ms": round(max_chunk_ms, 1),
+            "duration_ms": round((time.monotonic() - started) * 1_000.0, 1),
+        }
+
     def database_size_bytes(self) -> int:
         return sum(
             candidate.stat().st_size
@@ -5091,3 +5155,17 @@ class V4ReadOnlyStore(V4Store):
         READER_DIAGNOSTICS.end_statement(
             token, rows=len(result.get("foreign_key_violations") or ()))
         return result
+
+    def _integrity_statement(self, pragma_sql: str) -> list[Any]:
+        # Each chunk of the chunked integrity scan is one read transaction;
+        # registering per chunk is what proves the snapshot is released at
+        # every chunk boundary rather than held across the whole scan.
+        token = READER_DIAGNOSTICS.begin_statement(conn_id=id(self._conn))
+        try:
+            rows = super()._integrity_statement(pragma_sql)
+        except BaseException as exc:
+            READER_DIAGNOSTICS.end_statement(
+                token, error=f"{type(exc).__name__}"[:120])
+            raise
+        READER_DIAGNOSTICS.end_statement(token, rows=len(rows))
+        return rows

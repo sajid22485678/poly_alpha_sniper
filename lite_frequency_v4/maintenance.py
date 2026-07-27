@@ -160,6 +160,16 @@ class MaintenanceSnapshot:
     time_to_window_boundary_ms: Optional[int] = None
     last_checkpoint_attempt_ts_ms: Optional[int] = None
     last_successful_checkpoint_ts_ms: Optional[int] = None
+    # When the last RESTART/TRUNCATE reclamation was last *attempted* (any
+    # outcome).  The expensive escalation is paced against this, not against
+    # the last checkpoint of any mode: under WAL pressure a cheap PASSIVE
+    # backfill runs every few seconds, so pacing the escalation by the last
+    # attempt of any mode makes it permanently unreachable exactly when it is
+    # needed -- measured live, consecutive_no_progress_passive reached 112
+    # with zero escalations while the WAL grew to 1.28 GB.  ``None`` falls
+    # back to ``last_checkpoint_attempt_ts_ms``, preserving the historical
+    # single-cadence behaviour for callers that do not track escalations.
+    last_escalation_attempt_ts_ms: Optional[int] = None
     # Number of consecutive recent PASSIVE checkpoints that completed without
     # reclaiming any WAL bytes (``after_wal_bytes >= before_wal_bytes``).  A
     # reader-pinned WAL can report SUCCESS + frames checkpointed yet never
@@ -203,6 +213,7 @@ class MaintenanceSnapshot:
             "time_to_window_boundary_ms",
             "last_checkpoint_attempt_ts_ms",
             "last_successful_checkpoint_ts_ms",
+            "last_escalation_attempt_ts_ms",
         ):
             value = getattr(self, name)
             if value is not None:
@@ -394,8 +405,23 @@ def decide_checkpoint(
             # small backfills keep the file near its configured trigger, which is
             # what makes the eventual reclaim small.  PASSIVE runs on the
             # dedicated maintenance connection and never blocks the critical
-            # writer, so it is safe at this cadence.  RESTART and TRUNCATE keep
-            # the full routine interval by falling through below.
+            # writer, so it is safe at this cadence.
+            #
+            # The reclamation escalation keeps the full routine interval, but it
+            # is paced against the last *escalation* attempt, not the last
+            # attempt of any mode: this branch runs every few seconds while the
+            # WAL is over its trigger, so measuring the escalation against it
+            # made the escalation unreachable exactly when it was armed --
+            # measured live, consecutive_no_progress_passive reached 112 with
+            # zero escalations while the WAL grew to 1.28 GB and only one
+            # accidental reader-gap reset occurred in 28 minutes.  A backfilled
+            # WAL makes the reclaim cheap: TRUNCATE only has to reset the log
+            # and release the file, never copy hundreds of megabytes of frames.
+            if (_escalation_due(snapshot, policy)
+                    and _live_reclaim_is_safe(snapshot, policy)):
+                return CheckpointDecision(
+                    True, CheckpointMode.TRUNCATE, LIVE_RECLAIM_REASON, snapshot
+                )
             return CheckpointDecision(
                 True, CheckpointMode.PASSIVE, EMERGENCY_WAL_REASON, snapshot
             )
@@ -842,6 +868,27 @@ def run_bounded_maintenance_pass(
 
 def _skip(snapshot: MaintenanceSnapshot, reason: str) -> CheckpointDecision:
     return CheckpointDecision(False, None, reason, snapshot)
+
+
+def _escalation_due(
+    snapshot: MaintenanceSnapshot, policy: MaintenancePolicy
+) -> bool:
+    """Whether the routine interval has elapsed since the last escalation.
+
+    The reference is the last RESTART/TRUNCATE *attempt* of any outcome, so a
+    BUSY or deferred reclaim still consumes its cadence slot and cannot spin.
+    A caller that does not track escalations separately falls back to the last
+    checkpoint attempt of any mode, which is exactly the historical behaviour.
+    """
+
+    reference = snapshot.last_escalation_attempt_ts_ms
+    if reference is None:
+        reference = snapshot.last_checkpoint_attempt_ts_ms
+    if reference is None:
+        return True
+    if reference > snapshot.now_ms:
+        return False
+    return snapshot.now_ms - reference >= policy.checkpoint_min_interval_ms
 
 
 def _safe_reader_snapshot(
