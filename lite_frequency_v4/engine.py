@@ -91,14 +91,21 @@ from .workers import (
 # gives the reader two generation opportunities inside the <=10 s freshness
 # contract, while integrity and maintenance use separate owner threads.
 DASHBOARD_EXPORT_INTERVAL_MS = 5_000
-# How often the bounded live integrity health check runs one pass.  Each pass
-# is budgeted in milliseconds and resumable, so a frequent cadence costs a small
-# fixed duty cycle instead of one long scan: measured on the 9.29 GB store, a
-# 1.5 s pass covers ~1 M rows and the longest single read transaction is 766 ms.
-# The previous 30-minute cadence existed only because a pass was a whole-database
-# scan; it no longer is, and frequent small passes keep the cached verdict fresh
-# without ever pinning the WAL.
-INTEGRITY_CHECK_INTERVAL_MS = 15_000  # 15 seconds
+# How often the bounded live integrity health check runs one pass.  Each pass is
+# budgeted in milliseconds and resumable, so the cadence buys freshness at a
+# fixed duty cycle instead of one long scan.  The 30-minute cadence existed only
+# because a pass was a whole-database scan; it no longer is.
+#
+# The duty cycle is the real budget, and it is shared with the writer.  A 1.5 s
+# pass every 15 s is 10 percent of wall time spent on sustained sequential reads
+# against the same disk the telemetry sink commits to.  Measured over a 37.5
+# minute gate at c54e7f8, that was enough to push the sink behind its offered
+# load: the queue reached its 168-row high-water mark in 4 samples, residence
+# reached 31 s, and the lane lost 5 noncritical rows -- with no integrity value
+# whatsoever for the extra frequency, since staleness is bounded at an hour.
+# 0.6 s per minute is 1 percent, refreshes the verdict 60x more often than the
+# staleness bound requires, and leaves the disk to the writer.
+INTEGRITY_CHECK_INTERVAL_MS = 60_000  # 60 seconds
 INTEGRITY_MAX_AGE_MS = 3_600_000  # 1 hour; fail-closed if older
 # A transient runtime/export publish timeout (event-loop stall under heavy
 # maintenance + integrity I/O) must degrade observable readiness, not terminate

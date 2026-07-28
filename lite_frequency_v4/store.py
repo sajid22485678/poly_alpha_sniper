@@ -4958,19 +4958,23 @@ class V4Store:
     #: (1,594 ms against a 1,000 ms bound).  Chunk size is therefore per unit.
     LIVE_INTEGRITY_START_ROWS = 2_000
     LIVE_INTEGRITY_MIN_ROWS = 250
-    #: Measured on the production store, a 45 k-row chunk reached 766 ms when
-    #: its pages missed the OS cache.  Live write load is slower still, so the
-    #: ceiling is held well under the bound rather than at it.
-    LIVE_INTEGRITY_MAX_ROWS = 25_000
+    #: Measured offline on the production store, a 45 k-row chunk reached 766 ms
+    #: when its pages missed the OS cache; under live write load a 25 k-row
+    #: chunk reached 3,110 ms against a 1,000 ms bound.  The ceiling is held
+    #: well under the bound rather than at it.
+    LIVE_INTEGRITY_MAX_ROWS = 8_000
     #: Wall-clock a single chunk aims for.  Chunk size adapts toward it, so no
     #: chunk's cost tracks total table size on any hardware.
-    LIVE_INTEGRITY_CHUNK_TARGET_MS = 250.0
+    LIVE_INTEGRITY_CHUNK_TARGET_MS = 200.0
     #: Hard ceiling used for adaptation and for the honest "was any chunk over
     #: its bound?" report.  A chunk cannot be interrupted mid-statement, so the
     #: bound is enforced by shrinking the next chunk, not by aborting this one.
     LIVE_INTEGRITY_CHUNK_MAX_MS = 1_000.0
-    #: Wall-clock one *pass* may spend before yielding, whatever remains.
-    LIVE_INTEGRITY_PASS_BUDGET_MS = 1_500.0
+    #: Wall-clock one *pass* may spend before yielding, whatever remains.  This
+    #: times the *duty cycle* against the runtime's cadence, and the disk is
+    #: shared with the telemetry sink: 1.5 s per 15 s starved the writer badly
+    #: enough to lose rows on the 37.5-minute gate at c54e7f8.
+    LIVE_INTEGRITY_PASS_BUDGET_MS = 600.0
 
     def _live_integrity_plan(self) -> dict[str, Any]:
         """Build (and cache) the ordered unit plan for one live scan cycle.
@@ -5207,8 +5211,10 @@ class V4Store:
                 "cycle_problems": (),
                 "cycle_foreign_key_violations": (),
                 # Per-unit calibrated chunk sizes, carried across cycles so the
-                # second pass over a unit starts already sized for it.
+                # second pass over a unit starts already sized for it, and the
+                # per-unit ceiling learned from any chunk that overran the bound.
                 "unit_rows": {},
+                "unit_ceiling": {},
                 "rows_per_chunk": self.LIVE_INTEGRITY_START_ROWS,
                 "last_completed_cycle_ts_ms": 0,
                 "last_completed_cycle_ok": None,
@@ -5256,6 +5262,7 @@ class V4Store:
                 # A schema change invalidates the unit ordering the calibration
                 # was keyed to, so it is discarded rather than misapplied.
                 "unit_rows": {},
+                "unit_ceiling": {},
             })
         units = plan["units"]
         state["units_total"] = len(units)
@@ -5276,8 +5283,11 @@ class V4Store:
             unit_index = int(state["unit_index"])
             unit = units[unit_index]
             unit_rows = state["unit_rows"]
-            rows_per_chunk = int(
-                unit_rows.get(unit_index, self.LIVE_INTEGRITY_START_ROWS))
+            unit_ceiling = state.setdefault("unit_ceiling", {})
+            rows_per_chunk = min(
+                int(unit_rows.get(unit_index, self.LIVE_INTEGRITY_START_ROWS)),
+                int(unit_ceiling.get(unit_index, self.LIVE_INTEGRITY_MAX_ROWS)),
+            )
             chunk_started = time.monotonic()
             if unit["kind"] == "metadata":
                 unit_problems, metadata = self._live_integrity_metadata_unit()
@@ -5309,10 +5319,21 @@ class V4Store:
             state["cycle_rows_scanned"] = int(state["cycle_rows_scanned"]) + rows_read
             state["cycle_max_chunk_ms"] = max(
                 float(state["cycle_max_chunk_ms"]), chunk_ms)
-            if chunk_ms > self.LIVE_INTEGRITY_CHUNK_MAX_MS:
+            if chunk_ms > self.LIVE_INTEGRITY_CHUNK_MAX_MS and rows_read > 0:
                 state["chunks_over_bound"] = int(state["chunks_over_bound"]) + 1
+                # Learn the ceiling, do not merely back off from it.  Halving on
+                # an overrun and then growing 25 percent per chunk walks straight
+                # back into the same size: measured over the 37.5-minute gate at
+                # c54e7f8, chunks sat at the 25 k ceiling for most of the run and
+                # 70 of 76 samples reported at least one chunk past the bound.
+                # A size that overran once is never used again for this unit.
+                unit_ceiling[unit_index] = max(
+                    self.LIVE_INTEGRITY_MIN_ROWS, int(rows_per_chunk) // 2)
             adapted = self._adapt_chunk_rows(
                 rows_per_chunk, chunk_ms, rows_read)
+            adapted = min(
+                adapted,
+                int(unit_ceiling.get(unit_index, self.LIVE_INTEGRITY_MAX_ROWS)))
             unit_rows[unit_index] = adapted
             state["rows_per_chunk"] = adapted
             if advance:

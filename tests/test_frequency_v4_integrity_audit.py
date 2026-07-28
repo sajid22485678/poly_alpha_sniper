@@ -294,6 +294,52 @@ def test_live_scan_adapts_chunk_size_per_unit(tmp_path):
     assert len(sizes) > 1
 
 
+def test_an_overrunning_chunk_lowers_that_unit_ceiling_permanently(tmp_path):
+    """A size that overran the bound once is never used again for that unit.
+
+    Halving on an overrun and then growing 25% per chunk walks straight back
+    into the same size: measured over the 37.5-minute gate at c54e7f8, chunks
+    sat at the ceiling for most of the run and 70 of 76 samples reported at
+    least one chunk past the bound.
+    """
+
+    path = _bulk_db(tmp_path, rows=6_000)
+    store = V4ReadOnlyStore(path, enforce_thread_ownership=False)
+    real = store._live_integrity_table_unit
+    slow = {"on": True}
+
+    def overrunning(unit, *, after_rowid, max_rows):
+        result = real(unit, after_rowid=after_rowid, max_rows=max_rows)
+        if slow["on"] and unit["name"] == "bulk_probe" and result["rows_read"]:
+            time.sleep((store.LIVE_INTEGRITY_CHUNK_MAX_MS + 60) / 1000.0)
+            slow["on"] = False          # exactly one overrun, ever
+        return result
+
+    store._live_integrity_table_unit = overrunning
+    try:
+        for _ in range(400):
+            result = store.integrity_check_chunked()
+            if result["cycle_complete"]:
+                break
+        state = store.live_integrity_state()
+        ceilings = dict(state["unit_ceiling"])
+        # The overrun was recorded once and a ceiling was learned for that unit.
+        assert result["chunks_over_bound"] == 1
+        assert len(ceilings) == 1
+        ceiling = next(iter(ceilings.values()))
+        assert ceiling <= store.LIVE_INTEGRITY_MAX_ROWS
+
+        # Several further cycles must never exceed the learned ceiling, however
+        # fast the unit now looks.
+        index = next(iter(ceilings))
+        for _ in range(600):
+            store.integrity_check_chunked()
+            assert store.live_integrity_state()["unit_rows"].get(
+                index, 0) <= ceiling
+    finally:
+        store.close()
+
+
 def test_live_check_is_never_labelled_a_full_audit(tmp_path):
     path = _fresh_db(tmp_path)
     store = V4ReadOnlyStore(path, enforce_thread_ownership=False)
