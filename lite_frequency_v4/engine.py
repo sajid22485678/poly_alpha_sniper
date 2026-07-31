@@ -142,6 +142,12 @@ IMMATERIAL_TRANSITION_MIN_INTERVAL_MS = 5_000
 # bounding that nested work keeps one "row" from secretly representing hundreds
 # of SQLite UPSERTs and poisoning the controller's per-command tail estimate.
 EVENT_COUNT_ROWS_PER_COMMAND = 16
+#: Floor for the pending event-count backlog bound.  Below this many buckets a
+#: refused flush is an ordinary deferral and simply waits for the next
+#: heartbeat; above the bound (see ``_event_count_backlog_bound``) one bounded
+#: flush per heartbeat is admitted so sustained sink pressure cannot turn
+#: bounded telemetry into an unbounded engine-side buffer.
+EVENT_COUNT_BACKLOG_MIN_BUCKETS = 1_024
 
 # These are audit counters, not controller inputs.  They survive a clean
 # process restart by carrying forward the greatest valid value found in the
@@ -695,6 +701,29 @@ class FrequencyV4Engine:
         self._event_count_buffer: dict[
             tuple[int, str, str, str, str, str], list[int]
         ] = {}
+        # Exact O(1) indices over ``_event_count_buffer``.  The capacity path
+        # used to answer both of its questions with a linear ``next(...)`` scan
+        # over the whole buffer.  Once the buffer pinned at its capacity those
+        # scans ran on *every* inbound event: measured on the 19-minute loaded
+        # reproduction at 5259b94, 1,252,184 executions against a 20,001-entry
+        # buffer, and 14.3 percent of all MainThread executing samples -- the
+        # single largest Python cost on the event loop.
+        #
+        # Each index maps a semantic tuple to the buffer keys carrying it, in
+        # buffer insertion order (a dict used as an ordered set).  The chosen
+        # bucket is therefore the *first-inserted* match -- byte-for-byte the
+        # bucket ``next(...)`` over the dict returned -- so attribution is
+        # unchanged and only the lookup cost is.  Both are maintained at every
+        # site that mutates the buffer.
+        self._event_count_semantic_index: dict[
+            tuple[str, str, str, str],
+            dict[tuple[int, str, str, str, str, str], None],
+        ] = {}
+        self._event_count_coarse_index: dict[
+            tuple[str, str],
+            dict[tuple[int, str, str, str, str, str], None],
+        ] = {}
+        self._event_count_index_len = 0
         self.maker_persistence: dict[str, MakerPersistence] = {}
         self._recovery_inflight: set[str] = set()
         self._hydration_inflight: set[str] = set()
@@ -806,6 +835,7 @@ class FrequencyV4Engine:
             "telemetry_event_bucket_overflow": 0,
             "telemetry_event_bucket_preoverflow_coalesced": 0,
             "telemetry_event_bucket_coarsened": 0,
+            "telemetry_event_flush_escalated": 0,
             "telemetry_raw_interval_sampled": 0,
         }
 
@@ -1441,6 +1471,65 @@ class FrequencyV4Engine:
         identity = event.token_id or event.condition_id or "global"
         return f"{event.source}:{event.channel}:{event.event_type}:{identity}"
 
+    @staticmethod
+    def _event_count_semantic_of(
+        key: tuple[int, str, str, str, str, str],
+    ) -> tuple[str, str, str, str]:
+        """The dimensions two buckets must share to be safely merged."""
+
+        return (key[1], key[3], key[4], key[5])
+
+    def _event_count_index_add(
+        self, key: tuple[int, str, str, str, str, str],
+    ) -> None:
+        """Record a buffer key in both lookup indices, preserving order."""
+
+        self._event_count_semantic_index.setdefault(
+            self._event_count_semantic_of(key), {})[key] = None
+        if (key[2], key[3], key[4]) == (
+                _AGGREGATED_CHANNEL, _AGGREGATED_ASSET, _AGGREGATED_EVENT_TYPE):
+            self._event_count_coarse_index.setdefault(
+                (key[1], key[5]), {})[key] = None
+        self._event_count_index_len = len(self._event_count_buffer)
+
+    def _event_count_indices_synced(self) -> None:
+        """Rebuild both indices when the buffer was replaced wholesale.
+
+        The indices are maintained at every site that mutates the buffer, so
+        this is a safety net rather than a code path: it exists because the
+        buffer is a plain attribute, and an index that silently disagreed with
+        it would coarsen into a bucket that no longer exists.  Detection is a
+        length comparison, and the rebuild is proportional to the buffer only on
+        the pass that discovers the drift.
+        """
+
+        if self._event_count_index_len == len(self._event_count_buffer):
+            return
+        self._event_count_semantic_index.clear()
+        self._event_count_coarse_index.clear()
+        for existing in self._event_count_buffer:
+            self._event_count_index_add(existing)
+        self._event_count_index_len = len(self._event_count_buffer)
+
+    def _event_count_index_discard(
+        self, key: tuple[int, str, str, str, str, str],
+    ) -> None:
+        """Drop a buffer key from both indices once it leaves the buffer."""
+
+        semantic = self._event_count_semantic_of(key)
+        bucket = self._event_count_semantic_index.get(semantic)
+        if bucket is not None:
+            bucket.pop(key, None)
+            if not bucket:
+                self._event_count_semantic_index.pop(semantic, None)
+        coarse_key = (key[1], key[5])
+        coarse = self._event_count_coarse_index.get(coarse_key)
+        if coarse is not None:
+            coarse.pop(key, None)
+            if not coarse:
+                self._event_count_coarse_index.pop(coarse_key, None)
+        self._event_count_index_len = len(self._event_count_buffer)
+
     def _buffer_event_count(
         self, event: SourceEvent | CexObservation, decision: EventDecision,
         *, classification: Optional[str] = None,
@@ -1459,12 +1548,9 @@ class FrequencyV4Engine:
             # Coarsen time/channel detail only when every semantic dimension is
             # identical.  Merging into an unrelated oldest bucket would corrupt
             # source/asset/event/classification attribution.
-            compatible = next((
-                existing for existing in self._event_count_buffer
-                if (
-                    existing[1], existing[3], existing[4], existing[5]
-                ) == (key[1], key[3], key[4], key[5])
-            ), None)
+            self._event_count_indices_synced()
+            compatible = next(iter(self._event_count_semantic_index.get(
+                self._event_count_semantic_of(key), ())), None)
             if compatible is None:
                 # No semantically identical bucket exists.  Previously the
                 # event's count was discarded here and accounted as raw
@@ -1486,13 +1572,8 @@ class FrequencyV4Engine:
                 # to |source| x |classification|; its timestamp is the first
                 # second it covered, which the AGGREGATED sentinels already
                 # mark as coarsened.
-                coarse = next((
-                    existing for existing in self._event_count_buffer
-                    if (existing[1], existing[2], existing[3], existing[4],
-                        existing[5]) == (
-                        str(source), _AGGREGATED_CHANNEL, _AGGREGATED_ASSET,
-                        _AGGREGATED_EVENT_TYPE, disposition)
-                ), None)
+                coarse = next(iter(self._event_count_coarse_index.get(
+                    (str(source), disposition), ())), None)
                 key = coarse if coarse is not None else (
                     bucket_start, str(source), _AGGREGATED_CHANNEL,
                     _AGGREGATED_ASSET, _AGGREGATED_EVENT_TYPE, disposition,
@@ -1502,7 +1583,10 @@ class FrequencyV4Engine:
                 key = compatible
             self.counters[
                 "telemetry_event_bucket_preoverflow_coalesced"] += 1
-        counts = self._event_count_buffer.setdefault(key, [0, 0, 0, 0])
+        if key not in self._event_count_buffer:
+            self._event_count_buffer[key] = [0, 0, 0, 0]
+            self._event_count_index_add(key)
+        counts = self._event_count_buffer[key]
         counts[0] += 1
         counts[1] += int(not decision.duplicate)
         counts[2] += int(decision.duplicate)
@@ -1534,9 +1618,41 @@ class FrequencyV4Engine:
             overload_policy=TelemetryOverloadPolicy.LATEST,
         )
 
+    def _event_count_backlog_bound(self) -> int:
+        """Buckets the pending aggregate may hold before a flush must land."""
+
+        return max(
+            EVENT_COUNT_BACKLOG_MIN_BUCKETS,
+            min(int(self.cfg.telemetry_queue_capacity) // 8,
+                int(self.cfg.telemetry_batch_size) * 8),
+        )
+
     def _flush_event_counts(self, *, shutdown: bool = False) -> bool:
         if not self._event_count_buffer:
             return True
+        # ``DEFER`` is the right policy for transient sink pressure: the caller
+        # keeps the counts and retries next heartbeat.  It is the wrong policy
+        # for *sustained* pressure, which is the steady state policy sampling
+        # exists to absorb -- there the flush is refused every time, the pending
+        # buffer only grows, and at capacity every inbound event starts paying
+        # the coarsening path.  Measured on the 19-minute loaded reproduction at
+        # 5259b94: the buffer pinned at 20,001 buckets and the capacity path ran
+        # 1,252,184 times, coarsening away channel/asset/event-type attribution
+        # for the rest of the run.
+        #
+        # So deferral is bounded by the backlog it is allowed to build.  Below
+        # the bound nothing changes.  Above it this one bounded flush -- at most
+        # ``telemetry_batch_size`` buckets, once per heartbeat -- is admitted
+        # rather than refused, so the pending set stays bounded and keeps full
+        # channel/asset/event-type attribution.  The escalation is deterministic
+        # and rate-limited by the heartbeat cadence; no deadline, timeout or
+        # loss rule moves, and every count is still conserved exactly.
+        escalate = (
+            not shutdown
+            and len(self._event_count_buffer) > self._event_count_backlog_bound()
+        )
+        if escalate:
+            self.counters["telemetry_event_flush_escalated"] += 1
         # Bound hot-loop aggregation work even after a prolonged telemetry
         # outage; remaining buckets stay queued for the next heartbeat.
         limit = max(1, min(self.cfg.telemetry_batch_size, 1_024))
@@ -1545,6 +1661,8 @@ class FrequencyV4Engine:
             (key, self._event_count_buffer.pop(key))
             for key in keys
         ]
+        for key, _counts in buffered:
+            self._event_count_index_discard(key)
         for offset in range(0, len(buffered), EVENT_COUNT_ROWS_PER_COMMAND):
             chunk = buffered[offset:offset + EVENT_COUNT_ROWS_PER_COMMAND]
             rows = [{
@@ -1565,7 +1683,8 @@ class FrequencyV4Engine:
                         dedupe_key=("event-count-flush", _sha256_json(rows)),
                         overload_policy=(
                             TelemetryOverloadPolicy.ADMIT
-                            if shutdown else TelemetryOverloadPolicy.DEFER
+                            if (shutdown or escalate)
+                            else TelemetryOverloadPolicy.DEFER
                         )):
                     raise RuntimeError(
                         "telemetry_event_count_admission_failed")
@@ -1573,8 +1692,10 @@ class FrequencyV4Engine:
                 # Earlier chunks were admitted; restore only this and later
                 # chunks so counts are never duplicated.
                 for key, counts in buffered[offset:]:
-                    target = self._event_count_buffer.setdefault(
-                        key, [0, 0, 0, 0])
+                    if key not in self._event_count_buffer:
+                        self._event_count_buffer[key] = [0, 0, 0, 0]
+                        self._event_count_index_add(key)
+                    target = self._event_count_buffer[key]
                     for index, count in enumerate(counts):
                         target[index] += count
                 self._last_error = (
@@ -1607,6 +1728,9 @@ class FrequencyV4Engine:
         )
         self.counters["telemetry_event_bucket_overflow"] += lost
         self._event_count_buffer.clear()
+        self._event_count_semantic_index.clear()
+        self._event_count_coarse_index.clear()
+        self._event_count_index_len = 0
         self._last_error = (
             f"telemetry_event_count_shutdown_lost_{lost}_raw_events")
         return False

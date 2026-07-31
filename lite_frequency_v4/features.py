@@ -11,7 +11,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass
 import math
 import statistics
-from typing import Iterable, Optional
+from typing import Optional, Sequence
 
 from .contracts import BookState, CexFeatures, CexObservation
 from .edge_models import BookFeaturePoint
@@ -89,21 +89,41 @@ class CexFeatureBuffer:
         self._latest_move_ts.pop(normalized, None)
 
     @staticmethod
-    def _at_or_before(rows: Iterable[CexObservation], target_ms: int,
-                      tolerance_ms: int) -> Optional[CexObservation]:
+    def _at_or_before(rows: Sequence[CexObservation], target_ms: int,
+                      tolerance_ms: int, *,
+                      skip_last: bool = False) -> Optional[CexObservation]:
+        """Newest row at or before ``target_ms``, within ``tolerance_ms``.
+
+        ``rows`` is walked newest-first in place.  It used to be copied to a
+        tuple on entry and, for the previous-tick reference, sliced first --
+        each copy proportional to the whole retained history (up to
+        ``max_points_per_asset``) for a walk that almost always stops within a
+        few entries.  ``skip_last`` expresses "excluding the newest row" without
+        materializing a copy to express it.
+        """
+
+        target = int(target_ms)
         chosen: Optional[CexObservation] = None
-        for row in reversed(tuple(rows)):
-            if row.provider_ts_ms <= int(target_ms):
+        iterator = reversed(rows)
+        if skip_last:
+            next(iterator, None)
+        for row in iterator:
+            if row.provider_ts_ms <= target:
                 chosen = row
                 break
-        if chosen is None or int(target_ms) - chosen.provider_ts_ms > tolerance_ms:
+        if chosen is None or target - chosen.provider_ts_ms > tolerance_ms:
             return None
         return chosen
 
     def build(self, asset: str, *, now_ms: int, window_open_ms: int,
               max_age_ms: int) -> FeatureEvidence:
         asset = str(asset).upper()
-        rows = tuple(self._rows.get(asset, ()))
+        # The retained history is read in place.  Copying it to a tuple here
+        # cost one full copy of up to ``max_points_per_asset`` observations on
+        # every evaluation, and the helpers below copied it again; a deque
+        # supports every access this method makes (indexing, ``len``, and
+        # reverse iteration), so none of those copies buy anything.
+        rows: Sequence[CexObservation] = self._rows.get(asset) or ()
         latest = rows[-1] if rows else None
         if latest is None:
             return FeatureEvidence(CexFeatures(
@@ -144,8 +164,8 @@ class CexFeatureBuffer:
         previous_short = None
         if prior is not None:
             prior_ref = self._at_or_before(
-                rows[:-1], prior.provider_ts_ms - 1_000,
-                self.reference_tolerance_ms,
+                rows, prior.provider_ts_ms - 1_000,
+                self.reference_tolerance_ms, skip_last=True,
             )
             if prior_ref is not None:
                 previous_short = prior.price / prior_ref.price - 1.0
@@ -250,9 +270,12 @@ class BookHistoryBuffer:
         return True
 
     def points(self, window_key: str, *, now_ms: int) -> tuple[BookFeaturePoint, ...]:
+        # ``int(now_ms)`` was re-evaluated twice per retained point; the bound is
+        # loop-invariant, so it is computed once.
+        cutoff = int(now_ms)
         return tuple(point for point in self._rows.get(str(window_key), ())
-                     if point.provider_ts_ms <= int(now_ms)
-                     and point.receipt_ts_ms <= int(now_ms))
+                     if point.provider_ts_ms <= cutoff
+                     and point.receipt_ts_ms <= cutoff)
 
     def remove(self, window_key: str) -> None:
         self._rows.pop(str(window_key), None)
