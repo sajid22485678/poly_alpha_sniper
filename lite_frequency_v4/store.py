@@ -88,6 +88,16 @@ class V4SchemaError(V4StoreError):
     """Raised when a non-v4 or incompatible database is supplied."""
 
 
+class LiveIntegrityBudgetExceeded(V4StoreError):
+    """Raised when a live integrity chunk is abandoned at its time budget.
+
+    This is a *bound being enforced*, not an integrity finding: the statement
+    is a read, so abandoning it commits nothing and proves nothing about the
+    data.  The scan resumes the same unit from the same cursor with a smaller
+    chunk; the health verdict is untouched.
+    """
+
+
 class WindowReservationConflict(V4StoreError):
     """Raised when one logical asset/window already has an owner or entry."""
 
@@ -4915,6 +4925,7 @@ class V4Store:
 
     def _integrity_statement(
         self, pragma_sql: str, params: Iterable[Any] = (),
+        *, budget_ms: Optional[float] = None,
     ) -> list[Any]:
         """Execute one bounded integrity statement on its own read snapshot.
 
@@ -4924,11 +4935,43 @@ class V4Store:
         every value that varies per chunk is bound as a parameter.  Fetching to
         exhaustion inside this call is what releases the read snapshot at the
         chunk boundary rather than at the end of the scan.
+
+        With ``budget_ms`` the statement is additionally held to a wall-clock
+        contract: SQLite calls back every
+        :attr:`LIVE_INTEGRITY_PROGRESS_OPS` virtual-machine instructions and the
+        statement is abandoned once the budget is spent, raising
+        :class:`LiveIntegrityBudgetExceeded`.  Chunk-size adaptation alone could
+        not enforce the bound, because per-row cost is set by page-cache and
+        disk state rather than row count.  Abandoning a read commits nothing, so
+        the caller resumes the unit from the same cursor.
         """
 
         self._assert_owner()
         with self._lock:
-            return self._conn.execute(pragma_sql, tuple(params)).fetchall()
+            if budget_ms is None:
+                return self._conn.execute(pragma_sql, tuple(params)).fetchall()
+            deadline = time.monotonic() + max(0.0, float(budget_ms)) / 1_000.0
+            overran = False
+
+            def _abandon_when_spent() -> int:
+                nonlocal overran
+                if time.monotonic() < deadline:
+                    return 0
+                overran = True
+                return 1
+
+            self._conn.set_progress_handler(
+                _abandon_when_spent, self.LIVE_INTEGRITY_PROGRESS_OPS)
+            try:
+                return self._conn.execute(pragma_sql, tuple(params)).fetchall()
+            except sqlite3.OperationalError as exc:
+                if overran:
+                    raise LiveIntegrityBudgetExceeded(
+                        f"live integrity statement abandoned after "
+                        f"{float(budget_ms):.0f} ms") from exc
+                raise
+            finally:
+                self._conn.set_progress_handler(None, 0)
 
     # ---- bounded, resumable live integrity health check -------------------
     #
@@ -4957,7 +5000,19 @@ class V4Store:
     #: far more expensive unit then overshot its bound on its first chunk
     #: (1,594 ms against a 1,000 ms bound).  Chunk size is therefore per unit.
     LIVE_INTEGRITY_START_ROWS = 2_000
-    LIVE_INTEGRITY_MIN_ROWS = 250
+    #: Rows the *first* chunk of a unit with no timing history reads.  Row count
+    #: is a poor predictor of wall time here: measured on the 19-minute loaded
+    #: reproduction at 5259b94, the same 3,127-row chunk of the same unit took
+    #: 297 ms once and 3,765 ms another time, because the cost is dominated by
+    #: page-cache state and disk contention rather than by row count.  A unit is
+    #: therefore probed small and grown from what it actually measured, instead
+    #: of opening at a size that was only ever safe on warm pages.
+    LIVE_INTEGRITY_PROBE_ROWS = 128
+    #: A size that overran must be able to fall as far as the evidence demands.
+    #: The old floor of 250 rows meant a unit whose rows are genuinely expensive
+    #: (large payload columns, cold overflow pages) could never reach a size
+    #: that honours the bound, so it overran on every visit.
+    LIVE_INTEGRITY_MIN_ROWS = 1
     #: Measured offline on the production store, a 45 k-row chunk reached 766 ms
     #: when its pages missed the OS cache; under live write load a 25 k-row
     #: chunk reached 3,110 ms against a 1,000 ms bound.  The ceiling is held
@@ -4975,6 +5030,17 @@ class V4Store:
     #: shared with the telemetry sink: 1.5 s per 15 s starved the writer badly
     #: enough to lose rows on the 37.5-minute gate at c54e7f8.
     LIVE_INTEGRITY_PASS_BUDGET_MS = 600.0
+    #: Share of the chunk bound a single statement is allowed to consume before
+    #: SQLite is asked to abandon it.  The remainder is headroom for the last
+    #: progress tick and for materializing the (single-row) result, so the
+    #: measured chunk still lands inside :attr:`LIVE_INTEGRITY_CHUNK_MAX_MS`.
+    LIVE_INTEGRITY_STATEMENT_BUDGET_FRACTION = 0.8
+    #: SQLite VM instructions between wall-clock checks.  This is what makes the
+    #: bound a real time contract rather than a row-count estimate: adaptation
+    #: alone cannot bound a chunk whose per-row cost varies twelvefold, but an
+    #: interrupt does.  The interrupted statement is a read, so abandoning it
+    #: changes nothing and the cursor resumes from the same ``after_rowid``.
+    LIVE_INTEGRITY_PROGRESS_OPS = 2_000
 
     def _live_integrity_plan(self) -> dict[str, Any]:
         """Build (and cache) the ordered unit plan for one live scan cycle.
@@ -5095,6 +5161,7 @@ class V4Store:
 
     def _live_integrity_table_unit(
         self, unit: Mapping[str, Any], *, after_rowid: int, max_rows: int,
+        budget_ms: Optional[float] = None,
     ) -> dict[str, Any]:
         """Decode every column of one bounded rowid window of one table.
 
@@ -5116,7 +5183,8 @@ class V4Store:
             f'SELECT rowid AS rid, ({checksum_terms}) AS chk '
             f'FROM "{name}" WHERE rowid > ? ORDER BY rowid LIMIT ?)'
         )
-        rows = self._integrity_statement(sql, (int(after_rowid), int(max_rows)))
+        rows = self._integrity_statement(
+            sql, (int(after_rowid), int(max_rows)), budget_ms=budget_ms)
         record = rows[0] if rows else None
         rows_read = int(record[0]) if record is not None else 0
         last_rowid = (
@@ -5134,6 +5202,7 @@ class V4Store:
 
     def _live_integrity_foreign_key_unit(
         self, unit: Mapping[str, Any], *, after_rowid: int, max_rows: int,
+        budget_ms: Optional[float] = None,
     ) -> dict[str, Any]:
         """Verify one declared foreign key over a bounded rowid window."""
 
@@ -5162,7 +5231,8 @@ class V4Store:
             ") THEN 1 ELSE 0 END AS bad "
             f'FROM "{child}" c WHERE c.rowid > ? ORDER BY c.rowid LIMIT ?)'
         )
-        rows = self._integrity_statement(sql, (int(after_rowid), int(max_rows)))
+        rows = self._integrity_statement(
+            sql, (int(after_rowid), int(max_rows)), budget_ms=budget_ms)
         record = rows[0] if rows else None
         rows_read = int(record[0]) if record is not None else 0
         last_rowid = (
@@ -5221,6 +5291,9 @@ class V4Store:
                 "last_completed_cycle_duration_ms": 0.0,
                 "completed_cycles": 0,
                 "chunks_over_bound": 0,
+                # Chunks the wall-clock contract abandoned before they could
+                # overrun.  These are the bound working, not integrity findings.
+                "budget_abandons": 0,
             }
             self._live_integrity_cursor = state
         return state
@@ -5284,33 +5357,53 @@ class V4Store:
             unit = units[unit_index]
             unit_rows = state["unit_rows"]
             unit_ceiling = state.setdefault("unit_ceiling", {})
+            # A unit with no timing history is probed, not opened at the shared
+            # start size.  Row count does not predict wall time here, so the
+            # only safe first chunk is a small one whose measurement then sizes
+            # the rest.
             rows_per_chunk = min(
-                int(unit_rows.get(unit_index, self.LIVE_INTEGRITY_START_ROWS)),
+                int(unit_rows.get(unit_index, self.LIVE_INTEGRITY_PROBE_ROWS)),
                 int(unit_ceiling.get(unit_index, self.LIVE_INTEGRITY_MAX_ROWS)),
             )
+            chunk_budget_ms = (
+                self.LIVE_INTEGRITY_CHUNK_MAX_MS
+                * self.LIVE_INTEGRITY_STATEMENT_BUDGET_FRACTION
+            )
             chunk_started = time.monotonic()
-            if unit["kind"] == "metadata":
-                unit_problems, metadata = self._live_integrity_metadata_unit()
-                problems.extend(unit_problems)
-                advance = True
+            abandoned = False
+            try:
+                if unit["kind"] == "metadata":
+                    unit_problems, metadata = (
+                        self._live_integrity_metadata_unit())
+                    problems.extend(unit_problems)
+                    advance = True
+                    rows_read = 0
+                elif unit["kind"] == "table":
+                    result = self._live_integrity_table_unit(
+                        unit, after_rowid=int(state["after_rowid"]),
+                        max_rows=rows_per_chunk, budget_ms=chunk_budget_ms)
+                    problems.extend(result["problems"])
+                    rows_read = int(result["rows_read"])
+                    state["after_rowid"] = int(result["last_rowid"])
+                    advance = bool(result["exhausted"])
+                else:
+                    result = self._live_integrity_foreign_key_unit(
+                        unit, after_rowid=int(state["after_rowid"]),
+                        max_rows=rows_per_chunk, budget_ms=chunk_budget_ms)
+                    problems.extend(result["problems"])
+                    fk_rows.extend(result.get("foreign_key_violations") or ())
+                    rows_read = int(result["rows_read"])
+                    state["after_rowid"] = int(result["last_rowid"])
+                    advance = bool(result["exhausted"])
+            except LiveIntegrityBudgetExceeded:
+                # The bound held.  Nothing was read and nothing was committed,
+                # so the cursor is untouched and this unit simply resumes at a
+                # size derived from what the abandoned attempt cost.
+                abandoned = True
+                advance = False
                 rows_read = 0
-            elif unit["kind"] == "table":
-                result = self._live_integrity_table_unit(
-                    unit, after_rowid=int(state["after_rowid"]),
-                    max_rows=rows_per_chunk)
-                problems.extend(result["problems"])
-                rows_read = int(result["rows_read"])
-                state["after_rowid"] = int(result["last_rowid"])
-                advance = bool(result["exhausted"])
-            else:
-                result = self._live_integrity_foreign_key_unit(
-                    unit, after_rowid=int(state["after_rowid"]),
-                    max_rows=rows_per_chunk)
-                problems.extend(result["problems"])
-                fk_rows.extend(result.get("foreign_key_violations") or ())
-                rows_read = int(result["rows_read"])
-                state["after_rowid"] = int(result["last_rowid"])
-                advance = bool(result["exhausted"])
+                state["budget_abandons"] = int(
+                    state.get("budget_abandons", 0)) + 1
             chunk_ms = (time.monotonic() - chunk_started) * 1_000.0
             pass_chunks += 1
             pass_rows += rows_read
@@ -5321,14 +5414,30 @@ class V4Store:
                 float(state["cycle_max_chunk_ms"]), chunk_ms)
             if chunk_ms > self.LIVE_INTEGRITY_CHUNK_MAX_MS and rows_read > 0:
                 state["chunks_over_bound"] = int(state["chunks_over_bound"]) + 1
+            if abandoned or (
+                    chunk_ms > self.LIVE_INTEGRITY_CHUNK_MAX_MS
+                    and rows_read > 0):
                 # Learn the ceiling, do not merely back off from it.  Halving on
                 # an overrun and then growing 25 percent per chunk walks straight
                 # back into the same size: measured over the 37.5-minute gate at
                 # c54e7f8, chunks sat at the 25 k ceiling for most of the run and
                 # 70 of 76 samples reported at least one chunk past the bound.
                 # A size that overran once is never used again for this unit.
+                #
+                # Halving is also far too gentle when the overshoot is large: a
+                # 3,127-row chunk that measured 3,765 ms against a 200 ms target
+                # was eighteen times too big, and halving would have taken four
+                # more overruns to find that out.  The new ceiling is scaled by
+                # the overshoot actually observed, so one overrun is enough.
+                observed_ms = max(chunk_ms, 1.0)
+                scaled = int(
+                    max(1, rows_per_chunk)
+                    * self.LIVE_INTEGRITY_CHUNK_TARGET_MS / observed_ms
+                )
                 unit_ceiling[unit_index] = max(
-                    self.LIVE_INTEGRITY_MIN_ROWS, int(rows_per_chunk) // 2)
+                    self.LIVE_INTEGRITY_MIN_ROWS,
+                    min(int(max(1, rows_per_chunk)) // 2 or 1, scaled),
+                )
             adapted = self._adapt_chunk_rows(
                 rows_per_chunk, chunk_ms, rows_read)
             adapted = min(
@@ -5375,6 +5484,7 @@ class V4Store:
             "rows_per_chunk": int(state["rows_per_chunk"]),
             "chunk_bound_ms": self.LIVE_INTEGRITY_CHUNK_MAX_MS,
             "chunks_over_bound": int(state["chunks_over_bound"]),
+            "budget_abandons": int(state.get("budget_abandons", 0)),
             "unit_index": int(state["unit_index"]),
             "units_total": int(state["units_total"]),
             "progress_pct": (
@@ -6018,13 +6128,15 @@ class V4ReadOnlyStore(V4Store):
 
     def _integrity_statement(
         self, pragma_sql: str, params: Iterable[Any] = (),
+        *, budget_ms: Optional[float] = None,
     ) -> list[Any]:
         # Each chunk of the live integrity scan is one read transaction;
         # registering per chunk is what proves the snapshot is released at
         # every chunk boundary rather than held across the whole scan.
         token = READER_DIAGNOSTICS.begin_statement(conn_id=id(self._conn))
         try:
-            rows = super()._integrity_statement(pragma_sql, params)
+            rows = super()._integrity_statement(
+                pragma_sql, params, budget_ms=budget_ms)
         except BaseException as exc:
             READER_DIAGNOSTICS.end_statement(
                 token, error=f"{type(exc).__name__}"[:120])

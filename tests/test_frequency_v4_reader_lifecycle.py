@@ -363,13 +363,15 @@ def test_bounded_scan_reports_a_foreign_key_problem(tmp_path):
     path = _fresh_db(tmp_path)
 
     class FailingStore(V4ReadOnlyStore):
-        def _integrity_statement(self, pragma_sql, params=()):
+        def _integrity_statement(self, pragma_sql, params=(), *,
+                                 budget_ms=None):
             # Match the child table of the constraint, not any table merely
             # named as a parent inside the same statement.
             if "NOT EXISTS" in pragma_sql and 'FROM "entries" c' in pragma_sql:
                 # rows_read, last_rowid, violations
                 return [(1, 1, 3)]
-            return super()._integrity_statement(pragma_sql, params)
+            return super()._integrity_statement(
+                pragma_sql, params, budget_ms=budget_ms)
 
     store = FailingStore(path, enforce_thread_ownership=False)
     try:
@@ -392,10 +394,12 @@ def test_bounded_scan_reports_a_metadata_problem(tmp_path):
     path = _fresh_db(tmp_path)
 
     class FailingStore(V4ReadOnlyStore):
-        def _integrity_statement(self, pragma_sql, params=()):
+        def _integrity_statement(self, pragma_sql, params=(), *,
+                                 budget_ms=None):
             if pragma_sql == "PRAGMA user_version":
                 return [(4,)]
-            return super()._integrity_statement(pragma_sql, params)
+            return super()._integrity_statement(
+                pragma_sql, params, budget_ms=budget_ms)
 
     store = FailingStore(path, enforce_thread_ownership=False)
     try:

@@ -313,8 +313,9 @@ def test_an_overrunning_chunk_lowers_that_unit_ceiling_permanently(tmp_path):
     real = store._live_integrity_table_unit
     slow = {"on": True}
 
-    def overrunning(unit, *, after_rowid, max_rows):
-        result = real(unit, after_rowid=after_rowid, max_rows=max_rows)
+    def overrunning(unit, *, after_rowid, max_rows, budget_ms=None):
+        result = real(unit, after_rowid=after_rowid, max_rows=max_rows,
+                      budget_ms=budget_ms)
         if slow["on"] and unit["name"] == "bulk_probe" and result["rows_read"]:
             time.sleep((store.LIVE_INTEGRITY_CHUNK_MAX_MS + 60) / 1000.0)
             slow["on"] = False          # exactly one overrun, ever
