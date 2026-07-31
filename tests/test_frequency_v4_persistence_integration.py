@@ -125,6 +125,7 @@ def _test_config(tmp_path: Path) -> FrequencyV4Config:
     cfg.export_dir = str(
         tmp_path / "export" / "poly_alpha_frequency_v4"
     )
+    cfg.audit_dir = str(tmp_path / "data" / "integrity_audit")
     cfg.critical_queue_capacity = 64
     cfg.telemetry_queue_capacity = 256
     cfg.telemetry_batch_size = 32

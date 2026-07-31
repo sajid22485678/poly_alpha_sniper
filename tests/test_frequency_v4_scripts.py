@@ -16,7 +16,12 @@ def test_runtime_launcher_targets_only_exact_v4_module_and_paths():
     combined = "\n".join((start, status, stop)).lower()
     assert "-m\",\"lite_frequency_v4.bot" in start
     assert "runtime\\lite_frequency_v4_shadow" in status
-    assert "data\\poly_alpha_frequency_v4.db" in status
+    # The database path is asked of the configuration rather than rebuilt in
+    # the script, so that the launcher's identity check and the runtime can
+    # never disagree about which database is authoritative.
+    assert "from lite_frequency_v4.config import V4_DB_PATH" in status
+    assert "from lite_frequency_v4.config import V4_DB_PATH" in start
+    assert "poly_alpha_frequency_v4.db" in status
     assert "poly_alpha_lite.db" not in combined
     assert "lite.lite_bot" not in combined
     assert "runtime\\live" not in combined

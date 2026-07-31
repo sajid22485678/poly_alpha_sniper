@@ -24,8 +24,37 @@ RUNTIME_LABEL = (
     "SHADOW_PHASE2_SUCCESSOR"
 )
 
-FREQUENCY_V4_DB_PATH = str(
-    FREQUENCY_V4_ROOT / "data" / "poly_alpha_frequency_v4.db")
+# Storage split: the database is latency-critical, its audit image is not.
+#
+# Under live ingest the runtime commits small transactions continuously, and
+# every one of them costs an fsync.  On the 7200-rpm HDD that hosted this
+# database a durable tiny write measured 33 ms at p50 and 67 ms at p99; on the
+# SSD the same write is 2.6 ms and 3.6 ms.  That queue is what starved the
+# runtime's own 2-second stop-check and killed a shadow session, so the
+# database lives on the SSD.
+#
+# The full-integrity audit snapshot deliberately does not.  It is a
+# multi-gigabyte sequential image, written once, read once, then swept, so it
+# gains nothing from low-latency storage -- and keeping it on the roomy HDD is
+# what lets the database occupy the much smaller system SSD without crowding
+# it.  See ``FREQUENCY_V4_AUDIT_DIR``.
+#
+# The relocation is deliberately conditional.  ``FREQUENCY_V4_ROOT`` is derived
+# from this file's location, so an isolated staging checkout gets its own
+# repository-relative database exactly as before; only the live deployment is
+# redirected.  An unconditional absolute path would let a staging or test run
+# open the production database, which is the one thing this must never do.
+FREQUENCY_V4_LIVE_ROOT = Path(r"D:\claude\poly_alpha_sniper")
+FREQUENCY_V4_SSD_DB_DIR = Path(r"C:\poly_alpha_v4_db")
+
+_DB_DIR = (FREQUENCY_V4_SSD_DB_DIR
+           if FREQUENCY_V4_ROOT == FREQUENCY_V4_LIVE_ROOT
+           else FREQUENCY_V4_ROOT / "data")
+FREQUENCY_V4_DB_PATH = str(_DB_DIR / "poly_alpha_frequency_v4.db")
+# Repository-relative, and therefore isolated per checkout for free.  Kept off
+# the SSD on purpose; see the storage-split note above.
+FREQUENCY_V4_AUDIT_DIR = str(
+    FREQUENCY_V4_ROOT / "data" / "integrity_audit")
 FREQUENCY_V4_RUNTIME_DIR = str(
     FREQUENCY_V4_ROOT / "runtime" / MODE)
 # Phase 2B C1 isolation: the dashboard export directory is derived from the
@@ -46,6 +75,7 @@ OKX_WS_URL = "wss://ws.okx.com:8443/ws/v5/public"
 
 # Short aliases kept explicit for orchestrators and operational scripts.
 V4_DB_PATH = FREQUENCY_V4_DB_PATH
+V4_AUDIT_DIR = FREQUENCY_V4_AUDIT_DIR
 V4_RUNTIME_DIR = FREQUENCY_V4_RUNTIME_DIR
 V4_EXPORT_DIR = FREQUENCY_V4_EXPORT_DIR
 
@@ -64,6 +94,7 @@ class FrequencyV4Config:
     fixed_shares: float = FIXED_SHARES
 
     db_path: str = FREQUENCY_V4_DB_PATH
+    audit_dir: str = FREQUENCY_V4_AUDIT_DIR
     runtime_dir: str = FREQUENCY_V4_RUNTIME_DIR
     export_dir: str = FREQUENCY_V4_EXPORT_DIR
     gamma_base_url: str = GAMMA_BASE_URL
@@ -229,7 +260,7 @@ V4Config = FrequencyV4Config
 _HARD_LOCKED_FIELDS = {
     "strategy_id", "mode", "enabled", "dry_run", "live_enabled",
     "real_orders_possible", "live_adapter_present", "kill_switch_engaged",
-    "fixed_shares", "db_path", "runtime_dir", "export_dir",
+    "fixed_shares", "db_path", "audit_dir", "runtime_dir", "export_dir",
     "gamma_base_url", "clob_base_url", "clob_ws_url", "okx_ws_url",
     "primary_cex_provider", "required_assets", "discover_additional_assets",
     "exact_window_seconds", "crypto_taker_fee_rate", "research_equity_usd",
@@ -274,6 +305,7 @@ def validate_frequency_v4_config(cfg: FrequencyV4Config) -> None:
         "kill_switch_engaged": True,
         "fixed_shares": FIXED_SHARES,
         "db_path": FREQUENCY_V4_DB_PATH,
+        "audit_dir": FREQUENCY_V4_AUDIT_DIR,
         "runtime_dir": FREQUENCY_V4_RUNTIME_DIR,
         "export_dir": FREQUENCY_V4_EXPORT_DIR,
         "gamma_base_url": GAMMA_BASE_URL,
@@ -425,6 +457,7 @@ def _reassert_safety(cfg: FrequencyV4Config) -> None:
     cfg.kill_switch_engaged = True
     cfg.fixed_shares = FIXED_SHARES
     cfg.db_path = FREQUENCY_V4_DB_PATH
+    cfg.audit_dir = FREQUENCY_V4_AUDIT_DIR
     cfg.runtime_dir = FREQUENCY_V4_RUNTIME_DIR
     cfg.export_dir = FREQUENCY_V4_EXPORT_DIR
     cfg.gamma_base_url = GAMMA_BASE_URL

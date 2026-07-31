@@ -4041,7 +4041,12 @@ class FrequencyV4Engine:
     # ``DEFERRED_SOURCE_CHURN`` and is retried, never silently torn.
 
     def _audit_snapshot_dir(self) -> Path:
-        return Path(self.cfg.db_path).parent / "integrity_audit"
+        # Deliberately not derived from ``db_path``.  The snapshot is a
+        # multi-gigabyte image of the database, and pinning it beside the
+        # database would drag it onto the small system SSD that now hosts the
+        # database for its fsync latency.  Sequential bulk I/O does not need
+        # that disk, so the audit image stays on the roomy volume.
+        return Path(self.cfg.audit_dir)
 
     def _audit_snapshot_path(self) -> Path:
         return self._audit_snapshot_dir() / "full_audit_snapshot.db"

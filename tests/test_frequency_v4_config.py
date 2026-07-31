@@ -4,9 +4,13 @@ import pytest
 
 from poly_alpha_sniper.lite_frequency_v4.config import (
     FIXED_SHARES,
+    FREQUENCY_V4_AUDIT_DIR,
     FREQUENCY_V4_DB_PATH,
     FREQUENCY_V4_EXPORT_DIR,
+    FREQUENCY_V4_LIVE_ROOT,
+    FREQUENCY_V4_ROOT,
     FREQUENCY_V4_RUNTIME_DIR,
+    FREQUENCY_V4_SSD_DB_DIR,
     MODE,
     STRATEGY_ID,
     FrequencyV4Config,
@@ -70,13 +74,102 @@ def test_unsafe_yaml_cannot_change_identity_safety_paths_or_size(tmp_path):
         "kill_switch_engaged": True,
         "fixed_shares": 5.0,
     }
-    assert (cfg.db_path, cfg.runtime_dir, cfg.export_dir) == (
-        FREQUENCY_V4_DB_PATH, FREQUENCY_V4_RUNTIME_DIR,
-        FREQUENCY_V4_EXPORT_DIR)
+    assert (cfg.db_path, cfg.audit_dir, cfg.runtime_dir, cfg.export_dir) == (
+        FREQUENCY_V4_DB_PATH, FREQUENCY_V4_AUDIT_DIR,
+        FREQUENCY_V4_RUNTIME_DIR, FREQUENCY_V4_EXPORT_DIR)
     assert cfg.required_assets == ["BTC", "ETH", "SOL"]
     assert cfg.discover_additional_assets is True
     assert cfg.exact_window_seconds == 300
     assert cfg.strong_cross_edge == 0.025  # a transparent tunable did apply
+
+
+def test_ssd_relocation_applies_only_to_the_live_deployment():
+    """A staging checkout must never resolve to the production database.
+
+    The database was moved onto the SSD for its fsync latency, but the
+    relocation is conditional on this checkout being the live deployment.  An
+    unconditional absolute path would make every staging checkout and test run
+    open the one production database.
+    """
+
+    db_dir = Path(FREQUENCY_V4_DB_PATH).parent
+    if FREQUENCY_V4_ROOT == FREQUENCY_V4_LIVE_ROOT:
+        assert db_dir == FREQUENCY_V4_SSD_DB_DIR
+    else:
+        assert db_dir == FREQUENCY_V4_ROOT / "data"
+    assert Path(FREQUENCY_V4_DB_PATH).name == "poly_alpha_frequency_v4.db"
+
+
+def test_audit_snapshot_dir_stays_off_the_ssd_and_isolates_per_checkout():
+    """The multi-gigabyte audit image must not follow the database.
+
+    It is written sequentially, read once and swept, so it gains nothing from
+    low-latency storage -- and keeping it off the small system SSD is what
+    makes hosting the database there affordable.
+    """
+
+    audit = Path(FREQUENCY_V4_AUDIT_DIR)
+    assert audit == FREQUENCY_V4_ROOT / "data" / "integrity_audit"
+    assert audit.parent != Path(FREQUENCY_V4_DB_PATH).parent
+    assert FREQUENCY_V4_SSD_DB_DIR not in audit.parents
+    assert audit != FREQUENCY_V4_SSD_DB_DIR
+
+
+def test_audit_dir_is_hard_locked_against_yaml_override(tmp_path):
+    path = tmp_path / "audit.yaml"
+    path.write_text(
+        "lite_frequency_v4_shadow:\n"
+        "  audit_dir: C:/wrong-audit\n"
+        "  db_path: C:/wrong.db\n",
+        encoding="utf-8",
+    )
+    cfg = load_frequency_v4_config(str(path))
+    assert cfg.audit_dir == FREQUENCY_V4_AUDIT_DIR
+    assert cfg.db_path == FREQUENCY_V4_DB_PATH
+
+
+def test_validator_rejects_a_mutated_audit_dir():
+    cfg = FrequencyV4Config()
+    cfg.audit_dir = "C:/somewhere-else"
+    with pytest.raises(RuntimeError, match="safety lock"):
+        validate_frequency_v4_config(cfg)
+
+
+def test_engine_audit_snapshot_dir_follows_config_not_the_database(tmp_path):
+    """The snapshot directory is taken from ``audit_dir``, not ``db_path``."""
+
+    from poly_alpha_sniper.lite_frequency_v4.engine import FrequencyV4Engine
+
+    engine = FrequencyV4Engine.__new__(FrequencyV4Engine)
+    cfg = FrequencyV4Config()
+    cfg.db_path = str(tmp_path / "ssd" / "poly_alpha_frequency_v4.db")
+    cfg.audit_dir = str(tmp_path / "bulk" / "integrity_audit")
+    engine.cfg = cfg
+    assert engine._audit_snapshot_dir() == tmp_path / "bulk" / "integrity_audit"
+    assert engine._audit_snapshot_path() == (
+        tmp_path / "bulk" / "integrity_audit" / "full_audit_snapshot.db")
+    assert engine._audit_snapshot_dir() != Path(cfg.db_path).parent
+
+
+def test_engine_harnesses_isolate_the_audit_dir_like_every_other_path():
+    """Any harness that isolates ``export_dir`` must isolate ``audit_dir`` too.
+
+    ``audit_dir`` is configured independently of ``db_path`` so the audit image
+    can stay off the SSD.  The cost of that independence is that pointing
+    ``db_path`` at a tmp directory no longer drags the audit directory along
+    with it, so a harness that forgets it writes into the real deployment's
+    audit directory instead.  That happened once; this keeps it from recurring.
+    """
+
+    tests_dir = Path(__file__).resolve().parent
+    offenders = []
+    for path in sorted(tests_dir.glob("test_*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "cfg.export_dir = " in text and "cfg.audit_dir = " not in text:
+            offenders.append(path.name)
+    assert offenders == [], (
+        "engine harnesses set cfg.export_dir but not cfg.audit_dir: "
+        f"{offenders}")
 
 
 def test_initial_tiers_and_maker_timing_match_v4_mission():

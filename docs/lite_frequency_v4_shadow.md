@@ -24,7 +24,8 @@ preview. It never changes the fixed-share experiment.
 
 | Resource | V4 owner |
 |---|---|
-| Database | `data/poly_alpha_frequency_v4.db` |
+| Database | `C:\poly_alpha_v4_db\poly_alpha_frequency_v4.db` (SSD; see `V4_DB_PATH`) |
+| Audit snapshot | `data/integrity_audit/` (kept on the roomy volume, not the SSD) |
 | Runtime | `runtime/lite_frequency_v4_shadow/` |
 | Logs | `logs/lite_frequency_v4_shadow/` |
 | Read-only export | `D:\claude\agent_readonly\poly_alpha_frequency_v4` |

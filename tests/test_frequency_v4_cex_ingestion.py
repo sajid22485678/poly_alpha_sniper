@@ -68,6 +68,7 @@ def engine_harness(tmp_path, monkeypatch):
     cfg.db_path = str(tmp_path / "poly_alpha_frequency_v4.db")
     cfg.runtime_dir = str(tmp_path / "runtime" / "lite_frequency_v4_shadow")
     cfg.export_dir = str(tmp_path / "export" / "poly_alpha_frequency_v4")
+    cfg.audit_dir = str(tmp_path / "data" / "integrity_audit")
     monkeypatch.setattr(engine_module, "validate_frequency_v4_config", lambda _cfg: None)
 
     runtime = V4RuntimeFiles(cfg.runtime_dir, repo_root=tmp_path)

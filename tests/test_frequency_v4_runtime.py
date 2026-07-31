@@ -304,7 +304,10 @@ def test_runtime_and_storage_defaults_do_not_collide_with_v3_or_advanced():
     database = Path(FREQUENCY_V4_DB_PATH).as_posix().lower()
     runtime = Path(FREQUENCY_V4_RUNTIME_DIR).as_posix().lower()
     export = Path(FREQUENCY_V4_EXPORT_DIR).as_posix().lower()
-    assert database.endswith("/data/poly_alpha_frequency_v4.db")
+    # Not pinned to "/data/": the database was moved off the repository volume
+    # onto the SSD.  The non-collision guarantees below are the point of this
+    # test and are unchanged.
+    assert database.endswith("/poly_alpha_frequency_v4.db")
     assert runtime.endswith("/runtime/lite_frequency_v4_shadow")
     assert export.endswith("/poly_alpha_frequency_v4")
     for legacy in (

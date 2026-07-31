@@ -21,7 +21,13 @@ from typing import Any, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = REPO_ROOT / "runtime" / "lite_frequency_v4_shadow"
-DB_PATH = REPO_ROOT / "data" / "poly_alpha_frequency_v4.db"
+# Taken from configuration, not rebuilt from the repository root; see the note
+# in v4_soak_sampler.py.  The database is no longer under the repository.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from lite_frequency_v4.config import V4_DB_PATH  # noqa: E402
+
+DB_PATH = Path(V4_DB_PATH)
 
 
 def read_json(path: Path) -> dict[str, Any]:

@@ -14,7 +14,6 @@ $root = [System.IO.Path]::GetFullPath(
 $python = Join-Path $root ".venv\Scripts\python.exe"
 $statusScript = Join-Path $PSScriptRoot "status_lite_frequency_v4_shadow.ps1"
 $runtime = Join-Path $root "runtime\lite_frequency_v4_shadow"
-$expectedDb = Join-Path $root "data\poly_alpha_frequency_v4.db"
 
 if (-not (Test-Path -LiteralPath $python)) {
     throw "V4 Python not found: $python"
@@ -26,6 +25,21 @@ if (-not (
     )
 )) {
     throw "V4 entrypoint is missing"
+}
+
+# Asked of the configuration rather than rebuilt here.  The database no longer
+# lives under the repository -- it was moved to the SSD for its fsync latency --
+# and a launcher that re-derives the path independently would fail this identity
+# check the moment the two disagree.
+$expectedDb = (& $python -c @"
+import sys
+sys.path.insert(0, r'$root')
+from lite_frequency_v4.config import V4_DB_PATH
+print(V4_DB_PATH)
+"@) | Out-String
+$expectedDb = $expectedDb.Trim()
+if (-not $expectedDb) {
+    throw "Could not resolve the V4 database path from configuration"
 }
 
 $expectedCommit = (

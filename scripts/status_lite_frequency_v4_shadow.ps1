@@ -5,16 +5,37 @@ $RuntimeDir = Join-Path $ProjectRoot "runtime\lite_frequency_v4_shadow"
 $LockFile = Join-Path $RuntimeDir "process.lock"
 $StateFile = Join-Path $RuntimeDir "state.json"
 $HeartbeatFile = Join-Path $RuntimeDir "heartbeat.json"
-$ExpectedDb = Join-Path $ProjectRoot "data\poly_alpha_frequency_v4.db"
+# Display fallback only, used when the runtime has not published its own
+# db_path.  Resolved from configuration because the database now lives on the
+# SSD rather than under the repository; this status view is polled in a tight
+# loop by the launcher, so it is folded into the interpreter probe below rather
+# than costing a second process spawn.
+$ExpectedDb = ""
 $ExpectedPython = [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot ".venv\Scripts\python.exe"))
 $ExpectedExecutables = @($ExpectedPython)
 if (Test-Path -LiteralPath $ExpectedPython) {
     try {
-        $base = (& $ExpectedPython -I -c "import sys; print(sys._base_executable)" 2>$null | Select-Object -First 1)
+        $probe = @(& $ExpectedPython -I -c @"
+import sys
+sys.path.insert(0, r'$ProjectRoot')
+print(sys._base_executable)
+try:
+    from lite_frequency_v4.config import V4_DB_PATH
+    print(V4_DB_PATH)
+except Exception:
+    print('')
+"@ 2>$null)
+        $base = if ($probe.Count -ge 1) { $probe[0] } else { "" }
         if (-not [string]::IsNullOrWhiteSpace([string]$base)) {
             $ExpectedExecutables += [System.IO.Path]::GetFullPath(([string]$base).Trim())
         }
+        if ($probe.Count -ge 2 -and -not [string]::IsNullOrWhiteSpace([string]$probe[1])) {
+            $ExpectedDb = ([string]$probe[1]).Trim()
+        }
     } catch {}
+}
+if (-not $ExpectedDb) {
+    $ExpectedDb = Join-Path $ProjectRoot "data\poly_alpha_frequency_v4.db"
 }
 $ModulePattern = '(?i)^\s*(?:"[^"]+"|\S+)\s+-m\s+"?lite_frequency_v4\.bot"?\s*$'
 

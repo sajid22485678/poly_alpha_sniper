@@ -79,6 +79,11 @@ def engine_harness(tmp_path, monkeypatch):
     cfg.db_path = str(tmp_path / "poly_alpha_frequency_v4.db")
     cfg.runtime_dir = str(tmp_path / "runtime" / "lite_frequency_v4_shadow")
     cfg.export_dir = str(tmp_path / "export" / "poly_alpha_frequency_v4")
+    # Isolated like every other path the harness owns.  The audit directory is
+    # configured independently of the database (the database lives on the SSD,
+    # its multi-gigabyte snapshot does not), so leaving it unset here would
+    # point this test at the real deployment's audit directory.
+    cfg.audit_dir = str(tmp_path / "data" / "integrity_audit")
     monkeypatch.setattr(
         engine_module, "validate_frequency_v4_config", lambda _cfg: None)
 

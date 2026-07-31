@@ -37,7 +37,14 @@ from typing import Any, Mapping, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = REPO_ROOT / "runtime" / "lite_frequency_v4_shadow"
-DB_PATH = REPO_ROOT / "data" / "poly_alpha_frequency_v4.db"
+# Taken from configuration, not rebuilt from the repository root: the database
+# lives on the SSD now, and a sampler that guessed the old repository-relative
+# path would silently report on a stale copy the runtime no longer writes.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from lite_frequency_v4.config import V4_DB_PATH  # noqa: E402
+
+DB_PATH = Path(V4_DB_PATH)
 DEFAULT_EXPORT = Path(
     r"D:\claude\agent_readonly\poly_alpha_frequency_v4\frequency_v4_dashboard.json")
 
