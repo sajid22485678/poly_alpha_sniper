@@ -382,6 +382,13 @@ class _RollingTelemetryWindow:
             else float(started_monotonic)
         )
         self._buckets = [_RateBucket() for _ in range(self.window_s)]
+        # ``view`` is a pure function of the ring and the tick asked for, and
+        # the controller asks for it twice on every submission.  Each call sorts
+        # the ring, sums seventeen counters across it and fits a regression, so
+        # the repetition is measurable on the event loop.  Revision + tick
+        # identify the exact ring state a view was built from.
+        self._revision = 0
+        self._view_cache: dict[bool, tuple[tuple[int, int], _WindowView]] = {}
 
     def _bucket(self, now: float) -> _RateBucket:
         tick = math.floor(float(now))
@@ -390,6 +397,8 @@ class _RollingTelemetryWindow:
         if bucket.tick != tick:
             bucket = _RateBucket(tick=tick)
             self._buckets[index] = bucket
+            # Recycling a stale slot changes which seconds the window covers.
+            self._revision += 1
         return bucket
 
     def add(self, now: float, **deltas: int) -> None:
@@ -400,21 +409,36 @@ class _RollingTelemetryWindow:
         for name, value in deltas.items():
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"telemetry rate delta {name} must be non-negative")
-            setattr(bucket, name, int(getattr(bucket, name)) + int(value))
+            if value:
+                setattr(bucket, name, int(getattr(bucket, name)) + int(value))
+                self._revision += 1
 
     def observe_depth(self, now: float, depth: int) -> None:
         value = max(0, int(depth))
         bucket = self._bucket(now)
+        # Only a depth that actually moves one of the four tracked statistics
+        # changes any view built from this ring.  A burst of submissions
+        # observing the same depth within one second is the common case, and
+        # treating those as changes would defeat the view cache entirely.
         if bucket.first_depth is None:
             bucket.first_depth = value
-        bucket.last_depth = value
-        bucket.max_depth = max(bucket.max_depth, value)
-        bucket.min_depth = (
-            value if bucket.min_depth is None else min(bucket.min_depth, value))
+            self._revision += 1
+        if bucket.last_depth != value:
+            bucket.last_depth = value
+            self._revision += 1
+        if value > bucket.max_depth:
+            bucket.max_depth = value
+            self._revision += 1
+        if bucket.min_depth is None or value < bucket.min_depth:
+            bucket.min_depth = value
+            self._revision += 1
 
     def view(self, now: float, *, include_current: bool = True) -> _WindowView:
         current_tick = math.floor(float(now))
         latest = current_tick if include_current else current_tick - 1
+        cached = self._view_cache.get(include_current)
+        if cached is not None and cached[0] == (self._revision, latest):
+            return cached[1]
         earliest = latest - self.window_s + 1
         rows = sorted(
             (bucket for bucket in self._buckets
@@ -464,7 +488,7 @@ class _RollingTelemetryWindow:
              if bucket.last_depth is not None),
             None,
         )
-        return _WindowView(
+        built = _WindowView(
             elapsed_s=elapsed,
             incoming=totals["incoming"],
             offered=totals["offered"],
@@ -498,6 +522,8 @@ class _RollingTelemetryWindow:
             first_half_min_depth=_half_min(rows, first=True),
             second_half_min_depth=_half_min(rows, first=False),
         )
+        self._view_cache[include_current] = ((self._revision, latest), built)
+        return built
 
 
 def _capacity_state(
@@ -803,6 +829,15 @@ class _AdaptiveTelemetryController:
             window_s=_RATE_WINDOW_S, started_monotonic=started)
         self._transactions: deque[_TxnObservation] = deque(
             maxlen=_MAX_COST_SAMPLES)
+        # Bumped on every mutation of ``_transactions``; with the head timestamp
+        # and length it identifies the exact sample set ``_transaction_stats``
+        # last summarized.
+        self._transaction_revision = 0
+        self._transaction_stats_signature: Optional[
+            tuple[int, Optional[float], int]] = None
+        self._transaction_stats_cache: tuple[
+            float, float, float, float, Optional[float], dict[int, float]
+        ] = (0.0, 0.0, 0.0, 0.0, None, {})
         high_candidate = max(64, self.physical_max_chunk * 4)
         self.high_water = max(
             1, min(max(1, self.queue_capacity - 1), high_candidate))
@@ -851,9 +886,24 @@ class _AdaptiveTelemetryController:
         cutoff = float(now) - _COST_WINDOW_S
         while self._transactions and self._transactions[0].ts < cutoff:
             self._transactions.popleft()
+        # ``decide`` runs on every submission, but this is a pure function of
+        # the retained cost samples: with no new transaction observed and none
+        # newly evictable, recomputing it cannot change the answer.  The body
+        # below is superlinear in the number of distinct chunk sizes -- the
+        # slope estimate is a full pairwise scan over them, with a fresh slice
+        # per step -- over a window holding up to _MAX_COST_SAMPLES rows, so on
+        # the event loop that repetition is pure waste.  The cached value is
+        # returned only when the exact same rows would be summarized again.
+        head_ts = self._transactions[0].ts if self._transactions else None
+        signature = (self._transaction_revision, head_ts, len(self._transactions))
+        if self._transaction_stats_signature == signature:
+            return self._transaction_stats_cache
         rows = tuple(self._transactions)
         if not rows:
-            return 0.0, 0.0, 0.0, 0.0, None, {}
+            stats = (0.0, 0.0, 0.0, 0.0, None, {})
+            self._transaction_stats_signature = signature
+            self._transaction_stats_cache = stats
+            return stats
         total = tuple(row.total_ms for row in rows)
         by_size: dict[int, list[float]] = {}
         for row in rows:
@@ -910,7 +960,7 @@ class _AdaptiveTelemetryController:
             default=0.0,
         )
         marginal = max(marginal, miss_floor)
-        return (
+        stats = (
             sum(total) / len(total),
             self._percentile(total, 0.95),
             self._percentile(total, 0.99),
@@ -918,6 +968,9 @@ class _AdaptiveTelemetryController:
             marginal,
             chunk_p95,
         )
+        self._transaction_stats_signature = signature
+        self._transaction_stats_cache = stats
+        return stats
 
     def _reset_settle(self, now: float) -> None:
         self._settled_since = float(now)
@@ -995,6 +1048,7 @@ class _AdaptiveTelemetryController:
             fixed_overhead_ms=fixed,
             marginal_ms_per_row=marginal,
         ))
+        self._transaction_revision += 1
         if count >= self.selected_chunk:
             self._successes_at_selected += 1
         self.add(
@@ -1029,6 +1083,7 @@ class _AdaptiveTelemetryController:
                 transaction_ms=budget, total_ms=budget,
                 deadline_miss=True,
             ))
+            self._transaction_revision += 1
         self.add(
             now, queue_depth=queue_depth,
             deadline_failures=1, failed_batches=1,
@@ -2611,12 +2666,6 @@ class V4TelemetryWriter:
                             and float(budget_hint) > 0):
                         self._budget_ms = float(budget_hint)
                     prior_ceiling = self._physical_batch_ceiling
-                    # Capture the chunk size the controller had certified as
-                    # deadline-safe *before* this miss shrinks it.  A miss on a
-                    # chunk at or below that size was unexpected given the
-                    # controller's cost model -- i.e. transient contention, not
-                    # an oversize batch -- so its rows are requeued below.
-                    prior_selected = self._controller.selected_chunk
                     self._controller.observe_deadline_miss(
                         now=completed,
                         failed_rows=failed_chunk_rows,
@@ -2646,24 +2695,29 @@ class V4TelemetryWriter:
                     # Only rows that exhaust the retry budget (or are abandoned
                     # at shutdown) become honest DEADLINE_EXPIRED loss; the
                     # requeue helper rolls back admission for those itself.
-                    deadline_chunk_safe = (
-                        failed_chunk_rows <= max(1, prior_selected))
-                    if deadline_chunk_safe:
-                        abandoned = self._requeue_locked(failed_rows)
-                        if abandoned:
-                            self._drop_locked(
-                                abandoned,
-                                "telemetry_deadline_retry_exhausted",
-                                category=TelemetryLossCategory.DEADLINE_EXPIRED,
-                                health=health)
-                    else:
+                    # A deadline miss rolls the transaction back whatever the
+                    # chunk's size, so the evidence is intact either way and the
+                    # size of the chunk says nothing about whether the rows are
+                    # still writable.  Dropping the oversize case outright was
+                    # the entire source of unexpected noncritical loss on the
+                    # 48-minute gate at 5259b94: every one of its nine lost rows
+                    # arrived through this branch, one-for-one with a
+                    # deadline-exceeded batch, while the sink was starved by an
+                    # 8.8-second integrity chunk rather than by anything about
+                    # the batch.  The controller has already shrunk the chunk
+                    # above, so the retry is dispatched smaller.
+                    #
+                    # Retries stay strictly finite -- ``_requeue_locked`` spends
+                    # the same bounded budget the cooperative priority path uses
+                    # -- so genuinely unwritable rows still become visible
+                    # DEADLINE_EXPIRED loss instead of retrying forever.
+                    abandoned = self._requeue_locked(failed_rows)
+                    if abandoned:
                         self._drop_locked(
-                            logical_unwritten,
-                            error or "telemetry_batch_failed",
+                            abandoned,
+                            "telemetry_deadline_retry_exhausted",
                             category=TelemetryLossCategory.DEADLINE_EXPIRED,
                             health=health)
-                        for pending in failed_rows:
-                            self._rollback_admission_locked(pending)
                 else:
                     if policy_outcome:
                         # Evidence is already stored; keep the writer's health.
