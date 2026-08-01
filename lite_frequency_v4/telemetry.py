@@ -285,6 +285,11 @@ class _RateBucket:
     deferred: int = 0
     overload_handled: int = 0
     lost: int = 0
+    # Logical rows that were *admitted* and then left the lane under an approved
+    # policy.  Deliberately distinct from ``overload_handled``, which also counts
+    # pre-admission policy decisions: only rows counted in ``admitted`` may
+    # appear here, so this term can never mask a genuine conservation gap.
+    policy_resolved: int = 0
     admission_overflow: int = 0
     dispatch_attempts: int = 0
     dispatch_successes: int = 0
@@ -311,6 +316,7 @@ class _WindowView:
     deferred: int
     overload_handled: int
     lost: int
+    policy_resolved: int
     admission_overflow: int
     dispatch_attempts: int
     dispatch_successes: int
@@ -366,7 +372,7 @@ class _RollingTelemetryWindow:
     _COUNTER_FIELDS = frozenset({
         "incoming", "offered", "admitted", "committed", "logical_committed",
         "coalesced", "sampled", "deferred", "lost",
-        "overload_handled",
+        "overload_handled", "policy_resolved",
         "admission_overflow", "dispatch_attempts", "dispatch_successes",
         "failed_batches", "deadline_failures", "priority_deferrals",
         "checkpoint_deferrals",
@@ -500,6 +506,7 @@ class _RollingTelemetryWindow:
             deferred=totals["deferred"],
             overload_handled=totals["overload_handled"],
             lost=totals["lost"],
+            policy_resolved=totals["policy_resolved"],
             admission_overflow=totals["admission_overflow"],
             dispatch_attempts=totals["dispatch_attempts"],
             dispatch_successes=totals["dispatch_successes"],
@@ -600,10 +607,35 @@ def _service_balanced(view: _WindowView, *, queued_logical: int,
     counted as admitted but not as serviced, and the lane reported a phantom
     imbalance under ordinary bursty load.  The in-flight term closes the same
     gap for rows still inside the sink.
+
+    ``policy_resolved`` closes the last one.  An admitted row has exactly five
+    possible fates, and the first four were already terms here: it commits, it
+    is queued, it is in flight, it is lost -- **or an approved policy resolves
+    it after admission**.  That fifth exit exists (a content-addressed UNIQUE
+    collision proves the byte-identical row is already durably stored, so the
+    lane stops carrying it) and had no term, so its rows were counted as
+    ``admitted`` inflow and never as any outflow.
+
+    Measured on a 477 s identity-pinned run at 132382b: a seven-row chunk
+    resolved that way at t-4.0 s left the window short by exactly seven.  The
+    gap stayed hidden while the queue held >= 7 rows -- the instantaneous
+    ``queued``/``inflight`` terms absorbed it -- and surfaced the moment the
+    queue drained to zero, four seconds later, with zero unexpected loss, zero
+    reconciliation mismatch, a bounded and draining queue, a safe controller and
+    a consistent policy.  ``service_imbalance`` fired, and ``controlled_overload``
+    is a conjunction over this same predicate, so ``uncontrolled_overload`` fired
+    with it.  Both cleared when the admitted bucket aged out fifteen seconds
+    later.  That is an accounting gap presenting as a service fault.
+
+    The term is deliberately *not* ``overload_handled``: that counter also
+    carries pre-admission sampling, deferral and LATEST replacement, whose rows
+    were never admitted and are therefore not on the right-hand side either.
+    Adding them would inflate the left-hand side and mask a real gap.  Only rows
+    that reached ``admitted`` may appear here.
     """
 
     return (
-        view.logical_committed + view.lost
+        view.logical_committed + view.lost + view.policy_resolved
         + max(0, int(queued_logical)) + max(0, int(inflight_logical))
         >= view.admitted
     )
@@ -868,6 +900,35 @@ class _AdaptiveTelemetryController:
         self._last_control_tick = (
             math.floor(started / self._control_interval_s) - 1)
         self._last_decision: Optional[_ControlDecision] = None
+        # Dense readiness observation.  Strictly an observer: it is written only
+        # on a control tick that has already been decided, it reads no state it
+        # does not receive, and it changes nothing.  ``None`` is the default and
+        # costs one identity test per tick.
+        self._trace: Optional[deque[dict[str, Any]]] = None
+        self._trace_seq = 0
+        self._trace_dropped = 0
+
+    def enable_readiness_trace(self, *, capacity: int = 4096) -> None:
+        """Begin recording one bounded observation per control tick.
+
+        The ring is fixed-size, so a consumer that stops draining costs bounded
+        memory and loses the *oldest* samples, counted in ``trace_dropped``.
+        Recording never blocks and never touches the filesystem.
+        """
+
+        if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity < 1:
+            raise ValueError("readiness trace capacity must be a positive int")
+        if self._trace is None:
+            self._trace = deque(maxlen=int(capacity))
+
+    def drain_readiness_trace(self) -> list[dict[str, Any]]:
+        """Remove and return every observation recorded since the last drain."""
+
+        if self._trace is None:
+            return []
+        drained = list(self._trace)
+        self._trace.clear()
+        return drained
 
     @staticmethod
     def _percentile(values: Sequence[float], fraction: float) -> float:
@@ -1138,6 +1199,7 @@ class _AdaptiveTelemetryController:
         queued_logical: Optional[int] = None,
         oldest_age_s: float = 0.0,
         inflight_logical: int = 0,
+        trace_context: Optional[Callable[[], Mapping[str, Any]]] = None,
     ) -> _ControlDecision:
         # Logical rows still held by the lane.  Defaults to the pending count,
         # which is a lower bound (one pending can carry several aggregated
@@ -1190,7 +1252,11 @@ class _AdaptiveTelemetryController:
         high_pressure = int(queue_depth) >= self.high_water
         current_tick = math.floor(
             float(now) / self._control_interval_s)
+        tick_advanced = False
+        streak_before = self._healthy_streak
+        tick_predicates: dict[str, Any] = {}
         if advance_state and current_tick != self._last_control_tick:
+            tick_advanced = True
             control_gap = current_tick - self._last_control_tick
             self._last_control_tick = current_tick
             if (
@@ -1398,6 +1464,70 @@ class _AdaptiveTelemetryController:
             self._recovery_blockers = tuple(blockers)
             healthy = not blockers
             self._healthy_streak = self._healthy_streak + 1 if healthy else 0
+            if self._trace is not None:
+                # Every conjunct exactly as it was evaluated for *this* tick,
+                # plus the raw terms each one was computed from, so an operator
+                # never has to infer a predicate from its name.
+                tick_predicates = {
+                    "blockers": list(blockers),
+                    "settle_age_s": round(
+                        float(now) - self._settled_since, 4),
+                    "service_balanced": bool(service_balanced),
+                    "depth_nonincreasing": bool(depth_nonincreasing),
+                    "controller_safe": bool(controller_safe),
+                    "within_hard_bound": bool(within_hard_bound),
+                    "policy_consistent": bool(policy_consistent),
+                    "controlled_overload": bool(controlled_overload),
+                    "overload_active": bool(self._overload_active),
+                    "overload_reason": self._overload_reason,
+                    "overload_enter_streak": int(self._overload_enter_streak),
+                    "overload_exit_streak": int(self._overload_exit_streak),
+                    "capacity_pressure": bool(capacity_pressure),
+                    "high_pressure": bool(high_pressure),
+                    # The five terms of the conservation identity, in the exact
+                    # units the predicate compares them in.
+                    "conservation": {
+                        "admitted_window": int(view.admitted),
+                        "logical_committed_window": int(
+                            view.logical_committed),
+                        "lost_window": int(view.lost),
+                        "queued_logical_now": int(queued_logical),
+                        "inflight_logical_now": int(inflight_logical),
+                        "policy_resolved_window": int(view.policy_resolved),
+                        "deficit": int(
+                            view.admitted
+                            - view.logical_committed - view.lost
+                            - view.policy_resolved
+                            - max(0, int(queued_logical))
+                            - max(0, int(inflight_logical))
+                        ),
+                        "overload_handled_window": int(
+                            view.overload_handled),
+                        "coalesced_window": int(view.coalesced),
+                        "sampled_window": int(view.sampled),
+                        "deferred_window": int(view.deferred),
+                    },
+                    "queue_trend": {
+                        "max_depth": int(view.max_depth),
+                        "first_half_min_depth": view.first_half_min_depth,
+                        "second_half_min_depth": view.second_half_min_depth,
+                        "slope_rps": round(
+                            float(recovery_view.queue_slope_rps), 4),
+                        "oldest_age_s": round(float(oldest_age_s), 4),
+                    },
+                    "recovery_view": {
+                        "lost": int(recovery_view.lost),
+                        "admission_overflow": int(
+                            recovery_view.admission_overflow),
+                        "failed_batches": int(recovery_view.failed_batches),
+                        "deadline_failures": int(
+                            recovery_view.deadline_failures),
+                        "priority_deferrals": int(
+                            recovery_view.priority_deferrals),
+                        "checkpoint_deferrals": int(
+                            recovery_view.checkpoint_deferrals),
+                    },
+                }
 
         service_balanced = _service_balanced(
                 view, queued_logical=queued_logical,
@@ -1446,6 +1576,63 @@ class _AdaptiveTelemetryController:
             )
             else "STABLE"
         )
+        if tick_advanced and self._trace is not None:
+            self._trace_seq += 1
+            if len(self._trace) == self._trace.maxlen:
+                self._trace_dropped += 1
+            sample: dict[str, Any] = {
+                "seq": self._trace_seq,
+                "mono": round(float(now), 4),
+                "wall_ms": int(time.time() * 1_000),
+                "control_tick": int(current_tick),
+                "controller_state": state,
+                "healthy_streak_before": int(streak_before),
+                "healthy_streak_after": int(self._healthy_streak),
+                "streak_reset": bool(
+                    streak_before > 0 and self._healthy_streak == 0),
+                "required_healthy_windows": _RECOVERY_HEALTHY_WINDOWS,
+                "queue_depth": int(queue_depth),
+                "queue_capacity": int(self.queue_capacity),
+                "queue_low_water": int(self.low_water),
+                "queue_high_water": int(self.high_water),
+                "selected_chunk": int(self.selected_chunk),
+                "deadline_safe_chunk": int(self.deadline_safe_chunk),
+                "throughput_required_chunk": int(
+                    self.throughput_required_chunk),
+                "offered_required_chunk": int(self.offered_required_chunk),
+                "sampling_keep_ratio": round(float(keep_ratio), 6),
+                "sustainable_dispatches_per_second": round(
+                    float(sustainable), 4),
+                "estimated_sink_capacity_rps": round(
+                    float(estimated_capacity), 4),
+                "rates": {
+                    "incoming_rps": round(float(view.incoming_rps), 4),
+                    "offered_rps": round(float(view.offered_rps), 4),
+                    "admitted_rps": round(float(view.admitted_rps), 4),
+                    "logical_committed_rps": round(
+                        float(view.logical_committed_rps), 4),
+                    "committed_rps": round(float(view.committed_rps), 4),
+                    "dispatch_attempt_rps": round(
+                        float(view.dispatch_attempt_rps), 4),
+                    "dispatch_success_rps": round(
+                        float(view.dispatch_success_rps), 4),
+                },
+                "transaction_ms": {
+                    "avg": round(float(avg_ms), 4),
+                    "p95": round(float(p95_ms), 4),
+                    "p99": round(float(p99_ms), 4),
+                    "fixed_overhead": round(float(fixed_ms), 4),
+                    "tail_per_row": (
+                        None if tail_ms is None else round(float(tail_ms), 6)),
+                },
+                **tick_predicates,
+            }
+            if trace_context is not None:
+                try:
+                    sample["writer"] = dict(trace_context())
+                except Exception:  # noqa: BLE001 - observation is never fatal
+                    sample["writer"] = {"error": "trace_context_failed"}
+            self._trace.append(sample)
         decision = _ControlDecision(
             physical_max_chunk=self.physical_max_chunk,
             deadline_safe_chunk=self.deadline_safe_chunk,
@@ -1683,6 +1870,12 @@ class V4TelemetryWriter:
         # process, so the number of deadline failures per launch is finite.
         self._physical_batch_ceiling = self.physical_batch_size
         self._deadline_shrink_events = 0
+        # Transient bisection ceiling used to isolate a content-addressed
+        # duplicate to the single row it actually proves something about.  It is
+        # cleared by the first clean commit, so it can never become a permanent
+        # throughput cap; see the isolation branch in ``_dispatch``.
+        self._duplicate_isolation_ceiling: Optional[int] = None
+        self._duplicate_isolation_events = 0
         self._consecutive_successful_batches = 0
         self._last_priority_skip_ts_ms = 0
         self._checkpoint_deferral_batches = 0
@@ -1710,6 +1903,105 @@ class V4TelemetryWriter:
         self._last_control_decision: Optional[_ControlDecision] = None
         self._last_controller_sample_ts_ms = now_wall
         self._last_controller_sample_monotonic = time.monotonic()
+        # Bound once so passing it per submission is a plain attribute read.
+        # ``None`` until an operator enables the observer, and the controller
+        # calls it only on a control tick it is already recording.
+        self._trace_context_fn: Optional[
+            Callable[[], Mapping[str, Any]]] = None
+
+    def enable_readiness_trace(self, *, capacity: int = 4096) -> None:
+        """Record one dense observation per controller tick, for an operator.
+
+        Observation only: it is written after a tick has been decided, from
+        state the lane already holds under its own lock, and it feeds nothing
+        back into any control path.  Draining is the consumer's job; the ring
+        is bounded so a stalled consumer costs bounded memory.
+        """
+
+        with self._condition:
+            self._controller.enable_readiness_trace(capacity=capacity)
+            self._trace_context_fn = self._trace_context_locked
+
+    def drain_readiness_trace(self) -> list[dict[str, Any]]:
+        """Remove and return the dense observations recorded since last drain."""
+
+        with self._condition:
+            return self._controller.drain_readiness_trace()
+
+    def _trace_context_locked(self) -> dict[str, Any]:
+        """Writer-owned counters for one control tick, read under the lock.
+
+        Every field is a plain integer already maintained on the lane, so the
+        snapshot is internally consistent by construction: nothing here is
+        sampled at a different instant from the controller terms it will be
+        compared against.
+        """
+
+        pending_retries = 0
+        for pending in self._pending.values():
+            if pending.requeue_attempts:
+                pending_retries += 1
+        return {
+            "queued_pendings": len(self._queue),
+            "queued_logical": int(self._queued_logical),
+            "inflight_logical": int(self._inflight_logical),
+            "inflight_batches": int(self._inflight_batches),
+            "pending_retry_rows": pending_retries,
+            "pending_aggregate_slots": len(self._aggregate_tokens),
+            "aggregated_in_queue": int(self._aggregated_in_queue),
+            "physical_batch_ceiling": int(self._physical_batch_ceiling),
+            "dispatch_ceiling": self._dispatch_ceiling_locked(),
+            "duplicate_isolation_ceiling": self._duplicate_isolation_ceiling,
+            "duplicate_isolation_events": int(
+                self._duplicate_isolation_events),
+            "health": str(self._health),
+            "submitted": int(self._submitted),
+            "offered": int(self._offered),
+            "admitted": int(self._admitted),
+            "logical_written": int(self._logical_written),
+            "written": int(self._written),
+            "batches": int(self._batches),
+            "batch_attempts": int(self._batch_attempts),
+            "failed_batches": int(self._failed_batches),
+            "deadline_exceeded_batches": int(self._deadline_exceeded_batches),
+            "priority_skipped_batches": int(self._priority_skipped_batches),
+            "checkpoint_deferral_batches": int(
+                self._checkpoint_deferral_batches),
+            "requeued_rows": int(self._requeued_rows),
+            "coalesced": int(self._coalesced),
+            "preoverflow_coalesced": int(self._preoverflow_coalesced),
+            "sampled": int(self._sampled),
+            "deferred": int(self._deferred),
+            "deduplicated": int(self._deduplicated),
+            "dropped": int(self._dropped),
+            "admission_overflow_rows": int(self._admission_overflow_rows),
+            "overflow_count": int(self._overflow_count),
+            "reconciliation_mismatch_rows": int(
+                self._reconciliation_mismatch_rows),
+            # Cumulative per-category loss.  The delta between consecutive
+            # ticks is what attributes a readiness reset to its exact cause.
+            "loss_by_category": dict(self._loss_by_category),
+            "flush_latency_ms": self._latency_percentiles(
+                self._flush_latencies_ms),
+            "batch_latency_ms": self._latency_percentiles(
+                self._batch_latencies_ms),
+        }
+
+    @staticmethod
+    def _latency_percentiles(samples: "deque[float]") -> dict[str, float]:
+        if not samples:
+            return {"p50": 0.0, "p90": 0.0, "p99": 0.0, "max": 0.0, "n": 0}
+        ordered = sorted(samples)
+        size = len(ordered)
+
+        def at(fraction: float) -> float:
+            index = min(size - 1, max(0, math.ceil(fraction * size) - 1))
+            return round(float(ordered[index]), 3)
+
+        return {
+            "p50": at(0.50), "p90": at(0.90), "p99": at(0.99),
+            "max": round(float(ordered[-1]), 3), "n": size,
+        }
 
     @staticmethod
     def _command(
@@ -1866,6 +2158,7 @@ class V4TelemetryWriter:
             queued_logical=self._queued_logical,
             oldest_age_s=self._oldest_queued_age_s(now),
             inflight_logical=self._inflight_logical,
+            trace_context=self._trace_context_fn,
         )
         if advance_state:
             self._physical_batch_ceiling = decision.selected_chunk
@@ -2160,7 +2453,8 @@ class V4TelemetryWriter:
 
     def _drop_locked(self, logical_count: int, reason: str,
                      *, category: TelemetryLossCategory,
-                     health: str = "DEGRADED_TELEMETRY") -> None:
+                     health: str = "DEGRADED_TELEMETRY",
+                     post_admission: bool = False) -> None:
         """Account rows that leave the lane without being committed.
 
         ``category`` is mandatory: an uncategorised drop would break the
@@ -2170,6 +2464,14 @@ class V4TelemetryWriter:
         An approved-policy category is recorded and reported but does not mark
         the lane failed, does not touch ``_last_failure_ts_ms`` and does not
         reset the recovery streak -- those are reserved for unexpected loss.
+
+        ``post_admission`` says whether these rows were counted in the window's
+        ``admitted`` inflow.  It is the caller's knowledge, not something this
+        method can infer, and the windowed conservation identity is wrong
+        without it: an approved policy that resolves an *admitted* row removes
+        it from the lane with no commit and no loss, so unless that exit is
+        counted the window reports a shortfall that looks exactly like a service
+        fault.  See :func:`_service_balanced`.
         """
 
         count = max(0, int(logical_count))
@@ -2181,9 +2483,10 @@ class V4TelemetryWriter:
             int(self._drop_reasons.get(str(reason), 0)) + count)
         if key in POLICY_LOSS_CATEGORIES:
             self._record_policy_locked(str(reason), count)
+            resolved = {"policy_resolved": count} if post_admission else {}
             self._controller.add(
                 time.monotonic(), queue_depth=len(self._queue),
-                overload_handled=count)
+                overload_handled=count, **resolved)
             return
         if self._stop_requested and self._drain_on_stop:
             self._drain_stop_failed = True
@@ -2265,6 +2568,20 @@ class V4TelemetryWriter:
             self._requeued_rows += pending.logical_count
         self._high_water = max(self._high_water, len(self._queue))
         return abandoned
+
+    def _dispatch_ceiling_locked(self) -> int:
+        """Rows per physical dispatch: the controller's ceiling, bisected.
+
+        The controller owns the deadline-safe size.  Duplicate isolation may
+        temporarily ask for something smaller, and never for something larger,
+        so the two compose by taking the minimum.
+        """
+
+        ceiling = max(1, int(self._physical_batch_ceiling))
+        isolation = self._duplicate_isolation_ceiling
+        if isolation is None:
+            return ceiling
+        return max(1, min(ceiling, int(isolation)))
 
     def _take_batch_locked(self, limit: Optional[int] = None) -> list[_Pending]:
         maximum = (
@@ -2360,7 +2677,7 @@ class V4TelemetryWriter:
                         first.admitted_monotonic + self.flush_interval_s
                         if first is not None else time.monotonic()
                     )
-                    while (len(self._queue) < self._physical_batch_ceiling
+                    while (len(self._queue) < self._dispatch_ceiling_locked()
                            and not self._stop_requested
                            and not self._flush_requested):
                         remaining = deadline - time.monotonic()
@@ -2378,7 +2695,8 @@ class V4TelemetryWriter:
                 # One physical chunk per dispatch: a rolled-back sink
                 # transaction can then only ever cost the rows it actually
                 # attempted, never a larger logical batch behind it.
-                batch = self._take_batch_locked(self._physical_batch_ceiling)
+                batch = self._take_batch_locked(
+                    self._dispatch_ceiling_locked())
 
             if batch:
                 self._dispatch(batch)
@@ -2487,7 +2805,7 @@ class V4TelemetryWriter:
         ] = []
         cursor = 0
         with self._condition:
-            chunk_limit = max(1, self._physical_batch_ceiling)
+            chunk_limit = self._dispatch_ceiling_locked()
         while cursor < len(batch):
             chunk = batch[cursor:cursor + chunk_limit]
             payload = [pending.command.payload() for pending in chunk]
@@ -2594,6 +2912,10 @@ class V4TelemetryWriter:
                 # has recovered and the lossy lane can resume normal cadence.
                 self._deadline_backoff_until = 0.0
                 self._deadline_backoff_s = 0.0
+                # A clean commit also ends duplicate isolation: whatever the
+                # bisection was hunting for is behind us, and the ceiling must
+                # not outlive it.
+                self._duplicate_isolation_ceiling = None
                 self._consecutive_successful_batches += successful_batches
                 self._sync_controller_locked(completed)
             elif priority_skip:
@@ -2632,7 +2954,8 @@ class V4TelemetryWriter:
                         abandoned, "telemetry_priority_skip_exhausted",
                         category=(
                             TelemetryLossCategory.ACKNOWLEDGEMENT_FAILURE),
-                        health="DEGRADED_CRITICAL_PRIORITY")
+                        health="DEGRADED_CRITICAL_PRIORITY",
+                        post_admission=True)
                 self._deadline_backoff_s = max(
                     self.flush_interval_s, 0.250)
                 self._deadline_backoff_until = (
@@ -2647,9 +2970,55 @@ class V4TelemetryWriter:
                 # once a minute in production, which alone kept ``settling`` the
                 # dominant blocker and held operational readiness down.
                 policy_outcome = category.value in POLICY_LOSS_CATEGORIES
+                # ...but the collision proves that about *one* row, and the
+                # sink rolled the whole chunk back.  Attributing every row in it
+                # to deduplication says "already stored" about rows that were
+                # never stored at all -- measured on the 477 s run at 132382b, a
+                # single collision discarded a seven-row chunk that way, and the
+                # six innocent rows are exactly the shortfall that surfaced as
+                # ``service_imbalance`` four seconds later.
+                #
+                # The chunk rolled back, so the evidence is intact and the rows
+                # are still writable.  Halve the dispatch ceiling and requeue
+                # them under the same bounded budget the cooperative priority
+                # path uses: each retry commits the innocent half and re-collides
+                # only on the half that holds the duplicate, so the collision is
+                # isolated to a single row in at most log2(chunk) dispatches --
+                # nine for the largest configured batch, against a budget of
+                # thirty-two.  Only when the chunk *is* one row does the
+                # collision prove anything about that row, and only then is it
+                # attributed.
+                # A draining stop can still afford the bisection -- it is the
+                # same bounded retry the drain already performs, and stopping
+                # early would put the false attribution back.  A *forced* stop
+                # is discarding the queue anyway, so it does not bisect.
+                isolating_duplicate = (
+                    policy_outcome
+                    and category is TelemetryLossCategory.POLICY_DEDUPLICATED
+                    and failed_chunk_rows > 1
+                    and not (self._stop_requested and not self._drain_on_stop)
+                )
                 if not policy_outcome:
                     self._failed_batches += 1
                     self._consecutive_successful_batches = 0
+                if isolating_duplicate:
+                    self._duplicate_isolation_ceiling = max(
+                        1, failed_chunk_rows // 2)
+                    self._duplicate_isolation_events += 1
+                    abandoned = self._requeue_locked(failed_rows)
+                    if abandoned:
+                        # The budget is finite by design: a chunk that cannot be
+                        # isolated is honest loss, never a silent policy outcome.
+                        self._drop_locked(
+                            abandoned,
+                            "telemetry_duplicate_isolation_exhausted",
+                            category=TelemetryLossCategory.SINK_FAILURE,
+                            health="DEGRADED_WRITER",
+                            post_admission=True)
+                    self._sync_controller_locked(completed)
+                    self._last_heartbeat_ts_ms = int(time.time() * 1_000)
+                    self._condition.notify_all()
+                    return
                 # A policy outcome skips the *deadline adaptation* only.  It must
                 # still fall through to the accounting branch below, because
                 # ``_drop_locked`` is the sole place these rows are attributed --
@@ -2717,7 +3086,7 @@ class V4TelemetryWriter:
                             abandoned,
                             "telemetry_deadline_retry_exhausted",
                             category=TelemetryLossCategory.DEADLINE_EXPIRED,
-                            health=health)
+                            health=health, post_admission=True)
                 else:
                     if policy_outcome:
                         # Evidence is already stored; keep the writer's health.
@@ -2732,7 +3101,7 @@ class V4TelemetryWriter:
                         logical_unwritten, error or "telemetry_batch_failed",
                         category=_classify_batch_failure(
                             error, deadline_exceeded=deadline_exceeded),
-                        health=health)
+                        health=health, post_admission=True)
                     for pending in failed_rows:
                         self._rollback_admission_locked(pending)
             self._sync_controller_locked(completed)
@@ -2862,7 +3231,7 @@ class V4TelemetryWriter:
                     self._drop_locked(
                         discarded, "telemetry_shutdown_discard",
                         category=TelemetryLossCategory.SHUTDOWN_ABANDONED,
-                        health="STOPPING",
+                        health="STOPPING", post_admission=True,
                     )
             self._condition.notify_all()
         if thread is None:
@@ -3113,6 +3482,12 @@ class V4TelemetryWriter:
                 "window_deadline_failures": window.deadline_failures,
                 "window_checkpoint_deferrals": (
                     window.checkpoint_deferrals),
+                # Admitted rows an approved policy resolved after admission.
+                # Reported, never hidden: it is the fifth exit in the windowed
+                # conservation identity and an operator must be able to see it.
+                "window_policy_resolved_rows": window.policy_resolved,
+                "duplicate_isolation_events": (
+                    self._duplicate_isolation_events),
                 "deadline_shrink_events": self._deadline_shrink_events,
                 "transaction_budget_ms": self._budget_ms,
                 "observed_ms_per_row": (
