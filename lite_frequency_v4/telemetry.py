@@ -977,6 +977,19 @@ class _AdaptiveTelemetryController:
             for size, values in by_size.items()
         }
         ordered = sorted(chunk_p95.items())
+        direct_fixed = [
+            float(row.fixed_overhead_ms)
+            for row in rows if row.fixed_overhead_ms is not None
+        ]
+        direct_marginal = [
+            float(row.marginal_ms_per_row)
+            for row in rows if row.marginal_ms_per_row is not None
+        ]
+        # The sink's own split of transaction time into fixed overhead and row
+        # work is measured, not inferred, so it is resolved first and the
+        # size-based estimates below are computed *net* of it.
+        measured_fixed = (
+            self._percentile(direct_fixed, 0.95) if direct_fixed else 0.0)
         slopes = [
             (right_ms - left_ms) / (right_rows - left_rows)
             for left_index, (left_rows, left_ms) in enumerate(ordered)
@@ -991,25 +1004,25 @@ class _AdaptiveTelemetryController:
             ]
             fixed = self._percentile(intercepts, 0.95)
         else:
-            # With one observed size there is not enough information to split
-            # fixed and marginal cost.  This all-variable fallback is safe but
-            # no longer permanent: fixed-time, one-step probes create the
-            # second size needed for the affine estimate.
-            fixed = 0.0
+            # One observed size cannot separate fixed from marginal cost on its
+            # own -- but the sink already measured the fixed part, so charging
+            # the whole transaction to per-row cost is not the only option and
+            # was actively harmful.  Under sustained priority starvation the
+            # chunk collapses to a single size, this branch is the one that
+            # runs, and attributing all of a contended transaction to marginal
+            # cost ratcheted the deadline-safe chunk down and kept it there.
+            # Net out the measured fixed overhead first; what remains is the
+            # only part that actually scales with the row count.
+            fixed = measured_fixed
             marginal = max(
                 1e-3,
-                max(duration / max(1, size) for size, duration in ordered),
+                max(
+                    max(0.0, duration - measured_fixed) / max(1, size)
+                    for size, duration in ordered
+                ),
             )
-        direct_fixed = [
-            float(row.fixed_overhead_ms)
-            for row in rows if row.fixed_overhead_ms is not None
-        ]
-        direct_marginal = [
-            float(row.marginal_ms_per_row)
-            for row in rows if row.marginal_ms_per_row is not None
-        ]
         if direct_fixed:
-            fixed = max(fixed, self._percentile(direct_fixed, 0.95))
+            fixed = max(fixed, measured_fixed)
         if direct_marginal:
             marginal = max(
                 1e-3, self._percentile(direct_marginal, 0.95))
@@ -2723,7 +2736,7 @@ class V4TelemetryWriter:
             self._condition.notify_all()
 
     def _transaction_cost_observation(
-        self, result: Any, total_ms: float,
+        self, result: Any, total_ms: float, *, rows: int = 0,
     ) -> tuple[float, Optional[float], Optional[float]]:
         """Extract transaction, fixed, and per-command tail cost metrics."""
 
@@ -2774,15 +2787,66 @@ class V4TelemetryWriter:
             "transaction_fixed_overhead_ms",
             "last_transaction_fixed_overhead_ms",
         ))
-        marginal = metric_value((
+        row_work = metric_value((
+            "row_work_duration_ms", "last_row_work_duration_ms",
+        ))
+        row_call_max = metric_value((
+            "row_call_max_ms", "last_row_call_max_ms",
+        ))
+        tail_call = metric_value((
             "row_call_p95_ms", "last_row_call_p95_ms",
             "row_call_max_ms", "last_row_call_max_ms",
         ))
-        return (
-            transaction_ms,
-            min(transaction_ms, fixed) if fixed is not None else None,
-            max(1e-3, marginal) if marginal is not None else None,
-        )
+        # Separate the once-per-transaction wait from the true per-row cost.
+        #
+        # SQLite takes its write lock on the *first* write statement of a
+        # transaction, so a cooperative yield to the critical writer, a
+        # checkpoint, or ordinary lock contention is charged in full to
+        # whichever single row call happens to block.  A p95 (or max) over the
+        # per-row calls of a small chunk therefore *is* that wait, and the
+        # controller multiplied it by the row count.
+        #
+        # Measured on the 54.6-minute gate at 44e58e2, during the nineteen
+        # accumulation episodes -- every one of them preceded within 3 s by a
+        # cooperative priority skip:
+        #
+        #     predicted transaction = fixed + marginal * size
+        #                           = 6.76 + 3.25 * 54.16  = 183 ms
+        #     measured transaction p95                     =  84 ms
+        #
+        # The model over-predicted by more than a factor of two, shrank the
+        # chunk from 6.54 to 3.25 rows, and halved committed throughput (53.9
+        # to 30.5 rows/s) while the sink completed the *same* number of
+        # transactions per second (10.7 to 9.3).  The lane is transaction-rate
+        # limited, not row limited, so shrinking the chunk could only deepen
+        # the backlog it was trying to drain.
+        #
+        # A leave-one-out mean over the row calls recovers the real marginal
+        # cost: drop the single most expensive call -- the one that absorbed
+        # the wait -- and average the rest.  The excess that call carried is
+        # genuine cost, so it is not discarded: it moves to the fixed term,
+        # where a larger chunk amortises it instead of multiplying it.  Both
+        # terms still feed ``deadline_safe_capacity`` unchanged, so the chunk
+        # remains bounded by the same cooperative budget as before.
+        marginal = None
+        contended_excess = 0.0
+        count = max(0, int(rows))
+        if (count > 1 and row_work is not None and row_call_max is not None
+                and row_work >= row_call_max):
+            typical = (row_work - row_call_max) / float(count - 1)
+            if math.isfinite(typical) and typical >= 0.0:
+                marginal = max(1e-3, typical)
+                contended_excess = max(0.0, row_call_max - marginal)
+        if marginal is None and tail_call is not None:
+            # Not enough per-row detail to isolate the blocked call (a
+            # single-row chunk, or a sink that does not publish row work).
+            # Fall back to the previous, deliberately conservative estimate.
+            marginal = max(1e-3, tail_call)
+        resolved_fixed: Optional[float] = None
+        if fixed is not None or contended_excess:
+            resolved_fixed = min(
+                transaction_ms, max(0.0, (fixed or 0.0) + contended_excess))
+        return (transaction_ms, resolved_fixed, marginal)
 
     def _dispatch(self, batch: list[_Pending]) -> None:
         started = time.monotonic()
@@ -2831,7 +2895,8 @@ class V4TelemetryWriter:
                     1e-3,
                     (call_completed_clock - call_started_clock) * 1_000.0)
                 transaction_ms, fixed_ms, marginal_ms = (
-                    self._transaction_cost_observation(result, total_ms))
+                    self._transaction_cost_observation(
+                        result, total_ms, rows=chunk_written))
                 commit_observations.append((
                     chunk_written,
                     sum(row.logical_count for row in chunk),
