@@ -55,6 +55,9 @@ from .maintenance import (
 )
 from .polymarket_ws import PolymarketMarketWS
 from .positions import evaluate_exit_vs_hold
+from .readiness_trace import (
+    ReadinessTraceSink, engine_context_record, trace_path_from_env,
+)
 from .export_cache import ExportSectionCache
 from .export_profile import EXPORT_PROFILE
 from .reader_diag import READER_DIAGNOSTICS
@@ -771,6 +774,9 @@ class FrequencyV4Engine:
         self.integrity_worker: Any = None
         self.maintenance_worker: Any = None
         self.runtime_io_worker: Any = None
+        # Dense readiness observation, opt-in through the environment.  ``None``
+        # is the default and costs one identity test per heartbeat.
+        self._readiness_trace: Optional[ReadinessTraceSink] = None
         self._open_positions_count = 0
         self._entered_window_ids: set[int] = set()
         self._open_position_windows: set[int] = set()
@@ -3975,6 +3981,9 @@ class FrequencyV4Engine:
             state_name = self._runtime_state_name(current)
             state_payload = self._runtime_state(state_name)
             runtime_state = await self._publish_runtime_state(state_payload)
+            await self._drain_readiness_trace(
+                state_name=state_name, loop_lag_ms=loop_lag_ms,
+                runtime_state=runtime_state, now_ms_value=current)
             if current - last_health_ms >= 5_000:
                 writer = self._writer_health()
                 db_writes_per_min = int(
@@ -4007,6 +4016,64 @@ class FrequencyV4Engine:
                 await asyncio.wait_for(self._stopping.wait(), timeout=2.0)
             except asyncio.TimeoutError:
                 pass
+
+    async def _drain_readiness_trace(
+        self, *, state_name: str, loop_lag_ms: float,
+        runtime_state: Mapping[str, Any], now_ms_value: int,
+    ) -> None:
+        """Move one heartbeat's dense readiness observations to disk.
+
+        The controller ring is drained on the event loop (a deque copy) and the
+        file append runs on the runtime I/O worker, which already owns runtime
+        file writes.  A failing observer must never disturb the runtime it is
+        observing, so every error is recorded and swallowed.
+        """
+
+        sink = self._readiness_trace
+        if sink is None or self.telemetry is None:
+            return
+        try:
+            samples = self.telemetry.drain_readiness_trace()
+        except Exception as exc:  # noqa: BLE001 - observation is never fatal
+            self._last_error = (
+                f"readiness_trace_drain:{type(exc).__name__}:{exc}")[:240]
+            return
+        heartbeat_ts = int(runtime_state.get("heartbeat_ts_ms") or 0)
+        records: list[dict[str, Any]] = [
+            engine_context_record(
+                state_name=state_name,
+                loop_lag_ms=loop_lag_ms,
+                heartbeat_age_ms=(
+                    float(now_ms_value - heartbeat_ts) if heartbeat_ts else None),
+                export_age_ms=(
+                    float(now_ms_value - self._last_export_ms)
+                    if self._last_export_ms else None),
+                extra={
+                    "polymarket_ingest_queue_depth": (
+                        self._polymarket_ingest_queue.qsize()),
+                    "cex_ingest_queue_depth": self._cex_ingest_queue.qsize(),
+                    "event_count_buffer_size": len(self._event_count_buffer),
+                    "integrity_scan_in_progress": bool(
+                        self._integrity_scan_in_progress),
+                    "integrity_inflight": bool(self._integrity_inflight),
+                    "export_ok": bool(self._last_export_ok),
+                    "export_duration_ms": round(
+                        float(self._last_export_duration_ms), 1),
+                    "export_publish_ok": bool(self._last_export_publish_ok),
+                },
+            )
+        ]
+        records.extend(dict(sample, kind="tick") for sample in samples)
+        try:
+            if self.runtime_io_worker is not None:
+                await self.runtime_io_worker.run_io(
+                    sink.append, records, timeout_s=10.0,
+                    name="readiness_trace_append")
+            else:
+                sink.append(records)
+        except Exception as exc:  # noqa: BLE001 - observation is never fatal
+            self._last_error = (
+                f"readiness_trace_write:{type(exc).__name__}:{exc}")[:240]
 
     def _publish_degradation_state(self) -> dict[str, Any]:
         """Current runtime/export publish degradation, exactly as published.
@@ -5082,6 +5149,17 @@ class FrequencyV4Engine:
                 self.cfg.writer_heartbeat_interval_ms / 1_000.0),
         )
         self.telemetry.start()
+        trace_path = trace_path_from_env()
+        if trace_path is not None:
+            sink = ReadinessTraceSink(trace_path)
+            try:
+                sink.open()
+            except OSError as exc:
+                self._last_error = (
+                    f"readiness_trace_open:{type(exc).__name__}:{exc}")[:240]
+            else:
+                self._readiness_trace = sink
+                self.telemetry.enable_readiness_trace()
         # Reader-lifetime diagnostics observe every read-worker job and every
         # read statement from here on; WAL size correlation needs the path.
         READER_DIAGNOSTICS.configure(
