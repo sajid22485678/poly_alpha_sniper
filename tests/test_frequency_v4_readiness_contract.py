@@ -38,6 +38,7 @@ from poly_alpha_sniper.lite_frequency_v4.telemetry import (
     _RECOVERY_HEALTHY_WINDOWS,
     _RECOVERY_SETTLE_S,
     _RATE_WINDOW_S,
+    _legacy_service_balanced,
     _service_balanced,
 )
 
@@ -149,6 +150,21 @@ def _tick(controller: _AdaptiveTelemetryController, now: float, *,
     )
 
 
+def _conservation(controller: _AdaptiveTelemetryController, now: float = 0.0,
+                  *, queued_logical: int = 0, inflight_logical: int = 0):
+    """Evaluate the identity at ``now`` without advancing any control state."""
+
+    return controller.window.conservation(
+        now, queued_logical=queued_logical, inflight_logical=inflight_logical)
+
+
+def _balanced(controller: _AdaptiveTelemetryController, now: float = 0.0,
+              *, queued_logical: int = 0, inflight_logical: int = 0) -> bool:
+    return _service_balanced(_conservation(
+        controller, now, queued_logical=queued_logical,
+        inflight_logical=inflight_logical))
+
+
 def _run_clean(controller: _AdaptiveTelemetryController, *, start: float,
                ticks: int, rows_per_tick: int = 4) -> float:
     """Admit and immediately commit ``rows_per_tick`` rows for ``ticks`` ticks."""
@@ -183,12 +199,14 @@ def test_service_balanced_counts_post_admission_policy_resolution():
     # and with an empty queue nothing absorbs it.
     assert view.admitted == 100
     assert view.logical_committed == 93
-    assert not _service_balanced(view, queued_logical=0, inflight_logical=0)
+    assert _conservation(controller).residual == 7
+    assert not _balanced(controller)
 
     controller.add(0.0, queue_depth=0, policy_resolved=7, overload_handled=7)
     view = controller.window.view(0.0, include_current=True)
     assert view.policy_resolved == 7
-    assert _service_balanced(view, queued_logical=0, inflight_logical=0)
+    assert _conservation(controller).residual == 0
+    assert _balanced(controller)
 
 
 def test_pre_admission_policy_events_cannot_close_the_identity():
@@ -211,7 +229,8 @@ def test_pre_admission_policy_events_cannot_close_the_identity():
     view = controller.window.view(0.0, include_current=True)
     assert view.overload_handled == 875
     assert view.policy_resolved == 0
-    assert not _service_balanced(view, queued_logical=0, inflight_logical=0)
+    assert _conservation(controller).residual == 7
+    assert not _balanced(controller)
 
 
 def test_genuine_conservation_gap_still_fails_the_predicate():
@@ -223,12 +242,23 @@ def test_genuine_conservation_gap_still_fails_the_predicate():
         now=0.0, rows=80, logical_rows=80, transaction_ms=1.0, total_ms=1.0,
         queue_depth=0)
     controller.add(0.0, queue_depth=0, policy_resolved=5, overload_handled=5)
-    view = controller.window.view(0.0, include_current=True)
     # 80 committed + 5 resolved + 0 held = 85 of 100.  Fifteen are unexplained.
-    assert not _service_balanced(view, queued_logical=0, inflight_logical=0)
+    assert _conservation(controller).residual == 15
+    assert not _balanced(controller)
     # And they are still an imbalance when only partly held by the lane.
-    assert not _service_balanced(view, queued_logical=10, inflight_logical=4)
-    assert _service_balanced(view, queued_logical=10, inflight_logical=5)
+    assert not _balanced(controller, queued_logical=10, inflight_logical=4)
+    assert _balanced(controller, queued_logical=10, inflight_logical=5)
+    # The other direction is an accounting failure too: the lane cannot hold
+    # more rows than it ever took in.  The superseded predicate accepted every
+    # one of these, which is exactly how surplus inventory masked real loss.
+    for excess in (1, 5, 100):
+        surplus = _conservation(
+            controller, queued_logical=10, inflight_logical=5 + excess)
+        assert surplus.residual == -excess
+        assert not _service_balanced(surplus)
+        assert _legacy_service_balanced(
+            controller.window.view(0.0, include_current=True),
+            queued_logical=10, inflight_logical=5 + excess)
 
 
 def test_logical_and_physical_commit_units_are_not_compared():
@@ -242,7 +272,7 @@ def test_logical_and_physical_commit_units_are_not_compared():
         queue_depth=0)
     view = controller.window.view(0.0, include_current=True)
     assert view.committed == 9 and view.logical_committed == 90
-    assert _service_balanced(view, queued_logical=0, inflight_logical=0)
+    assert _balanced(controller)
 
 
 def test_in_flight_and_queued_rows_are_not_an_imbalance():
@@ -250,9 +280,9 @@ def test_in_flight_and_queued_rows_are_not_an_imbalance():
 
     controller = _controller()
     controller.add(0.0, queue_depth=500, admitted=500)
-    view = controller.window.view(0.0, include_current=True)
-    assert _service_balanced(view, queued_logical=300, inflight_logical=200)
-    assert not _service_balanced(view, queued_logical=300, inflight_logical=199)
+    assert _balanced(controller, queued_logical=300, inflight_logical=200)
+    assert not _balanced(controller, queued_logical=300, inflight_logical=199)
+    assert not _balanced(controller, queued_logical=300, inflight_logical=201)
 
 
 # ---------------------------------------------------------------------------
@@ -419,14 +449,77 @@ def test_controller_snapshot_terms_are_internally_consistent():
         terms = sample["conservation"]
         recomputed = (
             terms["admitted_window"]
+            + terms["aggregated_window"]
             - terms["logical_committed_window"]
-            - terms["lost_window"]
+            - terms["lost_admitted_window"]
             - terms["policy_resolved_window"]
-            - terms["queued_logical_now"]
-            - terms["inflight_logical_now"]
+            - (terms["ending_inventory"] - terms["starting_inventory"])
         )
-        assert recomputed == terms["deficit"]
-        assert sample["service_balanced"] == (terms["deficit"] <= 0)
+        assert recomputed == terms["residual"]
+        # Exactly zero, not "not positive".
+        assert sample["service_balanced"] == (terms["residual"] == 0)
+        assert terms["window_start_tick"] <= terms["window_end_tick"]
+
+
+def test_old_backlog_cannot_mask_a_row_lost_in_the_current_window():
+    """The counterexample the superseded predicate accepted, and this one fails.
+
+    A hundred rows admitted before the window opened and still held; ten rows
+    admitted inside the window and every one of them silently gone.  Nothing
+    committed, nothing lost, nothing resolved -- the ten simply are not there.
+
+    The old comparison read the hundred held rows as though they discharged the
+    window's own inflow: ``0 + 0 + 0 + 100 + 0 >= 10`` is true, and the deficit
+    it computed was ``-90``, which the evaluator reported as "deficit = 0".
+
+    The corrected identity takes inventory as a difference across the window's
+    own boundaries.  The hundred appear in ``starting_inventory`` and
+    ``ending_inventory`` alike and cancel exactly, leaving the ten with nowhere
+    to go.
+    """
+
+    controller = _controller()
+    window = controller.window
+
+    # --- before the window: a hundred rows admitted and still held -----------
+    backlog_tick = 1_000.0
+    controller.add(backlog_tick, queue_depth=100, incoming=100, offered=100,
+                   admitted=100)
+    window.record_conservation(
+        backlog_tick, queued_logical=100, inflight_logical=0)
+
+    # --- age the backlog out of the counting window, still holding it --------
+    opening = backlog_tick + _RATE_WINDOW_S + 1.0
+    window.record_conservation(opening, queued_logical=100, inflight_logical=0)
+    assert window.view(opening, include_current=True).admitted == 0, (
+        "the backlog's admission must have aged out of the window")
+
+    # --- inside the window: ten admitted, and then they vanish ---------------
+    now = opening + 1.0
+    controller.add(now, queue_depth=110, incoming=10, offered=10, admitted=10)
+    result = window.conservation(now, queued_logical=100, inflight_logical=0)
+
+    assert result.starting_inventory == 100
+    assert result.ending_inventory == 100
+    assert result.admitted_window == 10
+    assert result.committed_window == 0
+    assert result.lost_admitted_window == 0
+    assert result.policy_resolved_window == 0
+    assert result.boundary_observed, "the window must have a real boundary"
+
+    # The corrected identity: ten rows unaccounted for, exactly.
+    assert result.residual == 10
+    assert not _service_balanced(result)
+
+    # The superseded predicate on the very same window: a surplus of ninety,
+    # accepted as balanced.  This is the defect, reproduced.
+    view = window.view(now, include_current=True)
+    legacy_deficit = (
+        view.admitted - view.logical_committed - view.lost
+        - view.policy_resolved - 100 - 0)
+    assert legacy_deficit == -90
+    assert _legacy_service_balanced(view, queued_logical=100,
+                                    inflight_logical=0)
 
 
 # ---------------------------------------------------------------------------

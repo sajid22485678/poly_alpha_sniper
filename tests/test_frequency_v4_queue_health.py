@@ -47,6 +47,38 @@ def _controller(*, maximum: int = 32, capacity: int = 20_000):
     )
 
 
+def _held(controller) -> int:
+    """Inventory the controller's own counters imply it is still holding.
+
+    Phases chain: a fixture that assumed every run started from an empty lane
+    would mis-attribute the whole carried-over depth on its first tick.  Reading
+    it back from the counters keeps a chained fixture exact without every caller
+    having to remember where the previous phase left off.
+    """
+
+    return controller.window.conservation_now(
+        0.0, queued_logical=0, inflight_logical=0).gap
+
+
+def _resolve_surplus(admitted, committed, depth, held):
+    """Close the fixture's own books for one tick.
+
+    A depth series is a statement about inventory, and inventory only moves
+    because rows entered or left the lane.  A fixture that admits twenty rows,
+    commits twenty, and then asserts the queue went from one to nothing is
+    describing a lane that lost a row -- which is precisely what the
+    conservation identity now reports, correctly.
+
+    So the surplus is attributed the way the writer attributes it: rows that
+    were admitted and then resolved by the shedding policy, which is a
+    deliberate, accounted, non-blocking outcome.  Returns the extra admissions
+    and the policy resolutions that make the tick balance exactly.
+    """
+
+    resolved = admitted - committed - (depth - held)
+    return (0, resolved) if resolved >= 0 else (-resolved, 0)
+
+
 def _drive(controller, depths, *, admitted=20, committed=20, tick0=1,
            overload_handled=0):
     """Run the controller across an explicit depth series and return the last decision.
@@ -56,13 +88,18 @@ def _drive(controller, depths, *, admitted=20, committed=20, tick0=1,
     """
 
     decision = None
+    held = _held(controller)
     for offset, depth in enumerate(depths):
         tick = float(tick0 + offset)
-        controller.add(tick, queue_depth=depth, offered=admitted,
-                       admitted=admitted, overload_handled=overload_handled)
+        extra, resolved = _resolve_surplus(admitted, committed, depth, held)
+        controller.add(tick, queue_depth=depth, offered=admitted + extra,
+                       admitted=admitted + extra,
+                       overload_handled=overload_handled + resolved,
+                       policy_resolved=resolved)
         controller.observe_commit(
             now=tick, rows=committed, logical_rows=committed,
             transaction_ms=5.0, total_ms=5.0, queue_depth=depth)
+        held = depth
         decision = controller.decide(
             now=tick, queue_depth=depth, transaction_budget_ms=250.0,
             queued_logical=depth)
@@ -192,19 +229,26 @@ def test_alternating_policy_sampling_does_not_reset_safe_recovery():
 
     controller = _controller()
     decision = None
+    held = 0
     for offset in range(80):
         tick = float(1 + offset)
+        depth = offset % 3
         # Alternate between shedding and not, with a shallow draining queue.
+        # ``sampled`` is pre-admission, so those rows never enter the identity;
+        # the shallow depth cycle is closed the same way the writer closes it.
         sampled = 20 if offset % 2 else 0
-        controller.add(tick, queue_depth=offset % 3, offered=20 + sampled,
-                       admitted=20, sampled=sampled,
-                       overload_handled=sampled)
+        extra, resolved = _resolve_surplus(20, 20, depth, held)
+        controller.add(tick, queue_depth=depth, offered=20 + sampled + extra,
+                       admitted=20 + extra, sampled=sampled,
+                       overload_handled=sampled + resolved,
+                       policy_resolved=resolved)
         controller.observe_commit(
             now=tick, rows=20, logical_rows=20, transaction_ms=5.0,
-            total_ms=5.0, queue_depth=offset % 3)
+            total_ms=5.0, queue_depth=depth)
+        held = depth
         decision = controller.decide(
-            now=tick, queue_depth=offset % 3, transaction_budget_ms=250.0,
-            queued_logical=offset % 3)
+            now=tick, queue_depth=depth, transaction_budget_ms=250.0,
+            queued_logical=depth)
     assert decision.recovery_healthy_windows >= 10
     assert decision.current_operational_healthy is True
 

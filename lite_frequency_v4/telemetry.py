@@ -285,11 +285,26 @@ class _RateBucket:
     deferred: int = 0
     overload_handled: int = 0
     lost: int = 0
+    # Unexpected loss of rows that had already been counted in ``admitted``.
+    # ``lost`` is the whole of it -- including rows refused *before* admission
+    # (submit-after-stop, a failed merge, hard queue overflow) -- and stays the
+    # health signal.  The conservation identity is over the admitted cohort, so
+    # it may only subtract the rows that actually entered that cohort; charging
+    # a pre-admission refusal against it reports a shortfall for a row the
+    # window never counted as inflow.
+    lost_admitted: int = 0
     # Logical rows that were *admitted* and then left the lane under an approved
     # policy.  Deliberately distinct from ``overload_handled``, which also counts
     # pre-admission policy decisions: only rows counted in ``admitted`` may
     # appear here, so this term can never mask a genuine conservation gap.
     policy_resolved: int = 0
+    # Logical rows merged into an *already-queued* pending.  They raise that
+    # pending's logical count -- so they enter the lane's inventory and are
+    # committed with it -- but they are never counted in ``admitted``.  They are
+    # therefore a second, independent inflow to the identity, and the only one
+    # of the four ``coalesced`` paths that touches inventory at all: the dedupe,
+    # state and LATEST paths all resolve the row without it ever being held.
+    aggregated: int = 0
     admission_overflow: int = 0
     dispatch_attempts: int = 0
     dispatch_successes: int = 0
@@ -321,7 +336,9 @@ class _WindowView:
     deferred: int
     overload_handled: int
     lost: int
+    lost_admitted: int
     policy_resolved: int
+    aggregated: int
     admission_overflow: int
     dispatch_attempts: int
     dispatch_successes: int
@@ -354,6 +371,98 @@ class _WindowView:
     second_half_min_depth: Optional[int]
 
 
+@dataclass(frozen=True, slots=True)
+class _ConservationSnapshot:
+    """Running identity totals plus observed inventory, at one instant.
+
+    The five counters are lifetime running totals maintained by the window; the
+    inventory is what the lane independently believes it is still holding.  The
+    two are maintained by completely separate code paths, which is exactly why
+    comparing them detects drift: a counter that is not matched by an inventory
+    move (or the reverse) is a row the lane cannot account for.
+
+    Captured atomically under the writer's lock, so every field describes the
+    same instant.  That is what makes a difference between two snapshots an
+    exact interval measurement rather than a comparison of things sampled at
+    different times.
+    """
+
+    tick: int
+    admitted: int
+    aggregated: int
+    logical_committed: int
+    lost_admitted: int
+    policy_resolved: int
+    inventory: int
+
+    @property
+    def gap(self) -> int:
+        """Rows admitted (or merged in) that the lane can no longer account for.
+
+        Zero in a correct lane at every instant: an admitted row is committed,
+        lost, resolved by policy, or still held.  Non-zero means the counters
+        and the inventory disagree, which is indistinguishable from silent loss.
+        """
+
+        return (
+            self.admitted + self.aggregated
+            - self.logical_committed - self.lost_admitted
+            - self.policy_resolved
+            - self.inventory
+        )
+
+
+#: The lane's state before it did anything: nothing admitted, nothing held.  It
+#: is the exact boundary for a window that reaches back past the first recorded
+#: observation, so a young lane needs no special case.
+_CONSERVATION_ORIGIN = _ConservationSnapshot(
+    tick=-1, admitted=0, aggregated=0, logical_committed=0,
+    lost_admitted=0, policy_resolved=0, inventory=0,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ConservationResult:
+    """One evaluation of the admitted-cohort conservation identity.
+
+    ``residual`` is the mission-critical number:
+
+        admitted_window + aggregated_window
+          - committed_window - lost_admitted_window - policy_resolved_window
+          - (ending_inventory - starting_inventory)
+
+    Every term is measured across the *same* boundaries -- the opening snapshot
+    and now -- so there is no cohort mismatch to hide behind.  It must be
+    exactly zero.  A positive residual is missing rows; a negative residual is
+    rows accounted for twice, or inventory that grew without an inflow.  Both
+    are accounting failures and both fail.
+    """
+
+    window_start_tick: int
+    window_end_tick: int
+    boundary_observed: bool
+    admitted_window: int
+    aggregated_window: int
+    committed_window: int
+    lost_admitted_window: int
+    policy_resolved_window: int
+    starting_inventory: int
+    ending_inventory: int
+    residual: int
+    absolute_residual: int
+
+    @property
+    def balanced(self) -> bool:
+        """Exact on both counts: no gap in this window, and none inherited.
+
+        The runtime predicate uses only ``residual`` -- see
+        :func:`_service_balanced` for why.  This is the stronger statement the
+        certification contract proves against a real run.
+        """
+
+        return self.residual == 0 and self.absolute_residual == 0
+
+
 def _half_min(rows: Sequence[_RateBucket], *, first: bool) -> Optional[int]:
     """Shallowest observed depth in one half of the window, or None.
 
@@ -381,12 +490,22 @@ class _RollingTelemetryWindow:
 
     _COUNTER_FIELDS = frozenset({
         "incoming", "offered", "admitted", "committed", "logical_committed",
-        "coalesced", "sampled", "deferred", "lost",
-        "overload_handled", "policy_resolved",
+        "coalesced", "sampled", "deferred", "lost", "lost_admitted",
+        "overload_handled", "policy_resolved", "aggregated",
         "admission_overflow", "dispatch_attempts", "dispatch_successes",
         "failed_batches", "deadline_failures", "priority_deferrals",
         "checkpoint_deferrals",
     })
+
+    #: The five counters of the admitted-cohort conservation identity, in the
+    #: order they appear in it.  Two inflows to the lane's inventory, three
+    #: outflows.  Every one is maintained by the same ``add`` path, so a
+    #: snapshot of their running totals is internally consistent by
+    #: construction.
+    _IDENTITY_FIELDS = (
+        "admitted", "aggregated",
+        "logical_committed", "lost_admitted", "policy_resolved",
+    )
 
     def __init__(self, *, window_s: int = _RATE_WINDOW_S,
                  started_monotonic: Optional[float] = None) -> None:
@@ -398,6 +517,16 @@ class _RollingTelemetryWindow:
             else float(started_monotonic)
         )
         self._buckets = [_RateBucket() for _ in range(self.window_s)]
+        # Lifetime running totals of the identity counters.  The ring only
+        # remembers ``window_s`` seconds, but the identity needs differences
+        # taken against an arbitrary earlier instant, so these are kept whole.
+        # Python integers do not wrap, so there is no overflow to reason about.
+        self._identity_totals: dict[str, int] = {
+            name: 0 for name in self._IDENTITY_FIELDS}
+        # Opening conservation snapshot per second, keyed by tick.  One entry
+        # per second of the window plus a small margin, pruned on every record,
+        # so memory is fixed.
+        self._conservation: dict[int, _ConservationSnapshot] = {}
         # ``view`` is a pure function of the ring and the tick asked for, and
         # the controller asks for it twice on every submission.  Each call sorts
         # the ring, sums seventeen counters across it and fits a regression, so
@@ -427,7 +556,105 @@ class _RollingTelemetryWindow:
                 raise ValueError(f"telemetry rate delta {name} must be non-negative")
             if value:
                 setattr(bucket, name, int(getattr(bucket, name)) + int(value))
+                if name in self._identity_totals:
+                    self._identity_totals[name] += int(value)
                 self._revision += 1
+
+    def conservation_now(
+        self, now: float, *, queued_logical: int, inflight_logical: int,
+    ) -> _ConservationSnapshot:
+        """The identity totals and the observed inventory, right now."""
+
+        return _ConservationSnapshot(
+            tick=math.floor(float(now)),
+            inventory=(
+                max(0, int(queued_logical)) + max(0, int(inflight_logical))),
+            **self._identity_totals,
+        )
+
+    def record_conservation(
+        self, now: float, *, queued_logical: int, inflight_logical: int,
+    ) -> _ConservationSnapshot:
+        """Remember where this second *opened*, and return the live state.
+
+        Only the first observation in a second is kept.  That is deliberate: the
+        boundary of a rolling window is the moment the second began, and the
+        first observation in it is the closest instant to that moment at which
+        the lane is known to be consistent.  Every later observation in the same
+        second is then measured *against* that boundary rather than replacing
+        it, which is what stops the identity collapsing into a comparison of
+        now against now.
+        """
+
+        live = self.conservation_now(
+            now, queued_logical=queued_logical,
+            inflight_logical=inflight_logical)
+        self._conservation.setdefault(live.tick, live)
+        if len(self._conservation) > self.window_s + 2:
+            horizon = live.tick - self.window_s - 1
+            for tick in [t for t in self._conservation if t < horizon]:
+                del self._conservation[tick]
+        return live
+
+    def conservation(
+        self, now: float, *, queued_logical: int, inflight_logical: int,
+    ) -> _ConservationResult:
+        """Evaluate the admitted-cohort conservation identity exactly.
+
+        The window's boundary is the oldest opening snapshot still inside it.
+        Every term is then a difference between that snapshot and the live one,
+        so the counters and the inventory are read across identical boundaries:
+
+            admitted + aggregated
+              == committed + lost_admitted + policy_resolved
+                 + ending_inventory - starting_inventory
+
+        Rearranged, the residual must be exactly zero.  Both signs fail.  A
+        surplus of pre-window inventory cannot mask a lost current-window row,
+        because that inventory appears in ``starting_inventory`` and
+        ``ending_inventory`` alike and cancels; only what the window itself did
+        survives the subtraction.
+
+        ``absolute_residual`` is the same identity taken from the lane's origin
+        instead of the window boundary.  It answers a different question -- "is
+        there any unaccounted row at all, however old?" -- and is reported
+        separately so an operator can tell a fresh gap from an inherited one.
+        """
+
+        live = self.conservation_now(
+            now, queued_logical=queued_logical,
+            inflight_logical=inflight_logical)
+        earliest = live.tick - self.window_s + 1
+        opening = _CONSERVATION_ORIGIN
+        observed = False
+        for tick in range(earliest, live.tick + 1):
+            candidate = self._conservation.get(tick)
+            if candidate is not None:
+                opening, observed = candidate, True
+                break
+        admitted = live.admitted - opening.admitted
+        aggregated = live.aggregated - opening.aggregated
+        committed = live.logical_committed - opening.logical_committed
+        lost_admitted = live.lost_admitted - opening.lost_admitted
+        policy_resolved = live.policy_resolved - opening.policy_resolved
+        return _ConservationResult(
+            window_start_tick=opening.tick,
+            window_end_tick=live.tick,
+            boundary_observed=observed,
+            admitted_window=admitted,
+            aggregated_window=aggregated,
+            committed_window=committed,
+            lost_admitted_window=lost_admitted,
+            policy_resolved_window=policy_resolved,
+            starting_inventory=opening.inventory,
+            ending_inventory=live.inventory,
+            residual=(
+                admitted + aggregated
+                - committed - lost_admitted - policy_resolved
+                - (live.inventory - opening.inventory)
+            ),
+            absolute_residual=live.gap,
+        )
 
     def observe_dispatch_busy(self, now: float, duration_ms: float) -> None:
         """Accumulate real dispatch service time into the current second."""
@@ -534,7 +761,9 @@ class _RollingTelemetryWindow:
             deferred=totals["deferred"],
             overload_handled=totals["overload_handled"],
             lost=totals["lost"],
+            lost_admitted=totals["lost_admitted"],
             policy_resolved=totals["policy_resolved"],
+            aggregated=totals["aggregated"],
             admission_overflow=totals["admission_overflow"],
             dispatch_attempts=totals["dispatch_attempts"],
             dispatch_successes=totals["dispatch_successes"],
@@ -614,53 +843,74 @@ def _capacity_state(
     return TelemetryCapacityState.WITHIN_CAPACITY.value
 
 
-def _service_balanced(view: _WindowView, *, queued_logical: int,
-                      inflight_logical: int = 0) -> bool:
-    """Is every logical row admitted in this window accounted for?
+def _service_balanced(result: _ConservationResult) -> bool:
+    """Is every logical row the window took in accounted for, exactly?
 
-    The previous test compared ``committed`` (physical rows the sink wrote)
-    against ``admitted`` (logical rows enqueued).  Those are different units:
-    aggregation merges many logical rows into one pending, which becomes one
-    physical row, so under any coalescing at all ``committed`` is structurally
-    smaller than ``admitted`` and the lane could never look balanced -- even with
-    an empty queue and zero loss.
+    The predicate this replaced compared window-scoped inflow against
+    window-scoped outflow *plus instantaneous inventory*, and accepted any
+    surplus::
 
-    Conservation is the honest test, in one consistent unit: every admitted
-    logical row has either reached the sink, been explicitly lost, or is still
-    held by the lane -- queued *or* in flight inside the sink.
+        committed_w + lost_w + policy_resolved_w + queued_now + inflight_now
+            >= admitted_w
 
-    Both sides are read from the *current-inclusive* window.  The recovery view
-    deliberately excludes the current second, which is right for judging a
-    settled trend but wrong for a conservation identity: a row admitted in the
-    last included second and acknowledged in the excluded current second was
-    counted as admitted but not as serviced, and the lane reported a phantom
-    imbalance under ordinary bursty load.  The in-flight term closes the same
-    gap for rows still inside the sink.
+    Two independent defects, either of which is enough to hide real loss.
 
-    ``policy_resolved`` closes the last one.  An admitted row has exactly five
-    possible fates, and the first four were already terms here: it commits, it
-    is queued, it is in flight, it is lost -- **or an approved policy resolves
-    it after admission**.  That fifth exit exists (a content-addressed UNIQUE
-    collision proves the byte-identical row is already durably stored, so the
-    lane stops carrying it) and had no term, so its rows were counted as
-    ``admitted`` inflow and never as any outflow.
+    **Cohort mismatch.**  ``queued_now`` and ``inflight_now`` count every row
+    the lane is holding, including rows admitted long before the window opened.
+    That backlog is inflow the window never counted, so it inflated the
+    left-hand side by an amount unrelated to anything the window did.
 
-    Measured on a 477 s identity-pinned run at 132382b: a seven-row chunk
-    resolved that way at t-4.0 s left the window short by exactly seven.  The
-    gap stayed hidden while the queue held >= 7 rows -- the instantaneous
-    ``queued``/``inflight`` terms absorbed it -- and surfaced the moment the
-    queue drained to zero, four seconds later, with zero unexpected loss, zero
-    reconciliation mismatch, a bounded and draining queue, a safe controller and
-    a consistent policy.  ``service_imbalance`` fired, and ``controlled_overload``
-    is a conjunction over this same predicate, so ``uncontrolled_overload`` fired
-    with it.  Both cleared when the admitted bucket aged out fifteen seconds
-    later.  That is an accounting gap presenting as a service fault.
+    **One-sidedness.**  Only a positive deficit failed.  Since the mismatched
+    backlog can only ever make the left side bigger, the two defects compose:
+    with a hundred rows of pre-window backlog, ten rows admitted and all ten
+    silently lost inside the window, the comparison is ``0 + 0 + 0 + 100 >= 10``
+    -- true -- and the computed deficit is ``-90``, which the evaluator then
+    reported as "deficit = 0".  Measured on the preserved final evidence, 19,168
+    of the definitive soak's 20,312 in-window ticks were negative surplus of
+    exactly this kind, so "conservation closed exactly" was never actually
+    demonstrated on a single one of them.
 
-    The term is deliberately *not* ``overload_handled``: that counter also
-    carries pre-admission sampling, deferral and LATEST replacement, whose rows
-    were never admitted and are therefore not on the right-hand side either.
-    Adding them would inflate the left-hand side and mask a real gap.  Only rows
-    that reached ``admitted`` may appear here.
+    The identity here is cohort-matched on both sides.  Inventory enters it as a
+    *difference* between the window's boundaries, so a constant backlog cancels
+    and cannot mask anything; and the residual must be exactly zero, so rows
+    counted twice fail just as loudly as rows lost.  See
+    :meth:`_RollingTelemetryWindow.conservation` for the identity itself.
+
+    ``absolute_residual`` -- the same identity taken from the lane's origin --
+    is deliberately *not* part of this predicate, though it is recorded on every
+    tick and the certification contract requires it to be zero throughout a run.
+    The distinction is about who owns the two sides.  Inventory is maintained by
+    the writer; the counters are maintained here.  Only when the same writer
+    owns both is their lifetime difference meaningful, and the controller is
+    also driven directly -- by tests, and by callers that pass a documented
+    lower bound for ``queued_logical`` -- where a fabricated inventory would
+    make the lifetime figure say nothing about correctness.  The window residual
+    has no such weakness: a fabricated inventory that is merely *stable* cancels
+    out, and one that moves without a matching counter is caught.  So the
+    runtime predicate is the window identity, and the lifetime identity is
+    proved against real runs, where it means something.
+    """
+
+    return result.residual == 0
+
+
+def _legacy_service_balanced(view: _WindowView, *, queued_logical: int,
+                             inflight_logical: int = 0) -> bool:
+    """The superseded one-sided predicate, retained only to prove it was wrong.
+
+    Not called by any production path.  It exists so the regression that
+    demonstrates the defect can assert both halves of the claim in one place:
+    that the old comparison accepts a window in which rows were lost, and that
+    the corrected identity rejects the very same window.
+
+    It reached this shape by closing real defects one at a time -- the units
+    were reconciled to logical rows, the current second was included, in-flight
+    rows were given a term, and post-admission policy resolution was given a
+    fifth exit.  Each of those was right, and each survives in the corrected
+    identity.  What none of them addressed is that the inventory terms were
+    still read instantaneously while everything else was read over a window, and
+    that the comparison was ``>=`` rather than ``==``.  Those two are the defect;
+    see :func:`_service_balanced`.
     """
 
     return (
@@ -1296,6 +1546,17 @@ class _AdaptiveTelemetryController:
         queued_logical = (
             int(queue_depth) if queued_logical is None else int(queued_logical))
         self.window.observe_depth(now, queue_depth)
+        # Take the conservation reading before anything else in the tick.  The
+        # caller holds the writer's lock across this whole call, so the counters
+        # and the inventory it passed describe one instant; recording the
+        # window's opening boundary here keeps every later evaluation in this
+        # second measured against that same instant.
+        self.window.record_conservation(
+            now, queued_logical=queued_logical,
+            inflight_logical=inflight_logical)
+        conservation_result = self.window.conservation(
+            now, queued_logical=queued_logical,
+            inflight_logical=inflight_logical)
         view = self.window.view(now, include_current=True)
         recovery_view = self.window.view(now, include_current=False)
         (
@@ -1490,9 +1751,7 @@ class _AdaptiveTelemetryController:
                          or recovery_view.admission_overflow)):
                 self._reset_settle(now)
 
-            service_balanced = _service_balanced(
-                view, queued_logical=queued_logical,
-                inflight_logical=inflight_logical)
+            service_balanced = _service_balanced(conservation_result)
             depth_nonincreasing = _queue_not_accumulating(
                 recovery_view, queue_depth=queue_depth,
                 low_water=self.low_water, high_water=self.high_water,
@@ -1572,23 +1831,44 @@ class _AdaptiveTelemetryController:
                     "overload_exit_streak": int(self._overload_exit_streak),
                     "capacity_pressure": bool(capacity_pressure),
                     "high_pressure": bool(high_pressure),
-                    # The five terms of the conservation identity, in the exact
-                    # units the predicate compares them in.
+                    # Every term of the conservation identity, measured across
+                    # the identical boundaries the predicate compares them over,
+                    # so an operator can recompute the residual by hand from
+                    # this record alone and get the same number.
                     "conservation": {
-                        "admitted_window": int(view.admitted),
+                        "window_start_tick": int(
+                            conservation_result.window_start_tick),
+                        "window_end_tick": int(
+                            conservation_result.window_end_tick),
+                        "boundary_observed": bool(
+                            conservation_result.boundary_observed),
+                        "admitted_window": int(
+                            conservation_result.admitted_window),
+                        "aggregated_window": int(
+                            conservation_result.aggregated_window),
                         "logical_committed_window": int(
-                            view.logical_committed),
+                            conservation_result.committed_window),
+                        "lost_admitted_window": int(
+                            conservation_result.lost_admitted_window),
+                        "policy_resolved_window": int(
+                            conservation_result.policy_resolved_window),
+                        "starting_inventory": int(
+                            conservation_result.starting_inventory),
+                        "ending_inventory": int(
+                            conservation_result.ending_inventory),
+                        # Exactly zero is the contract.  Both signs fail.
+                        "residual": int(conservation_result.residual),
+                        # The same identity taken from the lane's origin: is
+                        # there any unaccounted row at all, however old?
+                        "absolute_residual": int(
+                            conservation_result.absolute_residual),
+                        # Context, not identity terms.  ``lost_window`` is the
+                        # whole of unexpected loss including pre-admission
+                        # refusals, which is the health signal rather than a
+                        # term of the admitted-cohort identity.
                         "lost_window": int(view.lost),
                         "queued_logical_now": int(queued_logical),
                         "inflight_logical_now": int(inflight_logical),
-                        "policy_resolved_window": int(view.policy_resolved),
-                        "deficit": int(
-                            view.admitted
-                            - view.logical_committed - view.lost
-                            - view.policy_resolved
-                            - max(0, int(queued_logical))
-                            - max(0, int(inflight_logical))
-                        ),
                         "overload_handled_window": int(
                             view.overload_handled),
                         "coalesced_window": int(view.coalesced),
@@ -1617,9 +1897,7 @@ class _AdaptiveTelemetryController:
                     },
                 }
 
-        service_balanced = _service_balanced(
-                view, queued_logical=queued_logical,
-                inflight_logical=inflight_logical)
+        service_balanced = _service_balanced(conservation_result)
         depth_nonincreasing = _queue_not_accumulating(
             recovery_view, queue_depth=queue_depth,
             low_water=self.low_water, high_water=self.high_water,
@@ -2448,8 +2726,16 @@ class V4TelemetryWriter:
                     self._queued_logical += 1
                     self._aggregated_in_queue += 1
                     self._coalesced += 1
+                    # This is the one coalescing path that puts a row *into*
+                    # the lane's inventory without ever counting it as
+                    # ``admitted``, so the conservation identity needs it as a
+                    # second inflow.  Without the term the row leaves through
+                    # ``logical_committed`` having entered through nothing, and
+                    # an exact identity would report a phantom surplus for every
+                    # aggregated row.
                     self._controller.add(
-                        now_mono, queue_depth=len(self._queue), coalesced=1)
+                        now_mono, queue_depth=len(self._queue),
+                        coalesced=1, aggregated=1)
                     if dedupe is not None:
                         pending.dedupe_keys.add(dedupe)
                         self._pending_dedupe[dedupe] = token
@@ -2631,8 +2917,16 @@ class V4TelemetryWriter:
         if self._stop_requested and self._drain_on_stop:
             self._drain_stop_failed = True
         self._dropped += count
+        # ``lost`` is every unexpected loss and stays the health signal.
+        # ``lost_admitted`` is the subset that had entered the admitted cohort,
+        # and only that subset may be subtracted from it.  A row refused before
+        # admission -- submitted after stop, a failed merge, hard queue overflow
+        # -- was never inflow to the identity, so charging it as an outflow would
+        # report a shortfall of rows the window never took in.
+        admitted_loss = {"lost_admitted": count} if post_admission else {}
         self._controller.add(
-            time.monotonic(), queue_depth=len(self._queue), lost=count)
+            time.monotonic(), queue_depth=len(self._queue), lost=count,
+            **admitted_loss)
         self._last_failure_ts_ms = int(time.time() * 1_000)
         self._last_error = str(reason)[:240]
         self._health = health

@@ -53,17 +53,29 @@ def _controller(*, maximum: int = 32, capacity: int = 20_000, flush_s: float = 0
 
 def _drive(controller, *, ticks: int, depth: int, admitted: int,
            rows: int, dispatch_ms: float, budget_ms: float = 250.0):
-    """One dispatch per whole second, exactly as a flush-paced lane behaves."""
+    """One dispatch per whole second, exactly as a flush-paced lane behaves.
+
+    The queue is held at a fixed depth while more is admitted than committed,
+    which is the overloaded steady state these tests are about.  A real lane
+    reaches that state by having its shedding policy resolve the difference, so
+    the fixture records exactly that -- otherwise it is asserting that rows
+    vanished, and the conservation identity says so.
+    """
 
     decision = None
+    held = controller.window.conservation_now(
+        0.0, queued_logical=0, inflight_logical=0).gap
     for tick in range(1, ticks + 1):
         now = float(tick)
+        resolved = max(0, admitted - rows - (depth - held))
         controller.add(now, queue_depth=depth, incoming=admitted,
-                       offered=admitted, admitted=admitted)
+                       offered=admitted, admitted=admitted,
+                       overload_handled=resolved, policy_resolved=resolved)
         controller.observe_commit(
             now=now, rows=rows, logical_rows=rows,
             transaction_ms=dispatch_ms, total_ms=dispatch_ms,
             queue_depth=depth)
+        held = depth
         decision = controller.decide(
             now=now, queue_depth=depth, transaction_budget_ms=budget_ms,
             queued_logical=depth)

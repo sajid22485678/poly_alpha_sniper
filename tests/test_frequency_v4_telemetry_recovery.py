@@ -70,16 +70,33 @@ _DISPATCH_MS = 20.0
 
 def _drive(controller, depths, *, admitted=20, committed=20, tick0=1,
            overload_handled=0, dispatch_ms=_DISPATCH_MS, **deltas):
+    """Drive a depth series with the fixture's own accounting closed exactly.
+
+    Rows admitted but neither committed nor still queued are attributed to the
+    shedding policy, exactly as the writer attributes them.  Without that the
+    depth series describes inventory moving for no reason, which the
+    conservation identity correctly refuses to call balanced.
+    """
+
     decision = None
+    # Phases chain, so the lane does not start empty; read back what the
+    # counters say is still held rather than assuming zero.
+    held = controller.window.conservation_now(
+        0.0, queued_logical=0, inflight_logical=0).gap
     for offset, depth in enumerate(depths):
         tick = float(tick0 + offset)
-        controller.add(tick, queue_depth=depth, offered=admitted,
-                       admitted=admitted, overload_handled=overload_handled,
+        resolved = admitted - committed - (depth - held)
+        extra, resolved = (0, resolved) if resolved >= 0 else (-resolved, 0)
+        controller.add(tick, queue_depth=depth, offered=admitted + extra,
+                       admitted=admitted + extra,
+                       overload_handled=overload_handled + resolved,
+                       policy_resolved=resolved,
                        **deltas)
         controller.observe_commit(
             now=tick, rows=committed, logical_rows=committed,
             transaction_ms=dispatch_ms, total_ms=dispatch_ms,
             queue_depth=depth)
+        held = depth
         decision = controller.decide(
             now=tick, queue_depth=depth, transaction_budget_ms=250.0,
             queued_logical=depth)

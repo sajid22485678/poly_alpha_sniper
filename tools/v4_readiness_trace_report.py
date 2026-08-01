@@ -181,11 +181,20 @@ def summarise(ticks: Sequence[dict[str, Any]],
         float(ticks[right]["mono"]) - float(ticks[left]["mono"])
         for left, right in zip(reset_indices, reset_indices[1:])
     ]
-    deficits = [
-        int((tick.get("conservation") or {}).get("deficit") or 0)
+    # Both signs are failures.  A positive residual is rows the window took in
+    # and cannot account for; a negative one is rows accounted for twice, or
+    # inventory that appeared without an inflow.  Reporting only the positive
+    # side is exactly how a window full of negative surplus was summarised as
+    # "deficit = 0".
+    residuals = [
+        int((tick.get("conservation") or {}).get("residual") or 0)
         for tick in ticks
     ]
-    positive_deficits = [value for value in deficits if value > 0]
+    absolute_residuals = [
+        int((tick.get("conservation") or {}).get("absolute_residual") or 0)
+        for tick in ticks
+    ]
+    nonzero_residuals = [value for value in residuals if value != 0]
     summary: dict[str, Any] = {
         "ticks": len(ticks),
         "engine_records": len(engine),
@@ -202,11 +211,16 @@ def summarise(ticks: Sequence[dict[str, Any]],
         "min_seconds_between_resets": round(min(gaps), 1) if gaps else None,
         "blocker_tick_histogram": dict(blocker_counts.most_common()),
         "blocker_at_reset_histogram": dict(reset_blockers.most_common()),
-        "conservation_deficit_ticks": len(positive_deficits),
-        "conservation_deficit_max": max(positive_deficits, default=0),
-        "conservation_deficit_mean": (
-            round(statistics.fmean(positive_deficits), 2)
-            if positive_deficits else 0.0),
+        "conservation_residual_nonzero_ticks": len(nonzero_residuals),
+        "conservation_residual_min": min(residuals, default=0),
+        "conservation_residual_max": max(residuals, default=0),
+        "conservation_residual_mean_abs": (
+            round(statistics.fmean(abs(v) for v in nonzero_residuals), 2)
+            if nonzero_residuals else 0.0),
+        "conservation_absolute_residual_nonzero_ticks": sum(
+            1 for value in absolute_residuals if value != 0),
+        "conservation_absolute_residual_min": min(absolute_residuals, default=0),
+        "conservation_absolute_residual_max": max(absolute_residuals, default=0),
     }
     recoveries = [
         value for value in (
@@ -227,11 +241,13 @@ def _fmt_tick(tick: dict[str, Any], centre: float) -> str:
         f"streak={int(tick.get('healthy_streak_after') or 0):>3} "
         f"q={int(tick.get('queue_depth') or 0):>5} "
         f"adm={int(conservation.get('admitted_window') or 0):>7} "
+        f"agg={int(conservation.get('aggregated_window') or 0):>5} "
         f"lcom={int(conservation.get('logical_committed_window') or 0):>7} "
-        f"lost={int(conservation.get('lost_window') or 0):>4} "
-        f"qd={int(conservation.get('queued_logical_now') or 0):>5} "
-        f"inf={int(conservation.get('inflight_logical_now') or 0):>5} "
-        f"DEF={int(conservation.get('deficit') or 0):>6} "
+        f"lostA={int(conservation.get('lost_admitted_window') or 0):>4} "
+        f"inv={int(conservation.get('starting_inventory') or 0):>5}"
+        f"->{int(conservation.get('ending_inventory') or 0):<5} "
+        f"RES={int(conservation.get('residual') or 0):>6} "
+        f"ABS={int(conservation.get('absolute_residual') or 0):>6} "
         f"old={float(trend.get('oldest_age_s') or 0.0):>5.2f}s "
         f"{','.join(tick.get('blockers') or []) or '-'}"
     )
