@@ -719,8 +719,8 @@ def test_event_count_flush_bounds_nested_sql_rows_per_command(
         _event_count_key(index): [1, 1, 0, 0]
         for index in range(40)
     }
-    submit = Mock(return_value=True)
-    monkeypatch.setattr(engine, "_telemetry_submit", submit)
+    submit = Mock(return_value="ACCEPTED")
+    monkeypatch.setattr(engine, "_telemetry_disposition", submit)
 
     assert engine._flush_event_counts() is True
     assert not engine._event_count_buffer
@@ -741,8 +741,8 @@ def test_event_count_flush_restores_only_failed_and_later_chunks(
     engine._event_count_buffer = {
         key: list(counts) for key, counts in original.items()
     }
-    submit = Mock(side_effect=[True, False])
-    monkeypatch.setattr(engine, "_telemetry_submit", submit)
+    submit = Mock(side_effect=["ACCEPTED", "DROPPED"])
+    monkeypatch.setattr(engine, "_telemetry_disposition", submit)
 
     assert engine._flush_event_counts() is False
     assert set(engine._event_count_buffer) == set(list(original)[16:])
@@ -752,6 +752,52 @@ def test_event_count_flush_restores_only_failed_and_later_chunks(
     )
 
 
+def test_deferred_event_count_flush_is_not_recorded_as_a_failure(
+        engine_harness, monkeypatch):
+    """A deferral is the chosen overload policy working, not a fault.
+
+    The flush asks for ``DEFER`` outside shutdown precisely so transient sink
+    pressure keeps the counts and retries them.  The refusal used to be raised
+    as ``telemetry_event_count_admission_failed`` and stamped into
+    ``last_error``, which never clears on a later success -- so a shutdown that
+    lost nothing still published that RuntimeError as its terminal state.  The
+    definitive soak did exactly this: zero buckets overflowed and the drain
+    succeeded, yet the terminal record read as a critical writer failure.
+    """
+
+    engine = engine_harness.engine
+    engine._last_error = ""
+    original = {
+        _event_count_key(index): [1, 1, 0, 0]
+        for index in range(40)
+    }
+    engine._event_count_buffer = {
+        key: list(counts) for key, counts in original.items()
+    }
+    monkeypatch.setattr(
+        engine, "_telemetry_disposition",
+        Mock(side_effect=["ACCEPTED", "DEFERRED"]))
+
+    assert engine._flush_event_counts() is False
+    # The counts are kept, exactly once, for the next heartbeat...
+    assert set(engine._event_count_buffer) == set(list(original)[16:])
+    assert all(
+        engine._event_count_buffer[key] == original[key]
+        for key in engine._event_count_buffer
+    )
+    # ...it is reported...
+    assert engine.counters["telemetry_event_flush_deferred"] == 1
+    # ...and it is not an error.
+    assert engine._last_error == ""
+    assert engine.counters["telemetry_event_bucket_overflow"] == 0
+
+    # A genuine refusal still is one.
+    monkeypatch.setattr(
+        engine, "_telemetry_disposition", Mock(return_value="DROPPED"))
+    assert engine._flush_event_counts() is False
+    assert "telemetry_event_count_admission_failed" in engine._last_error
+
+
 def test_shutdown_drains_more_than_one_event_count_slice(
         engine_harness, monkeypatch):
     engine = engine_harness.engine
@@ -759,8 +805,8 @@ def test_shutdown_drains_more_than_one_event_count_slice(
         _event_count_key(index): [1, 1, 0, 0]
         for index in range(600)
     }
-    submit = Mock(return_value=True)
-    monkeypatch.setattr(engine, "_telemetry_submit", submit)
+    submit = Mock(return_value="ACCEPTED")
+    monkeypatch.setattr(engine, "_telemetry_disposition", submit)
 
     assert engine._drain_event_counts_for_shutdown() is True
     assert not engine._event_count_buffer

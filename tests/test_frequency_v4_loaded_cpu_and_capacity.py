@@ -257,9 +257,11 @@ def test_a_sustained_flush_refusal_cannot_grow_the_buffer_without_bound(
         policies.append(str(getattr(chosen, "value", chosen)))
         # Model a permanently pressured sink: DEFER is always refused, ADMIT
         # always lands.
-        return str(getattr(chosen, "value", chosen)) == "ADMIT"
+        return ("ACCEPTED"
+                if str(getattr(chosen, "value", chosen)) == "ADMIT"
+                else "DEFERRED")
 
-    monkeypatch.setattr(engine, "_telemetry_submit", refuse_defer)
+    monkeypatch.setattr(engine, "_telemetry_disposition", refuse_defer)
 
     bound = engine._event_count_backlog_bound()
     _seed_buffer(engine, bound // 2)
@@ -288,7 +290,7 @@ def test_a_refused_flush_still_returns_every_count_to_the_buffer(
     _seed_buffer(engine, 24)
     expected = sum(counts[0] for counts in engine._event_count_buffer.values())
     monkeypatch.setattr(
-        engine, "_telemetry_submit", lambda *a, **k: False)
+        engine, "_telemetry_disposition", lambda *a, **k: "DROPPED")
     assert engine._flush_event_counts() is False
     restored = sum(counts[0] for counts in engine._event_count_buffer.values())
     assert restored == expected

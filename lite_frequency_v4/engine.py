@@ -842,6 +842,11 @@ class FrequencyV4Engine:
             "telemetry_event_bucket_preoverflow_coalesced": 0,
             "telemetry_event_bucket_coarsened": 0,
             "telemetry_event_flush_escalated": 0,
+            # Flushes the lane deferred under its own overload policy.  The
+            # counts were kept and retried, so this is reported but is never an
+            # error; conflating the two left a RuntimeError standing in the
+            # terminal record of a shutdown that lost nothing.
+            "telemetry_event_flush_deferred": 0,
             "telemetry_raw_interval_sampled": 0,
         }
 
@@ -1598,20 +1603,37 @@ class FrequencyV4Engine:
         counts[2] += int(decision.duplicate)
         counts[3] += int(not decision.accepted or classification is not None)
 
+    def _telemetry_disposition(
+        self, method: str, *args: Any, kwargs: Optional[dict[str, Any]] = None,
+        **policy: Any,
+    ) -> str:
+        """Admit to the lossy lane and report *which* outcome it chose.
+
+        ``DEFERRED`` and ``DROPPED`` are both "not admitted" and both make
+        :meth:`_telemetry_submit` false, but they are opposites in meaning: a
+        deferral is the overload policy working, with the caller keeping the
+        rows to retry, and a drop is evidence gone.  A caller that has to tell
+        them apart asks here.
+        """
+
+        if self.telemetry is None:
+            return "UNAVAILABLE"
+        disposition = self.telemetry.submit(
+            method, *args, kwargs=kwargs or {}, **policy)
+        return str(getattr(disposition, "value", disposition))
+
     def _telemetry_submit(
         self, method: str, *args: Any, kwargs: Optional[dict[str, Any]] = None,
         **policy: Any,
     ) -> bool:
         """Non-blocking admission to the lossy, observable telemetry lane."""
 
-        if self.telemetry is None:
+        outcome = self._telemetry_disposition(
+            method, *args, kwargs=kwargs, **policy)
+        if outcome == "UNAVAILABLE":
             self._last_error = "telemetry_not_started"
             return False
-        disposition = self.telemetry.submit(
-            method, *args, kwargs=kwargs or {}, **policy)
-        return str(getattr(disposition, "value", disposition)) not in {
-            "DROPPED", "DEFERRED",
-        }
+        return outcome not in {"DROPPED", "DEFERRED"}
 
     def _update_window_funnel(
         self, window_id: int, current: int, **changes: Any,
@@ -1683,31 +1705,51 @@ class FrequencyV4Engine:
                 "duplicate_count": counts[2],
                 "invalid_count": counts[3],
             } for key, counts in chunk]
+            deferred = False
             try:
-                if not self._telemetry_submit(
+                outcome = self._telemetry_disposition(
                         "record_event_count_batch", rows,
                         dedupe_key=("event-count-flush", _sha256_json(rows)),
                         overload_policy=(
                             TelemetryOverloadPolicy.ADMIT
                             if (shutdown or escalate)
                             else TelemetryOverloadPolicy.DEFER
-                        )):
+                        ))
+                # A deferral is this policy working exactly as chosen above:
+                # the lane is under transient pressure, the caller keeps the
+                # counts, and the next heartbeat retries them.  Nothing is lost
+                # and nothing is at risk, so it must not be recorded as a fault.
+                # Recording it as one left a RuntimeError standing in
+                # ``last_error`` -- the field never clears on later success --
+                # so a clean shutdown that lost nothing still published
+                # "telemetry_event_count_admission_failed" as its terminal
+                # state, which reads as a critical writer failure and is not
+                # one.
+                deferred = outcome == "DEFERRED"
+                if not deferred and outcome in {"DROPPED", "UNAVAILABLE"}:
                     raise RuntimeError(
                         "telemetry_event_count_admission_failed")
             except Exception as exc:
-                # Earlier chunks were admitted; restore only this and later
-                # chunks so counts are never duplicated.
-                for key, counts in buffered[offset:]:
-                    if key not in self._event_count_buffer:
-                        self._event_count_buffer[key] = [0, 0, 0, 0]
-                        self._event_count_index_add(key)
-                    target = self._event_count_buffer[key]
-                    for index, count in enumerate(counts):
-                        target[index] += count
                 self._last_error = (
                     f"telemetry_event_count_flush:{type(exc).__name__}:{exc}"
                 )[:240]
-                return False
+                deferred = False
+            else:
+                if not deferred:
+                    continue
+            # Earlier chunks were admitted; restore only this and later
+            # chunks so counts are never duplicated.
+            for key, counts in buffered[offset:]:
+                if key not in self._event_count_buffer:
+                    self._event_count_buffer[key] = [0, 0, 0, 0]
+                    self._event_count_index_add(key)
+                target = self._event_count_buffer[key]
+                for index, count in enumerate(counts):
+                    target[index] += count
+            if deferred:
+                # Reported, never hidden -- and never as an error.
+                self.counters["telemetry_event_flush_deferred"] += 1
+            return False
         return True
 
     def _drain_event_counts_for_shutdown(self) -> bool:
