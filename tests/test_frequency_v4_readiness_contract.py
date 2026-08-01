@@ -28,6 +28,11 @@ import threading
 
 import pytest
 
+from poly_alpha_sniper.lite_frequency_v4.store import (
+    V4EvidenceCollision,
+    V4EvidenceConflict,
+    V4EvidenceDuplicate,
+)
 from poly_alpha_sniper.lite_frequency_v4.telemetry import (
     POLICY_LOSS_CATEGORIES,
     TelemetryCapacityState,
@@ -81,11 +86,20 @@ class _DuplicateRowSink(_Sink):
     error names a single constraint without saying which row raised it.
     Bisecting the chunk is the only way to find out, and that is precisely what
     the lane must do before it may claim anything is "already stored".
+
+    The verdict raised here is the *typed* one a real store produces, carrying
+    the field-by-field comparison it performed.  It used to be a hand-written
+    error string that the lane pattern-matched, which meant the isolation these
+    tests cover was demonstrated against a message rather than against evidence:
+    the string asserted "already stored" and nothing ever checked.  See
+    ``tests/test_frequency_v4_duplicate_evidence.py`` for the same behaviour
+    driven through a real ``V4Store`` and real SQLite constraints.
     """
 
-    def __init__(self, duplicate_marker: int) -> None:
+    def __init__(self, duplicate_marker: int, *, equivalent: bool = True) -> None:
         super().__init__()
         self.duplicate_marker = int(duplicate_marker)
+        self.equivalent = bool(equivalent)
         self.collisions = 0
 
     def _carries_duplicate(self, rows) -> bool:
@@ -103,9 +117,24 @@ class _DuplicateRowSink(_Sink):
             self.chunk_sizes.append(len(rows))
             if self._carries_duplicate(rows):
                 self.collisions += 1
-                raise RuntimeError(
-                    "IntegrityError:UNIQUE constraint failed: "
-                    "book_snapshots.state_hash")
+                collision = V4EvidenceCollision(
+                    table="book_snapshots",
+                    key={"n": self.duplicate_marker},
+                    existing_rowid=1,
+                    compared=("state_hash", "stale"),
+                    differing=({} if self.equivalent
+                               else {"stale": (0, 1)}),
+                    constraint_error=(
+                        "UNIQUE constraint failed: "
+                        "book_snapshots.market_identity_id, "
+                        "book_snapshots.token_id, "
+                        "book_snapshots.state_hash, "
+                        "book_snapshots.receipt_ts_ms"),
+                )
+                raise (
+                    V4EvidenceDuplicate(collision) if self.equivalent
+                    else V4EvidenceConflict(collision)
+                )
             self.batches.append(rows)
         return len(rows)
 

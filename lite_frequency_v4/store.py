@@ -7,7 +7,7 @@ All trading rows are shadow evidence; there is no order-placement surface.
 from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from functools import lru_cache
 import hashlib
 import json
@@ -125,6 +125,110 @@ class UniverseEligibilityError(V4StoreError):
 
 class V4BackgroundWriteDeferred(V4StoreError):
     """Raised when a critical-first gate declines a background write."""
+
+
+@dataclass(frozen=True)
+class V4EvidenceCollision:
+    """What a UNIQUE collision actually proved, field by field.
+
+    A UNIQUE violation says the *key* already exists.  It says nothing at all
+    about the columns outside that key, and ``book_snapshots`` carries most of
+    its evidence outside it -- provenance, sequence, monotonic receipt, the
+    derived top-of-book, hydration and staleness.  Two rows can therefore
+    collide while disagreeing about what was observed.
+
+    So the collision is resolved by reading the stored row and comparing every
+    evidence-bearing column against the one offered.  ``equivalent`` is true
+    only when all of them match exactly; ``differing`` names each column that
+    did not, with the stored value first and the offered value second, so the
+    diagnostic is complete without needing the database again.
+    """
+
+    table: str
+    key: Mapping[str, Any]
+    existing_rowid: Optional[int]
+    compared: tuple[str, ...]
+    differing: Mapping[str, tuple[Any, Any]]
+    constraint_error: str
+
+    @property
+    def equivalent(self) -> bool:
+        return not self.differing
+
+    def summary(self) -> str:
+        if self.equivalent:
+            return (
+                f"{self.table} duplicate verified equivalent across "
+                f"{len(self.compared)} evidence fields"
+            )
+        parts = ", ".join(
+            f"{name}: stored={stored!r} offered={offered!r}"
+            for name, (stored, offered) in sorted(self.differing.items())
+        )
+        return (
+            f"{self.table} UNIQUE collision is NOT a duplicate: "
+            f"{len(self.differing)} of {len(self.compared)} evidence fields "
+            f"differ ({parts})"
+        )
+
+
+class V4EvidenceDuplicate(V4StoreError):
+    """A UNIQUE collision *proven* to be a byte-equivalent re-offer.
+
+    Carries the verification, not a message a caller has to parse.  The
+    telemetry lane keys its deduplication accounting off the typed attribute
+    below; nothing anywhere reads the exception text to decide an outcome.
+    """
+
+    telemetry_verified_duplicate = True
+
+    def __init__(self, collision: V4EvidenceCollision):
+        super().__init__(collision.summary())
+        self.collision = collision
+
+
+class V4EvidenceConflict(V4StoreError):
+    """A UNIQUE collision whose stored row disagrees about the evidence.
+
+    Fail-closed and blocking.  The offered row carries observations the stored
+    row does not, and discarding it would silently lose them -- which is exactly
+    what calling every collision a "duplicate" did.
+    """
+
+    telemetry_integrity_conflict = True
+
+    def __init__(self, collision: V4EvidenceCollision):
+        super().__init__(collision.summary())
+        self.collision = collision
+
+
+#: Columns of ``book_snapshots`` that carry observed evidence, and so must all
+#: match before a UNIQUE collision may be called a duplicate.  Only four of them
+#: are in the UNIQUE key -- everything else here is outside it, which is the
+#: whole reason the key alone cannot establish equivalence.
+_BOOK_SNAPSHOT_EVIDENCE_FIELDS: tuple[str, ...] = (
+    "source_event_id", "market_identity_id", "token_id", "outcome_side",
+    "provider_ts_ms", "receipt_ts_ms", "monotonic_ns", "sequence_no",
+    "state_hash", "best_bid", "best_ask", "spread",
+    "bid_depth_5", "ask_depth_5", "bids_json", "asks_json",
+    "hydrated", "stale", "invalid_reason",
+)
+
+#: Columns deliberately excluded from the comparison, each for a stated reason.
+#: ``book_snapshot_id`` is a surrogate SQLite assigns and no observation ever
+#: supplies.  ``retention_class`` and ``pin_count`` are *mutable lifecycle state*
+#: written after insert -- pinning promotes a stored row to TRADE_EVIDENCE and
+#: increments its pin count -- so a legitimately identical re-offer would differ
+#: from a pinned stored row on both, and comparing them would report a conflict
+#: for a row that carries no new observation at all.
+_BOOK_SNAPSHOT_NON_EVIDENCE_FIELDS: tuple[str, ...] = (
+    "book_snapshot_id", "retention_class", "pin_count",
+)
+
+#: The UNIQUE constraint the collision is resolved against.
+_BOOK_SNAPSHOT_UNIQUE_KEY: tuple[str, ...] = (
+    "market_identity_id", "token_id", "state_hash", "receipt_ts_ms",
+)
 
 
 @contextmanager
@@ -2103,6 +2207,10 @@ class V4Store:
         self._transaction_depth = 0
         self._transaction_owner_thread_id: Optional[int] = None
         self._transaction_rollback_only = False
+        # Effective insert defaults per table, resolved from the schema on
+        # first use.  Used to compare an omitted column against what SQLite
+        # would actually have stored for it.
+        self._column_default_cache: dict[str, Mapping[str, Any]] = {}
         self._transaction_counters = {
             "started": 0,
             "committed": 0,
@@ -2994,6 +3102,75 @@ class V4Store:
             "reference_only": reference_only,
         }
 
+    def _column_defaults(self, conn: sqlite3.Connection,
+                         table: str) -> Mapping[str, Any]:
+        """Effective value each column takes when an insert omits it.
+
+        Resolved by asking SQLite to evaluate its own stored default expression,
+        so quoting and literal syntax are never re-implemented here.  Cached per
+        table: the schema does not change under a running store.
+        """
+
+        cached = self._column_default_cache.get(table)
+        if cached is not None:
+            return cached
+        defaults: dict[str, Any] = {}
+        for column in conn.execute(
+                f"PRAGMA table_info({_quote_ident(table)})").fetchall():
+            expression = column["dflt_value"]
+            if expression is None:
+                defaults[str(column["name"])] = None
+                continue
+            defaults[str(column["name"])] = conn.execute(
+                f"SELECT {expression}").fetchone()[0]
+        self._column_default_cache[table] = defaults
+        return defaults
+
+    def _verify_book_snapshot_collision(
+        self, conn: sqlite3.Connection, row: Mapping[str, Any],
+        error: sqlite3.IntegrityError,
+    ) -> V4EvidenceCollision:
+        """Read the row that is already there and compare the evidence.
+
+        SQLite's default conflict resolution is ABORT, which backs out the
+        failed statement and leaves the transaction open, so this read sees
+        exactly the committed state that caused the collision.
+        """
+
+        key = {name: _clean(row.get(name)) for name in _BOOK_SNAPSHOT_UNIQUE_KEY}
+        predicate = " AND ".join(f"{name}=?" for name in _BOOK_SNAPSHOT_UNIQUE_KEY)
+        stored = conn.execute(
+            f"SELECT * FROM book_snapshots WHERE {predicate}",
+            tuple(key[name] for name in _BOOK_SNAPSHOT_UNIQUE_KEY),
+        ).fetchone()
+        if stored is None:
+            # The constraint fired but nothing is there to compare against, so
+            # nothing is proven.  Never a duplicate.
+            return V4EvidenceCollision(
+                table="book_snapshots", key=key, existing_rowid=None,
+                compared=(),
+                differing={"__existing_row__": (None, "not found")},
+                constraint_error=str(error),
+            )
+        stored_row = dict(stored)
+        defaults = self._column_defaults(conn, "book_snapshots")
+        differing: dict[str, tuple[Any, Any]] = {}
+        for name in _BOOK_SNAPSHOT_EVIDENCE_FIELDS:
+            # An omitted column is not "unknown": the insert would have taken
+            # the schema default, so that is what was offered.
+            offered = _clean(row[name]) if name in row else defaults.get(name)
+            if stored_row.get(name) != offered:
+                differing[name] = (stored_row.get(name), offered)
+        return V4EvidenceCollision(
+            table="book_snapshots", key=key,
+            existing_rowid=(
+                None if stored_row.get("book_snapshot_id") is None
+                else int(stored_row["book_snapshot_id"])),
+            compared=_BOOK_SNAPSHOT_EVIDENCE_FIELDS,
+            differing=differing,
+            constraint_error=str(error),
+        )
+
     def record_book_snapshot(self, value: Any) -> int:
         row = self._safe_payload(value)
         row.setdefault("state_hash", _canonical_hash({
@@ -3001,7 +3178,21 @@ class V4Store:
         }))
         row.setdefault("retention_class", "RAW")
         with self.transaction() as conn:
-            return self._insert("book_snapshots", row, conn=conn)
+            try:
+                return self._insert("book_snapshots", row, conn=conn)
+            except sqlite3.IntegrityError as exc:
+                # A UNIQUE violation proves the key is taken.  It proves nothing
+                # about the evidence outside the key, and most of this table's
+                # evidence is outside it.  Resolve it by reading the stored row
+                # and comparing, then report a *typed* outcome -- never a string
+                # for someone else to pattern-match.
+                if "UNIQUE constraint failed" not in str(exc):
+                    raise
+                collision = self._verify_book_snapshot_collision(conn, row, exc)
+                raise (
+                    V4EvidenceDuplicate(collision) if collision.equivalent
+                    else V4EvidenceConflict(collision)
+                ) from exc
 
     def record_cex_observation(
         self, value: Any, *, session_id: Optional[str] = None,

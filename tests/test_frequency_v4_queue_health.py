@@ -310,11 +310,18 @@ def test_deduplicated_batch_is_not_a_controller_failure():
         _classify_batch_failure,
     )
 
-    # The exact production error text, as the dispatcher formats it.
+    # The exact production error text, as the dispatcher formats it.  On its
+    # own it proves nothing: the constraint names four columns and the evidence
+    # this table carries mostly sits outside them, so the text alone is now a
+    # sink failure and the sink must actually compare the rows.
     duplicate = ("RuntimeError:IntegrityError:UNIQUE constraint failed: "
                  "book_snapshots.market_identity_id, book_snapshots.token_id, "
                  "book_snapshots.state_hash, book_snapshots.receipt_ts_ms")
-    category = _classify_batch_failure(duplicate, deadline_exceeded=False)
+    assert _classify_batch_failure(
+        duplicate, deadline_exceeded=False,
+    ) is TelemetryLossCategory.SINK_FAILURE
+    category = _classify_batch_failure(
+        duplicate, deadline_exceeded=False, verified_duplicate=True)
     assert category is TelemetryLossCategory.POLICY_DEDUPLICATED
     # ...and being a policy outcome is exactly what keeps it out of the
     # controller's failed-batch path, so the settle clock is not reset.

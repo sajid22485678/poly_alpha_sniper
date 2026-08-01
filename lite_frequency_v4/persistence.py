@@ -21,7 +21,12 @@ import time
 from typing import Any, Iterable, Mapping, Optional
 import uuid
 
-from .store import V4Store, V4StoreError
+from .store import (
+    V4EvidenceConflict,
+    V4EvidenceDuplicate,
+    V4Store,
+    V4StoreError,
+)
 
 
 _SECRET_KEY_RE = re.compile(
@@ -1412,6 +1417,12 @@ class V4TelemetryStoreSink:
             "row_cost_by_method": {},
             "last_outer_transactions": 0, "last_error": "",
             "priority_skipped_batches": 0,
+            # UNIQUE collisions the store resolved by reading the stored row.
+            # Verified duplicates are an approved policy outcome; conflicts are
+            # blocking.  They are counted apart because conflating them is what
+            # let differing evidence be discarded as "already stored".
+            "verified_duplicate_batches": 0,
+            "evidence_conflict_batches": 0,
             "deadline_exceeded_batches": 0, "batch_rejected_count": 0,
             "max_batch_calls": self.max_batch_calls,
             "max_transaction_ms": self.max_transaction_ms,
@@ -1647,6 +1658,24 @@ class V4TelemetryStoreSink:
             self._metrics["failures"] += 1
             self._metrics["deadline_exceeded_batches"] += 1
             self._metrics["state"] = "DEGRADED_TELEMETRY_DEADLINE"
+            self._metrics["last_error"] = f"{type(exc).__name__}:{exc}"[:500]
+            raise
+        except V4EvidenceDuplicate as exc:
+            # The store read the stored row and proved every evidence-bearing
+            # field equivalent, so nothing was lost: the chunk rolled back on a
+            # redundant re-offer.  Not a writer failure, and deliberately not
+            # counted as one -- but always reported.
+            self._metrics["verified_duplicate_batches"] += 1
+            self._metrics["state"] = "POLICY_DEDUPLICATED"
+            self._metrics["last_error"] = f"{type(exc).__name__}:{exc}"[:500]
+            raise
+        except V4EvidenceConflict as exc:
+            # The stored row disagrees about the evidence.  The offered row
+            # carries observations the database does not have, so this is real
+            # loss if it is discarded, and it stays blocking.
+            self._metrics["failures"] += 1
+            self._metrics["evidence_conflict_batches"] += 1
+            self._metrics["state"] = "DEGRADED_EVIDENCE_CONFLICT"
             self._metrics["last_error"] = f"{type(exc).__name__}:{exc}"[:500]
             raise
         except sqlite3.OperationalError as exc:

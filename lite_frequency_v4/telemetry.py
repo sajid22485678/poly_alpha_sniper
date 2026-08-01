@@ -2041,34 +2041,38 @@ class _AdaptiveTelemetryController:
 _MAX_PRIORITY_REQUEUE_ATTEMPTS = 32
 
 
-#: Noncritical tables whose natural key includes a content hash, so a UNIQUE
-#: violation proves a byte-identical row is *already durably present*.  Only
-#: these may be accounted as POLICY_DEDUPLICATED; every other constraint failure
-#: is a sink failure, because we cannot show the evidence survived.
-_CONTENT_ADDRESSED_TABLES: Mapping[str, str] = {
-    "book_snapshots": "state_hash",
-}
-
-
 def _classify_batch_failure(
     error: Optional[str], *, deadline_exceeded: bool,
+    verified_duplicate: bool = False,
 ) -> TelemetryLossCategory:
     """Attribute one failed physical batch to exactly one terminal category.
 
-    A cooperative deadline miss is its own cause.  A UNIQUE violation on a
-    content-addressed noncritical table means the identical row is already
-    stored -- the write was a redundant re-offer, not lost evidence -- and is
-    accounted as deduplication.  Anything else is an unexplained sink failure
-    and stays blocking; we never assume evidence survived.
+    A cooperative deadline miss is its own cause.  Deduplication is claimed only
+    when the sink has *proven* it: the previous implementation read the
+    exception text, and accounted any UNIQUE violation naming
+    ``book_snapshots.state_hash`` as an already-stored byte-identical row.
+
+    That inference does not hold.  The constraint is over
+    ``(market_identity_id, token_id, state_hash, receipt_ts_ms)``, and the hash
+    covers only token, condition, provider timestamp, connection epoch and the
+    two ladders.  Provenance, sequence number, monotonic receipt, the derived
+    top-of-book, hydration and staleness are all outside both -- so two rows can
+    collide while disagreeing about what was observed, and the differing row was
+    discarded as "already stored".  A re-offer whose ``stale`` flag has flipped
+    is exactly that case, and it is not hypothetical: it is the shape the state
+    coalescer deliberately lets through.
+
+    So the sink now returns a typed verdict after reading the stored row and
+    comparing every evidence-bearing column, and this function reads that
+    verdict.  Nothing here parses a message.  An unverified collision is a sink
+    failure and stays blocking, because we never assume evidence survived.
     """
 
     if deadline_exceeded:
         return TelemetryLossCategory.DEADLINE_EXPIRED
-    text = str(error or "")
-    if "UNIQUE constraint failed" in text:
-        for table, hash_column in _CONTENT_ADDRESSED_TABLES.items():
-            if f"{table}.{hash_column}" in text:
-                return TelemetryLossCategory.POLICY_DEDUPLICATED
+    if verified_duplicate:
+        return TelemetryLossCategory.POLICY_DEDUPLICATED
+    _ = error
     return TelemetryLossCategory.SINK_FAILURE
 
 
@@ -2246,6 +2250,11 @@ class V4TelemetryWriter:
         # throughput cap; see the isolation branch in ``_dispatch``.
         self._duplicate_isolation_ceiling: Optional[int] = None
         self._duplicate_isolation_events = 0
+        # UNIQUE collisions whose stored row disagreed about the evidence.
+        # These are blocking sink failures, never deduplication; the last one is
+        # retained field-by-field so the failure is diagnosable from the lane.
+        self._evidence_conflicts = 0
+        self._last_evidence_conflict: Optional[dict[str, Any]] = None
         self._consecutive_successful_batches = 0
         self._last_priority_skip_ts_ms = 0
         self._checkpoint_deferral_batches = 0
@@ -2324,6 +2333,10 @@ class V4TelemetryWriter:
             "duplicate_isolation_ceiling": self._duplicate_isolation_ceiling,
             "duplicate_isolation_events": int(
                 self._duplicate_isolation_events),
+            "evidence_conflicts": int(self._evidence_conflicts),
+            "last_evidence_conflict": (
+                None if self._last_evidence_conflict is None
+                else dict(self._last_evidence_conflict)),
             "health": str(self._health),
             "submitted": int(self._submitted),
             "offered": int(self._offered),
@@ -3279,6 +3292,10 @@ class V4TelemetryWriter:
         priority_skip = False
         checkpoint_deferral = False
         deadline_exceeded = False
+        # Set only when the sink read the stored row and proved every
+        # evidence-bearing field equivalent.  Never inferred from a message.
+        verified_duplicate = False
+        evidence_conflict: Optional[Any] = None
         failed_rows: list[_Pending] = []
         failed_chunk_rows = 0
         deadline_budget_ms: Optional[float] = None
@@ -3334,6 +3351,13 @@ class V4TelemetryWriter:
                     getattr(exc, "telemetry_checkpoint_deferral", False))
                 deadline_exceeded = bool(
                     getattr(exc, "telemetry_deadline_exceeded", False))
+                verified_duplicate = bool(
+                    getattr(exc, "telemetry_verified_duplicate", False))
+                if getattr(exc, "telemetry_integrity_conflict", False):
+                    # The stored row disagrees about the evidence.  Keep the
+                    # full field-by-field verdict so the failure is diagnosable
+                    # without re-reading the database.
+                    evidence_conflict = getattr(exc, "collision", None)
                 budget_attr = getattr(exc, "telemetry_deadline_ms", None)
                 if isinstance(budget_attr, (int, float)) and not isinstance(
                         budget_attr, bool):
@@ -3459,7 +3483,24 @@ class V4TelemetryWriter:
                     time.monotonic() + self._deadline_backoff_s)
             else:
                 category = _classify_batch_failure(
-                    error, deadline_exceeded=deadline_exceeded)
+                    error, deadline_exceeded=deadline_exceeded,
+                    verified_duplicate=verified_duplicate)
+                if evidence_conflict is not None:
+                    # Surface the differing fields on the lane's own error, so
+                    # an operator sees what disagreed rather than "batch
+                    # failed".  This is blocking loss, not a policy outcome.
+                    self._last_evidence_conflict = {
+                        "table": getattr(evidence_conflict, "table", ""),
+                        "key": dict(getattr(evidence_conflict, "key", {}) or {}),
+                        "existing_rowid": getattr(
+                            evidence_conflict, "existing_rowid", None),
+                        "differing": {
+                            name: [stored, offered] for name, (stored, offered)
+                            in dict(getattr(
+                                evidence_conflict, "differing", {}) or {}).items()
+                        },
+                    }
+                    self._evidence_conflicts += 1
                 # A batch rejected only because a content-addressed row is
                 # already stored is a deduplication outcome, not a sink failure:
                 # the evidence is present and nothing was lost.  Counting it as
@@ -3489,16 +3530,28 @@ class V4TelemetryWriter:
                 # same bounded retry the drain already performs, and stopping
                 # early would put the false attribution back.  A *forced* stop
                 # is discarding the queue anyway, so it does not bisect.
-                isolating_duplicate = (
-                    policy_outcome
-                    and category is TelemetryLossCategory.POLICY_DEDUPLICATED
-                    and failed_chunk_rows > 1
+                # An integrity conflict is bisected on exactly the same
+                # reasoning, and needs it more.  The collision proves something
+                # about one row; the chunk rolled back, so the other rows are
+                # untouched and still writable.  Condemning them as SINK_FAILURE
+                # would destroy valid evidence to punish a row they have nothing
+                # to do with -- the same false attribution the duplicate path
+                # already exists to prevent, only now the outcome is blocking,
+                # so the innocent rows would be counted as real loss.
+                isolating_collision = (
+                    failed_chunk_rows > 1
                     and not (self._stop_requested and not self._drain_on_stop)
+                    and (
+                        (policy_outcome
+                         and category
+                         is TelemetryLossCategory.POLICY_DEDUPLICATED)
+                        or evidence_conflict is not None
+                    )
                 )
                 if not policy_outcome:
                     self._failed_batches += 1
                     self._consecutive_successful_batches = 0
-                if isolating_duplicate:
+                if isolating_collision:
                     self._duplicate_isolation_ceiling = max(
                         1, failed_chunk_rows // 2)
                     self._duplicate_isolation_events += 1
@@ -3610,10 +3663,13 @@ class V4TelemetryWriter:
                         self._controller.add(
                             completed, queue_depth=len(self._queue),
                             failed_batches=1)
+                    # The category decided above, not a second inference from
+                    # the same inputs: recomputing it here is how the typed
+                    # verdict could silently be dropped on the attribution path
+                    # while the branch above still believed it.
                     self._drop_locked(
                         logical_unwritten, error or "telemetry_batch_failed",
-                        category=_classify_batch_failure(
-                            error, deadline_exceeded=deadline_exceeded),
+                        category=category,
                         health=health, post_admission=True)
                     for pending in failed_rows:
                         self._rollback_admission_locked(pending)
@@ -4001,6 +4057,16 @@ class V4TelemetryWriter:
                 "window_policy_resolved_rows": window.policy_resolved,
                 "duplicate_isolation_events": (
                     self._duplicate_isolation_events),
+                # UNIQUE collisions the sink refused to call duplicates because
+                # the stored row disagreed about the evidence.  Blocking, and
+                # counted separately from deduplication so the two can never be
+                # confused in the record.  The last one is carried field by
+                # field so an operator sees what disagreed, not just that
+                # something did.
+                "evidence_conflicts": int(self._evidence_conflicts),
+                "last_evidence_conflict": (
+                    None if self._last_evidence_conflict is None
+                    else dict(self._last_evidence_conflict)),
                 "deadline_shrink_events": self._deadline_shrink_events,
                 "transaction_budget_ms": self._budget_ms,
                 "observed_ms_per_row": (

@@ -107,11 +107,16 @@ def test_loss_categories_are_disjoint_and_exhaustive():
         ("anything", True, TelemetryLossCategory.DEADLINE_EXPIRED),
         ("RuntimeError:sink exploded", False, TelemetryLossCategory.SINK_FAILURE),
         (None, False, TelemetryLossCategory.SINK_FAILURE),
-        # Content-addressed natural key: the identical row is already stored.
+        # No message may produce a deduplication verdict any more -- not even
+        # the one that used to.  A UNIQUE violation says the key is taken; it
+        # says nothing about the evidence outside the key, and most of
+        # ``book_snapshots`` is outside it.
         ("IntegrityError:UNIQUE constraint failed: book_snapshots.state_hash",
-         False, TelemetryLossCategory.POLICY_DEDUPLICATED),
-        # A UNIQUE violation without a content hash proves nothing about the
-        # stored row, so it stays a sink failure.
+         False, TelemetryLossCategory.SINK_FAILURE),
+        ("IntegrityError:UNIQUE constraint failed: "
+         "book_snapshots.market_identity_id, book_snapshots.token_id, "
+         "book_snapshots.state_hash, book_snapshots.receipt_ts_ms",
+         False, TelemetryLossCategory.SINK_FAILURE),
         ("IntegrityError:UNIQUE constraint failed: entries.entry_id",
          False, TelemetryLossCategory.SINK_FAILURE),
     ],
@@ -119,6 +124,28 @@ def test_loss_categories_are_disjoint_and_exhaustive():
 def test_batch_failure_classification(error, deadline, expected):
     assert _classify_batch_failure(
         error, deadline_exceeded=deadline) is expected
+
+
+def test_only_a_verified_duplicate_can_be_classified_as_deduplication():
+    """The verdict comes from the sink's comparison, never from the text.
+
+    The sink reads the stored row and compares every evidence-bearing field
+    before it will claim anything is already stored.  This is that contract:
+    the typed flag decides, and no error string can substitute for it.
+    """
+
+    assert _classify_batch_failure(
+        None, deadline_exceeded=False, verified_duplicate=True,
+    ) is TelemetryLossCategory.POLICY_DEDUPLICATED
+    assert _classify_batch_failure(
+        "IntegrityError:UNIQUE constraint failed: book_snapshots.state_hash",
+        deadline_exceeded=False, verified_duplicate=True,
+    ) is TelemetryLossCategory.POLICY_DEDUPLICATED
+    # A cooperative deadline miss is still its own cause and outranks it: the
+    # transaction was abandoned, so no comparison happened.
+    assert _classify_batch_failure(
+        None, deadline_exceeded=True, verified_duplicate=True,
+    ) is TelemetryLossCategory.DEADLINE_EXPIRED
 
 
 # ---------------------------------------------------------------------------
