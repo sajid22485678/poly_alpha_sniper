@@ -17,7 +17,9 @@ import re
 import sqlite3
 import threading
 import time
-from typing import Any, Callable, Iterable, Iterator, Mapping, Optional
+from typing import (
+    Any, Callable, Iterable, Iterator, Mapping, Optional, Sequence,
+)
 
 from .export_profile import EXPORT_PROFILE, row_digest
 from .reader_diag import READER_DIAGNOSTICS
@@ -1076,6 +1078,156 @@ EXPECTED_TABLES = frozenset(
         SCHEMA_SQL, flags=re.MULTILINE,
     )
 )
+
+
+# ---------------------------------------------------------------------------
+# Human-ratified overlay-index authority (2026-08-02)
+# ---------------------------------------------------------------------------
+#
+# ``V4Store._PERFORMANCE_INDEXES`` creates additive indexes on every writable
+# open, outside ``SCHEMA_SQL``, outside every migration, and outside the
+# managed-V5 census.  Six of them exist in no other declaration at all, so
+# nothing attested them: the 2026-07-25 base-schema authority pins ``SCHEMA_SQL``
+# and requires a new resolution for changes *to it*, and is silent about objects
+# created beside it.  Five of those six predate that ratification and were
+# neither covered nor rejected by it; the sixth, ``ix_cex_latest_by_key``, was
+# added by 4d8655c and is what surfaced the gap.
+#
+# The ratification covers exactly these six, as additive, non-unique,
+# non-partial, performance-only, semantics-preserving objects.  It is
+# deliberately **not** blanket authority for the mechanism: the pinned hash
+# below covers the whole overlay, so any addition, removal or edit -- including
+# a purely cosmetic one -- fails closed until its own resolution, tests and
+# semantics-equivalence evidence are recorded.
+#
+# Per-index DDL, query-plan and benchmark evidence, rollback commands and census
+# treatment are recorded in the resolution document accompanying this
+# ratification.  No index was dropped, no ``user_version`` changed, no table DDL
+# modified and no migration created for it.
+V4_RATIFIED_OVERLAY_ONLY_INDEXES: frozenset[str] = frozenset({
+    "ix_candidates_retention",
+    "ix_cex_latest_by_key",
+    "ix_latency_candidate",
+    "ix_maker_observations_candidate",
+    "ix_rejects_candidate",
+    "ix_retention_runs_time",
+})
+
+#: SHA-256 over ``{name: normalized DDL}`` for the *entire* overlay, canonically
+#: serialised.  Pinning the whole tuple rather than only the ratified six is
+#: deliberate: an index that also appears in ``SCHEMA_SQL`` can still have its
+#: overlay definition drift away from the declared one, and that drift would
+#: otherwise be invisible.
+V4_OVERLAY_INDEX_AUTHORITY_SHA256 = (
+    "59a94252ae9ba8be3b0123e48ef5e313fb56d3113a33c5d0b08893890924d02f"
+)
+V4_OVERLAY_INDEX_AUTHORITY_COUNT = 11
+
+_OVERLAY_INDEX_NAME_RE = re.compile(
+    r"CREATE INDEX IF NOT EXISTS ([a-z_][a-z0-9_]*)\s+ON\s+([a-z_][a-z0-9_]*)")
+
+#: Migration bodies, by name, resolved at call time -- they are defined below
+#: this block and an eager reference would be a forward one.  Named explicitly
+#: rather than discovered by suffix so a new migration constant cannot silently
+#: enlarge the "already declared" set and retire an overlay object's ratified
+#: status without anyone deciding to.
+_MIGRATION_SQL_NAMES = (
+    "PERSISTENCE_SCHEMA_V2_SQL",
+    "PHASE1_SCHEMA_V3_SQL",
+    "PHASE2A_SCHEMA_V4_SQL",
+    "PHASE2B_SCHEMA_V5_SQL",
+)
+
+
+def _declared_indexes() -> set[str]:
+    """Index names declared by ``SCHEMA_SQL`` or any migration."""
+
+    sources = [SCHEMA_SQL]
+    for name in _MIGRATION_SQL_NAMES:
+        body = globals().get(name)
+        if not isinstance(body, str):
+            raise V4SchemaError(
+                f"overlay index authority: migration {name} is missing")
+        sources.append(body)
+    return set(re.findall(
+        r"CREATE (?:UNIQUE )?INDEX (?:IF NOT EXISTS )?([a-z_][a-z0-9_]*)",
+        "\n".join(sources)))
+
+
+def overlay_index_records(
+    statements: Sequence[str],
+) -> "list[dict[str, str]]":
+    """Name, target table and normalized DDL for each overlay statement."""
+
+    records = []
+    for statement in statements:
+        match = _OVERLAY_INDEX_NAME_RE.search(statement)
+        if match is None:
+            raise V4SchemaError(
+                "overlay index statement is not a recognised additive "
+                f"CREATE INDEX IF NOT EXISTS: {statement!r}")
+        records.append({
+            "name": match.group(1),
+            "table": match.group(2),
+            "sql": normalize_managed_sql(statement),
+        })
+    return records
+
+
+def overlay_index_fingerprint(statements: Sequence[str]) -> str:
+    """Canonical hash of the overlay contract, stable under formatting."""
+
+    canonical = json.dumps(
+        {record["name"]: record["sql"]
+         for record in overlay_index_records(statements)},
+        sort_keys=True, separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def verify_overlay_index_authority(statements: Sequence[str]) -> None:
+    """Fail closed unless the overlay is exactly what was ratified.
+
+    Called before any overlay index is issued, so an unratified object can
+    never reach a database.  A UNIQUE or partial index here would change
+    insertion or conflict semantics rather than only performance, which is
+    outside what was ratified and is refused by name.
+    """
+
+    records = overlay_index_records(statements)
+    names = [record["name"] for record in records]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise V4SchemaError(
+            f"overlay index authority: duplicate definitions for {duplicates}")
+    for statement in statements:
+        upper = statement.upper()
+        if "UNIQUE" in upper or " WHERE " in upper:
+            raise V4SchemaError(
+                "overlay index authority: only additive non-unique, "
+                f"non-partial indexes are ratified; refusing {statement!r}")
+    if len(records) != V4_OVERLAY_INDEX_AUTHORITY_COUNT:
+        raise V4SchemaError(
+            "overlay index authority: expected "
+            f"{V4_OVERLAY_INDEX_AUTHORITY_COUNT} statements, found "
+            f"{len(records)}; a new human resolution is required")
+    fingerprint = overlay_index_fingerprint(statements)
+    if fingerprint != V4_OVERLAY_INDEX_AUTHORITY_SHA256:
+        raise V4SchemaError(
+            "overlay index authority: contract fingerprint "
+            f"{fingerprint} does not match the ratified "
+            f"{V4_OVERLAY_INDEX_AUTHORITY_SHA256}; any addition, removal or "
+            "edit requires its own recorded resolution, tests and "
+            "semantics-equivalence evidence")
+    overlay_only = {record["name"] for record in records} - _declared_indexes()
+    if overlay_only != V4_RATIFIED_OVERLAY_ONLY_INDEXES:
+        missing = sorted(V4_RATIFIED_OVERLAY_ONLY_INDEXES - overlay_only)
+        extra = sorted(overlay_only - V4_RATIFIED_OVERLAY_ONLY_INDEXES)
+        raise V4SchemaError(
+            "overlay index authority: objects outside SCHEMA_SQL and every "
+            f"migration are {sorted(overlay_only)}, not the ratified "
+            f"{sorted(V4_RATIFIED_OVERLAY_ONLY_INDEXES)} "
+            f"(unratified={extra}, no longer present={missing})")
 
 
 # Additive V2 -> V3 migration: Phase 1 cohort separation and capital-ledger
@@ -2309,6 +2461,10 @@ class V4Store:
 
     def _ensure_performance_indexes(self) -> None:
         self._assert_owner()
+        # Fail closed at the point of effect: an overlay object that is not in
+        # the ratified contract must never reach a database, so the check runs
+        # before the first statement rather than in a test somewhere.
+        verify_overlay_index_authority(self._PERFORMANCE_INDEXES)
         with self._lock:
             for statement in self._PERFORMANCE_INDEXES:
                 self._conn.execute(statement)
