@@ -3106,9 +3106,18 @@ class V4TelemetryWriter:
                         transaction_budget_ms=budget_hint,
                         queue_depth=len(self._queue),
                     )
-                    self._sync_controller_locked(completed)
-                    if self._physical_batch_ceiling < prior_ceiling:
-                        self._deadline_shrink_events += 1
+                    # The controller is deliberately *not* synchronised here.
+                    # The batch was released from ``_inflight_logical`` at the
+                    # top of this block and is not returned to
+                    # ``_queued_logical`` until the requeue below, so between
+                    # those two points its rows are owned by nobody.  Sampling
+                    # the conservation identity inside that window reports rows
+                    # that are mid-transition as unaccounted -- measured once
+                    # in 13,661 controller ticks on the 54.6-minute gate at
+                    # dd52e9c, a deficit of exactly the two rows then being
+                    # requeued, which alone raised ``service_imbalance``.
+                    # The sync happens after the requeue instead, where every
+                    # row is owned by exactly one state again.
                     # Exponential backoff (capped at 2 s) so a WAL-pinned slow
                     # commit does not cause a tight resubmit-and-miss loop.
                     # The queue keeps accepting; only the next flush is deferred.
@@ -3152,6 +3161,13 @@ class V4TelemetryWriter:
                             "telemetry_deadline_retry_exhausted",
                             category=TelemetryLossCategory.DEADLINE_EXPIRED,
                             health=health, post_admission=True)
+                    # Now that every row is requeued or attributed, the
+                    # controller may observe a consistent lane.  This is the
+                    # same synchronisation the shrink accounting needs, moved
+                    # to the far side of the transition.
+                    self._sync_controller_locked(completed)
+                    if self._physical_batch_ceiling < prior_ceiling:
+                        self._deadline_shrink_events += 1
                 else:
                     if policy_outcome:
                         # Evidence is already stored; keep the writer's health.

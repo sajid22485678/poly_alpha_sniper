@@ -541,6 +541,105 @@ def test_post_admission_policy_rows_are_still_reported_never_hidden():
 # ---------------------------------------------------------------------------
 
 
+class _DeadlineMissSink(_Sink):
+    """Misses its cooperative deadline for the first N dispatches."""
+
+    def __init__(self, *, misses: int) -> None:
+        super().__init__()
+        self.remaining = int(misses)
+        self.missed = 0
+
+    def telemetry_transaction_budget_ms(self) -> float:
+        return 40.0
+
+    def submit_telemetry_batch(self, commands, *, timeout_s):
+        with self._lock:
+            if self.remaining > 0:
+                self.remaining -= 1
+                self.missed += 1
+                error = RuntimeError("cooperative transaction deadline exceeded")
+                setattr(error, "telemetry_deadline_exceeded", True)
+                setattr(error, "telemetry_deadline_ms", 40.0)
+                raise error
+        return super().submit_telemetry_batch(commands, timeout_s=timeout_s)
+
+
+def test_controller_is_never_synchronised_while_the_lane_is_inconsistent():
+    """The controller must not sample the lane mid-transition.
+
+    A deadline-missed batch is released from ``inflight`` when the dispatch
+    result is accounted, and returned to ``queued`` by the requeue.  Between
+    those two points its rows are owned by nobody.  The deadline path used to
+    synchronise the controller *inside* that window, so the conservation
+    identity was evaluated against a lane that did not yet add up -- measured
+    once in 13,661 controller ticks on the 54.6-minute gate at dd52e9c, a
+    deficit of exactly the two rows then being requeued, and that single tick
+    alone raised ``service_imbalance``.
+
+    The whole accounting block runs under the lane's lock, so the ordering
+    inside it is deterministic and can be asserted directly: after a deadline
+    miss is observed, the requeue must complete before the controller is
+    synchronised.  That is the difference between the controller seeing a lane
+    that adds up and one that does not.
+    """
+
+    sink = _DeadlineMissSink(misses=6)
+    writer = _writer(sink, capacity=128, batch_size=8)
+
+    events: list[str] = []
+    original_miss = writer._controller.observe_deadline_miss
+    original_requeue = writer._requeue_locked
+    original_sync = writer._sync_controller_locked
+
+    def miss(**kwargs):
+        events.append("miss")
+        return original_miss(**kwargs)
+
+    def requeue(rows, **kwargs):
+        events.append("requeue")
+        return original_requeue(rows, **kwargs)
+
+    def sync(*args, **kwargs):
+        events.append("sync")
+        return original_sync(*args, **kwargs)
+
+    writer._controller.observe_deadline_miss = miss  # type: ignore[assignment]
+    writer._requeue_locked = requeue  # type: ignore[method-assign]
+    writer._sync_controller_locked = sync  # type: ignore[method-assign]
+
+    writer.start()
+    try:
+        for index in range(96):
+            writer.submit("record_book_snapshot", {"n": index})
+        assert writer.flush(timeout_s=20.0)
+    finally:
+        assert writer.stop(drain=True, timeout_s=20.0)
+
+    assert sink.missed == 6, "the deadline path must actually have been taken"
+    assert "miss" in events
+
+    # After each deadline miss, the next thing the lane does with those rows
+    # must be to requeue them -- never to let the controller look first.
+    for index, event in enumerate(events):
+        if event != "miss":
+            continue
+        follow = events[index + 1:]
+        next_requeue = next(
+            (offset for offset, name in enumerate(follow)
+             if name == "requeue"), None)
+        next_sync = next(
+            (offset for offset, name in enumerate(follow)
+             if name == "sync"), None)
+        assert next_requeue is not None, "a deadline miss must requeue its rows"
+        assert next_sync is None or next_requeue < next_sync, (
+            "controller synchronised between the deadline miss and the "
+            f"requeue: {events[index:index + 4]}")
+
+    # And the rows really were carried, not quietly dropped.
+    assert writer.snapshot()["noncritical_rows_unexpectedly_lost"] == 0
+    assert writer.reconcile()["mismatch"] == 0
+
+
 def test_readiness_trace_is_off_by_default():
     controller = _controller()
     _run_clean(controller, start=SETTLED, ticks=4)
