@@ -86,7 +86,8 @@ def env(tmp_path, monkeypatch):
             "out_dir": out_dir, "db": tmp_path / "db.sqlite"}
 
 
-def _run(env, *, duration_s=100.0, interval_s=10.0, ticks=None):
+def _run(env, *, duration_s=100.0, interval_s=10.0, ticks=None,
+         tail_timeout_s=0.0, on_sleep=None):
     """Drive the sampler on a virtual clock; ``ticks`` advances per sleep."""
 
     clock = {"t": 0.0}
@@ -97,12 +98,15 @@ def _run(env, *, duration_s=100.0, interval_s=10.0, ticks=None):
 
     def fake_sleep(seconds):
         clock["t"] += float(step)
+        if on_sleep is not None:
+            on_sleep(clock["t"])
 
     return sampler.run_sampler(
         output_dir=env["out_dir"], duration_s=duration_s,
         interval_s=interval_s, export_path=env["export_path"],
         runtime_dir=env["runtime_dir"], db_path=env["db"],
-        clock=fake_clock, sleep=fake_sleep, stream=io.StringIO())
+        clock=fake_clock, sleep=fake_sleep, stream=io.StringIO(),
+        tail_timeout_s=tail_timeout_s)
 
 
 def _records(path: Path) -> list[dict]:
@@ -375,3 +379,159 @@ def test_sampler_records_the_full_safety_tuple(env):
     assert row["live_adapter_present"] is False
     assert row["kill_switch_engaged"] is True
     assert row["fixed_shares"] == 5.0
+
+
+# ---------------------------------------------------------------------------
+# Measured dashboard liveness, memory, and a run that ends where it really ends
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_liveness_is_probed_not_asserted(env, monkeypatch):
+    """``dashboard_alive`` used to be a parameter defaulting to True.
+
+    No caller ever supplied it, so every sample asserted the dashboard was
+    serving without anyone looking, and the evaluator then checked that
+    constant.  A fresh export proves the exporter ran inside the bot; it says
+    nothing about the separate process that serves the page.
+    """
+
+    probes = []
+
+    def fake_probe(*args, **kwargs):
+        probes.append(1)
+        return {"url": "http://127.0.0.1:8504/", "listening": True,
+                "http_status": 200, "latency_ms": 3.5, "error": None}
+
+    monkeypatch.setattr(sampler, "probe_dashboard", fake_probe)
+    path, _, count = _run(env, duration_s=25.0)
+    rows = [r for r in _records(path) if r.get("record") != "manifest"]
+
+    assert len(probes) == count, "every sample must probe, not assume"
+    for row in rows:
+        assert row["dashboard_alive"] is True
+        assert row["dashboard_listening"] is True
+        assert row["dashboard_http_status"] == 200
+        assert row["dashboard_probe_ms"] == 3.5
+        assert row["dashboard_probe_error"] is None
+
+
+@pytest.mark.parametrize(
+    "probe, alive",
+    [
+        ({"listening": True, "http_status": 200}, True),
+        ({"listening": True, "http_status": 302}, True),
+        # A wedged server still holds the port; a listener check alone would
+        # call this healthy, which is why both are recorded.
+        ({"listening": True, "http_status": 500}, False),
+        ({"listening": True, "http_status": None}, False),
+        ({"listening": False, "http_status": None}, False),
+    ],
+)
+def test_dashboard_alive_requires_a_listener_and_a_good_status(
+        env, monkeypatch, probe, alive):
+    monkeypatch.setattr(
+        sampler, "probe_dashboard",
+        lambda *a, **k: {"url": "u", "latency_ms": 1.0, "error": None, **probe})
+    path, _, _ = _run(env, duration_s=15.0)
+    rows = [r for r in _records(path) if r.get("record") != "manifest"]
+    assert rows and all(row["dashboard_alive"] is alive for row in rows)
+
+
+def test_a_probe_failure_never_stops_the_sample(env, monkeypatch):
+    monkeypatch.setattr(sampler, "probe_dashboard", lambda *a, **k: {
+        "url": "u", "listening": False, "http_status": None,
+        "latency_ms": None, "error": "ConnectionRefusedError:refused"})
+    path, reason, count = _run(env, duration_s=25.0)
+    assert reason == sampler.STOP_DURATION_REACHED and count == 3
+    rows = [r for r in _records(path) if r.get("record") != "manifest"]
+    assert all(row["dashboard_alive"] is False for row in rows)
+    assert all("refused" in row["dashboard_probe_error"] for row in rows)
+
+
+def test_every_sample_carries_runtime_memory(env, monkeypatch):
+    """Late-run memory growth is a required criterion; it was never sampled."""
+
+    monkeypatch.setattr(sampler, "process_memory", lambda pid: {
+        "rss_bytes": 512 * 2**20 + int(pid), "vms_bytes": 900 * 2**20,
+        "num_threads": 31, "num_handles": 640, "error": None})
+    path, _, _ = _run(env, duration_s=25.0)
+    rows = [r for r in _records(path) if r.get("record") != "manifest"]
+    assert rows
+    for row in rows:
+        assert row["runtime_rss_bytes"] == 512 * 2**20 + 4242
+        assert row["runtime_vms_bytes"] == 900 * 2**20
+        assert row["runtime_threads"] == 31
+        assert row["runtime_handles"] == 640
+        assert row["runtime_memory_error"] is None
+
+
+def test_real_memory_probe_reads_this_process():
+    import os
+
+    reading = sampler.process_memory(os.getpid())
+    assert reading["error"] is None
+    assert isinstance(reading["rss_bytes"], int) and reading["rss_bytes"] > 0
+    assert reading["num_threads"] >= 1
+
+
+def test_missing_process_memory_is_reported_not_invented():
+    reading = sampler.process_memory(0)
+    assert reading["rss_bytes"] is None
+    assert reading["error"] == "no_pid"
+
+
+def test_a_tail_follows_the_run_through_its_shutdown(env):
+    """The gate at 4d8655c sampled 57.1 clean minutes and then ran 6m40s more.
+
+    Four ticks in that unsampled remainder raised ``queue_accumulating`` and
+    ``uncontrolled_overload`` with a readiness reset.  A window is not a run:
+    with a tail, sampling continues until the runtime actually stops, so the
+    stream ends on a real terminal observation.
+    """
+
+    def stop_after(now):
+        if now >= 40.0:
+            _write_runtime(env["runtime_dir"], pid=4242, state="STOPPED")
+
+    path, reason, count = _run(
+        env, duration_s=25.0, interval_s=10.0, tail_timeout_s=120.0,
+        on_sleep=stop_after)
+
+    assert reason == sampler.STOP_RUNTIME_STOPPED
+    rows = [r for r in _records(path) if r.get("record") != "manifest"]
+    assert len(rows) == count
+    assert rows[-1]["record"] == sampler.STOP_RUNTIME_STOPPED
+    assert rows[-1]["state"] == "STOPPED"
+    # The tail is labelled, so an evaluator can tell the requested window from
+    # the shutdown observation without inferring it from timestamps.
+    assert [r["phase"] for r in rows] == (
+        ["window"] * 3 + ["tail"] * (len(rows) - 3))
+    assert all(r["elapsed_s"] >= 0.0 for r in rows)
+
+
+def test_a_tail_that_never_sees_a_stop_says_so(env):
+    """Ending on an ordinary sample would read as a clean finish; it is not."""
+
+    path, reason, count = _run(
+        env, duration_s=25.0, interval_s=10.0, tail_timeout_s=20.0)
+    assert reason == sampler.STOP_TAIL_TIMEOUT
+    records = _records(path)
+    assert records[-1]["record"] == sampler.STOP_TAIL_TIMEOUT
+    assert records[-1]["observed_state"] == "RUNNING"
+    assert records[-1]["elapsed_s"] >= 25.0
+
+
+def test_no_tail_keeps_the_previous_duration_bounded_behaviour(env):
+    path, reason, count = _run(env, duration_s=25.0, interval_s=10.0)
+    assert reason == sampler.STOP_DURATION_REACHED
+    assert count == 3
+    rows = [r for r in _records(path) if r.get("record") != "manifest"]
+    assert all(r["phase"] == "window" for r in rows)
+    assert all(r["record"] == "sample" for r in rows)
+
+
+def test_manifest_records_the_tail_budget(env):
+    path, _, _ = _run(env, duration_s=25.0, tail_timeout_s=300.0)
+    manifest = _records(path)[0]
+    assert manifest["record"] == "manifest"
+    assert manifest["tail_timeout_s"] == 300.0

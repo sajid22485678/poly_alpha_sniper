@@ -28,9 +28,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import sqlite3
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
@@ -48,11 +51,21 @@ DB_PATH = Path(V4_DB_PATH)
 DEFAULT_EXPORT = Path(
     r"D:\claude\agent_readonly\poly_alpha_frequency_v4\frequency_v4_dashboard.json")
 
+#: Where the V4 dashboard listens.  Probed for real rather than assumed: an
+#: exported JSON file proves the exporter ran, not that the dashboard is serving.
+DASHBOARD_URL = "http://127.0.0.1:8504/"
+DASHBOARD_PORT = 8504
+DASHBOARD_TIMEOUT_S = 5.0
+
 #: Terminal reasons the sampler stops on its own.
 STOP_IDENTITY_MISMATCH = "identity_mismatch"
 STOP_RUNTIME_STOPPED = "runtime_stopped"
 STOP_RUNTIME_GONE = "runtime_process_gone"
 STOP_DURATION_REACHED = "duration_reached"
+#: The tail ran out before the runtime stopped.  Distinct from a clean terminal
+#: observation, because a run that was never seen to stop was never evaluated
+#: through its shutdown.
+STOP_TAIL_TIMEOUT = "tail_timeout"
 
 #: Runtime states that mean the pinned runtime is finished.
 TERMINAL_STATES = frozenset({"STOPPED", "FAILED"})
@@ -141,12 +154,90 @@ def verify_identity(
     return changed
 
 
+def probe_dashboard(url: str = DASHBOARD_URL, *,
+                    port: int = DASHBOARD_PORT,
+                    timeout_s: float = DASHBOARD_TIMEOUT_S) -> dict[str, Any]:
+    """Actually ask the dashboard whether it is serving.
+
+    ``dashboard_alive`` used to be a parameter defaulting to ``True`` that no
+    caller ever supplied, so every sample asserted the dashboard was up without
+    anyone looking.  A fresh export file proves the *exporter* ran inside the
+    bot; it says nothing about the separate Next.js process that serves the
+    page, and the two stop independently.
+
+    Both a listening socket and an HTTP status are recorded, because they fail
+    apart: a wedged server still holds the port, and a listener check alone
+    would call that healthy.
+    """
+
+    result: dict[str, Any] = {
+        "url": url, "listening": False, "http_status": None,
+        "latency_ms": None, "error": None,
+    }
+    started = time.perf_counter()
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)),
+                                      timeout=timeout_s):
+            result["listening"] = True
+    except OSError as exc:
+        result["error"] = f"{type(exc).__name__}:{exc}"[:200]
+        return result
+    try:
+        request = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(request, timeout=timeout_s) as response:
+            response.read(2048)
+            result["http_status"] = int(response.status)
+    except urllib.error.HTTPError as exc:
+        # A 4xx/5xx is still the server answering; record it rather than
+        # collapsing it into "down".
+        result["http_status"] = int(exc.code)
+        result["error"] = f"HTTPError:{exc.code}"
+    except Exception as exc:  # noqa: BLE001 - a probe must never stop a sample
+        result["error"] = f"{type(exc).__name__}:{exc}"[:200]
+    result["latency_ms"] = round((time.perf_counter() - started) * 1000.0, 3)
+    return result
+
+
+def process_memory(pid: int) -> dict[str, Any]:
+    """Resident and virtual memory for the pinned runtime, in bytes.
+
+    Late-run memory growth is a mandatory certification criterion and was never
+    sampled, so no run had any evidence for or against it.
+    """
+
+    result: dict[str, Any] = {"rss_bytes": None, "vms_bytes": None,
+                             "num_handles": None, "num_threads": None,
+                             "error": None}
+    if not pid:
+        result["error"] = "no_pid"
+        return result
+    try:
+        import psutil  # noqa: PLC0415 - optional at import time, required here
+
+        process = psutil.Process(int(pid))
+        info = process.memory_info()
+        result["rss_bytes"] = int(info.rss)
+        result["vms_bytes"] = int(getattr(info, "vms", 0)) or None
+        result["num_threads"] = int(process.num_threads())
+        handles = getattr(process, "num_handles", None)
+        if callable(handles):
+            result["num_handles"] = int(handles())
+    except Exception as exc:  # noqa: BLE001 - observation is never fatal
+        result["error"] = f"{type(exc).__name__}:{exc}"[:200]
+    return result
+
+
 def sample_once(
     index: int, pinned: Mapping[str, Any], *, export_path: Path,
     runtime_dir: Path = RUNTIME_DIR, db_path: Path = DB_PATH,
-    dashboard_alive: bool = True,
+    dashboard: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, Any]:
     now_ms = int(time.time() * 1000)
+    # Measured, not assumed.  ``None`` means "probe it now"; a caller may pass a
+    # reading it already took, but there is no way to assert one without having
+    # looked.
+    dashboard_probe = dict(
+        probe_dashboard() if dashboard is None else dashboard)
     state = read_json(runtime_dir / "state.json")
     heartbeat = read_json(runtime_dir / "heartbeat.json")
     export = read_json(export_path)
@@ -174,6 +265,7 @@ def sample_once(
     generated = int(export.get("generated_ts_ms") or 0)
     wal = Path(f"{db_path}-wal")
     observed_pid = int(state.get("pid") or 0)
+    memory = process_memory(observed_pid)
 
     return {
         # --- identity (validated by the caller) -----------------------------
@@ -190,7 +282,21 @@ def sample_once(
         "expected_launch_nonce": pinned.get("launch_nonce"),
         "launch_nonce": state.get("launch_nonce"),
         "runtime_alive": pid_alive(observed_pid),
-        "dashboard_alive": bool(dashboard_alive),
+        # A real listener plus a real HTTP status.  Healthy means both.
+        "dashboard_alive": bool(
+            dashboard_probe.get("listening")
+            and dashboard_probe.get("http_status") is not None
+            and 200 <= int(dashboard_probe["http_status"]) < 400),
+        "dashboard_listening": bool(dashboard_probe.get("listening")),
+        "dashboard_http_status": dashboard_probe.get("http_status"),
+        "dashboard_probe_ms": dashboard_probe.get("latency_ms"),
+        "dashboard_probe_error": dashboard_probe.get("error"),
+        # Memory of the pinned runtime, so late-run growth is measurable.
+        "runtime_rss_bytes": memory.get("rss_bytes"),
+        "runtime_vms_bytes": memory.get("vms_bytes"),
+        "runtime_threads": memory.get("num_threads"),
+        "runtime_handles": memory.get("num_handles"),
+        "runtime_memory_error": memory.get("error"),
         "ownership_valid": state.get("process_ownership_valid"),
         "orphan_processes": state.get("orphan_processes"),
         # --- freshness ------------------------------------------------------
@@ -381,9 +487,21 @@ def run_sampler(
     *, output_dir: Path, duration_s: float, interval_s: float = 30.0,
     export_path: Path = DEFAULT_EXPORT, runtime_dir: Path = RUNTIME_DIR,
     db_path: Path = DB_PATH, clock=time.monotonic, sleep=time.sleep,
-    stream=None,
+    stream=None, tail_timeout_s: float = 0.0,
 ) -> tuple[Path, str, int]:
-    """Sample one pinned runtime. Returns (path, stop_reason, sample_count)."""
+    """Sample one pinned runtime. Returns (path, stop_reason, sample_count).
+
+    ``tail_timeout_s`` keeps sampling after the requested duration until the
+    runtime actually stops, so the stream ends on a real terminal observation
+    rather than wherever the clock happened to run out.
+
+    That matters because a window is not a run.  The controlled gate at 4d8655c
+    sampled a clean 57.1 minutes and then kept running for another 6m40s, during
+    which four ticks raised ``queue_accumulating`` and ``uncontrolled_overload``
+    with a readiness reset -- entirely outside the evidence, and the evaluator
+    filtered the dense trace to the sampled window, so nothing ever saw it.  A
+    run is certifiable through its shutdown or it is not certifiable.
+    """
 
     pinned = read_identity(runtime_dir)
     if not pinned["pid"] or not pid_alive(pinned["pid"]):
@@ -412,18 +530,45 @@ def run_sampler(
         "export_path": str(export_path),
     }
 
-    stop_reason = STOP_DURATION_REACHED
+    manifest["tail_timeout_s"] = float(tail_timeout_s)
     count = 0
-    deadline = clock() + float(duration_s)
+    started = clock()
+    deadline = started + float(duration_s)
+    tail_deadline = deadline + max(0.0, float(tail_timeout_s))
     # Exclusive create: a second sampler for the same identity cannot start.
     with path.open("x", encoding="utf-8") as handle:
         handle.write(json.dumps(manifest, default=str) + "\n")
         handle.flush()
-        while clock() < deadline:
+        while True:
+            now = clock()
+            in_tail = now >= deadline
+            if in_tail and tail_timeout_s <= 0.0:
+                # No tail requested: the duration is the run, exactly as before.
+                return path, STOP_DURATION_REACHED, count
+            if in_tail and now >= tail_deadline:
+                # Requested duration served and the tail budget spent without
+                # ever observing the runtime stop.  Say so explicitly instead of
+                # ending on an ordinary sample that reads as a clean finish.
+                _emit(stream, "TAIL TIMEOUT: runtime never reached a terminal "
+                              "state within the tail budget")
+                handle.write(json.dumps({
+                    "record": STOP_TAIL_TIMEOUT,
+                    "sample_index": count,
+                    "sampled_at_utc": datetime.now(timezone.utc).isoformat(
+                        timespec="milliseconds"),
+                    "sampled_at_ms": int(time.time() * 1000),
+                    "observed_state": read_identity(runtime_dir).get("state"),
+                    "elapsed_s": round(now - started, 3),
+                }, default=str) + "\n")
+                handle.flush()
+                return path, STOP_TAIL_TIMEOUT, count
+
             count += 1
             row = sample_once(
                 count, pinned, export_path=export_path,
                 runtime_dir=runtime_dir, db_path=db_path)
+            row["phase"] = "tail" if in_tail else "window"
+            row["elapsed_s"] = round(clock() - started, 3)
 
             observed = read_identity(runtime_dir)
             changed = verify_identity(pinned, observed)
@@ -450,7 +595,6 @@ def run_sampler(
                 # Exactly one terminal record, then stop -- never a frozen tail.
                 return path, terminal, count
             sleep(interval_s)
-    return path, stop_reason, count
 
 
 def _emit(stream, message: str) -> None:
@@ -476,6 +620,8 @@ def _line(row: Mapping[str, Any]) -> str:
         f"/{(row.get('live_integrity_progress') or {}).get('progress_pct')}% "
         f"audit={row.get('full_audit_status')}"
         f"/{row.get('full_audit_snapshot_progress_pct')}% "
+        f"dash={row.get('dashboard_http_status')} "
+        f"rss={round((row.get('runtime_rss_bytes') or 0) / 1e6, 1)}MB "
         f"blk={blockers}"
     )
 
@@ -486,12 +632,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("duration_s", type=float)
     parser.add_argument("interval_s", type=float, nargs="?", default=30.0)
     parser.add_argument("--export-path", default=str(DEFAULT_EXPORT))
+    parser.add_argument(
+        "--tail-timeout-s", type=float, default=0.0,
+        help=("keep sampling past the duration until the runtime reaches a "
+              "terminal state, so the stream ends on a real terminal record"))
     args = parser.parse_args(argv)
 
     path, reason, count = run_sampler(
         output_dir=Path(args.output_dir),
         duration_s=args.duration_s,
         interval_s=args.interval_s,
+        tail_timeout_s=args.tail_timeout_s,
         export_path=Path(args.export_path),
     )
     print(f"SOAK FINISHED reason={reason} samples={count} path={path}",
