@@ -376,13 +376,18 @@ def test_unreachable_throughput_floor_does_not_block_recovery_forever():
     decision = None
     for tick in range(1, 121):
         # Heavy offered load, shed down to what the sink can actually take.
+        # The sink is genuinely the constraint: a 500 ms dispatch sustains two
+        # per second, so the deadline budget admits only three rows per
+        # transaction while the demand floor asks for six.  That shortfall --
+        # not the rate at which the lane happens to be asked to run -- is what
+        # lifts the required chunk above the deadline-safe one.
         controller.add(
             float(tick), queue_depth=1,
             incoming=60, offered=60, admitted=9,
             sampled=51, overload_handled=51)
         controller.observe_commit(
             now=float(tick), rows=9, logical_rows=9,
-            transaction_ms=25.0, total_ms=25.0, queue_depth=1)
+            transaction_ms=500.0, total_ms=500.0, queue_depth=1)
         decision = controller.decide(
             now=float(tick), queue_depth=1,
             transaction_budget_ms=250.0, queued_logical=1)

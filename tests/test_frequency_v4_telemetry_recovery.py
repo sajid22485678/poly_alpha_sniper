@@ -58,8 +58,18 @@ def _controller(*, maximum: int = 32, capacity: int = 20_000):
     )
 
 
+#: Wall time one synthetic dispatch occupies the lane.  The controller derives
+#: sustainable dispatch rate from *service* time, so this is what decides
+#: whether a scenario is genuinely at capacity: 20 ms per dispatch means 50
+#: dispatches/s, and 50 x the 32-row physical chunk is 1,600 rows/s.  The
+#: sampling scenarios below offer 2,000 rows/tick, so they overload the lane by
+#: a real shortfall rather than by an artefact of how often it happens to be
+#: asked to run.
+_DISPATCH_MS = 20.0
+
+
 def _drive(controller, depths, *, admitted=20, committed=20, tick0=1,
-           overload_handled=0, **deltas):
+           overload_handled=0, dispatch_ms=_DISPATCH_MS, **deltas):
     decision = None
     for offset, depth in enumerate(depths):
         tick = float(tick0 + offset)
@@ -68,7 +78,8 @@ def _drive(controller, depths, *, admitted=20, committed=20, tick0=1,
                        **deltas)
         controller.observe_commit(
             now=tick, rows=committed, logical_rows=committed,
-            transaction_ms=5.0, total_ms=5.0, queue_depth=depth)
+            transaction_ms=dispatch_ms, total_ms=dispatch_ms,
+            queue_depth=depth)
         decision = controller.decide(
             now=tick, queue_depth=depth, transaction_budget_ms=250.0,
             queued_logical=depth)

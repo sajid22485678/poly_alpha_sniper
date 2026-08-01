@@ -293,6 +293,11 @@ class _RateBucket:
     admission_overflow: int = 0
     dispatch_attempts: int = 0
     dispatch_successes: int = 0
+    # Wall time the aggregation thread actually spent inside a dispatch, in
+    # milliseconds.  This is service time, not elapsed time: it excludes every
+    # interval the lane was merely holding queued rows while deliberately
+    # waiting for a batch to fill.
+    dispatch_busy_ms: float = 0.0
     failed_batches: int = 0
     deadline_failures: int = 0
     priority_deferrals: int = 0
@@ -333,6 +338,11 @@ class _WindowView:
     dispatch_success_rps: float
     queue_slope_rps: float
     backlogged_seconds: float
+    # Seconds of real dispatch service time in the window.  ``backlogged_seconds``
+    # answers "how long did the lane hold rows?"; this answers "how long was the
+    # lane actually working?", which is the only one of the two that bounds
+    # throughput.
+    dispatch_busy_s: float
     first_depth: Optional[int]
     last_depth: Optional[int]
     max_depth: int
@@ -419,6 +429,21 @@ class _RollingTelemetryWindow:
                 setattr(bucket, name, int(getattr(bucket, name)) + int(value))
                 self._revision += 1
 
+    def observe_dispatch_busy(self, now: float, duration_ms: float) -> None:
+        """Accumulate real dispatch service time into the current second."""
+
+        if (isinstance(duration_ms, bool)
+                or not isinstance(duration_ms, (int, float))
+                or not math.isfinite(float(duration_ms))
+                or float(duration_ms) < 0):
+            raise ValueError("dispatch busy duration must be finite and non-negative")
+        value = float(duration_ms)
+        if value <= 0.0:
+            return
+        bucket = self._bucket(now)
+        bucket.dispatch_busy_ms += value
+        self._revision += 1
+
     def observe_depth(self, now: float, depth: int) -> None:
         value = max(0, int(depth))
         bucket = self._bucket(now)
@@ -484,6 +509,9 @@ class _RollingTelemetryWindow:
                     for point in points
                 ) / denominator
         backlogged = float(sum(bucket.max_depth > 0 for bucket in rows))
+        busy_s = sum(
+            max(0.0, float(bucket.dispatch_busy_ms)) for bucket in rows
+        ) / 1_000.0
         first_depth = next(
             (bucket.first_depth for bucket in rows
              if bucket.first_depth is not None),
@@ -523,6 +551,7 @@ class _RollingTelemetryWindow:
             dispatch_success_rps=totals["dispatch_successes"] / elapsed,
             queue_slope_rps=float(slope),
             backlogged_seconds=backlogged,
+            dispatch_busy_s=busy_s,
             first_depth=first_depth,
             last_depth=last_depth,
             max_depth=max((bucket.max_depth for bucket in rows), default=0),
@@ -1097,17 +1126,32 @@ class _AdaptiveTelemetryController:
         )):
             self._reset_settle(now)
 
+    def observe_dispatch_busy(self, now: float, duration_ms: float) -> None:
+        """Record real dispatch service time, whatever the dispatch returned.
+
+        ``duration_ms`` is forwarded unconverted so the window's strict type
+        check sees what the caller actually passed; coercing it here would
+        launder a bool into a float and defeat that check.
+        """
+
+        self.window.observe_dispatch_busy(float(now), duration_ms)
+
     def observe_commit(
         self, *, now: float, rows: int, logical_rows: int,
         transaction_ms: float, total_ms: float, queue_depth: int,
         fixed_overhead_ms: Optional[float] = None,
         marginal_ms_per_row: Optional[float] = None,
     ) -> None:
+        transaction = max(0.0, float(transaction_ms))
+        total = max(transaction, float(total_ms), 1e-3)
+        # ``total_ms`` is the wall time this dispatch occupied the lane, so the
+        # commit observation is itself the service-time sample.  Recorded before
+        # the empty-batch guard: a dispatch that wrote nothing still consumed
+        # the lane, and capacity that ignores it is overstated.
+        self.window.observe_dispatch_busy(float(now), total)
         count = max(0, int(rows))
         if count <= 0:
             return
-        transaction = max(0.0, float(transaction_ms))
-        total = max(transaction, float(total_ms), 1e-3)
         fixed = (
             None if fixed_overhead_ms is None
             else max(0.0, float(fixed_overhead_ms))
@@ -1196,13 +1240,44 @@ class _AdaptiveTelemetryController:
     def _sustainable_dispatch_rate(
         self, view: _WindowView, total_p95_ms: float,
     ) -> float:
+        """Dispatches per second the sink can actually sustain.
+
+        The observed term is deliberately *service* rate -- successes divided by
+        the time the lane spent inside a dispatch -- and not successes divided by
+        the time the lane merely held rows.
+
+        Those two are not the same number, and using the second one closed a
+        feedback loop that shed a fifth of all telemetry.  The aggregator waits
+        up to one flush interval for a batch to fill before dispatching; while
+        it waits, the queue is non-empty, so every one of those seconds counted
+        as "backlogged".  Dividing by them measured the *batching cadence*
+        (~1/flush_interval), never the sink.  The controller then adopted that
+        cadence as capacity, concluded it needed more rows per dispatch than the
+        physical chunk allows, declared ``throughput_exceeds_deadline_safe_
+        capacity``, and shed the excess -- which kept admitted load at the
+        cadence ceiling, which kept the observed rate low.
+
+        Measured over a 22-minute real-ingest run at 10f23e9: the clamp fired on
+        99.9% of control ticks and held the estimate at 3.47 dispatches/s while
+        the same run reached 12/s at p90 and 140/s at peak, and while the
+        sink's own p95 transaction time permitted 8/s.  28.0% of offered rows
+        were shed by a lane whose physical capacity was never the constraint.
+
+        Service time keeps every safety property the old term was reaching for.
+        A sink that is genuinely slow raises ``total_p95_ms``, so
+        ``latency_capacity`` clamps.  A lane that is burning dispatches on
+        skips, deadline misses or failures accrues busy time without successes,
+        so the observed term clamps.  Only the deliberate idle wait -- which
+        bounds nothing -- stops being counted as incapacity.
+        """
+
         latency_capacity = (
             1_000.0 / max(1.0, total_p95_ms)
             if total_p95_ms > 0 else 1.0 / self.flush_interval_s
         )
-        if view.backlogged_seconds >= 3.0 and view.dispatch_successes > 0:
-            observed_busy = view.dispatch_successes / view.backlogged_seconds
-            return max(1e-6, min(latency_capacity, observed_busy))
+        if view.dispatch_busy_s > 0.0 and view.dispatch_successes > 0:
+            observed_service = view.dispatch_successes / view.dispatch_busy_s
+            return max(1e-6, min(latency_capacity, observed_service))
         return max(1e-6, latency_capacity)
 
     def decide(
@@ -1629,6 +1704,10 @@ class _AdaptiveTelemetryController:
                         float(view.dispatch_attempt_rps), 4),
                     "dispatch_success_rps": round(
                         float(view.dispatch_success_rps), 4),
+                    # Both denominators, so an operator can see directly why
+                    # the capacity estimate is what it is.
+                    "dispatch_busy_s": round(float(view.dispatch_busy_s), 4),
+                    "backlogged_s": round(float(view.backlogged_seconds), 4),
                 },
                 "transaction_ms": {
                     "avg": round(float(avg_ms), 4),
@@ -1998,7 +2077,55 @@ class V4TelemetryWriter:
                 self._flush_latencies_ms),
             "batch_latency_ms": self._latency_percentiles(
                 self._batch_latencies_ms),
+            # Scheduling and physical-cost attribution.  Both are bounded --
+            # the gate publishes a fixed set of counters, and the per-method
+            # cost map cannot exceed the telemetry allowlist -- and both are
+            # read only when an operator has enabled the dense observer.
+            "gate": self._observer_gate_snapshot(),
+            "sink_cost": self._observer_sink_cost(),
         }
+
+    def _observer_gate_snapshot(self) -> dict[str, Any]:
+        getter = getattr(self._persistence_writer, "write_gate_snapshot", None)
+        if not callable(getter):
+            return {}
+        try:
+            return dict(getter())
+        except Exception:  # noqa: BLE001 - observation is never fatal
+            return {"error": "gate_snapshot_failed"}
+
+    def _observer_sink_cost(self) -> dict[str, Any]:
+        getter = getattr(
+            self._persistence_writer, "telemetry_commit_metrics", None)
+        if not callable(getter):
+            return {}
+        try:
+            metrics = getter()
+        except Exception:  # noqa: BLE001 - observation is never fatal
+            return {"error": "sink_metrics_failed"}
+        if not isinstance(metrics, Mapping):
+            return {}
+        keys = (
+            "batches", "calls", "failures", "last_duration_ms",
+            "last_transaction_duration_ms", "max_transaction_duration_ms",
+            "last_transaction_fixed_overhead_ms", "last_row_work_duration_ms",
+            "last_row_call_p95_ms", "last_row_call_max_ms",
+            "last_begin_duration_ms", "max_begin_duration_ms",
+            "last_commit_duration_ms", "max_commit_duration_ms",
+            "last_outer_transactions", "priority_skipped_batches",
+            "deadline_exceeded_batches", "batch_rejected_count", "state",
+        )
+        snapshot: dict[str, Any] = {
+            key: metrics[key] for key in keys if key in metrics
+        }
+        by_method = metrics.get("row_cost_by_method")
+        if isinstance(by_method, Mapping):
+            snapshot["row_cost_by_method"] = {
+                str(method): dict(entry)
+                for method, entry in by_method.items()
+                if isinstance(entry, Mapping)
+            }
+        return snapshot
 
     @staticmethod
     def _latency_percentiles(samples: "deque[float]") -> dict[str, float]:
@@ -2875,9 +3002,9 @@ class V4TelemetryWriter:
             payload = [pending.command.payload() for pending in chunk]
             self._physical_batch_high_water = max(
                 self._physical_batch_high_water, len(payload))
+            call_started = time.monotonic()
+            call_started_clock = time.perf_counter()
             try:
-                call_started = time.monotonic()
-                call_started_clock = time.perf_counter()
                 with self._condition:
                     self._batch_attempts += 1
                     self._controller.add(
@@ -2920,6 +3047,17 @@ class V4TelemetryWriter:
                 # The failing sink transaction rolled this chunk back.  Stop
                 # immediately; all later chunks remain unwritten and are
                 # explicitly accounted as dropped below.
+                # A skipped, deferred or failed dispatch occupied the lane just
+                # as a committed one did, so it is charged as service time too.
+                # Committed chunks are charged by ``observe_commit`` from the
+                # same ``total_ms`` they report, so no attempt is counted twice.
+                with self._condition:
+                    self._controller.observe_dispatch_busy(
+                        time.monotonic(),
+                        max(0.0,
+                            (time.perf_counter() - call_started_clock)
+                            * 1_000.0),
+                    )
                 failed_rows = batch[cursor:]
                 failed_chunk_rows = len(chunk)
                 break

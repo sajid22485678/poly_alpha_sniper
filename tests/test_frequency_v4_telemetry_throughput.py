@@ -524,11 +524,15 @@ def test_throughput_floor_is_applied_not_merely_reported():
     bootstrap = controller.selected_chunk
     decision = None
     # Sustained admitted load above what the bootstrap chunk can commit, but
-    # still within reach of a cheap sink's deadline-safe capacity.
+    # still within reach of a cheap sink's deadline-safe capacity.  The load has
+    # to be genuinely large: a 2 ms dispatch sustains ~500 dispatches/s, so only
+    # a demand of that order actually requires more rows per dispatch than the
+    # bootstrap chunk carries.
     for index in range(40):
         now = 1.0 + index * 0.25
         rows = controller.selected_chunk
-        controller.add(now, queue_depth=20, incoming=6, offered=6, admitted=6)
+        controller.add(now, queue_depth=20, incoming=600, offered=600,
+                       admitted=600)
         controller.observe_commit(
             now=now, rows=rows, logical_rows=rows,
             transaction_ms=2.0, total_ms=2.0, queue_depth=20)

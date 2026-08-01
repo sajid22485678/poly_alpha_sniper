@@ -359,6 +359,14 @@ class _CriticalFirstWriteGate:
         self._telemetry_priority_skips = 0
         self._telemetry_maintenance_deferrals = 0
         self._maintenance_deferrals = 0
+        # Bounded starvation accounting.  These are pure observation: no
+        # admission decision reads them.  Without them "how long has the normal
+        # lane been denied service, and how many times in a row?" is answerable
+        # only by correlating two separate sampled counters after the fact.
+        self._consecutive_telemetry_skips = 0
+        self._max_consecutive_telemetry_skips = 0
+        self._last_telemetry_admit_mono = time.monotonic()
+        self._max_admit_gap_s = 0.0
 
     def register_critical(self) -> None:
         with self._condition:
@@ -390,16 +398,28 @@ class _CriticalFirstWriteGate:
             self._critical_pending = max(0, self._critical_pending - 1)
             self._condition.notify_all()
 
+    def _record_skip_locked(self) -> None:
+        self._telemetry_priority_skips += 1
+        self._consecutive_telemetry_skips += 1
+        self._max_consecutive_telemetry_skips = max(
+            self._max_consecutive_telemetry_skips,
+            self._consecutive_telemetry_skips)
+
     def try_acquire_telemetry_reason(self) -> Optional[str]:
         with self._condition:
             if (self._critical_pending > 0 or self._critical_active
                     or self._telemetry_active):
-                self._telemetry_priority_skips += 1
+                self._record_skip_locked()
                 return "critical_persistence_pending"
             if self._maintenance_waiting > 0 or self._maintenance_active:
-                self._telemetry_priority_skips += 1
+                self._record_skip_locked()
                 self._telemetry_maintenance_deferrals += 1
                 return "maintenance_pending"
+            now = time.monotonic()
+            self._max_admit_gap_s = max(
+                self._max_admit_gap_s, now - self._last_telemetry_admit_mono)
+            self._last_telemetry_admit_mono = now
+            self._consecutive_telemetry_skips = 0
             self._telemetry_active = True
             return None
 
@@ -482,6 +502,14 @@ class _CriticalFirstWriteGate:
                 "telemetry_maintenance_deferrals": (
                     self._telemetry_maintenance_deferrals),
                 "maintenance_deferrals": self._maintenance_deferrals,
+                "consecutive_telemetry_skips": (
+                    self._consecutive_telemetry_skips),
+                "max_consecutive_telemetry_skips": (
+                    self._max_consecutive_telemetry_skips),
+                "seconds_since_telemetry_admit": round(
+                    max(0.0,
+                        time.monotonic() - self._last_telemetry_admit_mono), 4),
+                "max_telemetry_admit_gap_s": round(self._max_admit_gap_s, 4),
             }
 
 
@@ -697,6 +725,11 @@ class V4PersistenceWriter:
         """Thread-safe callback for non-critical worker admission checks."""
 
         return self._write_gate.critical_pending()
+
+    def write_gate_snapshot(self) -> dict[str, Any]:
+        """Bounded write-gate scheduling counters, for observers only."""
+
+        return self._write_gate.snapshot()
 
     def try_acquire_background_write(self) -> bool:
         """Bounded maintenance/background admission on the shared gate.
@@ -1368,6 +1401,15 @@ class V4TelemetryStoreSink:
             "last_row_work_duration_ms": 0.0,
             "last_row_call_p95_ms": 0.0,
             "last_row_call_max_ms": 0.0,
+            # Fixed overhead is a single number that hides two very different
+            # costs: acquiring the shared write lock and opening the
+            # transaction, versus flushing it at commit.  They are attacked by
+            # different fixes, so they are measured apart.
+            "last_begin_duration_ms": 0.0,
+            "max_begin_duration_ms": 0.0,
+            "last_commit_duration_ms": 0.0,
+            "max_commit_duration_ms": 0.0,
+            "row_cost_by_method": {},
             "last_outer_transactions": 0, "last_error": "",
             "priority_skipped_batches": 0,
             "deadline_exceeded_batches": 0, "batch_rejected_count": 0,
@@ -1470,6 +1512,10 @@ class V4TelemetryStoreSink:
         deadline: Optional[float] = None
         transaction_started_clock: Optional[float] = None
         row_call_durations_ms: list[float] = []
+        # Bounded by the telemetry allowlist, so these two maps can never hold
+        # more entries than there are telemetry methods.
+        row_cost_by_method: dict[str, float] = {}
+        row_calls_by_method: dict[str, int] = {}
 
         def arm_deadline() -> None:
             nonlocal deadline, transaction_started_clock
@@ -1493,6 +1539,8 @@ class V4TelemetryStoreSink:
             store = self._ensure_store()
             cooperative_check()
             before_transactions = store.transaction_counters
+            begin_entered_clock = time.perf_counter()
+            last_row_end_clock: Optional[float] = None
             with store.transaction(immediate=True):
                 arm_deadline()
                 results = []
@@ -1501,10 +1549,16 @@ class V4TelemetryStoreSink:
                     row_started_clock = time.perf_counter()
                     results.append(getattr(store, row.method)(
                         *row.args, **dict(row.kwargs)))
+                    last_row_end_clock = time.perf_counter()
                     row_call_durations_ms.append(max(
                         0.0,
-                        (time.perf_counter() - row_started_clock) * 1_000.0,
+                        (last_row_end_clock - row_started_clock) * 1_000.0,
                     ))
+                    row_cost_by_method[row.method] = (
+                        row_cost_by_method.get(row.method, 0.0)
+                        + row_call_durations_ms[-1])
+                    row_calls_by_method[row.method] = (
+                        row_calls_by_method.get(row.method, 0) + 1)
                     # Check after every nested Store call, including the last,
                     # so a critical arrival rolls back this telemetry chunk
                     # instead of waiting for its commit.
@@ -1547,6 +1601,37 @@ class V4TelemetryStoreSink:
                 ordered_row_calls, default=0.0)
             self._metrics["last_transaction_fixed_overhead_ms"] = max(
                 0.0, transaction_duration - row_work_duration)
+            begin_duration = max(
+                0.0,
+                ((transaction_started_clock
+                  if transaction_started_clock is not None
+                  else begin_entered_clock) - begin_entered_clock) * 1_000.0,
+            )
+            commit_duration = max(
+                0.0,
+                (completed_clock - (
+                    last_row_end_clock
+                    if last_row_end_clock is not None
+                    else completed_clock
+                )) * 1_000.0,
+            )
+            self._metrics["last_begin_duration_ms"] = begin_duration
+            self._metrics["max_begin_duration_ms"] = max(
+                float(self._metrics["max_begin_duration_ms"]), begin_duration)
+            self._metrics["last_commit_duration_ms"] = commit_duration
+            self._metrics["max_commit_duration_ms"] = max(
+                float(self._metrics["max_commit_duration_ms"]), commit_duration)
+            by_method = self._metrics["row_cost_by_method"]
+            for method, total_ms in row_cost_by_method.items():
+                entry = by_method.get(method)
+                if entry is None:
+                    entry = {"calls": 0, "total_ms": 0.0, "max_ms": 0.0}
+                    by_method[method] = entry
+                entry["calls"] += row_calls_by_method[method]
+                entry["total_ms"] = round(entry["total_ms"] + total_ms, 3)
+                entry["max_ms"] = round(
+                    max(float(entry["max_ms"]),
+                        total_ms / max(1, row_calls_by_method[method])), 4)
             after_transactions = store.transaction_counters
             self._metrics["last_outer_transactions"] = (
                 after_transactions["committed"] - before_transactions["committed"])
@@ -1597,7 +1682,14 @@ class V4TelemetryStoreSink:
         return self.max_transaction_ms
 
     def health(self) -> dict[str, Any]:
-        return dict(self._metrics)
+        snapshot = dict(self._metrics)
+        # The per-method map is the one mutable value in here; copy it so a
+        # reader on another thread iterates a stable object.
+        snapshot["row_cost_by_method"] = {
+            method: dict(entry)
+            for method, entry in self._metrics["row_cost_by_method"].items()
+        }
+        return snapshot
 
     metrics = health
 
