@@ -421,6 +421,63 @@ def test_sink_reports_a_begin_commit_and_per_method_cost_split(tmp_path):
         writer.close()
 
 
+def test_cex_prior_lookup_is_a_seek_not_a_sort(tmp_path):
+    """The sink's hottest query must not sort a set that grows all session.
+
+    ``record_cex_observation`` classifies each observation against the newest
+    prior one for its (session, provider, instrument).  Without an index whose
+    ordering matches, SQLite seeks the UNIQUE prefix and then sorts every row
+    it finds -- and that set grows for the life of a session, so the sink gets
+    monotonically slower.  Measured on the live database before the index:
+    62,085 rows for one key cost 656 ms per lookup.
+    """
+
+    store = V4Store(tmp_path / "cex-plan.db")
+    try:
+        indexes = {
+            row[0] for row in store.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND tbl_name='cex_observations'")
+        }
+        assert "ix_cex_latest_by_key" in indexes
+
+        plan = list(store.connection.execute(
+            """EXPLAIN QUERY PLAN
+               SELECT price,bid,ask,provider_ts_ms,receipt_ts_ms
+               FROM cex_observations
+               WHERE session_id=? AND provider=? AND instrument=?
+               ORDER BY provider_ts_ms DESC,cex_observation_id DESC LIMIT 1""",
+            ("s", "okx", "BTC-USDT")))
+        text = " | ".join(str(step[3]) for step in plan)
+        # The whole point: no materialise-and-sort step survives.
+        assert "TEMP B-TREE" not in text.upper(), text
+        assert "ix_cex_latest_by_key" in text, text
+    finally:
+        store.close()
+
+
+def test_performance_indexes_are_idempotent_across_opens(tmp_path):
+    """Re-opening must not duplicate or error on the additive indexes."""
+
+    path = tmp_path / "cex-idempotent.db"
+    first = V4Store(path)
+    before = {
+        row[0] for row in first.connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'")
+    }
+    first.close()
+    second = V4Store(path)
+    try:
+        after = {
+            row[0] for row in second.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='index'")
+        }
+        assert after == before
+        assert "ix_cex_latest_by_key" in after
+    finally:
+        second.close()
+
+
 def test_per_method_cost_snapshot_is_a_copy(tmp_path):
     """An observer must not be handed the live map the sink is mutating."""
 

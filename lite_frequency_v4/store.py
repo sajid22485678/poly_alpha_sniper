@@ -2150,6 +2150,32 @@ class V4Store:
     _PERFORMANCE_INDEXES = (
         "CREATE INDEX IF NOT EXISTS ix_cex_retention "
         "ON cex_observations(retention_class,pin_count,receipt_ts_ms)",
+        # ``record_cex_observation`` classifies every observation against the
+        # newest prior one for its (session, provider, instrument).  The UNIQUE
+        # autoindex covers that equality prefix but orders by
+        # (connection_epoch, event_id), so SQLite satisfied the WHERE clause by
+        # seek and then sorted *every* row it found -- "USE TEMP B-TREE FOR
+        # ORDER BY" -- to take one row.  That scan set is every observation
+        # ever written for the key, so it grows for the whole life of a
+        # session and the sink gets monotonically slower.
+        #
+        # Measured on the live 12.7 GB database at 7c91e91:
+        #
+        #     HYPE-USDT   4,889 rows for the key ->  36 ms per lookup
+        #     SOL-USDT   51,191 rows              -> 516 ms
+        #     BTC-USDT   58,130 rows              -> 607 ms
+        #     ETH-USDT   62,085 rows              -> 656 ms
+        #
+        # BTC/ETH/SOL are the required assets, so the hot path paid the worst
+        # of it: record_cex_observation reached 15.15 ms per row and 79.4% of
+        # all telemetry sink cost, which set the tail cost that sizes the
+        # deadline-safe chunk and capped the lane below its offered load.
+        #
+        # Ordering the index the way the query reads it turns that sort into a
+        # seek.  DESC on both trailing columns matches the ORDER BY exactly.
+        "CREATE INDEX IF NOT EXISTS ix_cex_latest_by_key "
+        "ON cex_observations(session_id,provider,instrument,"
+        "provider_ts_ms DESC,cex_observation_id DESC)",
         "CREATE INDEX IF NOT EXISTS ix_books_retention "
         "ON book_snapshots(retention_class,pin_count,receipt_ts_ms)",
         # Index the foreign-key child columns so deleting a raw parent row does
