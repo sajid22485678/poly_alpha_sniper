@@ -1932,7 +1932,34 @@ class _AdaptiveTelemetryController:
         )
         if high_pressure:
             keep_ratio = min(keep_ratio, 0.25)
-        if int(queue_depth) >= self.high_water + self.physical_max_chunk:
+        # Shedding *everything* sampleable is the last thing between the queue
+        # and its hard bound, where an admission overflows outside policy and
+        # the row is genuinely lost.  So it belongs at the bound.
+        #
+        # It was keyed to the pressure watermark instead -- high water plus one
+        # physical chunk -- and those are different scales entirely.  Measured
+        # on the definitive soak at 4d8655c that meant depth 160 in a 20,000-row
+        # queue: 0.8% of capacity, 19,840 rows of headroom, and the lane went
+        # completely dark for up to a second.  All 31 zero ticks sat between 160
+        # and 169 against a high water of 128 and a 32-row chunk, none coincided
+        # with any blocker, and unexpected loss was exactly zero throughout.
+        # Nothing about that queue was in danger.
+        #
+        # Below the bound the minimum keep ratio now applies, so the lane keeps
+        # admitting a small bounded fraction rather than nothing; the 25% cap at
+        # high water still throttles the approach, and LATEST/SAMPLE/DEFER still
+        # engage exactly where they did.  Watermarks, queue capacity, deadlines,
+        # loss semantics and readiness criteria are all untouched -- the only
+        # change is which depth the zero clamp keys off.
+        #
+        # ``max`` with the old threshold keeps degenerate small-capacity
+        # configurations (where a chunk is a large fraction of the queue)
+        # behaving exactly as before.
+        zero_clamp_depth = max(
+            self.high_water + self.physical_max_chunk,
+            self.queue_capacity - self.physical_max_chunk,
+        )
+        if int(queue_depth) >= zero_clamp_depth:
             keep_ratio = 0.0
         state = (
             "OVERLOAD_NONCRITICAL_SAMPLING" if self._overload_active

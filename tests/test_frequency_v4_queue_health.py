@@ -712,3 +712,55 @@ def test_lag_deferral_default_keeps_prior_behaviour():
     decision = decide_checkpoint(_snapshot(), MaintenancePolicy())
     assert decision.should_run is True
     assert decision.mode is CheckpointMode.TRUNCATE
+
+
+def test_the_zero_keep_ratio_clamp_is_keyed_to_the_hard_bound():
+    """Going completely dark belongs at the bound, not at the watermark.
+
+    Shedding every sampleable row is the last thing between the queue and its
+    hard capacity, where an admission overflows outside policy and the row is
+    genuinely lost.  It was keyed to ``high_water + physical_max_chunk``
+    instead, which on the shadow configuration is depth 160 in a 20,000-row
+    queue -- 0.8% of capacity.  Measured on the definitive soak at 4d8655c, all
+    31 zero-keep-ratio ticks sat between depth 160 and 169 with zero blockers
+    and zero unexpected loss: a lane in no danger at all, dark for a second.
+    """
+
+    controller = _controller(maximum=32, capacity=20_000)
+    assert controller.high_water == 128
+    clamp = max(controller.high_water + controller.physical_max_chunk,
+                controller.queue_capacity - controller.physical_max_chunk)
+    assert clamp == 19_968
+
+    def keep_at(depth, tick):
+        for step in range(3):
+            now = float(tick + step)
+            controller.add(now, queue_depth=depth, incoming=200, offered=200,
+                           admitted=50, sampled=150, overload_handled=200,
+                           policy_resolved=50)
+            controller.observe_commit(
+                now=now, rows=50, logical_rows=50, transaction_ms=5.0,
+                total_ms=5.0, queue_depth=depth)
+        return controller.decide(
+            now=float(tick + 4), queue_depth=depth,
+            transaction_budget_ms=250.0, queued_logical=depth,
+        ).sampling_keep_ratio
+
+    # The exact depths the soak went dark at: throttled now, never zero.
+    for index, depth in enumerate((160, 165, 169)):
+        ratio = keep_at(depth, 100 + index * 10)
+        assert ratio > 0.0, depth
+        assert ratio <= 0.25, depth       # high-water throttle still applies
+
+    # And at the hard bound it still goes to zero, which is the whole point.
+    assert keep_at(clamp, 400) == 0.0
+    assert keep_at(controller.queue_capacity, 500) == 0.0
+
+
+def test_a_small_queue_keeps_the_previous_clamp_threshold():
+    """Where a chunk is a large fraction of the queue, nothing changes."""
+
+    controller = _controller(maximum=4, capacity=8)
+    assert (max(controller.high_water + controller.physical_max_chunk,
+                controller.queue_capacity - controller.physical_max_chunk)
+            == controller.high_water + controller.physical_max_chunk)
