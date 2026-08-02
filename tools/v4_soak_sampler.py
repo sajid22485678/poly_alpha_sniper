@@ -227,6 +227,48 @@ def process_memory(pid: int) -> dict[str, Any]:
     return result
 
 
+#: Every field of the Phase 2 safety tuple, and the only value each may hold.
+SAFETY_TUPLE: Mapping[str, Any] = {
+    "dry_run": True,
+    "live_enabled": False,
+    "real_orders_possible": False,
+    "live_adapter_present": False,
+    "authenticated_trading_client": False,
+    "real_order_placement": False,
+    "real_order_cancellation": False,
+    "real_wallet_signing": False,
+    "kill_switch_engaged": True,
+    "fixed_shares": 5.0,
+}
+
+
+def _safety(export: Mapping[str, Any], heartbeat: Mapping[str, Any],
+            field: str) -> Any:
+    """One safety field, preferring the source that actually publishes it."""
+
+    if field in export and export.get(field) is not None:
+        return export.get(field)
+    return heartbeat.get(field)
+
+
+def _safety_agrees(export: Mapping[str, Any],
+                   heartbeat: Mapping[str, Any]) -> bool:
+    """Do the two independent publishers say the same thing about safety?
+
+    A disagreement means one of them is stale or wrong, and neither can then be
+    trusted to prove the lane is shadow-only.
+    """
+
+    for field in SAFETY_TUPLE:
+        left, right = export.get(field), heartbeat.get(field)
+        if left is None or right is None:
+            continue
+        if bool(left) != bool(right) if isinstance(
+                SAFETY_TUPLE[field], bool) else left != right:
+            return False
+    return True
+
+
 def sample_once(
     index: int, pinned: Mapping[str, Any], *, export_path: Path,
     runtime_dir: Path = RUNTIME_DIR, db_path: Path = DB_PATH,
@@ -474,12 +516,26 @@ def sample_once(
         "open_runtime_sessions_db": open_runtime_sessions(db_path),
         "stray_temp_files": len(list(runtime_dir.glob("*.tmp.*"))),
         # --- safety tuple ---------------------------------------------------
-        "dry_run": export.get("dry_run"),
-        "live_enabled": export.get("live_enabled"),
-        "real_orders_possible": export.get("real_orders_possible"),
-        "live_adapter_present": export.get("live_adapter_present"),
-        "kill_switch_engaged": export.get("kill_switch_engaged"),
-        "fixed_shares": export.get("fixed_shares"),
+        # All ten fields, not the six the dashboard export happens to publish.
+        # The other four -- authenticated client, order placement, order
+        # cancellation and wallet signing -- are the ones that say *no live
+        # order path exists*, and an evaluator that checks six of ten is not
+        # validating the safety tuple.  The heartbeat carries the full tuple;
+        # the export is used where it also publishes a field so the two are
+        # cross-checked rather than one silently trusted.
+        "dry_run": _safety(export, heartbeat, "dry_run"),
+        "live_enabled": _safety(export, heartbeat, "live_enabled"),
+        "real_orders_possible": _safety(export, heartbeat, "real_orders_possible"),
+        "live_adapter_present": _safety(export, heartbeat, "live_adapter_present"),
+        "authenticated_trading_client": _safety(
+            export, heartbeat, "authenticated_trading_client"),
+        "real_order_placement": _safety(export, heartbeat, "real_order_placement"),
+        "real_order_cancellation": _safety(
+            export, heartbeat, "real_order_cancellation"),
+        "real_wallet_signing": _safety(export, heartbeat, "real_wallet_signing"),
+        "kill_switch_engaged": _safety(export, heartbeat, "kill_switch_engaged"),
+        "fixed_shares": _safety(export, heartbeat, "fixed_shares"),
+        "safety_tuple_sources_agree": _safety_agrees(export, heartbeat),
     }
 
 
