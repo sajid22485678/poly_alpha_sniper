@@ -136,6 +136,10 @@ def check_snapshot(target: Path, report: dict) -> None:
                 "OR live_enabled!=0 OR real_orders_possible!=0 "
                 "OR live_adapter_present!=0 OR kill_switch_engaged!=1 "
                 "OR fixed_shares!=5.0"),
+            # The journal command is keyed by idempotency_key
+            # 'session-end:<session_id>' -- ordering_key is the constant
+            # 'global', so matching on it finds nothing and would report every
+            # ended session as missing its command.
             "missing_end_command": [
                 dict(row) for row in conn.execute(
                     "SELECT session_id, ended_ts_ms, stop_reason "
@@ -143,7 +147,7 @@ def check_snapshot(target: Path, report: dict) -> None:
                     "AND NOT EXISTS(SELECT 1 FROM persistence_commands c "
                     "  WHERE c.method='end_runtime_session' "
                     "  AND c.status='COMMITTED' "
-                    "  AND c.ordering_key LIKE '%'||s.session_id||'%') "
+                    "  AND c.idempotency_key='session-end:'||s.session_id) "
                     "ORDER BY ended_ts_ms")],
         }
         report["commands"] = {
@@ -164,13 +168,23 @@ def check_snapshot(target: Path, report: dict) -> None:
                 "SELECT COUNT(*) FROM (SELECT command_id FROM "
                 "persistence_commands GROUP BY command_id HAVING COUNT(*)>1)"),
         }
+        # "Unfinished" is a maker observation that was started and never
+        # concluded: no end timestamp and no outcome.  There is no status
+        # column; the lifecycle is carried by maker_end_ts_ms and outcome.
         report["maker_observations"] = {
             "total": scalar("SELECT COUNT(*) FROM maker_observations"),
             "unfinished": [
                 dict(row) for row in conn.execute(
-                    "SELECT maker_observation_id, candidate_id, status "
-                    "FROM maker_observations WHERE status NOT IN "
-                    "('COMPLETE','ABANDONED') ORDER BY maker_observation_id")],
+                    "SELECT m.maker_observation_id, m.window_id, m.candidate_id,"
+                    " m.maker_start_ts_ms, m.maker_deadline_ts_ms,"
+                    " m.maker_end_ts_ms, m.outcome, m.reason "
+                    "FROM maker_observations m "
+                    "WHERE m.maker_end_ts_ms IS NULL OR m.outcome IS NULL "
+                    "ORDER BY m.maker_observation_id")],
+            "outcomes": {
+                str(row[0]): int(row[1]) for row in conn.execute(
+                    "SELECT COALESCE(outcome,'<null>'), COUNT(*) "
+                    "FROM maker_observations GROUP BY 1 ORDER BY 1")},
         }
         report["cohorts"] = [
             dict(row) for row in conn.execute(
@@ -187,10 +201,33 @@ def main() -> int:
     parser.add_argument("db_path")
     parser.add_argument("snapshot_path")
     parser.add_argument("--json")
+    parser.add_argument(
+        "--recheck-existing", action="store_true",
+        help="re-run the offline checks against a snapshot already taken")
     args = parser.parse_args()
 
     source, target = Path(args.db_path), Path(args.snapshot_path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    if args.recheck_existing:
+        # Re-run the offline checks against a snapshot already taken, so a
+        # query defect does not cost another full-image copy.  The snapshot is
+        # opened read-only; it is never re-taken and never modified.
+        report = {
+            "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "source": str(source),
+            "source_bytes": source.stat().st_size,
+            "recheck_of_existing_snapshot": True,
+            "snapshot": {"path": str(target), "bytes": target.stat().st_size},
+        }
+        check_snapshot(target, report)
+        report["snapshot"]["sha256"] = sha256_file(target)
+        report["finished_utc"] = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        text = json.dumps(report, indent=2, default=str)
+        if args.json:
+            Path(args.json).write_text(text, encoding="utf-8")
+        print(text)
+        return 0
 
     live_before = {
         name: (path.stat().st_size, path.stat().st_mtime_ns)
