@@ -110,9 +110,22 @@ def test_audit_snapshot_dir_stays_off_the_ssd_and_isolates_per_checkout():
 
     audit = Path(FREQUENCY_V4_AUDIT_DIR)
     assert audit == FREQUENCY_V4_ROOT / "data" / "integrity_audit"
-    assert audit.parent != Path(FREQUENCY_V4_DB_PATH).parent
     assert FREQUENCY_V4_SSD_DB_DIR not in audit.parents
     assert audit != FREQUENCY_V4_SSD_DB_DIR
+
+    # The relocation is conditional on purpose -- an isolated checkout keeps a
+    # repository-relative database so a staging or test run can never open the
+    # production one.  Asserting the *live* split unconditionally made this test
+    # fail in exactly that isolated checkout, which is where a sealed
+    # certification run has to execute.  So each root is checked for the
+    # invariant that actually applies to it.
+    if FREQUENCY_V4_ROOT == FREQUENCY_V4_LIVE_ROOT:
+        assert Path(FREQUENCY_V4_DB_PATH).parent == FREQUENCY_V4_SSD_DB_DIR
+        assert audit.parent != Path(FREQUENCY_V4_DB_PATH).parent
+    else:
+        assert Path(FREQUENCY_V4_DB_PATH).parent == FREQUENCY_V4_ROOT / "data"
+        assert FREQUENCY_V4_SSD_DB_DIR not in Path(
+            FREQUENCY_V4_DB_PATH).parents
 
 
 def test_audit_dir_is_hard_locked_against_yaml_override(tmp_path):
