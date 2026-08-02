@@ -254,6 +254,10 @@ class PolymarketMarketWS:
             max_buffered_deltas_per_token: int = 64,
             hydration_request_cooldown_s: float = 0.25,
             max_event_age_ms: int = 2_000,
+            hydration_recovery_interval_s: float = 1.0,
+            hydration_recovery_after_s: float = 5.0,
+            hydration_recovery_max_attempts: int = 6,
+            hydration_recovery_backoff_cap_s: float = 20.0,
     ):
         self.url = str(url)
         self.clock = clock or SystemClock()
@@ -267,6 +271,11 @@ class PolymarketMarketWS:
         self.max_buffered_deltas_per_token = int(max_buffered_deltas_per_token)
         self.hydration_request_cooldown_s = float(hydration_request_cooldown_s)
         self.max_event_age_ms = int(max_event_age_ms)
+        self.hydration_recovery_interval_s = float(hydration_recovery_interval_s)
+        self.hydration_recovery_after_s = float(hydration_recovery_after_s)
+        self.hydration_recovery_max_attempts = int(hydration_recovery_max_attempts)
+        self.hydration_recovery_backoff_cap_s = float(
+            hydration_recovery_backoff_cap_s)
         if self.heartbeat_interval_s <= 0 or self.pong_timeout_s <= 0:
             raise ValueError("heartbeat intervals must be positive")
         if self.max_buffered_deltas_per_token <= 0:
@@ -275,6 +284,15 @@ class PolymarketMarketWS:
             raise ValueError("hydration request cooldown must be positive")
         if self.max_event_age_ms <= 0:
             raise ValueError("maximum event age must be positive")
+        if self.hydration_recovery_interval_s <= 0:
+            raise ValueError("hydration recovery interval must be positive")
+        if self.hydration_recovery_after_s <= 0:
+            raise ValueError("hydration recovery delay must be positive")
+        if self.hydration_recovery_max_attempts <= 0:
+            raise ValueError("hydration recovery attempts must be positive")
+        if self.hydration_recovery_backoff_cap_s < self.hydration_recovery_after_s:
+            raise ValueError(
+                "hydration recovery backoff cap must not be below its delay")
 
         self._desired: dict[str, str] = {
             str(token): str(condition)
@@ -292,10 +310,22 @@ class PolymarketMarketWS:
         self._ws: Any = None
         self._task: Optional[asyncio.Task] = None
         self._heartbeat_task: Optional[asyncio.Task] = None
+        self._recovery_task: Optional[asyncio.Task] = None
         self._stop = asyncio.Event()
         self._last_ping_mono_ns = 0
         self._last_pong_mono_ns = 0
         self._last_hydration_request_mono_ns: dict[str, int] = {}
+        #: Bounded targeted-hydration recovery state, all keyed by token and all
+        #: scoped to one transport epoch and one desired-token set.
+        self._unhydrated_since_mono_ns: dict[str, int] = {}
+        self._targeted_attempts: dict[str, int] = {}
+        self._targeted_next_mono_ns: dict[str, int] = {}
+        self._targeted_exhausted: set[str] = set()
+        #: Tokens this epoch has already sent a subscribe for.  The wire is
+        #: idempotent but a second subscribe is still a duplicate request, and
+        #: recovery must not manufacture a subscription storm out of one silent
+        #: token, so every avoided repeat is counted rather than sent.
+        self._subscribed_tokens: set[str] = set()
         self.health_state = SourceHealth(source=self.source)
         self.health_state.desired_subscriptions = len(self._desired)
 
@@ -310,7 +340,45 @@ class PolymarketMarketWS:
     def health(self) -> dict[str, Any]:
         self.health_state.desired_subscriptions = len(self._desired)
         self.health_state.hydrated_subscriptions = len(self._hydrated)
+        self._refresh_unhydrated_gauges()
         return self.health_state.to_dict()
+
+    def _missing_tokens(self) -> list[str]:
+        """Currently desired tokens with no accepted book in this epoch."""
+
+        return sorted(set(self._desired) - self._hydrated)
+
+    def _refresh_unhydrated_gauges(self) -> None:
+        missing = self._missing_tokens()
+        self.health_state.unhydrated_active_tokens = len(missing)
+        now_mono = monotonic_ns(self.clock)
+        ages = [
+            now_mono - since
+            for since in (self._unhydrated_since_mono_ns.get(token)
+                          for token in missing)
+            if since is not None
+        ]
+        self.health_state.oldest_unhydrated_age_ms = (
+            int(max(ages) // 1_000_000) if ages else 0)
+
+    def _track_unhydrated(self, tokens: Iterable[str]) -> None:
+        """Start the unhydrated clock for tokens that do not already have one.
+
+        Idempotent on purpose: a token that has been waiting must keep its
+        original timestamp, or a repeated sweep would keep resetting its age to
+        zero and the bounded delay would never elapse.
+        """
+
+        now_mono = monotonic_ns(self.clock)
+        for token in tokens:
+            self._unhydrated_since_mono_ns.setdefault(str(token), now_mono)
+
+    def _clear_recovery_state(self, token: str) -> None:
+        key = str(token)
+        self._unhydrated_since_mono_ns.pop(key, None)
+        self._targeted_attempts.pop(key, None)
+        self._targeted_next_mono_ns.pop(key, None)
+        self._targeted_exhausted.discard(key)
 
     def _install_book(self, token: str, book: _BookState) -> _BookState:
         """Publish a new book version under ``token``.
@@ -412,6 +480,19 @@ class PolymarketMarketWS:
         self._hydrated.clear()
         self._buffers.clear()
         self._last_hydration_request_mono_ns.clear()
+        # Recovery bookkeeping is per epoch for the same reason the books are:
+        # attempts spent against a socket that no longer exists must not count
+        # against the new one, and an exhausted token must get a fresh budget
+        # once its subscription is re-established.
+        self._unhydrated_since_mono_ns.clear()
+        self._targeted_attempts.clear()
+        self._targeted_next_mono_ns.clear()
+        self._targeted_exhausted.clear()
+        self._subscribed_tokens.clear()
+        self.health_state.unhydrated_active_tokens = len(self._desired)
+        self.health_state.oldest_unhydrated_age_ms = 0
+        self.health_state.hydration_transition_reason = (
+            "reconnect" if previous > 0 else "first_connection")
         # Heartbeat accounting is per transport epoch.  A stale unanswered
         # PING inherited from a previous connection otherwise trips the
         # pong-timeout check on the FIRST poll of the new epoch's heartbeat
@@ -432,10 +513,10 @@ class PolymarketMarketWS:
 
     async def stop(self) -> None:
         self._stop.set()
-        for task in (self._heartbeat_task, self._task):
+        for task in (self._heartbeat_task, self._recovery_task, self._task):
             if task is not None and not task.done():
                 task.cancel()
-        for task in (self._heartbeat_task, self._task):
+        for task in (self._heartbeat_task, self._recovery_task, self._task):
             if task is not None:
                 try:
                     await task
@@ -452,6 +533,7 @@ class PolymarketMarketWS:
                     self.health_state.last_error = (
                         f"stop:{type(exc).__name__}:{exc}")[:240]
         self._heartbeat_task = None
+        self._recovery_task = None
         self._task = None
         self._ws = None
         self.health_state.connected = False
@@ -472,19 +554,36 @@ class PolymarketMarketWS:
         removed = sorted(set(removed + changed))
         added = sorted(set(added + changed))
         self._desired = wanted
+        # Obsolete tokens leave in one step, taking their book, their buffer and
+        # their whole recovery budget with them.  A token dropped here can never
+        # come back through a retry scheduled before the rotation, because every
+        # retry re-checks the live desired set before it acts.
         for token in removed:
             self._books.pop(token, None)
             self._hydrated.discard(token)
             self._buffers.pop(token, None)
             self._last_hydration_request_mono_ns.pop(token, None)
+            self._clear_recovery_state(token)
+            self._subscribed_tokens.discard(token)
+        if removed:
+            self.health_state.obsolete_tokens_removed += len(removed)
         self.health_state.desired_subscriptions = len(wanted)
+        if removed or added:
+            self.health_state.hydration_transition_reason = "market_rotation"
         if self._ws is not None and self.health_state.connected:
             if removed:
                 await self._ws.send(canonical_json(
                     dynamic_subscription(removed, subscribe=False)))
             if added:
-                await self._ws.send(canonical_json(
-                    dynamic_subscription(added, subscribe=True)))
+                fresh = [token for token in added
+                         if token not in self._subscribed_tokens]
+                self.health_state.duplicate_subscriptions_prevented += (
+                    len(added) - len(fresh))
+                if fresh:
+                    await self._ws.send(canonical_json(
+                        dynamic_subscription(fresh, subscribe=True)))
+                    self._subscribed_tokens.update(fresh)
+                self._track_unhydrated(added)
                 await asyncio.gather(*(
                     self._request_hydration(
                         token, self._desired[token], "dynamic_subscription")
@@ -516,8 +615,10 @@ class PolymarketMarketWS:
                     connected_started_ns = monotonic_ns(self.clock)
                     self._new_connection_epoch()
                     await ws.send(canonical_json(initial_subscription(self._desired)))
+                    self._subscribed_tokens.update(self._desired)
                     self.health_state.state = "HYDRATING"
                     self.health_state.backoff_seconds = 0.0
+                    self._track_unhydrated(sorted(self._desired))
                     await asyncio.gather(*(
                         self._request_hydration(token, condition, "reconnect")
                         for token, condition in sorted(self._desired.items())
@@ -526,6 +627,9 @@ class PolymarketMarketWS:
                     self._heartbeat_task = asyncio.create_task(
                         self._heartbeat_loop(ws),
                         name="frequency_v4_poly_heartbeat")
+                    self._recovery_task = asyncio.create_task(
+                        self._hydration_recovery_loop(),
+                        name="frequency_v4_poly_hydration_recovery")
                     async for raw in ws:
                         if self._stop.is_set():
                             break
@@ -535,15 +639,19 @@ class PolymarketMarketWS:
             except Exception as exc:  # noqa: BLE001 - transport must reconnect
                 self.health_state.last_error = repr(exc)[:240]
             finally:
-                if self._heartbeat_task is not None:
-                    self._heartbeat_task.cancel()
-                    try:
-                        await self._heartbeat_task
-                    except asyncio.CancelledError:
-                        pass
-                    self._heartbeat_task = None
-                self._ws = None
+                # Connected is cleared first so both loops observe a dead
+                # transport even if the cancellation races their next poll.
                 self.health_state.connected = False
+                for attribute in ("_heartbeat_task", "_recovery_task"):
+                    task = getattr(self, attribute)
+                    if task is not None:
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                        setattr(self, attribute, None)
+                self._ws = None
             if self._stop.is_set():
                 break
             if (connected_started_ns is not None
@@ -559,6 +667,101 @@ class PolymarketMarketWS:
             await self._publish_health()
             await asyncio.sleep(delay)
         self.health_state.connected = False
+
+    def _targeted_backoff_ns(self, attempts: int) -> int:
+        """Capped exponential backoff, deterministic and jitter-free.
+
+        Attempt *n* waits ``after * 2**(n-1)`` seconds, clamped to the cap, so
+        the schedule is reproducible in a test with a fake clock and can never
+        grow without bound.
+        """
+
+        delay = self.hydration_recovery_after_s * (2 ** max(0, attempts - 1))
+        return int(min(delay, self.hydration_recovery_backoff_cap_s)
+                   * 1_000_000_000)
+
+    async def _recover_unhydrated_once(self) -> list[str]:
+        """One bounded sweep over the active desired tokens that are missing.
+
+        This is the whole point of the mechanism.  A desired token that receives
+        no frame at all triggers none of the event-driven hydration paths -- the
+        delta, missing-book and crossed-book requests all need an inbound
+        message for that token -- so before this sweep existed its one-shot
+        subscribe-time request was the only attempt it would ever get.  If that
+        attempt did not produce an accepted snapshot the token stayed out of
+        ``_hydrated`` forever, and because READY is all-or-nothing over the
+        active set, the source stayed HYDRATING on a healthy connection with
+        fresh frames for every other token.
+
+        Recovery is targeted, never a reconnect: the socket is left alone and
+        only the missing token is re-requested.
+        """
+
+        if not self.health_state.connected or self._ws is None:
+            return []
+        now_mono = monotonic_ns(self.clock)
+        missing = self._missing_tokens()
+        self._track_unhydrated(missing)
+        threshold_ns = int(self.hydration_recovery_after_s * 1_000_000_000)
+        retried: list[str] = []
+        for token in missing:
+            # Rotation can land between two awaits in this loop, so the live
+            # desired set is re-checked immediately before acting on a token.
+            condition = self._desired.get(token)
+            if condition is None or token in self._hydrated:
+                continue
+            since = self._unhydrated_since_mono_ns.get(token)
+            if since is None or now_mono - since < threshold_ns:
+                continue
+            due = self._targeted_next_mono_ns.get(token)
+            if due is not None and now_mono < due:
+                continue
+            attempts = self._targeted_attempts.get(token, 0)
+            if attempts >= self.hydration_recovery_max_attempts:
+                if token not in self._targeted_exhausted:
+                    self._targeted_exhausted.add(token)
+                    self.health_state.targeted_retry_exhaustions += 1
+                    self.health_state.hydration_transition_reason = (
+                        "targeted_retry_exhausted")
+                # Deliberately no promotion and no removal: an active token that
+                # cannot hydrate holds the source in HYDRATING, which is the
+                # fail-closed outcome the contract requires.
+                continue
+            attempts += 1
+            self._targeted_attempts[token] = attempts
+            self._targeted_next_mono_ns[token] = (
+                now_mono + self._targeted_backoff_ns(attempts))
+            self.health_state.targeted_retry_attempts += 1
+            self.health_state.hydration_transition_reason = "targeted_retry"
+            # Re-assert the subscription for this one token only when the epoch
+            # has no live subscribe for it; otherwise the REST re-request alone
+            # is the recovery and the avoided resubscribe is counted.
+            if token in self._subscribed_tokens:
+                self.health_state.duplicate_subscriptions_prevented += 1
+            else:
+                await self._ws.send(canonical_json(
+                    dynamic_subscription([token], subscribe=True)))
+                self._subscribed_tokens.add(token)
+            await self._request_hydration(
+                token, condition, "targeted_hydration_retry", force=True)
+            retried.append(token)
+        self._refresh_unhydrated_gauges()
+        if retried:
+            await self._publish_health()
+        return retried
+
+    async def _hydration_recovery_loop(self) -> None:
+        while not self._stop.is_set() and self.health_state.connected:
+            await asyncio.sleep(self.hydration_recovery_interval_s)
+            if self._stop.is_set() or not self.health_state.connected:
+                return
+            try:
+                await self._recover_unhydrated_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - recovery is never fatal
+                self.health_state.last_error = (
+                    f"hydration_recovery:{type(exc).__name__}:{exc}")[:240]
 
     async def _heartbeat_loop(self, ws: Any) -> None:
         interval_ns = int(self.heartbeat_interval_s * 1_000_000_000)
@@ -755,7 +958,13 @@ class PolymarketMarketWS:
             condition_id=condition, bids=bids, asks=asks,
             provider_ts_ms=provider_ms,
             book_hash=str(payload.get("hash") or "")))
+        was_missing = token not in self._hydrated
+        if was_missing and self._targeted_attempts.get(token):
+            self.health_state.targeted_retry_successes += 1
+            self.health_state.hydration_transition_reason = (
+                "targeted_retry_recovered")
         self._hydrated.add(token)
+        self._clear_recovery_state(token)
         await self._flush_buffer(token)
         self.health_state.hydrated_subscriptions = len(self._hydrated)
         # Hydration progress promotes readiness only while the transport is
@@ -925,6 +1134,7 @@ class PolymarketMarketWS:
                 and proposed.best_bid > proposed.best_ask):
             self._books.pop(token, None)
             self._hydrated.discard(token)
+            self._track_unhydrated([token])
             decision = EventDecision(
                 EventDisposition.REJECT_INVALID, event,
                 "crossed_book_after_delta", request_hydration=True)
@@ -938,6 +1148,7 @@ class PolymarketMarketWS:
         if not self._reported_bbo_matches(proposed, change):
             self._books.pop(token, None)
             self._hydrated.discard(token)
+            self._track_unhydrated([token])
             decision = EventDecision(
                 EventDisposition.REJECT_BBO_MISMATCH, event,
                 "reported_bbo_disagrees_with_local_delta", request_hydration=True)
@@ -1021,6 +1232,7 @@ class PolymarketMarketWS:
             if book is not None and not self._reported_bbo_matches(book, payload):
                 self._books.pop(token, None)
                 self._hydrated.discard(token)
+                self._track_unhydrated([token])
                 decision = EventDecision(
                     EventDisposition.REJECT_BBO_MISMATCH, event,
                     "best_bid_ask_disagrees_with_local_book",

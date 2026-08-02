@@ -92,6 +92,19 @@ class SourceHealth:
     heartbeat_rtt_ms: Optional[float] = None
     backoff_seconds: float = 0.0
     hydration_requests: int = 0
+    #: Bounded targeted-hydration recovery.  A source is READY only when every
+    #: currently desired token is hydrated, so one silent token holds the whole
+    #: source in HYDRATING.  These make that state observable instead of
+    #: inferable: how many active tokens are missing, how long the oldest has
+    #: been missing, and what the bounded recovery has done about it.
+    unhydrated_active_tokens: int = 0
+    oldest_unhydrated_age_ms: int = 0
+    targeted_retry_attempts: int = 0
+    targeted_retry_successes: int = 0
+    targeted_retry_exhaustions: int = 0
+    obsolete_tokens_removed: int = 0
+    duplicate_subscriptions_prevented: int = 0
+    hydration_transition_reason: str = ""
     buffered_events: int = 0
     duplicate_events: int = 0
     rejected_events: int = 0
@@ -137,6 +150,15 @@ class SourceHealth:
             "heartbeat_rtt_ms": self.heartbeat_rtt_ms,
             "backoff_seconds": self.backoff_seconds,
             "hydration_requests": self.hydration_requests,
+            "unhydrated_active_tokens": self.unhydrated_active_tokens,
+            "oldest_unhydrated_age_ms": self.oldest_unhydrated_age_ms,
+            "targeted_retry_attempts": self.targeted_retry_attempts,
+            "targeted_retry_successes": self.targeted_retry_successes,
+            "targeted_retry_exhaustions": self.targeted_retry_exhaustions,
+            "obsolete_tokens_removed": self.obsolete_tokens_removed,
+            "duplicate_subscriptions_prevented":
+                self.duplicate_subscriptions_prevented,
+            "hydration_transition_reason": self.hydration_transition_reason,
             "buffered_events": self.buffered_events,
             "duplicate_events": self.duplicate_events,
             "rejected_events": self.rejected_events,
