@@ -78,7 +78,27 @@ PASS = "PASS"
 
 #: Contract version.  Bound into the recorded hash; a change to any rule below
 #: is a change to this file, which is why the file is committed and hashed.
-CONTRACT_VERSION = "phase2-frozen-2026-08-02"
+#:
+#: ``phase2-frozen-2026-08-02`` was internally unsatisfiable and is superseded.
+#: It required the stream to end on a genuine post-shutdown terminal record
+#: (criterion "run was observed through a clean shutdown", which reads
+#: ``samples[-1]``) *and* required the final ten entries of that same list --
+#: terminal record included -- to be ``operational_ready=true``.  A runtime that
+#: has correctly reached STOPPED publishes no ``persistence.operational_ready``,
+#: and the export-age bound forces that terminal reading to be fresh rather than
+#: a stale pre-shutdown one, so the two rules could never both hold.  Proven
+#: against the unmodified evaluator with an otherwise-perfect synthetic stream.
+#:
+#: The correction is scoped exactly: the readiness streak is measured over the
+#: operating samples, and the terminal record it excludes is instead held to a
+#: stricter, explicit standard of its own (see ``_check_terminal_record``).  No
+#: threshold, duration, identity rule, hydration bound, conservation rule,
+#: keep_ratio rule or safety requirement changes.
+CONTRACT_VERSION = "phase2-frozen-2026-08-02b"
+#: The contract this one supersedes, and the SHA-256 of the file that carried it.
+SUPERSEDED_CONTRACT_VERSION = "phase2-frozen-2026-08-02"
+SUPERSEDED_CONTRACT_SHA256 = (
+    "b807580d8c19e78d181cd3bee95ef849025fa14d64f524673d31bb9271b65674")
 
 #: Every field of the Phase 2 safety tuple and its only permitted value.  The
 #: previous evaluator checked six of these ten; the four it omitted are exactly
@@ -223,6 +243,91 @@ class Contract:
         return [row for row in self.results if row[0] == FAIL]
 
 
+def _check_terminal_record(check, terminal: dict) -> None:
+    """Hold the excluded terminal record to a stricter standard of its own.
+
+    The readiness streak no longer reads this record, so it must instead prove,
+    positively and from its own fields, that the run ended the way a certifiable
+    run must end.  Every assertion here is an addition; none replaces or relaxes
+    a rule applied to the operating samples.
+    """
+
+    def zero(field: str) -> bool:
+        value = terminal.get(field)
+        return value is not None and int(value) == 0
+
+    check("terminal record: runtime state is STOPPED",
+          str(terminal.get("state")) == "STOPPED",
+          f"state={terminal.get('state')!r}")
+    # ``runtime_stopped`` is written only when the sampler observed the pinned
+    # runtime in a terminal state, which is what "no longer running" means here.
+    # ``runtime_alive`` is deliberately not asserted: whether the process object
+    # still exists at that instant is a race against its own exit, and the
+    # sampler already routes a genuinely vanished process to a different record.
+    check("terminal record: runtime is no longer running",
+          str(terminal.get("record")) == "runtime_stopped",
+          f"record={terminal.get('record')!r}")
+    # The inverse of the exclusion above, made explicit so the correction can
+    # never be satisfied by a terminal record that falsely claims readiness.
+    check("terminal record: honestly reports not operational_ready",
+          not bool(terminal.get("operational_ready")),
+          f"operational_ready={terminal.get('operational_ready')!r}")
+    # Stopped on purpose, rather than died: reached STOPPED (not FAILED, not
+    # FATAL, not a vanished process) with nothing left behind.
+    check("terminal record: graceful shutdown completed",
+          str(terminal.get("record")) == "runtime_stopped"
+          and str(terminal.get("state")) == "STOPPED"
+          and not str(terminal.get("state")).startswith(("FAILED", "FATAL"))
+          and zero("stray_temp_files")
+          and not (terminal.get("recovery_blockers") or []),
+          f"record={terminal.get('record')!r} state={terminal.get('state')!r} "
+          f"stray_temp_files={terminal.get('stray_temp_files')!r} "
+          f"blockers={terminal.get('recovery_blockers')!r}")
+    check("terminal record: zero open runtime sessions",
+          zero("open_runtime_sessions_db") and zero("open_runtime_sessions_export"),
+          f"db={terminal.get('open_runtime_sessions_db')!r} "
+          f"export={terminal.get('open_runtime_sessions_export')!r}")
+    check("terminal record: zero owned process/task/thread leaks",
+          all(zero(field) for field in (
+              "orphan_processes", "active_job_count", "active_reader_count",
+              "readers_over_threshold", "stray_temp_files")),
+          "; ".join(f"{f}={terminal.get(f)!r}" for f in (
+              "orphan_processes", "active_job_count", "active_reader_count",
+              "readers_over_threshold", "stray_temp_files")))
+    accounted = terminal.get("recon_accounted")
+    submitted = terminal.get("recon_submitted")
+    check("terminal record: no pending unaccounted telemetry",
+          str(terminal.get("telemetry_data_safety")) == "HEALTHY"
+          and not (terminal.get("telemetry_data_safety_reasons") or [])
+          and zero("queue_depth")
+          and zero("unexpected_noncritical_loss")
+          and zero("critical_evidence_lost")
+          and zero("critical_evidence_incomplete")
+          and zero("unresolved_critical_commands")
+          and zero("reconciliation_mismatch")
+          and accounted is not None and submitted is not None
+          and int(accounted) == int(submitted),
+          f"safety={terminal.get('telemetry_data_safety')!r} "
+          f"reasons={terminal.get('telemetry_data_safety_reasons')!r} "
+          f"queue_depth={terminal.get('queue_depth')!r} "
+          f"submitted={submitted!r} accounted={accounted!r}")
+    tuple_detail = []
+    tuple_ok = True
+    for field, want in SAFETY_TUPLE.items():
+        value = terminal.get(field)
+        if value is None:
+            tuple_ok = False
+            tuple_detail.append(f"{field}=ABSENT")
+            continue
+        actual = bool(value) if isinstance(want, bool) else float(value)
+        if actual != want:
+            tuple_ok = False
+        tuple_detail.append(f"{field}={actual}")
+    check("terminal record: safety tuple intact",
+          tuple_ok and terminal.get("safety_tuple_sources_agree") is not False,
+          "; ".join(tuple_detail))
+
+
 def _series(samples: list[dict], key: str) -> list[float]:
     return [float(row[key]) for row in samples
             if isinstance(row.get(key), (int, float))
@@ -321,6 +426,7 @@ def evaluate(root: Path, *, min_minutes: float) -> dict[str, Any]:
           str(terminal.get("record")) in CLEAN_TERMINAL_RECORDS,
           f"final record={terminal.get('record')!r} "
           f"state={terminal.get('state')!r}")
+    _check_terminal_record(check, terminal)
 
     window = [r for r in samples if r.get("phase") != "tail"]
     span_s = ((window[-1]["sampled_at_ms"] - window[0]["sampled_at_ms"]) / 1000.0
@@ -468,8 +574,18 @@ def evaluate(root: Path, *, min_minutes: float) -> dict[str, Any]:
     check("lane reaches operational_ready within the first 3 samples",
           first_ready is not None and first_ready < MAX_SAMPLES_TO_FIRST_READY,
           f"first ready at sample {None if first_ready is None else first_ready + 1}")
-    check("final ten consecutive samples operational_ready=true",
-          len(ready) >= 10 and all(ready[-10:]), f"{ready[-10:]}")
+    # Measured over the operating samples only.  The stream is *required* to end
+    # on a post-shutdown terminal record, and a runtime that has correctly
+    # stopped is correctly not operational_ready, so including that record here
+    # made this rule and the clean-shutdown rule mutually unsatisfiable.  The
+    # excluded record is held to a stricter standard of its own below; this is
+    # the only criterion it is excluded from.
+    operating_ready = [bool(r.get("operational_ready")) for r in samples
+                       if str(r.get("record")) not in TERMINAL_RECORDS]
+    check("final ten consecutive operating samples operational_ready=true",
+          len(operating_ready) >= 10 and all(operating_ready[-10:]),
+          f"{operating_ready[-10:]} over {len(operating_ready)} operating "
+          f"samples ({len(samples) - len(operating_ready)} terminal excluded)")
     check("operational_ready duty cycle >= 95%",
           sum(ready) / max(1, len(ready)) >= 0.95,
           f"{sum(ready)}/{len(ready)} = {100*sum(ready)/max(1,len(ready)):.1f}%")

@@ -61,11 +61,26 @@ def _sample(index: int, **overrides) -> dict:
 def _build(tmp_path: Path, *, samples=None, terminal=True) -> Path:
     root = tmp_path / "evidence"
     (root / "sampler").mkdir(parents=True)
+    # Long enough that the one not-ready terminal record -- which a graceful
+    # stop always produces -- stays inside the unchanged 95% duty-cycle bound,
+    # as it does in a real run of a hundred-plus samples.
     rows = samples if samples is not None else [
-        _sample(i) for i in range(1, 13)]
+        _sample(i) for i in range(1, 25)]
     if terminal and rows:
+        # A terminal record as the sampler actually writes one for a graceful
+        # stop, and as the contract now requires it to read: the runtime has
+        # reached STOPPED, is honestly no longer operational_ready, and left no
+        # open session, no owned worker, and no unaccounted telemetry behind.
         rows[-1] = dict(rows[-1], record="runtime_stopped", state="STOPPED",
-                        runtime_alive=False)
+                        runtime_alive=False, operational_ready=False,
+                        open_runtime_sessions_db=0,
+                        open_runtime_sessions_export=0,
+                        active_job_count=0, active_reader_count=0,
+                        readers_over_threshold=0, stray_temp_files=0,
+                        recovery_blockers=[], queue_depth=0,
+                        unresolved_critical_commands=0,
+                        telemetry_data_safety="HEALTHY",
+                        telemetry_data_safety_reasons=[])
     manifest = {
         "record": "manifest", "interval_s": 30.0,
         "pinned": {"commit": COMMIT, "pid": PID, "session_id": SESSION,
@@ -99,10 +114,10 @@ def _build(tmp_path: Path, *, samples=None, terminal=True) -> Path:
              "hydrated": True, "future_count": 0},
             {"source": "polymarket", "status": "READY", "connected": True,
              "hydrated": True, "future_count": 0},
-        ]}) for _ in range(12)) + "\n", encoding="utf-8")
+        ]}) for _ in range(24)) + "\n", encoding="utf-8")
     (root / "clock.jsonl").write_text("\n".join(
         json.dumps({"offset_median_ms": 3.0, "free_gb_C": 40.0})
-        for _ in range(12)) + "\n", encoding="utf-8")
+        for _ in range(24)) + "\n", encoding="utf-8")
     return root
 
 
