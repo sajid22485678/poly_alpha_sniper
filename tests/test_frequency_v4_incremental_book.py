@@ -355,10 +355,19 @@ async def test_crossed_delta_drops_the_book_and_requests_resync() -> None:
     await hydrate(stream, clock, [("0.55", "10")], [("0.65", "10")])
     stream.current_book(TOKEN)
 
+    # One crossing delta is refused without discarding the valid book it failed
+    # to update, and without dropping the subscription's hydration.
     await apply(stream, clock, "0.80", "5", "BUY", "0.80", "0.65", tag="crossed")
+    assert stream.current_book(TOKEN)["bids"] == [(0.55, 10.0)]
+    assert TOKEN in stream.hydrated_tokens
+
+    # A run of them proves the local book diverged; only then is it invalidated.
+    for index in range(2, stream.book_desync_strikes + 1):
+        await apply(stream, clock, "0.80", "5", "BUY", "0.80", "0.65",
+                    tag=f"crossed{index}")
     assert stream.current_book(TOKEN) == {}
     assert TOKEN not in stream.hydrated_tokens
-    assert any("crossed_book" in str(entry) for entry in requests)
+    assert any("confirmed_desync" in str(entry) for entry in requests)
 
 
 @pytest.mark.asyncio
@@ -374,9 +383,15 @@ async def test_bbo_mismatch_drops_the_book_and_requests_resync() -> None:
 
     # Local book will have best bid 0.55, but the provider reports 0.58.
     await apply(stream, clock, "0.50", "5", "BUY", "0.58", "0.65", tag="bbo")
+    assert stream.current_book(TOKEN)["bids"] == [(0.55, 10.0)]
+    assert TOKEN in stream.hydrated_tokens
+
+    for index in range(2, stream.book_desync_strikes + 1):
+        await apply(stream, clock, "0.50", "5", "BUY", "0.58", "0.65",
+                    tag=f"bbo{index}")
     assert stream.current_book(TOKEN) == {}
     assert TOKEN not in stream.hydrated_tokens
-    assert any("bbo_mismatch" in str(entry) for entry in requests)
+    assert any("confirmed_desync" in str(entry) for entry in requests)
 
 
 @pytest.mark.asyncio

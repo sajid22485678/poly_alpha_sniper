@@ -311,11 +311,29 @@ async def test_reported_bbo_mismatch_invalidates_local_book_and_recovers() -> No
         json.dumps(mismatch), receipt_ts_ms=1_030,
         receipt_monotonic_ns=20)
     assert decisions[0].disposition is EventDisposition.REJECT_BBO_MISMATCH
+    # One disagreement rejects the frame and nothing else.  The previously
+    # accepted snapshot is still valid, so it -- and hydration -- survive; a
+    # controlled gate measured what conflating the two costs, in the form of a
+    # permanent READY/HYDRATING flicker across fourteen tokens.
+    assert TOKEN in stream.hydrated_tokens
+    assert stream.book_state(TOKEN)["best_bid"] == 0.55
+    assert stream.health_state.frame_rejections_book_preserved == 1
+    assert stream.health_state.authoritative_invalidations == 0
+
+    # A *run* of them is different: it proves the local book has diverged.
+    for index in range(2, stream.book_desync_strikes + 1):
+        await stream.handle_message(
+            json.dumps(delta(best_bid="0.59", suffix=f"m{index}")),
+            receipt_ts_ms=1_030 + index, receipt_monotonic_ns=20 + index)
     assert TOKEN not in stream.hydrated_tokens
     assert stream.book_state(TOKEN) == {}
     assert stream.health_state.hydrated_subscriptions == 0
-    assert stream.health_state.state == "HYDRATING"
-    assert requests[-1][2] == "bbo_mismatch"
+    # This adapter has no transport, and a disconnected source must not
+    # advertise READY/HYDRATING as if it had one.  The connected transition is
+    # asserted against a real _run loop in the hydration-recovery suite.
+    assert stream.health_state.state != "READY"
+    assert stream.health_state.authoritative_invalidations == 1
+    assert requests[-1][2].startswith("confirmed_desync:")
 
 
 @pytest.mark.asyncio
@@ -375,8 +393,20 @@ async def test_crossed_delta_invalidates_book_and_requests_exact_recovery() -> N
         json.dumps(crossing), receipt_ts_ms=1_030,
         receipt_monotonic_ns=20)
     assert decisions[0].disposition is EventDisposition.REJECT_INVALID
+    # The crossing delta is refused; the book it failed to update is kept.
+    assert stream.book_state(TOKEN)["best_bid"] == 0.55
+    assert TOKEN in stream.hydrated_tokens
+    assert stream.health_state.frame_rejections_book_preserved == 1
+
+    for index in range(2, stream.book_desync_strikes + 1):
+        await stream.handle_message(
+            json.dumps(delta(side="SELL", price="0.50", size="10",
+                             best_bid="0.55", best_ask="0.50",
+                             suffix=f"x{index}")),
+            receipt_ts_ms=1_030 + index, receipt_monotonic_ns=20 + index)
     assert stream.book_state(TOKEN) == {}
-    assert requests[-1][:3] == (TOKEN, CONDITION, "crossed_book")
+    assert requests[-1][:2] == (TOKEN, CONDITION)
+    assert requests[-1][2].startswith("confirmed_desync:")
 
 
 @pytest.mark.asyncio

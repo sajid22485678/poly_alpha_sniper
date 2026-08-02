@@ -258,6 +258,8 @@ class PolymarketMarketWS:
             hydration_recovery_after_s: float = 5.0,
             hydration_recovery_max_attempts: int = 6,
             hydration_recovery_backoff_cap_s: float = 20.0,
+            book_desync_strikes: int = 3,
+            book_stale_after_ms: int = 60_000,
     ):
         self.url = str(url)
         self.clock = clock or SystemClock()
@@ -276,6 +278,8 @@ class PolymarketMarketWS:
         self.hydration_recovery_max_attempts = int(hydration_recovery_max_attempts)
         self.hydration_recovery_backoff_cap_s = float(
             hydration_recovery_backoff_cap_s)
+        self.book_desync_strikes = int(book_desync_strikes)
+        self.book_stale_after_ms = int(book_stale_after_ms)
         if self.heartbeat_interval_s <= 0 or self.pong_timeout_s <= 0:
             raise ValueError("heartbeat intervals must be positive")
         if self.max_buffered_deltas_per_token <= 0:
@@ -293,6 +297,10 @@ class PolymarketMarketWS:
         if self.hydration_recovery_backoff_cap_s < self.hydration_recovery_after_s:
             raise ValueError(
                 "hydration recovery backoff cap must not be below its delay")
+        if self.book_desync_strikes <= 0:
+            raise ValueError("book desync strike budget must be positive")
+        if self.book_stale_after_ms <= 0:
+            raise ValueError("book stale timeout must be positive")
 
         self._desired: dict[str, str] = {
             str(token): str(condition)
@@ -326,6 +334,13 @@ class PolymarketMarketWS:
         #: recovery must not manufacture a subscription storm out of one silent
         #: token, so every avoided repeat is counted rather than sent.
         self._subscribed_tokens: set[str] = set()
+        #: Consecutive desync-indicating frame rejections per token.  A single
+        #: one proves nothing about the canonical book; a run of them does.
+        self._desync_strikes: dict[str, int] = {}
+        #: At most one outstanding resync request per token per epoch.  Without
+        #: this, every buffered delta re-requested hydration and one silent
+        #: token produced a request storm.
+        self._resync_inflight: set[str] = set()
         self.health_state = SourceHealth(source=self.source)
         self.health_state.desired_subscriptions = len(self._desired)
 
@@ -379,6 +394,90 @@ class PolymarketMarketWS:
         self._targeted_attempts.pop(key, None)
         self._targeted_next_mono_ns.pop(key, None)
         self._targeted_exhausted.discard(key)
+        self._desync_strikes.pop(key, None)
+        self._resync_inflight.discard(key)
+
+    def _book_is_usable(self, token: str) -> bool:
+        """Is this token's canonical book present and not past its stale bound?
+
+        Separate from hydration on purpose.  Hydration says a subscription has
+        been established and seeded; this says the seeded state is still worth
+        using.  A frame that cannot be applied invalidates neither by itself.
+        """
+
+        book = self._books.get(str(token))
+        if book is None:
+            return False
+        if not book.provider_ts_ms:
+            return False
+        return (wall_ms(self.clock) - int(book.provider_ts_ms)
+                <= self.book_stale_after_ms)
+
+    async def _reject_preserving_book(
+            self, event: SourceEvent, disposition: EventDisposition,
+            reason: str, *, token: str, condition: str,
+    ) -> EventDecision:
+        """Discard one frame without discarding what it failed to update.
+
+        A BBO disagreement or a crossed proposal proves that *this delta* could
+        not be applied consistently.  It does not prove the previously accepted
+        snapshot is wrong, and the gate measured what happens when the two are
+        conflated: the book was dropped, hydration was cleared, the source left
+        READY, and every following delta for that token buffered and re-requested
+        hydration until a REST snapshot landed a few hundred milliseconds later.
+        Across fourteen tokens that produced a permanent flicker.
+
+        So the frame is dropped and counted, the canonical book is kept, and
+        hydration is kept -- until a *run* of such rejections proves the local
+        book really has diverged, which is an authoritative invalidation.
+        """
+
+        self.health_state.frame_rejections_book_preserved += 1
+        strikes = self._desync_strikes.get(token, 0) + 1
+        self._desync_strikes[token] = strikes
+        decision = EventDecision(disposition, event, reason,
+                                 request_hydration=True)
+        await self._publish(event, decision)
+        if strikes >= self.book_desync_strikes:
+            await self._invalidate_book(
+                token, condition, f"confirmed_desync:{reason}")
+        elif not self._book_is_usable(token):
+            await self._invalidate_book(token, condition, "stale_book_timeout")
+        # No health publish on the ordinary path: nothing observable changed.
+        # Publishing per rejection would put thousands of updates an hour on the
+        # export path to report that a frame was dropped and nothing else moved.
+        return decision
+
+    async def _invalidate_book(self, token: str, condition: str,
+                               reason: str) -> None:
+        """Authoritative invalidation of one token's canonical book.
+
+        The only path that may clear hydration for a token that is still
+        desired, and it clears exactly one token.  Everything else -- epoch
+        change and rotation -- is handled where those events are processed.
+        """
+
+        token = str(token)
+        self.health_state.authoritative_invalidations += 1
+        self.health_state.hydration_transition_reason = reason
+        self._books.pop(token, None)
+        self._buffers.pop(token, None)
+        self._desync_strikes.pop(token, None)
+        was_hydrated = token in self._hydrated
+        self._hydrated.discard(token)
+        if was_hydrated:
+            self._track_unhydrated([token])
+        self.health_state.hydrated_subscriptions = len(self._hydrated)
+        if self.health_state.connected:
+            self.health_state.state = (
+                "READY" if self._desired and self._hydrated == set(self._desired)
+                else "HYDRATING")
+        # Forced: an authoritative invalidation must always be followed by a
+        # resync request.  The ordinary cooldown and in-flight guards exist to
+        # stop buffered deltas asking repeatedly, and must not swallow the one
+        # request that is actually required to rebuild the book.
+        await self._request_hydration(token, condition, reason, force=True)
+        await self._publish_health()
 
     def _install_book(self, token: str, book: _BookState) -> _BookState:
         """Publish a new book version under ``token``.
@@ -455,6 +554,14 @@ class PolymarketMarketWS:
 
     async def _request_hydration(self, token: str, condition: str,
                                  reason: str, *, force: bool = False) -> bool:
+        # One outstanding resync per token per epoch.  The cooldown alone was
+        # not enough: every buffered delta for an unhydrated token asked again,
+        # so a single token could emit four requests a second indefinitely.
+        # ``force`` is the bounded sweep re-arming after its backoff, which is
+        # the only legitimate way to supersede an outstanding request.
+        if str(token) in self._resync_inflight and not force:
+            self.health_state.duplicate_hydration_requests_suppressed += 1
+            return False
         now_mono = monotonic_ns(self.clock)
         last_mono = self._last_hydration_request_mono_ns.get(str(token))
         cooldown_ns = int(self.hydration_request_cooldown_s * 1_000_000_000)
@@ -462,6 +569,7 @@ class PolymarketMarketWS:
                 and now_mono - last_mono < cooldown_ns):
             return False
         self._last_hydration_request_mono_ns[str(token)] = now_mono
+        self._resync_inflight.add(str(token))
         self.health_state.hydration_requests += 1
         await invoke_callback(
             self.on_hydration_request,
@@ -489,6 +597,8 @@ class PolymarketMarketWS:
         self._targeted_next_mono_ns.clear()
         self._targeted_exhausted.clear()
         self._subscribed_tokens.clear()
+        self._desync_strikes.clear()
+        self._resync_inflight.clear()
         self.health_state.unhydrated_active_tokens = len(self._desired)
         self.health_state.oldest_unhydrated_age_ms = 0
         self.health_state.hydration_transition_reason = (
@@ -1132,33 +1242,15 @@ class PolymarketMarketWS:
                 buy_side, price, None if size == 0 else size)
         if (proposed.best_bid is not None and proposed.best_ask is not None
                 and proposed.best_bid > proposed.best_ask):
-            self._books.pop(token, None)
-            self._hydrated.discard(token)
-            self._track_unhydrated([token])
-            decision = EventDecision(
-                EventDisposition.REJECT_INVALID, event,
-                "crossed_book_after_delta", request_hydration=True)
-            await self._publish(event, decision)
-            self.health_state.hydrated_subscriptions = len(self._hydrated)
-            self.health_state.state = "HYDRATING"
-            await self._publish_health()
-            await self._request_hydration(
-                token, event.condition_id, "crossed_book", force=True)
-            return decision
+            return await self._reject_preserving_book(
+                event, EventDisposition.REJECT_INVALID,
+                "crossed_book_after_delta",
+                token=token, condition=event.condition_id)
         if not self._reported_bbo_matches(proposed, change):
-            self._books.pop(token, None)
-            self._hydrated.discard(token)
-            self._track_unhydrated([token])
-            decision = EventDecision(
-                EventDisposition.REJECT_BBO_MISMATCH, event,
-                "reported_bbo_disagrees_with_local_delta", request_hydration=True)
-            await self._publish(event, decision)
-            self.health_state.hydrated_subscriptions = len(self._hydrated)
-            self.health_state.state = "HYDRATING"
-            await self._publish_health()
-            await self._request_hydration(
-                token, event.condition_id, "bbo_mismatch", force=True)
-            return decision
+            return await self._reject_preserving_book(
+                event, EventDisposition.REJECT_BBO_MISMATCH,
+                "reported_bbo_disagrees_with_local_delta",
+                token=token, condition=event.condition_id)
         decision = self.gate.evaluate(
             event, stream_key=f"book_delta:{token}",
             sequence_policy=SequencePolicy.NONE,
@@ -1166,6 +1258,9 @@ class PolymarketMarketWS:
             max_age_ms=self.max_event_age_ms)
         await self._publish(event, decision)
         if decision.accepted:
+            # A delta that applies cleanly is positive evidence that the local
+            # book is in step, so the desync run resets here and nowhere else.
+            self._desync_strikes.pop(token, None)
             self._install_book(token, proposed)
         return decision
 
@@ -1230,20 +1325,10 @@ class PolymarketMarketWS:
         if event_type == "best_bid_ask" and token in self._hydrated:
             book = self._books.get(token)
             if book is not None and not self._reported_bbo_matches(book, payload):
-                self._books.pop(token, None)
-                self._hydrated.discard(token)
-                self._track_unhydrated([token])
-                decision = EventDecision(
-                    EventDisposition.REJECT_BBO_MISMATCH, event,
+                return await self._reject_preserving_book(
+                    event, EventDisposition.REJECT_BBO_MISMATCH,
                     "best_bid_ask_disagrees_with_local_book",
-                    request_hydration=True)
-                await self._publish(event, decision)
-                self.health_state.hydrated_subscriptions = len(self._hydrated)
-                self.health_state.state = "HYDRATING"
-                await self._publish_health()
-                await self._request_hydration(
-                    token, condition, "bbo_event_mismatch", force=True)
-                return decision
+                    token=token, condition=condition)
         return await self._publish(event, admitted)
 
 

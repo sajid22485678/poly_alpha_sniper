@@ -726,5 +726,296 @@ def test_health_publishes_every_bounded_recovery_counter() -> None:
                   "targeted_retry_attempts", "targeted_retry_successes",
                   "targeted_retry_exhaustions", "obsolete_tokens_removed",
                   "duplicate_subscriptions_prevented",
+                  "frame_rejections_book_preserved",
+                  "authoritative_invalidations",
+                  "duplicate_hydration_requests_suppressed",
                   "hydration_transition_reason"):
         assert field in health, field
+
+
+# ===========================================================================
+# Frame rejection must not clear hydration.
+#
+# The controlled gate at 4320fd6 failed the frozen five-sample hydration bound
+# with polymarket READY in only 23 of 45 samples.  High-frequency observation
+# showed no token was ever unhydrated for more than 328 ms; *different* tokens
+# flickered constantly because every BBO disagreement or crossed delta dropped
+# a still-valid canonical book and cleared that token's hydration.  Readiness is
+# all-or-nothing across fourteen active tokens, so the source was READY only 54%
+# of the time and a run of six 30-second polls each caught a momentary flicker.
+# ===========================================================================
+
+def price_change(*, token: str = YES, condition: str = CONDITION,
+                 ts: int, price: str = "0.50", size: str = "5",
+                 side: str = "BUY", best_bid: str, best_ask: str,
+                 suffix: str = "1") -> dict[str, object]:
+    return {
+        "event_type": "price_change",
+        "market": condition,
+        "timestamp": str(ts),
+        "price_changes": [{
+            "asset_id": token, "price": price, "size": size, "side": side,
+            "hash": f"delta-{token}-{suffix}",
+            "best_bid": best_bid, "best_ask": best_ask,
+        }],
+    }
+
+
+def best_bid_ask(*, token: str = YES, condition: str = CONDITION, ts: int,
+                 best_bid: str, best_ask: str) -> dict[str, object]:
+    return {
+        "event_type": "best_bid_ask", "asset_id": token, "market": condition,
+        "timestamp": str(ts), "best_bid": best_bid, "best_ask": best_ask,
+    }
+
+
+async def _both_hydrated(harness: Harness) -> None:
+    adapter = harness.adapter
+    for token in (YES, NO):
+        await adapter.handle_message(
+            json.dumps(book(token=token, ts=harness.clock.wall - 100)))
+    assert harness.state() == "READY"
+
+
+@pytest.mark.asyncio
+async def test_bbo_mismatch_frame_preserves_ready_and_the_prior_book():
+    harness = await _start()
+    adapter = harness.adapter
+    try:
+        await _both_hydrated(harness)
+        before = adapter.current_book(YES)
+
+        harness.clock.advance(0.2)
+        decisions = await adapter.handle_message(json.dumps(price_change(
+            ts=harness.clock.wall - 50, best_bid="0.59", best_ask="0.65")))
+        assert decisions[0].disposition.name == "REJECT_BBO_MISMATCH"
+
+        # (1)(3) frame dropped, book kept, hydration kept, still READY.
+        assert harness.state() == "READY"
+        assert YES in adapter.hydrated_tokens
+        assert adapter.current_book(YES)["bids"] == before["bids"]
+        health = adapter.health()
+        assert health["frame_rejections_book_preserved"] == 1
+        assert health["authoritative_invalidations"] == 0
+        assert health["unhydrated_active_tokens"] == 0
+    finally:
+        await adapter.stop()
+
+
+@pytest.mark.asyncio
+async def test_timestamp_regression_frame_preserves_ready_and_the_prior_book():
+    harness = await _start()
+    adapter = harness.adapter
+    try:
+        await _both_hydrated(harness)
+        before = adapter.current_book(YES)
+
+        # (2)(3) a delta older than the local book is refused outright and
+        #        cannot regress or invalidate anything.  The book was seeded at
+        #        wall-100, so wall-500 is strictly older and still a valid
+        #        positive provider timestamp.
+        decisions = await adapter.handle_message(json.dumps(price_change(
+            ts=harness.clock.wall - 500, best_bid="0.55", best_ask="0.65",
+            suffix="old")))
+        assert decisions[0].disposition.name == "REJECT_TIMESTAMP_REGRESSION"
+        assert harness.state() == "READY"
+        assert YES in adapter.hydrated_tokens
+        assert adapter.current_book(YES)["bids"] == before["bids"]
+        assert adapter.health()["authoritative_invalidations"] == 0
+
+        # Nor can an older snapshot overwrite the newer local book.
+        await adapter.handle_message(
+            json.dumps(book(token=YES, ts=harness.clock.wall - 800,
+                            bid="0.10")))
+        assert harness.state() == "READY"
+        assert YES in adapter.hydrated_tokens
+        assert adapter.current_book(YES)["bids"] == before["bids"]
+        assert adapter.health()["authoritative_invalidations"] == 0
+    finally:
+        await adapter.stop()
+
+
+@pytest.mark.asyncio
+async def test_repeated_transient_rejections_never_leave_ready():
+    """(11) The exact shape that produced the six-sample episode."""
+
+    harness = await _start()
+    adapter = harness.adapter
+    try:
+        await _both_hydrated(harness)
+        states: list[str] = []
+        # Two rejections, then a clean delta that resets the run -- repeated far
+        # more times than the gate's six samples covered.
+        for cycle in range(40):
+            for strike in range(adapter.book_desync_strikes - 1):
+                harness.clock.advance(0.05)
+                await adapter.handle_message(json.dumps(price_change(
+                    ts=harness.clock.wall - 20, best_bid="0.59",
+                    best_ask="0.65", suffix=f"c{cycle}s{strike}")))
+                states.append(harness.state())
+            harness.clock.advance(0.05)
+            await adapter.handle_message(json.dumps(price_change(
+                ts=harness.clock.wall - 20, price="0.55", size="12",
+                best_bid="0.55", best_ask="0.65", suffix=f"c{cycle}ok")))
+            states.append(harness.state())
+
+        assert set(states) == {"READY"}, "a transient rejection left READY"
+        health = adapter.health()
+        assert health["authoritative_invalidations"] == 0
+        assert health["frame_rejections_book_preserved"] == 40 * (
+            adapter.book_desync_strikes - 1)
+        # (9) and no request storm: a preserved book asks for nothing.
+        assert harness.requests_for(YES) == [(YES, CONDITION, "reconnect", 1)]
+    finally:
+        await adapter.stop()
+
+
+@pytest.mark.asyncio
+async def test_confirmed_desync_invalidates_only_the_affected_token():
+    """(4) and (10): a genuine divergence is still fail-closed."""
+
+    harness = await _start()
+    adapter = harness.adapter
+    try:
+        await _both_hydrated(harness)
+        for strike in range(adapter.book_desync_strikes):
+            harness.clock.advance(0.05)
+            await adapter.handle_message(json.dumps(price_change(
+                ts=harness.clock.wall - 20, best_bid="0.59", best_ask="0.65",
+                suffix=f"s{strike}")))
+
+        assert harness.state() == "HYDRATING"
+        assert YES not in adapter.hydrated_tokens
+        assert adapter.current_book(YES) == {}
+        # Only the affected token: the other one keeps its book and hydration.
+        assert NO in adapter.hydrated_tokens
+        assert adapter.current_book(NO) != {}
+        health = adapter.health()
+        assert health["authoritative_invalidations"] == 1
+        assert health["unhydrated_active_tokens"] == 1
+        assert health["hydration_transition_reason"].startswith(
+            "confirmed_desync:")
+        # Exactly one resync request for the invalidated token.
+        retries = [r for r in harness.requests_for(YES) if r[2] != "reconnect"]
+        assert len(retries) == 1
+
+        # Fail-closed until a valid canonical book is rebuilt.
+        harness.clock.advance(0.05)
+        await adapter.handle_message(json.dumps(price_change(
+            ts=harness.clock.wall - 20, best_bid="0.55", best_ask="0.65",
+            suffix="after")))
+        assert harness.state() == "HYDRATING"
+        await adapter.handle_message(
+            json.dumps(book(token=YES, ts=harness.clock.wall - 50)))
+        assert harness.state() == "READY"
+    finally:
+        await adapter.stop()
+
+
+@pytest.mark.asyncio
+async def test_best_bid_ask_disagreement_also_preserves_the_book():
+    harness = await _start()
+    adapter = harness.adapter
+    try:
+        await _both_hydrated(harness)
+        harness.clock.advance(0.2)
+        await adapter.handle_message(json.dumps(best_bid_ask(
+            ts=harness.clock.wall - 50, best_bid="0.11", best_ask="0.22")))
+        assert harness.state() == "READY"
+        assert YES in adapter.hydrated_tokens
+        assert adapter.health()["frame_rejections_book_preserved"] == 1
+    finally:
+        await adapter.stop()
+
+
+@pytest.mark.asyncio
+async def test_one_outstanding_hydration_request_per_token_and_epoch():
+    """(8) The 4,968-request storm, closed."""
+
+    harness = await _start({YES: CONDITION})
+    adapter = harness.adapter
+    try:
+        # YES has no book yet, so every delta hits the missing-book path, which
+        # used to re-request hydration for each one.
+        for index in range(60):
+            harness.clock.advance(0.05)
+            await adapter.handle_message(json.dumps(price_change(
+                ts=harness.clock.wall - 20, best_bid="0.55", best_ask="0.65",
+                suffix=f"b{index}")))
+
+        requests = harness.requests_for(YES)
+        assert len(requests) == 1, requests            # the epoch's reconnect one
+        assert adapter.health()["duplicate_hydration_requests_suppressed"] >= 59
+        assert len(adapter._resync_inflight) == 1
+
+        # (7) the buffered deltas are bounded, not accumulated without limit.
+        assert (len(adapter._buffers.get(YES, ()))
+                <= adapter.max_buffered_deltas_per_token)
+
+        # Hydrating the token releases the guard and replays the buffer.
+        await adapter.handle_message(
+            json.dumps(book(token=YES, ts=harness.clock.wall - 50)))
+        assert harness.state() == "READY"
+        assert adapter._resync_inflight == set()
+        assert not adapter._buffers.get(YES)
+    finally:
+        await adapter.stop()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_and_rotation_clear_the_new_state_too():
+    """(5)(6) epoch and rotation reset every new per-token structure."""
+
+    harness = await _start(sockets=2)
+    adapter = harness.adapter
+    try:
+        await _both_hydrated(harness)
+        harness.clock.advance(0.05)
+        await adapter.handle_message(json.dumps(price_change(
+            ts=harness.clock.wall - 20, best_bid="0.59", best_ask="0.65")))
+        assert adapter._desync_strikes.get(YES) == 1
+
+        # Rotation drops the token's strike record with everything else.
+        await adapter.set_subscriptions({NO: CONDITION, THIRD: CONDITION})
+        assert YES not in adapter._desync_strikes
+        assert YES not in adapter._resync_inflight
+
+        epoch_before = adapter.connection_epoch
+        await harness.ws.close()
+        await _await_epoch(adapter, epoch_above=epoch_before)
+        assert adapter._desync_strikes == {}
+        assert adapter.hydrated_tokens == frozenset()
+        # The epoch cleared every request, then issued exactly one per desired
+        # token -- which is the invariant, not an empty set.
+        assert adapter._resync_inflight == set(adapter._desired) == {NO, THIRD}
+    finally:
+        await adapter.stop()
+
+
+@pytest.mark.asyncio
+async def test_preserving_rejections_leave_no_task_leak_at_shutdown():
+    """(12) with the new paths exercised first."""
+
+    harness = await _start()
+    adapter = harness.adapter
+    await _both_hydrated(harness)
+    for strike in range(adapter.book_desync_strikes):
+        harness.clock.advance(0.05)
+        await adapter.handle_message(json.dumps(price_change(
+            ts=harness.clock.wall - 20, best_bid="0.59", best_ask="0.65",
+            suffix=f"leak{strike}")))
+    await adapter.stop()
+    await harness.settle(10)
+    assert adapter._recovery_task is None
+    assert adapter._heartbeat_task is None
+    assert adapter._task is None
+    leaked = {t for t in asyncio.all_tasks()
+              if t is not asyncio.current_task() and not t.done()
+              and "frequency_v4_poly" in (t.get_name() or "")}
+    assert leaked == set(), f"leaked adapter tasks: {leaked}"
+
+
+def test_desync_and_stale_bounds_are_validated() -> None:
+    for bad in ({"book_desync_strikes": 0}, {"book_stale_after_ms": 0}):
+        with pytest.raises(ValueError):
+            PolymarketMarketWS({YES: CONDITION}, **bad)  # type: ignore[arg-type]

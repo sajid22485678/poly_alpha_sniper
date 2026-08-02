@@ -104,6 +104,13 @@ class SourceHealth:
     targeted_retry_exhaustions: int = 0
     obsolete_tokens_removed: int = 0
     duplicate_subscriptions_prevented: int = 0
+    #: Frames dropped without discarding the canonical book they failed to
+    #: update, and the far rarer case where a run of them proved the book really
+    #: had diverged.  The ratio is the whole point: rejecting a frame is normal,
+    #: invalidating a book is not.
+    frame_rejections_book_preserved: int = 0
+    authoritative_invalidations: int = 0
+    duplicate_hydration_requests_suppressed: int = 0
     hydration_transition_reason: str = ""
     buffered_events: int = 0
     duplicate_events: int = 0
@@ -158,6 +165,11 @@ class SourceHealth:
             "obsolete_tokens_removed": self.obsolete_tokens_removed,
             "duplicate_subscriptions_prevented":
                 self.duplicate_subscriptions_prevented,
+            "frame_rejections_book_preserved":
+                self.frame_rejections_book_preserved,
+            "authoritative_invalidations": self.authoritative_invalidations,
+            "duplicate_hydration_requests_suppressed":
+                self.duplicate_hydration_requests_suppressed,
             "hydration_transition_reason": self.hydration_transition_reason,
             "buffered_events": self.buffered_events,
             "duplicate_events": self.duplicate_events,
