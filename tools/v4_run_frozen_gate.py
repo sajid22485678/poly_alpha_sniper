@@ -197,16 +197,41 @@ def _probe_dashboard() -> dict:
 
 
 def _powershell(script: Path, *args: str, env_extra: Optional[dict] = None,
-                timeout_s: float = 900.0) -> subprocess.CompletedProcess:
+                timeout_s: float = 900.0,
+                log_dir: Optional[Path] = None) -> subprocess.CompletedProcess:
+    """Run a launcher script, capturing output through *files*, not pipes.
+
+    ``capture_output=True`` deadlocks here.  The start script launches the bot
+    with ``Start-Process``, the bot spawns its own workers, and those
+    grandchildren inherit the pipe write handles.  PowerShell then exits while
+    the pipes stay open, so the parent waits for an EOF that only arrives when
+    the runtime itself dies -- which is exactly what it must not do.  Observed
+    directly: the runtime reached verified readiness with a 1.3 s heartbeat and
+    a matching nonce while the launcher call was still blocked.
+
+    Redirecting to files gives the same transcript with no handle to inherit.
+    """
+
     import os
+    import tempfile
 
     env = dict(os.environ)
     env.update(env_extra or {})
-    return subprocess.run(
-        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-         "-File", str(script), *args],
-        cwd=str(REPO_ROOT), capture_output=True, text=True,
-        timeout=timeout_s, env=env, check=False)
+    target = log_dir or Path(tempfile.gettempdir())
+    target.mkdir(parents=True, exist_ok=True)
+    stem = f"{script.stem}.{int(time.time()*1000)}"
+    out_path, err_path = target / f"{stem}.out", target / f"{stem}.err"
+    with out_path.open("w", encoding="utf-8") as out, \
+            err_path.open("w", encoding="utf-8") as err:
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", str(script), *args],
+            cwd=str(REPO_ROOT), stdout=out, stderr=err, stdin=subprocess.DEVNULL,
+            timeout=timeout_s, env=env, check=False)
+    return subprocess.CompletedProcess(
+        completed.args, completed.returncode,
+        out_path.read_text(encoding="utf-8", errors="replace"),
+        err_path.read_text(encoding="utf-8", errors="replace"))
 
 
 def main() -> int:
@@ -238,7 +263,8 @@ def main() -> int:
     say("starting V4 runtime...")
     started = _powershell(
         REPO_ROOT / "scripts" / "start_lite_frequency_v4_shadow.ps1",
-        env_extra={"POLY_ALPHA_V4_READINESS_TRACE": str(trace_path)})
+        env_extra={"POLY_ALPHA_V4_READINESS_TRACE": str(trace_path)},
+        log_dir=root / "launcher")
     say(f"start rc={started.returncode}\n{started.stdout.strip()}\n"
         f"{started.stderr.strip()}")
     if started.returncode != 0:
@@ -248,7 +274,7 @@ def main() -> int:
     say("starting dashboard...")
     dash = _powershell(
         REPO_ROOT / "scripts" / "start_frequency_v4_dashboard.ps1",
-        timeout_s=180.0)
+        timeout_s=180.0, log_dir=root / "launcher")
     say(f"dashboard rc={dash.returncode} {dash.stdout.strip()} "
         f"{dash.stderr.strip()}")
     probe = _probe_dashboard()
@@ -256,7 +282,8 @@ def main() -> int:
     if not probe.get("listening"):
         say("ABORT: dashboard is not serving; the contract requires real "
             "HTTP evidence")
-        _powershell(REPO_ROOT / "scripts" / "stop_lite_frequency_v4_shadow.ps1")
+        _powershell(REPO_ROOT / "scripts" / "stop_lite_frequency_v4_shadow.ps1",
+                    log_dir=root / "launcher")
         return 2
 
     # --- launch the identity-pinned sampler ---------------------------------
@@ -336,7 +363,8 @@ def main() -> int:
     say("requesting graceful V4 stop...")
     stopped = _powershell(
         REPO_ROOT / "scripts" / "stop_lite_frequency_v4_shadow.ps1",
-        "-GracePeriodSeconds", str(STOP_GRACE_S), timeout_s=STOP_GRACE_S + 120)
+        "-GracePeriodSeconds", str(STOP_GRACE_S), timeout_s=STOP_GRACE_S + 120,
+        log_dir=root / "launcher")
     say(f"stop rc={stopped.returncode} {stopped.stdout.strip()} "
         f"{stopped.stderr.strip()}")
 
@@ -351,7 +379,7 @@ def main() -> int:
     say("stopping dashboard...")
     dash_stop = _powershell(
         REPO_ROOT / "scripts" / "stop_frequency_v4_dashboard.ps1",
-        timeout_s=120.0)
+        timeout_s=120.0, log_dir=root / "launcher")
     say(f"dashboard stop rc={dash_stop.returncode} {dash_stop.stdout.strip()}")
 
     manifest = {
