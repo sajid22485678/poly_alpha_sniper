@@ -1,90 +1,34 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-23T13:39:13+07:00",
-  "agent_state": "TESTING",
+  "updated_at": "2026-08-23T14:17:00+07:00",
+  "agent_state": "RUNNING",
   "project": "poly_alpha_sniper",
   "active_work_branch": "master",
   "active_work_head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
   "worktree_dirty": true,
-  "current_goal": "Complete the shadow-only Poly Alpha research, validation, profitability, runtime, and audit mission without enabling live trading.",
-  "current_task": "Reconcile successor fourteen's terminal acknowledgement-race failure and create the distinct successor-fifteen exact-once source seal.",
-  "current_investigation": "Candidate-bound execution-book acknowledgement validation after asynchronous market-state advancement.",
-  "last_completed": "Successor fourteen stopped exactly once and drained 1,961/1,961 commands; the race regression and 280-test affected union pass.",
+  "current_goal": "Complete the genuine shadow-only/live-disabled Poly Alpha release-candidate mission without weakening evidence gates.",
+  "current_task": "Guard successor-fifteen phase-one acquisition toward the preregistered 300-market and 60-per-class OOS boundary.",
+  "current_investigation": "Natural-time exact-v6 acquisition health, persistence integrity, source lineage, and eligibility counters.",
+  "last_completed": "Successor fifteen passed 4,164/4,164 exactly once, materialized and cold-verified once, then launched one guarded shadow runtime.",
   "latest_findings": [
-    "All 579 durable execution-book acknowledgements matched their immutable submitted payloads.",
-    "Candidate 208 was submitted before candidate 209 advanced mutable state; the candidate-208 acknowledgement arrived afterward and was falsely rejected against candidate 209.",
-    "Successor fourteen is immutable, ineligible, non-poolable, stopped, and must never be relaunched or evaluated.",
-    "Successor fifteen's reserved source and acquisition roots do not yet exist."
+    "Source seal: exit 0, launch count 1, zero failure/error/skip, exact pre/post tree equality.",
+    "Empty exact-v6 materialization: user_version 6, quick_check ok, FK 0, only schema_migrations nonempty.",
+    "Initial guarded runtime sample: 44 capsules, source READY, zero failed/lost/overflow/discarded work.",
+    "V4-HO-001 remains nonexistent/unconsumed and authoritative v5 remains byte-identical."
   ],
-  "files_or_modules_touched": [
-    "lite_frequency_v4/engine.py",
-    "tests/test_frequency_v4_prospective_runtime.py",
-    "docs/*.md"
-  ],
-  "tests": {
-    "last_command": "pytest affected engine/persistence/store/prospective-runtime union",
-    "passed": 280,
-    "failed": 0,
-    "status": "PASS; successor-fifteen full repository exact-once seal pending"
-  },
+  "files_or_modules_touched": ["lite_frequency_v4/engine.py", "tests/test_frequency_v4_prospective_runtime.py", "docs/*.md"],
+  "tests": {"last_command": "successor-15 exact-once full repository suite", "passed": 4164, "failed": 0, "status": "PASS; zero errors/skips; launch count 1"},
   "blockers": [],
   "next_steps": [
-    "Create the non-overwriting successor-fifteen tested-tree manifest only after disk reconciliation remains clean.",
-    "Run the full repository suite exactly once with automatic durable exit capture.",
-    "Only a tree-matching, exit-0, fully green, unskipped seal may authorize one fresh successor-fifteen exact-v6 materialization."
+    "Continue bounded guardian monitoring and stop exactly once on any genuine fail-closed breach.",
+    "Do not calibrate or enter phase two before OOS end, 300 unique rank-1 markets, 60 positive and 60 negative labels, and zero unlabeled rows.",
+    "Keep the tested repository tree frozen and all predecessor cohorts excluded."
   ],
-  "runtime_state": "SUCCESSOR_14_STOPPED_TERMINAL; no prospective process or listener; successor 15 not launched",
+  "runtime_state": "SUCCESSOR_15_PHASE_ONE_RUNNING_SHADOW_ONLY",
   "live_trading_enabled": false,
-  "repository": {
-    "owner": "sajid22485678",
-    "name": "poly_alpha_sniper",
-    "visibility": "PRIVATE",
-    "progress_branch": "codex-progress"
-  },
-  "implementation": {
-    "staged_files": 0,
-    "tracked_modifications": 55,
-    "untracked_files": 103,
-    "sole_writer": "Codex"
-  },
-  "runtime": {
-    "terminal_acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR14-20260823T0530Z",
-    "terminal_session_id": "365defda00404ab99b63c03660353149",
-    "state": "STOPPED_TERMINAL_INELIGIBLE",
-    "journal_committed": 1961,
-    "journal_failed": 0,
-    "terminal_snapshot_sha256": "74305de4c372ecdb03ebf265a646d5f6c2517acfc8dcf99a8803a437d5fd123d",
-    "terminal_reconciliation_sha256": "921cfbcf9ea3b0a3cc636a99989952775ea84f9c477c26f0b5ba05832e1d0bcb"
-  },
-  "validation": [
-    {
-      "scope": "successor-14 exact-once source seal",
-      "result": "PASS_HISTORICAL_SOURCE_ONLY",
-      "tests": 4163,
-      "junit_sha256": "621474b4989db7cf02fcbf14511bc9a2c450426431eb90ebdee69e1cbbd5a8ff"
-    },
-    {
-      "scope": "execution-book acknowledgement race affected union",
-      "result": "PASS",
-      "tests": 280,
-      "junit_sha256": "2aed0ff47812f2b6c4a2eb3547b851f4efa883b09309a6c1c5cdbc55f1b3ef8f"
-    }
-  ],
-  "safety": {
-    "LIVE_ENABLED": false,
-    "REAL_ORDERS_POSSIBLE": false,
-    "wallet_signing_available": false,
-    "authenticated_trading_available": false,
-    "kill_switch_engaged": true,
-    "phase_3_entered": false,
-    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
-    "authoritative_v5_mutation_allowed": false,
-    "v5_to_v6_cutover_allowed": false
-  },
-  "release_target": {
-    "LIVE_READY": "NOT_YET_PROVEN",
-    "LIVE_ENABLED": "NO",
-    "REAL_ORDERS_POSSIBLE": "NO",
-    "READY_FOR_CLAUDE_FINAL_AUDIT": "NOT_YET"
-  }
+  "implementation": {"staged_files": 0, "tracked_modifications": 55, "untracked_files": 103, "manifest_paths": 660, "tested_tree_sha256": "57a5916d9cd75204b5f7251c3bc2c9e8f1c20ecba6d4cf8366daab24aa55ed69", "sole_writer": "Codex"},
+  "source_seal": {"tests": 4164, "junit_sha256": "14a3f9199fad28887611463e208412330cbb0295fbccd7656a8c869401014d96", "manifest_sha256": "236760af1def206cd578f25270d17b35835a78f02d2511bff4e037907bf1b8d1", "launch_count": 1},
+  "runtime": {"acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR15-20260823T0630Z", "launch_nonce": "386c7b2eb3494941baf43f6113f3d335", "reserved_phase_two_nonce": "a5187d0eef5945d69478077c67d488b3", "session_id": "fd5c115dea37403d81e56f82bbc151e2", "exact_pids": [6552, 14364], "protocol_id": "bc770668222c10b27176615079029f50f00169a26547a95841d0eb6175eefa75", "cohort": "prospective_v6_development_57a5916d9cd75204", "oos_end_ts_ms": 1787512308786, "state": "RUNNING_GUARDED"},
+  "safety": {"LIVE_ENABLED": false, "REAL_ORDERS_POSSIBLE": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_3_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED", "authoritative_v5_mutation_allowed": false},
+  "release_target": {"LIVE_READY": "NOT_YET_PROVEN", "LIVE_ENABLED": "NO", "REAL_ORDERS_POSSIBLE": "NO", "READY_FOR_CLAUDE_FINAL_AUDIT": "NOT_YET"}
 }
