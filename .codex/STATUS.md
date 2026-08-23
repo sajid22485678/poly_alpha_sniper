@@ -1,6 +1,6 @@
 # Codex progress bridge
 
-Updated: 2026-08-23T20:22:42+07:00
+Updated: 2026-08-23T20:26:23+07:00
 
 Successors seventeen and eighteen are immutable and permanently ineligible
 after binding critical-evidence-incompleteness guardian failures. Both drained
@@ -18,11 +18,11 @@ Phase one then launched exactly once under nonce
 `ee3a18f37f98459ebc71a7126b29878a`. It must never be relaunched.
 
 The latest durable guardian snapshot is
-`D:\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\operator\guardian_snapshot_1787491247909.json`
+`D:\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\operator\guardian_snapshot_1787491551789.json`
 (SHA-256
-`4b1582aa6f6f7fa4d2268f1ae348ee0a83e6ca3af32dd82642133762692a2d10`).
-At roughly 70 minutes it has 1,932 capsules, 3,844 predictions, 133 markets,
-97 outcomes and 12,822 committed commands. The guardian remains binding-clean:
+`dc9d06b21f09d0d31b86ca21e41a10c25cc590770ff18d889e06ba22ab640e8e`).
+At the durable 75-minute checkpoint it has 1,997 capsules, 3,974 predictions,
+138 markets, 102 outcomes and 13,328 committed commands. The guardian remains binding-clean:
 zero failed, lost, overflow or discarded work. There are no trade, tournament,
 holdout or live effects.
 
