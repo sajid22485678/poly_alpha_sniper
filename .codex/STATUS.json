@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-23T14:35:42+07:00",
+  "updated_at": "2026-08-23T14:47:34+07:00",
   "agent_state": "RUNNING",
   "project": "poly_alpha_sniper",
   "active_work_branch": "master",
@@ -13,7 +13,7 @@
   "latest_findings": [
     "Source seal: exit 0, launch count 1, zero failure/error/skip, exact pre/post tree equality.",
     "Empty exact-v6 materialization: user_version 6, quick_check ok, FK 0, only schema_migrations nonempty.",
-    "Stabilization reached 536 capsules, 80 markets, 14 outcomes, and 4,420 committed commands with zero failed/lost/overflow/discarded work.",
+    "Two bounded guard windows reached 821 capsules, 97 markets, 36 outcomes, and 6,503 committed commands with zero failed/lost/overflow/discarded work.",
     "A controlled telemetry backlog recovered from 1,070 rows to 42 with data safety HEALTHY and exact accounting.",
     "V4-HO-001 remains nonexistent/unconsumed and authoritative v5 remains byte-identical."
   ],
@@ -29,7 +29,7 @@
   "live_trading_enabled": false,
   "implementation": {"staged_files": 0, "tracked_modifications": 55, "untracked_files": 103, "manifest_paths": 660, "tested_tree_sha256": "57a5916d9cd75204b5f7251c3bc2c9e8f1c20ecba6d4cf8366daab24aa55ed69", "sole_writer": "Codex"},
   "source_seal": {"tests": 4164, "junit_sha256": "14a3f9199fad28887611463e208412330cbb0295fbccd7656a8c869401014d96", "manifest_sha256": "236760af1def206cd578f25270d17b35835a78f02d2511bff4e037907bf1b8d1", "launch_count": 1},
-  "runtime": {"acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR15-20260823T0630Z", "launch_nonce": "386c7b2eb3494941baf43f6113f3d335", "reserved_phase_two_nonce": "a5187d0eef5945d69478077c67d488b3", "session_id": "fd5c115dea37403d81e56f82bbc151e2", "exact_pids": [6552, 14364], "protocol_id": "bc770668222c10b27176615079029f50f00169a26547a95841d0eb6175eefa75", "cohort": "prospective_v6_development_57a5916d9cd75204", "oos_end_ts_ms": 1787512308786, "state": "RUNNING_GUARDED"},
+  "runtime": {"acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR15-20260823T0630Z", "launch_nonce": "386c7b2eb3494941baf43f6113f3d335", "reserved_phase_two_nonce": "a5187d0eef5945d69478077c67d488b3", "session_id": "fd5c115dea37403d81e56f82bbc151e2", "exact_pids": [6552, 14364], "protocol_id": "bc770668222c10b27176615079029f50f00169a26547a95841d0eb6175eefa75", "cohort": "prospective_v6_development_57a5916d9cd75204", "oos_end_ts_ms": 1787512308786, "state": "RUNNING_GUARDED", "capsules": 821, "markets": 97, "outcomes": 36, "ensemble_readiness": {"unique_markets": 56, "positive_labels": 12, "negative_labels": 24, "unlabeled": 20}, "model_readiness": {"unique_markets": 51, "positive_labels": 10, "negative_labels": 22, "unlabeled": 19}, "watch_condition": "controlled telemetry queue accumulation without mismatch or unexpected loss"},
   "safety": {"LIVE_ENABLED": false, "REAL_ORDERS_POSSIBLE": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_3_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED", "authoritative_v5_mutation_allowed": false},
   "release_target": {"LIVE_READY": "NOT_YET_PROVEN", "LIVE_ENABLED": "NO", "REAL_ORDERS_POSSIBLE": "NO", "READY_FOR_CLAUDE_FINAL_AUDIT": "NOT_YET"}
 }
