@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-08-23T10:28:53.6772791+07:00",
+  "repository": {
+    "owner": "sajid22485678",
+    "name": "poly_alpha_sniper",
+    "visibility": "PRIVATE",
+    "default_branch": "master",
+    "progress_branch": "codex-progress"
+  },
+  "implementation": {
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "upstream": "origin/master",
+    "dirty": true,
+    "staged_files": 0,
+    "tracked_modifications": 55,
+    "untracked_files": 103,
+    "sole_writer": "Codex"
+  },
+  "mission": {
+    "phase": "successor-13 pre-source-seal TDD",
+    "active_task": "Remove the exact-v6 high-cardinality persistence and replay-capsule query scaling defect without weakening atomic evidence lineage.",
+    "last_durable_boundary": "Successor-12 is terminal, drained, reconciled, and ineligible after a persistence acknowledgement breach; it must never be relaunched, finalized, registered, evaluated, or pooled.",
+    "next_actions": [
+      "Add a bounded-query regression for high-cardinality CEX capsule derivation.",
+      "Replace per-observation replay/source queries with bulk projection while preserving exact validation.",
+      "Remove the provisional workload-dependent acknowledgement deadline if the optimized path remains within the ordinary deadline.",
+      "Run bounded affected validation before any reserved successor source seal or full-repository qualification."
+    ],
+    "blockers": []
+  },
+  "validation": [
+    {
+      "scope": "successor-13 selected affected persistence suite",
+      "result": "PASS",
+      "junit_sha256": "033e7e9a76559b6894efa50fcfbfba2dce45e79f30906bfb147449771e8cbf31"
+    },
+    {
+      "scope": "repository no-secrets tests",
+      "result": "PASS",
+      "tests": 13,
+      "junit_sha256": "5aac10c5a9e65768f0e547fcb47e2ec1c93fd84f8fe565d1a1dcddb9be5b6986"
+    },
+    {
+      "scope": "successor-12 source seal",
+      "result": "PASS_THEN_RUNTIME_INELIGIBLE",
+      "tests": 4157,
+      "source_tree_sha256": "1a5f67955dde68eba0b701881597345375e9ebd9d652f20f20878645ba2398db"
+    }
+  ],
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_mutation_allowed": false,
+    "v5_to_v6_cutover_allowed": false
+  },
+  "release_target": {
+    "LIVE_READY": "NOT_YET_PROVEN",
+    "LIVE_ENABLED": "NO",
+    "REAL_ORDERS_POSSIBLE": "NO",
+    "READY_FOR_CLAUDE_FINAL_AUDIT": "NOT_YET"
+  }
+}
