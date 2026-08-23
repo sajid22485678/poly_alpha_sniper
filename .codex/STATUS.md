@@ -1,6 +1,6 @@
 # Codex progress bridge
 
-Updated: 2026-08-23T20:10:00+07:00
+Updated: 2026-08-23T20:22:42+07:00
 
 Successors seventeen and eighteen are immutable and permanently ineligible
 after binding critical-evidence-incompleteness guardian failures. Both drained
@@ -18,11 +18,13 @@ Phase one then launched exactly once under nonce
 `ee3a18f37f98459ebc71a7126b29878a`. It must never be relaunched.
 
 The latest durable guardian snapshot is
-`D:\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\operator\guardian_snapshot_1787490639730.json`.
-Four consecutive 15-minute windows completed cleanly. The snapshot has 1,752
-capsules, 3,486 predictions, 130 markets, 84 outcomes and 11,417 committed
-commands. The guardian stream has zero failed, lost, overflow or discarded
-work. There are no trade, tournament, holdout or live effects.
+`D:\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\operator\guardian_snapshot_1787491247909.json`
+(SHA-256
+`4b1582aa6f6f7fa4d2268f1ae348ee0a83e6ca3af32dd82642133762692a2d10`).
+At roughly 70 minutes it has 1,932 capsules, 3,844 predictions, 133 markets,
+97 outcomes and 12,822 committed commands. The guardian remains binding-clean:
+zero failed, lost, overflow or discarded work. There are no trade, tournament,
+holdout or live effects.
 
 Phase one is not ready merely because capsule count exceeds 300. The frozen
 protocol requires the OOS boundary `1787530026799`, at least 300 unique labeled
