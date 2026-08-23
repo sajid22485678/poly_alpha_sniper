@@ -1,30 +1,31 @@
 # Codex progress bridge
 
-Updated: 2026-08-23T15:38:33+07:00
+Updated: 2026-08-23T16:28:00+07:00
 
-Successor fifteen is terminal and permanently excluded. Its first binding
-guardian failure recorded `DEGRADED_PERSISTENCE` with eight incomplete critical
-commands while an 8,062 ms PASSIVE WAL checkpoint saturated shared disk I/O.
-The exact stop drained 8,465/8,465 commands with zero failures, incomplete/lost
-rows, mismatch, unexpected loss, ingest discard, trades, tournament or holdout
-rows. Snapshot SHA-256 is
-`c07775247329acc99df12382408a5290ecb70869dbff7ca3306bc6a72e92c0b0`;
-terminal-reconciliation SHA-256 is
-`33012b108a19b7e9276210665ccb9fd518de5baa1996a9902d6d26b669dfab76`.
+Successor seventeen passed its exact-once source seal: 4,166/4,166 tests,
+exit 0, zero failure/error/skip, tested-tree SHA-256
+`63af56ee9b51e6f75ab995ae26642ae9b36d14ae7f940ad1f09d8466ec2371b7`.
+Its raw post-verification artifact remains immutable; a non-overwriting
+correction records the actual exit-0 result.
 
-Successor sixteen consumed its full-suite authority exactly once. It ran 4,166
-tests with one failure, zero errors/skips and exit 1. JUnit SHA-256 is
-`cd0ffe48d8929301e221a5d2afabb96ae091e9f3064b8292d2a6f5e37b6bd0fc`.
-Tree equality and authoritative-v5 immutability passed, but the failed seal has
-no materialization authority and will never be rerun.
+The new non-authoritative exact-v6 database materialized exactly once and
+passed independent cold/read-only validation without authoritative-v5 drift.
+Phase one then launched exactly once under nonce
+`fd0c08b54aec4d298ae2b59c8fad509b`, session
+`e775732b7d9e4eb0be2ee68cc904bac2`. It must never be relaunched.
 
-The failure was a stale test requiring critical submission to run concurrently
-with maintenance—the premise successor fifteen disproved. Direct low-level
-submit now defers before journal identity; async production execute waits
-outside admission and submits once after release. Focused tests pass 3/3; the
-six-file affected union passes 197/197.
+The latest durable guardian snapshot is
+`D:\poly_alpha_prospective_exact_v6_successor17_20260823T0841Z\operator\guardian_snapshot_1787478465372.json`.
+It records 754 complete capsules/candidates, 1,504 predictions, 72 markets,
+33 outcomes and 6,100 committed commands, with zero incomplete, failed, lost,
+overflow or discarded work. There are no trade, tournament, holdout or live
+effects.
 
-Next: create a distinct successor-seventeen manifest and run its full suite
-exactly once. No prospective runtime is active. V4-HO-001 remains nonexistent/
-unconsumed. Live/authenticated trading, signing, orders, Phase 3 and v5 mutation
-or cutover remain prohibited.
+Phase one is not ready merely because capsule count exceeds 300. The frozen
+protocol requires the OOS boundary `1787519681032`, at least 300 unique labeled
+markets and the complete per-target positive/negative/readiness gates. Continue
+read-only guardian monitoring of this same session. Reserved phase-two nonce
+`db0016233bcf473cb4beef0219d4c7ff` remains unauthorized.
+
+V4-HO-001 remains nonexistent/unconsumed. Live/authenticated trading, signing,
+orders, Phase 3 and authoritative-v5 mutation or cutover remain prohibited.
