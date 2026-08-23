@@ -1,6 +1,11 @@
 # Codex progress bridge
 
-Updated: 2026-08-23T20:42:14+07:00
+Updated: 2026-08-23T20:51:55+07:00
+
+Active Codex work has stopped for quota preservation. The complete authoritative
+continuation checkpoint is in `.codex/HANDOFF.md` and `.codex/HANDOFF.json`.
+The successor19 runtime, guardian watcher, heartbeat, lease, session and source
+seal remain active and unchanged.
 
 Successors seventeen and eighteen are immutable and permanently ineligible
 after binding critical-evidence-incompleteness guardian failures. Both drained
@@ -18,20 +23,20 @@ Phase one then launched exactly once under nonce
 `ee3a18f37f98459ebc71a7126b29878a`. It must never be relaunched.
 
 The latest durable guardian snapshot is
-`D:\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\operator\guardian_snapshot_1787492495635.json`
+`D:\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\operator\guardian_snapshot_1787493105462.json`
 (SHA-256
-`e89255051b3cbb93c0da25ca12c297a456c5fcd516661b3ee8e1cad680777d78`).
+`72ff6a0a176aaf0032620645440b715798ea2acfad023cbe75f078e1b39b5876`).
 The one-hour watcher expired normally at its prescribed duration with no
 guardian-failure artifact. A new watcher—not a new runtime—started against the
-same session. Its rollover snapshot has 2,237 capsules, 4,453 predictions, 177
-markets, 130 outcomes and 15,413 committed commands. The guardian remains
+same session. The latest snapshot has 2,391 capsules, 4,761 predictions, 181
+markets, 145 outcomes and journal `COMMITTED=16,676`, zero incomplete. The guardian remains
 binding-clean: zero failed, lost, overflow or discarded work. Telemetry is in
 the frozen guardian's accepted recovered-only degraded state while queue
 recovery is incomplete. There are no trade, tournament, holdout or live effects.
 
-Current target readiness is still incomplete. Ensemble has 148 unique/rank-1
-rows, 70 positive, 60 negative and 18 unlabeled. The model has 141 unique/rank-1
-rows, 66 positive, 57 negative and 18 unlabeled. Exact OOS end remains required
+Current target readiness is still incomplete. Ensemble has 163 unique/rank-1
+rows, 77 positive, 68 negative and 18 unlabeled. The model has 156 unique/rank-1
+rows, 73 positive, 65 negative and 18 unlabeled. Exact OOS end remains required
 independently of these counts.
 
 Phase one is not ready merely because capsule count exceeds 300. The frozen
