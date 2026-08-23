@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-23T14:17:00+07:00",
+  "updated_at": "2026-08-23T14:35:42+07:00",
   "agent_state": "RUNNING",
   "project": "poly_alpha_sniper",
   "active_work_branch": "master",
@@ -9,11 +9,12 @@
   "current_goal": "Complete the genuine shadow-only/live-disabled Poly Alpha release-candidate mission without weakening evidence gates.",
   "current_task": "Guard successor-fifteen phase-one acquisition toward the preregistered 300-market and 60-per-class OOS boundary.",
   "current_investigation": "Natural-time exact-v6 acquisition health, persistence integrity, source lineage, and eligibility counters.",
-  "last_completed": "Successor fifteen passed 4,164/4,164 exactly once, materialized and cold-verified once, then launched one guarded shadow runtime.",
+  "last_completed": "Successor fifteen passed 4,164/4,164 exactly once, materialized/cold-verified once, launched once, and completed a clean 15-minute stabilization guard.",
   "latest_findings": [
     "Source seal: exit 0, launch count 1, zero failure/error/skip, exact pre/post tree equality.",
     "Empty exact-v6 materialization: user_version 6, quick_check ok, FK 0, only schema_migrations nonempty.",
-    "Initial guarded runtime sample: 44 capsules, source READY, zero failed/lost/overflow/discarded work.",
+    "Stabilization reached 536 capsules, 80 markets, 14 outcomes, and 4,420 committed commands with zero failed/lost/overflow/discarded work.",
+    "A controlled telemetry backlog recovered from 1,070 rows to 42 with data safety HEALTHY and exact accounting.",
     "V4-HO-001 remains nonexistent/unconsumed and authoritative v5 remains byte-identical."
   ],
   "files_or_modules_touched": ["lite_frequency_v4/engine.py", "tests/test_frequency_v4_prospective_runtime.py", "docs/*.md"],

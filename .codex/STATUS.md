@@ -1,6 +1,6 @@
 # Codex progress bridge
 
-Updated: 2026-08-23T14:17:00+07:00
+Updated: 2026-08-23T14:35:42+07:00
 
 Successor fifteen passed its exact-once full repository qualification:
 4,164/4,164, zero failure/error/skip, exit 0, launch count one, and exact
@@ -15,9 +15,11 @@ Phase one is running once, shadow-only, under nonce
 `386c7b2eb3494941baf43f6113f3d335`, session
 `fd5c115dea37403d81e56f82bbc151e2`, exact PIDs `[6552,14364]`, protocol
 `bc770668222c10b27176615079029f50f00169a26547a95841d0eb6175eefa75`,
-and cohort `prospective_v6_development_57a5916d9cd75204`. The first guarded
-sample had 44 complete capsules, source `READY`, and zero failed, lost,
-overflowed, or discarded work.
+and cohort `prospective_v6_development_57a5916d9cd75204`. Stabilization reached
+536 complete capsules, 80 markets, 14 outcomes, and 4,420 committed commands
+with zero failed, lost, overflowed, or discarded work. A controlled telemetry
+backlog recovered from 1,070 rows to 42 with data safety `HEALTHY`, operational
+health restored, and exact accounting.
 
 The repository remains manifest-frozen and deliberately dirty with 55 tracked
 modifications, 103 untracked files, and zero staged paths. Successors 1-14 are
