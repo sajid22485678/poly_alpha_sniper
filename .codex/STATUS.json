@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-23T10:28:53.6772791+07:00",
+  "updated_at": "2026-08-23T11:42:46.3195109+07:00",
   "repository": {
     "owner": "sajid22485678",
     "name": "poly_alpha_sniper",
@@ -19,22 +19,23 @@
     "sole_writer": "Codex"
   },
   "mission": {
-    "phase": "successor-13 pre-source-seal TDD",
-    "active_task": "Remove the exact-v6 high-cardinality persistence and replay-capsule query scaling defect without weakening atomic evidence lineage.",
-    "last_durable_boundary": "Successor-12 is terminal, drained, reconciled, and ineligible after a persistence acknowledgement breach; it must never be relaunched, finalized, registered, evaluated, or pooled.",
+    "phase": "successor-13 prospective exact-v6 phase-one acquisition",
+    "active_task": "Accumulate and monitor the preregistered source-sealed shadow-only development population while preserving exact lineage, bounded persistence, and fail-closed safety.",
+    "last_durable_boundary": "Successor-13 passed its exact-once 4,161-test source seal, materialized once as a new empty non-authoritative exact-v6 database, independently cold-verified, and launched one phase-one shadow runtime.",
     "next_actions": [
-      "Add a bounded-query regression for high-cardinality CEX capsule derivation.",
-      "Replace per-observation replay/source queries with bulk projection while preserving exact validation.",
-      "Remove the provisional workload-dependent acknowledgement deadline if the optimized path remains within the ordinary deadline.",
-      "Run bounded affected validation before any reserved successor source seal or full-repository qualification."
+      "Monitor qualifying capsules, paired calibration rows, source health, journal latency, queue accounting, and zero-loss invariants.",
+      "Stop fail-closed on any source, safety, lineage, persistence, lease, or path mismatch and preserve the first result.",
+      "Reach and independently verify the preregistered phase-one calibration boundary before any phase-two transition.",
+      "Keep V4-HO-001 nonexistent and authoritative v5 byte-identical throughout acquisition."
     ],
     "blockers": []
   },
   "validation": [
     {
-      "scope": "successor-13 selected affected persistence suite",
+      "scope": "successor-13 post-review affected persistence union",
       "result": "PASS",
-      "junit_sha256": "033e7e9a76559b6894efa50fcfbfba2dce45e79f30906bfb147449771e8cbf31"
+      "tests": 449,
+      "junit_sha256": "6aca35d4b9be7c1800d957931140980f089444b71c215fb0df2c5dc2fa971a08"
     },
     {
       "scope": "repository no-secrets tests",
@@ -47,6 +48,21 @@
       "result": "PASS_THEN_RUNTIME_INELIGIBLE",
       "tests": 4157,
       "source_tree_sha256": "1a5f67955dde68eba0b701881597345375e9ebd9d652f20f20878645ba2398db"
+    },
+    {
+      "scope": "successor-13 exact-once source seal",
+      "result": "PASS",
+      "tests": 4161,
+      "junit_sha256": "34bb9bb6ea16f9a153a965246ee190ed5d48eb10fda7e70b742917ea23e7456c",
+      "source_tree_sha256": "9f01810a9be10e817d4cee0982f57cd1e6d78c6914a21aaef47c5cf3c100a987",
+      "pytest_launch_count": 1
+    },
+    {
+      "scope": "successor-13 empty exact-v6 materialization",
+      "result": "PASS",
+      "database_sha256": "6738be4525b2c643884883a8e50f7703a546d491c84d17329bd3ae4c91e7f7d6",
+      "materialization_manifest_sha256": "d8bda9d2df894e26d09db9d17f9a8428acd8640ff670489ebd3563f0cbf2c70a",
+      "authoritative_v5_unchanged": true
     }
   ],
   "safety": {

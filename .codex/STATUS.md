@@ -1,6 +1,6 @@
 # Codex progress bridge
 
-Updated: 2026-08-23T10:28:53.6772791+07:00
+Updated: 2026-08-23T11:42:46.3195109+07:00
 
 The active implementation remains in the primary `master` checkout at commit
 `d3364f219feb37a09a547ff1daba6f0f96377fe4`. Codex remains the sole repository
@@ -10,36 +10,46 @@ does not contain or attempt to snapshot that dirty tree.
 
 ## Active boundary
 
-Successor-12 is terminal, drained, reconciled, and ineligible after its
-lease-owned exact-v6 evaluation commit exceeded the ordinary acknowledgement
-deadline. It must not be relaunched, finalized, registered, evaluated, or
-pooled. Successor-13 is at the pre-source-seal TDD boundary.
+Successor-12 remains terminal, immutable and ineligible. Successor-13 passed
+its exact-once source seal, materialized once as a new empty non-authoritative
+exact-v6 database, passed independent cold verification, and launched one
+phase-one shadow-only runtime under its reserved fresh nonce.
 
-The current task is to fix the actual high-cardinality transaction/query
-scaling defect. The source-complete CEX graph must remain atomic and exact;
-sampling, evidence dropping, lineage weakening, authoritative-v5 mutation,
-cutover, live trading, authenticated trading, wallet signing, real orders, and
-Phase 3 are all prohibited.
+The current task is the preregistered prospective development acquisition.
+Exact capsule/fee/book/source/calibration lineage, fixed 15-second critical
+acknowledgement semantics, complete denominator accounting, and zero evidence
+loss remain mandatory. Authoritative-v5 mutation, cutover, live trading,
+authenticated trading, wallet signing, real orders, and Phase 3 remain
+prohibited.
 
 ## Last verified results
 
-- Selected affected persistence suite: PASS; JUnit SHA-256
-  `033e7e9a76559b6894efa50fcfbfba2dce45e79f30906bfb147449771e8cbf31`.
+- Post-review affected persistence union: 449/449 PASS, zero
+  failure/error/skip; JUnit SHA-256
+  `6aca35d4b9be7c1800d957931140980f089444b71c215fb0df2c5dc2fa971a08`.
 - Repository no-secrets suite: 13 PASS; JUnit SHA-256
   `5aac10c5a9e65768f0e547fcb47e2ec1c93fd84f8fe565d1a1dcddb9be5b6986`.
 - Successor-12 source seal: 4,157 PASS, source-tree SHA-256
   `1a5f67955dde68eba0b701881597345375e9ebd9d652f20f20878645ba2398db`;
   later runtime persistence evidence makes that successor ineligible.
+- Successor-13 exact-once source seal: 4,161/4,161 PASS, zero
+  failure/error/skip, launch count one; JUnit SHA-256
+  `34bb9bb6ea16f9a153a965246ee190ed5d48eb10fda7e70b742917ea23e7456c`;
+  tested-tree SHA-256
+  `9f01810a9be10e817d4cee0982f57cd1e6d78c6914a21aaef47c5cf3c100a987`.
+- Successor-13 empty exact-v6 materialization and cold verification: PASS;
+  authoritative v5 byte-identical; V4-HO-001 absent/unconsumed; phase-one
+  shadow session active with no live, authenticated, signing, or order surface.
 
 ## Next actions
 
-1. Add a bounded-query regression for high-cardinality CEX capsule derivation.
-2. Replace per-observation replay/source queries with a bulk projection while
-   preserving every validation and exact output contract.
-3. Remove the provisional workload-dependent acknowledgement deadline if the
-   optimized path remains within the ordinary deadline.
-4. Run bounded affected validation before any reserved successor source seal or
-   full-repository qualification.
+1. Monitor qualifying capsules, paired calibration rows, source health,
+   persistence latency, queue accounting, and zero-loss invariants.
+2. Stop fail-closed on any source, safety, lineage, persistence, lease, or path
+   mismatch and preserve the first result.
+3. Reach and independently verify the preregistered phase-one calibration
+   boundary before any phase-two transition.
+4. Keep V4-HO-001 nonexistent and authoritative v5 byte-identical throughout.
 
 ## Safety state
 
