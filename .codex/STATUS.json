@@ -1,77 +1,73 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-23T13:10:20+07:00",
+  "updated_at": "2026-08-23T13:39:13+07:00",
+  "agent_state": "TESTING",
+  "project": "poly_alpha_sniper",
+  "active_work_branch": "master",
+  "active_work_head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+  "worktree_dirty": true,
+  "current_goal": "Complete the shadow-only Poly Alpha research, validation, profitability, runtime, and audit mission without enabling live trading.",
+  "current_task": "Reconcile successor fourteen's terminal acknowledgement-race failure and create the distinct successor-fifteen exact-once source seal.",
+  "current_investigation": "Candidate-bound execution-book acknowledgement validation after asynchronous market-state advancement.",
+  "last_completed": "Successor fourteen stopped exactly once and drained 1,961/1,961 commands; the race regression and 280-test affected union pass.",
+  "latest_findings": [
+    "All 579 durable execution-book acknowledgements matched their immutable submitted payloads.",
+    "Candidate 208 was submitted before candidate 209 advanced mutable state; the candidate-208 acknowledgement arrived afterward and was falsely rejected against candidate 209.",
+    "Successor fourteen is immutable, ineligible, non-poolable, stopped, and must never be relaunched or evaluated.",
+    "Successor fifteen's reserved source and acquisition roots do not yet exist."
+  ],
+  "files_or_modules_touched": [
+    "lite_frequency_v4/engine.py",
+    "tests/test_frequency_v4_prospective_runtime.py",
+    "docs/*.md"
+  ],
+  "tests": {
+    "last_command": "pytest affected engine/persistence/store/prospective-runtime union",
+    "passed": 280,
+    "failed": 0,
+    "status": "PASS; successor-fifteen full repository exact-once seal pending"
+  },
+  "blockers": [],
+  "next_steps": [
+    "Create the non-overwriting successor-fifteen tested-tree manifest only after disk reconciliation remains clean.",
+    "Run the full repository suite exactly once with automatic durable exit capture.",
+    "Only a tree-matching, exit-0, fully green, unskipped seal may authorize one fresh successor-fifteen exact-v6 materialization."
+  ],
+  "runtime_state": "SUCCESSOR_14_STOPPED_TERMINAL; no prospective process or listener; successor 15 not launched",
+  "live_trading_enabled": false,
   "repository": {
     "owner": "sajid22485678",
     "name": "poly_alpha_sniper",
     "visibility": "PRIVATE",
-    "default_branch": "master",
     "progress_branch": "codex-progress"
   },
   "implementation": {
-    "branch": "master",
-    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
-    "upstream": "origin/master",
-    "dirty": true,
     "staged_files": 0,
     "tracked_modifications": 55,
     "untracked_files": 103,
     "sole_writer": "Codex"
   },
-  "mission": {
-    "phase": "successor-14 prospective exact-v6 phase-one acquisition",
-    "active_task": "Accumulate and monitor the preregistered source-sealed shadow-only development population while preserving exact lineage, bounded persistence, and fail-closed safety.",
-    "last_durable_boundary": "Successor-13 stopped once after a genuine persistence timeout; successor-14 passed its exact-once 4,163-test source seal, materialized once as a new empty non-authoritative exact-v6 database, independently cold-verified, and launched one phase-one shadow runtime.",
-    "next_actions": [
-      "Monitor qualifying capsules, paired calibration rows, source health, journal latency, queue accounting, and zero-loss invariants.",
-      "Stop fail-closed on any safety, lineage, persistence, lease, nonce, path, or data-loss mismatch and preserve the first result.",
-      "Reach and independently verify the preregistered OOS end and labeled-market calibration boundary before any phase-two transition.",
-      "Keep V4-HO-001 nonexistent and authoritative v5 byte-identical throughout acquisition."
-    ],
-    "blockers": []
-  },
   "runtime": {
-    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR14-20260823T0530Z",
-    "root": "D:\\poly_alpha_prospective_exact_v6_successor14_20260823T0530Z",
-    "launch_nonce": "bcc0be20af18480984c31c9dd16c43fa",
-    "session_id": "365defda00404ab99b63c03660353149",
-    "exact_pids": [6064, 16248],
-    "reserved_phase_two_nonce": "02e0f56834454e8f9978bfe4590dffcf",
-    "state": "RUNNING",
-    "persistence": "HEALTHY",
-    "hard_breach": false
+    "terminal_acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR14-20260823T0530Z",
+    "terminal_session_id": "365defda00404ab99b63c03660353149",
+    "state": "STOPPED_TERMINAL_INELIGIBLE",
+    "journal_committed": 1961,
+    "journal_failed": 0,
+    "terminal_snapshot_sha256": "74305de4c372ecdb03ebf265a646d5f6c2517acfc8dcf99a8803a437d5fd123d",
+    "terminal_reconciliation_sha256": "921cfbcf9ea3b0a3cc636a99989952775ea84f9c477c26f0b5ba05832e1d0bcb"
   },
   "validation": [
     {
-      "scope": "successor-13 terminal exact-v6 snapshot",
-      "result": "PASS_RUNTIME_INELIGIBLE",
-      "database_sha256": "cd461c6c08b29e43058416fef9da8a1b512c4b65755c966ddcb39af8873b6fb2"
-    },
-    {
-      "scope": "set-based reporting correction affected surface",
-      "result": "PASS",
-      "tests": 143,
-      "junit_sha256": "d161e6488264c9d56ae759cc65f0a169ab688db0afb6b052d6f82fffb3221f71"
-    },
-    {
       "scope": "successor-14 exact-once source seal",
-      "result": "PASS",
+      "result": "PASS_HISTORICAL_SOURCE_ONLY",
       "tests": 4163,
-      "junit_sha256": "621474b4989db7cf02fcbf14511bc9a2c450426431eb90ebdee69e1cbbd5a8ff",
-      "source_tree_sha256": "e94dcef3aef3ca7f0af42c04b68a62cb2d63a490e57fe33bab4bdaea7c1e5d17",
-      "pytest_launch_count": 1
+      "junit_sha256": "621474b4989db7cf02fcbf14511bc9a2c450426431eb90ebdee69e1cbbd5a8ff"
     },
     {
-      "scope": "successor-14 empty exact-v6 materialization",
+      "scope": "execution-book acknowledgement race affected union",
       "result": "PASS",
-      "database_sha256": "2178ea2138745b5704276da9b4427d633d544799cc9d40eda93fa7c0c2dd3973",
-      "materialization_manifest_sha256": "7f35ab76888c98d8675e7effa7374a0a5b4d07809a6aaded0739e2edc81a7a29",
-      "authoritative_v5_unchanged": true
-    },
-    {
-      "scope": "successor-14 guardian unit checks",
-      "result": "PASS",
-      "tests": 3
+      "tests": 280,
+      "junit_sha256": "2aed0ff47812f2b6c4a2eb3547b851f4efa883b09309a6c1c5cdbc55f1b3ef8f"
     }
   ],
   "safety": {
