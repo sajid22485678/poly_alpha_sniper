@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-23T11:42:46.3195109+07:00",
+  "updated_at": "2026-08-23T13:10:20+07:00",
   "repository": {
     "owner": "sajid22485678",
     "name": "poly_alpha_sniper",
@@ -19,50 +19,59 @@
     "sole_writer": "Codex"
   },
   "mission": {
-    "phase": "successor-13 prospective exact-v6 phase-one acquisition",
+    "phase": "successor-14 prospective exact-v6 phase-one acquisition",
     "active_task": "Accumulate and monitor the preregistered source-sealed shadow-only development population while preserving exact lineage, bounded persistence, and fail-closed safety.",
-    "last_durable_boundary": "Successor-13 passed its exact-once 4,161-test source seal, materialized once as a new empty non-authoritative exact-v6 database, independently cold-verified, and launched one phase-one shadow runtime.",
+    "last_durable_boundary": "Successor-13 stopped once after a genuine persistence timeout; successor-14 passed its exact-once 4,163-test source seal, materialized once as a new empty non-authoritative exact-v6 database, independently cold-verified, and launched one phase-one shadow runtime.",
     "next_actions": [
       "Monitor qualifying capsules, paired calibration rows, source health, journal latency, queue accounting, and zero-loss invariants.",
-      "Stop fail-closed on any source, safety, lineage, persistence, lease, or path mismatch and preserve the first result.",
-      "Reach and independently verify the preregistered phase-one calibration boundary before any phase-two transition.",
+      "Stop fail-closed on any safety, lineage, persistence, lease, nonce, path, or data-loss mismatch and preserve the first result.",
+      "Reach and independently verify the preregistered OOS end and labeled-market calibration boundary before any phase-two transition.",
       "Keep V4-HO-001 nonexistent and authoritative v5 byte-identical throughout acquisition."
     ],
     "blockers": []
   },
+  "runtime": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR14-20260823T0530Z",
+    "root": "D:\\poly_alpha_prospective_exact_v6_successor14_20260823T0530Z",
+    "launch_nonce": "bcc0be20af18480984c31c9dd16c43fa",
+    "session_id": "365defda00404ab99b63c03660353149",
+    "exact_pids": [6064, 16248],
+    "reserved_phase_two_nonce": "02e0f56834454e8f9978bfe4590dffcf",
+    "state": "RUNNING",
+    "persistence": "HEALTHY",
+    "hard_breach": false
+  },
   "validation": [
     {
-      "scope": "successor-13 post-review affected persistence union",
-      "result": "PASS",
-      "tests": 449,
-      "junit_sha256": "6aca35d4b9be7c1800d957931140980f089444b71c215fb0df2c5dc2fa971a08"
+      "scope": "successor-13 terminal exact-v6 snapshot",
+      "result": "PASS_RUNTIME_INELIGIBLE",
+      "database_sha256": "cd461c6c08b29e43058416fef9da8a1b512c4b65755c966ddcb39af8873b6fb2"
     },
     {
-      "scope": "repository no-secrets tests",
+      "scope": "set-based reporting correction affected surface",
       "result": "PASS",
-      "tests": 13,
-      "junit_sha256": "5aac10c5a9e65768f0e547fcb47e2ec1c93fd84f8fe565d1a1dcddb9be5b6986"
+      "tests": 143,
+      "junit_sha256": "d161e6488264c9d56ae759cc65f0a169ab688db0afb6b052d6f82fffb3221f71"
     },
     {
-      "scope": "successor-12 source seal",
-      "result": "PASS_THEN_RUNTIME_INELIGIBLE",
-      "tests": 4157,
-      "source_tree_sha256": "1a5f67955dde68eba0b701881597345375e9ebd9d652f20f20878645ba2398db"
-    },
-    {
-      "scope": "successor-13 exact-once source seal",
+      "scope": "successor-14 exact-once source seal",
       "result": "PASS",
-      "tests": 4161,
-      "junit_sha256": "34bb9bb6ea16f9a153a965246ee190ed5d48eb10fda7e70b742917ea23e7456c",
-      "source_tree_sha256": "9f01810a9be10e817d4cee0982f57cd1e6d78c6914a21aaef47c5cf3c100a987",
+      "tests": 4163,
+      "junit_sha256": "621474b4989db7cf02fcbf14511bc9a2c450426431eb90ebdee69e1cbbd5a8ff",
+      "source_tree_sha256": "e94dcef3aef3ca7f0af42c04b68a62cb2d63a490e57fe33bab4bdaea7c1e5d17",
       "pytest_launch_count": 1
     },
     {
-      "scope": "successor-13 empty exact-v6 materialization",
+      "scope": "successor-14 empty exact-v6 materialization",
       "result": "PASS",
-      "database_sha256": "6738be4525b2c643884883a8e50f7703a546d491c84d17329bd3ae4c91e7f7d6",
-      "materialization_manifest_sha256": "d8bda9d2df894e26d09db9d17f9a8428acd8640ff670489ebd3563f0cbf2c70a",
+      "database_sha256": "2178ea2138745b5704276da9b4427d633d544799cc9d40eda93fa7c0c2dd3973",
+      "materialization_manifest_sha256": "7f35ab76888c98d8675e7effa7374a0a5b4d07809a6aaded0739e2edc81a7a29",
       "authoritative_v5_unchanged": true
+    },
+    {
+      "scope": "successor-14 guardian unit checks",
+      "result": "PASS",
+      "tests": 3
     }
   ],
   "safety": {
