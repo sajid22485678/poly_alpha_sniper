@@ -1,6 +1,6 @@
 # Codex progress bridge
 
-Updated: 2026-08-23T20:26:23+07:00
+Updated: 2026-08-23T20:42:14+07:00
 
 Successors seventeen and eighteen are immutable and permanently ineligible
 after binding critical-evidence-incompleteness guardian failures. Both drained
@@ -18,13 +18,21 @@ Phase one then launched exactly once under nonce
 `ee3a18f37f98459ebc71a7126b29878a`. It must never be relaunched.
 
 The latest durable guardian snapshot is
-`D:\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\operator\guardian_snapshot_1787491551789.json`
+`D:\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\operator\guardian_snapshot_1787492495635.json`
 (SHA-256
-`dc9d06b21f09d0d31b86ca21e41a10c25cc590770ff18d889e06ba22ab640e8e`).
-At the durable 75-minute checkpoint it has 1,997 capsules, 3,974 predictions,
-138 markets, 102 outcomes and 13,328 committed commands. The guardian remains binding-clean:
-zero failed, lost, overflow or discarded work. There are no trade, tournament,
-holdout or live effects.
+`e89255051b3cbb93c0da25ca12c297a456c5fcd516661b3ee8e1cad680777d78`).
+The one-hour watcher expired normally at its prescribed duration with no
+guardian-failure artifact. A new watcher—not a new runtime—started against the
+same session. Its rollover snapshot has 2,237 capsules, 4,453 predictions, 177
+markets, 130 outcomes and 15,413 committed commands. The guardian remains
+binding-clean: zero failed, lost, overflow or discarded work. Telemetry is in
+the frozen guardian's accepted recovered-only degraded state while queue
+recovery is incomplete. There are no trade, tournament, holdout or live effects.
+
+Current target readiness is still incomplete. Ensemble has 148 unique/rank-1
+rows, 70 positive, 60 negative and 18 unlabeled. The model has 141 unique/rank-1
+rows, 66 positive, 57 negative and 18 unlabeled. Exact OOS end remains required
+independently of these counts.
 
 Phase one is not ready merely because capsule count exceeds 300. The frozen
 protocol requires the OOS boundary `1787530026799`, at least 300 unique labeled

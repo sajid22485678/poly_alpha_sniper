@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-23T20:26:23+07:00",
+  "updated_at": "2026-08-23T20:42:14+07:00",
   "agent_state": "MONITORING",
   "project": "poly_alpha_sniper",
   "active_work_branch": "master",
@@ -14,8 +14,10 @@
     "Successor nineteen source tree b202ebfd07c92c9e57e3dd77fc5d983792beb765a868884d5c3296ba4f9d7fcc passed 4,168 tests exactly once with exit 0 and zero failure/error/skip.",
     "Exact-once materialization and independent cold verification passed without authoritative-v5 drift.",
     "Phase one session ee3a18f37f98459ebc71a7126b29878a is active under nonce 0b9c9b75c9f149798948449673963b30; it must never be relaunched.",
-    "The durable 75-minute guardian checkpoint remains binding-clean: 1,997 capsules, 3,974 predictions, 138 markets, 102 outcomes and 13,328 committed commands.",
-    "The current guardian stream has zero failed, lost, overflow or discarded work and no trade, tournament, holdout or live effect.",
+    "The one-hour watcher window expired normally at its prescribed duration with no guardian-failure artifact; a new watcher, not a new runtime, started against the same session.",
+    "The rollover snapshot is binding-clean at 2,237 capsules, 4,453 predictions, 177 markets, 130 outcomes and 15,413 committed commands.",
+    "Target readiness remains incomplete: ensemble 148 unique/70 positive/60 negative/18 unlabeled; model 141 unique/66 positive/57 negative/18 unlabeled.",
+    "The current guardian stream has zero failed, lost, overflow or discarded work and no trade, tournament, holdout or live effect; telemetry is accepted recovered-only degraded while its queue recovery window remains incomplete.",
     "V4-HO-001 remains nonexistent/unconsumed and authoritative v5 remains byte-identical."
   ],
   "files_or_modules_touched": ["lite_frequency_v4/persistence.py", "tests/test_frequency_v4_persistence.py", "tests/test_frequency_v4_telemetry_sink_capacity.py", "tests/test_frequency_v4_telemetry_throughput.py", "docs/*.md"],
@@ -37,8 +39,12 @@
     "phase_one_nonce": "0b9c9b75c9f149798948449673963b30",
     "reserved_phase_two_nonce": "c66f6a80e1624b4a9eff5b4fa3450e7a",
     "session_id": "ee3a18f37f98459ebc71a7126b29878a",
-    "latest_guardian_snapshot": "D:\\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\\operator\\guardian_snapshot_1787491551789.json",
-    "latest_guardian_snapshot_sha256": "dc9d06b21f09d0d31b86ca21e41a10c25cc590770ff18d889e06ba22ab640e8e"
+    "latest_guardian_snapshot": "D:\\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\\operator\\guardian_snapshot_1787492495635.json",
+    "latest_guardian_snapshot_sha256": "e89255051b3cbb93c0da25ca12c297a456c5fcd516661b3ee8e1cad680777d78",
+    "target_readiness": {
+      "ensemble": {"rank1_rows": 148, "unique_markets": 148, "positive_labels": 70, "negative_labels": 60, "unlabeled": 18},
+      "model": {"rank1_rows": 141, "unique_markets": 141, "positive_labels": 66, "negative_labels": 57, "unlabeled": 18}
+    }
   },
   "safety": {"LIVE_ENABLED": false, "REAL_ORDERS_POSSIBLE": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_3_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED", "authoritative_v5_mutation_allowed": false},
   "release_target": {"LIVE_READY": "NOT_YET_PROVEN", "LIVE_ENABLED": "NO", "REAL_ORDERS_POSSIBLE": "NO", "READY_FOR_CLAUDE_FINAL_AUDIT": "NOT_YET"}
