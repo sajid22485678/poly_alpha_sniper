@@ -1,10 +1,9 @@
 # Poly Alpha continuation handoff
 
 Current boundary: Successor20 was canonically closed exactly once and remains
-permanently forensic/ineligible. The prior Successor22 source seal is
-superseded; one distinct replacement seal passed exactly once. Its fresh
-Successor22 database is materialized, cold-verified, and awaiting one Phase-One
-launch.
+permanently forensic/ineligible. Successor22 passed one replacement source
+seal, materialized/cold-verified once, launched Phase One once, and is now
+healthy under its independent guardian. Codex active work stops at this boundary.
 
 Implementation:
 
@@ -33,8 +32,7 @@ Prepared replacement seal:
 - Post-tree equals tested tree exactly; authoritative v5 is byte-identical.
 - Post-verification SHA-256: `e2ffa43c0b77ec4a54cd195b3987339650d64d9337d7612e5685340596554287`.
 
-Phase-One launch is now authorized exactly once for the prepared nonce. Always
-forbidden in this run:
+The Phase-One launch authority is consumed. Always forbidden in this run:
 calibration/tournament/Phase Two/holdout, Phase 3, live/authenticated trading,
 signing, real orders/cancels, authoritative-v5 mutation, and any reuse or
 rehabilitation of Successors20/21.
@@ -51,8 +49,26 @@ fresh DB SHA-256 is
 materialization-verification SHA-256 is
 `e56014466896587de2a5425e9eff7869ab460f495c0a4e466c1dd7d41cb39b6d`.
 Immutable census is quick-check/FK clean, schema v6, only three migration rows,
-and zero business/research/holdout rows. Phase-One nonce
-`99d60fab076e4bcfae6e3a8831d6393a` is prepared/unconsumed. Phase-Two nonce
-`9f22eca6d2c548c8bcd6b8d687a3f261` is reserved/unauthorized. Launch Phase One
-once, start the independent guardian, and stop Codex when healthy advancing
-collection is proven.
+and zero business/research/holdout rows.
+
+Running identity:
+
+- Phase-One nonce: `99d60fab076e4bcfae6e3a8831d6393a` — consumed, `MUST_NOT_RELAUNCH`.
+- Session: `bc0614b5d1494a91854863b9ef527f13`; started `1787585613002`.
+- Runtime chain: launcher `1964` → runtime `8536`; state `RUNNING`, source `READY`.
+- Runtime request/start hashes: `76f68755b576e89f8bc6bcfea72a0018690575e192d7d23f9a4d3ace61599a5d` / `b0b2bbc82b43ae3e37b953ddf3ba3fbf4ee6c8eb7e8ece331e1ca793ab7469b8`.
+- Guardian chain: launcher `11624` → worker `13504`; four-hour bounded command.
+- Guardian request/start hashes: `f818ef29c1e57be0a573b2ddbe9f603ced8858bb58ea0905d2247baa86f999c8` / `cf1b0b7e684628b1dc4494bd84dfca37dee1ef409b2d4634797c0a09bdd12404`.
+- First snapshot: `D:\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z\operator\guardian_snapshot_1787585848823.json`; SHA-256 `81aba2daf324068ed7b9467ccd26801a0163803568645363b5fd58b642aa2e9d`.
+- Latest durable stream at `1787585939240`: 65 capsules, 130 predictions, 32 markets, 0 outcomes, 700 committed; zero incomplete/failure/loss/overflow/discard, heartbeat 665 ms.
+- No guardian failure file and zero guardian stderr.
+- Phase-Two nonce `9f22eca6d2c548c8bcd6b8d687a3f261` remains reserved and unauthorized.
+
+Leave runtime and guardian running unchanged. At approximately two hours
+(`1787592813002`, `2026-08-25T00:33:33.002+07:00`), perform one bounded review
+and classify `EARLY_STOP_SUFFICIENT` or `CONTINUE_TO_4H` using both targets'
+rank-1, unique-market, positive, negative and unlabeled counts plus lineage and
+guardian integrity. At four hours (`1787600013002`,
+`2026-08-25T02:33:33.002+07:00`), perform the hard review and do not extend
+without a new evidence-based reason. OOS end `1787628813002` does not authorize
+calibration, tournament, Phase Two or holdout. Codex must not remain active.

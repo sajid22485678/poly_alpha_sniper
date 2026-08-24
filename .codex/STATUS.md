@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: 2026-08-24T22:30:11+07:00
+Updated: 2026-08-24T22:39:45+07:00
 
 ## State
 
-`SUCCESSOR22_MATERIALIZED_COLD_VERIFIED_PHASE_ONE_PREPARED`
+`SUCCESSOR22_PHASE_ONE_HEALTHY_GUARDIAN_RUNNING_CODEX_STOP`
 
 The owner authorized one canonical Successor20 host-loss closure followed by a
 replacement Successor22 source seal, materialization, cold verification,
@@ -61,8 +61,43 @@ rows, and zero business/research/holdout rows. Materialization-verification
 SHA-256 is
 `e56014466896587de2a5425e9eff7869ab460f495c0a4e466c1dd7d41cb39b6d`.
 
-Phase-One nonce `99d60fab076e4bcfae6e3a8831d6393a` is prepared but unconsumed.
+Phase-One nonce `99d60fab076e4bcfae6e3a8831d6393a` was consumed exactly once.
 Phase-Two nonce `9f22eca6d2c548c8bcd6b8d687a3f261` is reserved and unauthorized.
-Exact next action: execute `operator\launch_once.ps1` once, prove the runtime
-identity/heartbeat/session, then start `watch_phase_one.py` as the independent
-four-hour guardian and stop Codex after advancing healthy acquisition is proven.
+
+## Healthy running boundary
+
+- acquisition: `V4-PR-001-PROSPECTIVE-SUCCESSOR22-20260824T151804Z`
+- session: `bc0614b5d1494a91854863b9ef527f13`
+- launch timestamp: `1787585613002` (`2026-08-24T22:33:33.002+07:00`)
+- runtime process chain: launcher `1964` → runtime `8536`
+- source/tree: `386991dc9c001ddf54290c2092e09725be7f5ad5a5f2d51bc901322cba2d23cc`
+- runtime launch request SHA-256: `76f68755b576e89f8bc6bcfea72a0018690575e192d7d23f9a4d3ace61599a5d`
+- runtime process-start SHA-256: `b0b2bbc82b43ae3e37b953ddf3ba3fbf4ee6c8eb7e8ece331e1ca793ab7469b8`
+- guardian process chain: launcher `11624` → worker `13504`
+- guardian command: four hours, 30-second interval, five-minute snapshots
+- guardian launch request SHA-256: `f818ef29c1e57be0a573b2ddbe9f603ced8858bb58ea0905d2247baa86f999c8`
+- guardian process-start SHA-256: `cf1b0b7e684628b1dc4494bd84dfca37dee1ef409b2d4634797c0a09bdd12404`
+- first healthy snapshot: `D:\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z\operator\guardian_snapshot_1787585848823.json`
+- first snapshot SHA-256: `81aba2daf324068ed7b9467ccd26801a0163803568645363b5fd58b642aa2e9d`
+- first snapshot: 41 capsules, 82 predictions, 30 markets, 0 outcomes, 440 committed, 0 incomplete/failure/loss/overflow/discard
+- latest durable guardian stream observation at `1787585939240`: 65 capsules, 130 predictions, 32 markets, 0 outcomes, 700 committed, 0 incomplete/failure/loss/overflow/discard, source `READY`, heartbeat age 665 ms
+- guardian failures: none; guardian stderr bytes: 0
+
+Safety remains `dry_run=true`, `LIVE_ENABLED=false`,
+`REAL_ORDERS_POSSIBLE=false`, signing/authenticated trading/live adapter/order
+placement/order cancellation unavailable, kill switch engaged, no Phase 3,
+and `V4-HO-001=NONEXISTENT_UNCONSUMED`. Calibration artifacts, tournament,
+Phase Two and holdout remain untouched.
+
+`MUST_NOT_RELAUNCH`: the Successor22 materialization nonce and Phase-One nonce,
+session, launcher/runtime PID pair, and guardian identity are consumed. Leave
+the healthy runtime and guardian running independently when Codex stops.
+
+Next action is a new-session bounded review at approximately two hours:
+`1787592813002` / `2026-08-25T00:33:33.002+07:00`. Verify the same identities,
+guardian first-failure state, safety, persistence accounting and both targets'
+rank-1/unique-market/positive/negative/unlabeled counts; classify only
+`EARLY_STOP_SUFFICIENT` or `CONTINUE_TO_4H`. The hard review is
+`1787600013002` / `2026-08-25T02:33:33.002+07:00`; do not extend beyond it
+without a new evidence-based reason. OOS end remains `1787628813002` and does
+not itself authorize calibration or any later phase.
