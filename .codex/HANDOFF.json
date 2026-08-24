@@ -1,42 +1,12 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-24T18:11:18+07:00",
-  "project": "poly_alpha_sniper",
-  "sole_writer": "Codex",
-  "state": "SUCCESSOR20_CANONICAL_CLOSURE_BLOCKED",
-  "source": {"repository": "D:\\claude\\poly_alpha_sniper", "branch": "master", "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4", "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb", "deliberate_dirty_tree_sha256": "66f3739a96b29629aadfa25038d197c4b760e389823738a8a9129c7737bc938e", "must_remain_untouched": true},
-  "predecessors": {
-    "successor20": "Permanent forensic-only binding failure; absent original processes, one open runtime session, no canonical host-loss closure; never resume or use cohort evidence.",
-    "successor21": "Immutable failed exact-once source qualification; never rerun or materialize."
-  },
-  "successor22": {
-    "source_qualification": "EXACT_ONCE_PASS_POST_SEAL_VERIFIED",
-    "source_root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor22_20260824T1746Z",
-    "tree_sha256": "66f3739a96b29629aadfa25038d197c4b760e389823738a8a9129c7737bc938e",
-    "manifest_sha256": "b49653106a0d0f0a3d1b34b926f362ae9f019f8573c8aa596297bb67b9596bd4",
-    "junit_sha256": "7f7ffd6e195b4781ef5bee8e88e468c6ea5ac1fbceb46459abaebc44d15fc272",
-    "post_verification_sha256": "b83c537a89d203b3ded613143926478184109f1785941ea08985e9503746a1de",
-    "tests": {"passed": 4175, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0},
-    "materialization_authorized": false,
-    "materialized": false,
-    "runtime_or_guardian_present": false
-  },
-  "blocking_gate": {"owner_controlled": true, "description": "Conditional owner authorization was received but requires an existing repository-defined canonical host-loss mechanism. None exists. The PID-bound stop script cannot terminalize an absent process session, and direct persistence repair is forbidden.", "closure_applied": false, "mutation_performed": false},
-  "authorized_sequence_after_owner_action": [
-    "Apply only the ratified exact-identity closure and preserve terminal evidence.",
-    "Run only required read-only startup census and release checks.",
-    "If every gate passes, canonically materialize/start Successor22 exactly once with a fresh session and nonce.",
-    "Verify one owner, advancing heartbeat, correct source/DB, zero unsafe journal work, healthy detached guardian, no crash/integrity error, and shadow-only safety.",
-    "Publish the running checkpoint, return SUCCESSOR22_RUNNING_CODEX_STOP_BOUNDARY_REACHED, and stop Codex without stopping runtime/guardian."
-  ],
-  "collection_constraint": {
-    "strategy_execution_session": "2-4 hours maximum active collection per session",
-    "review_at_2h": ["EARLY_STOP_SUFFICIENT", "CONTINUE_TO_4H"],
-    "hard_review_at_4h": ["DATA_COLLECTION_SUFFICIENT", "DATA_COLLECTION_INSUFFICIENT_LOW_EVENT_DENSITY", "DATA_COLLECTION_INSUFFICIENT_COVERAGE", "DATA_COLLECTION_BLOCKED_BY_RUNTIME_OR_DATA_QUALITY"],
-    "rule": "Evidence quota and coverage govern sufficiency; never force trades or weaken filters.",
-    "separation": "Software qualification, active strategy/execution collection, and long-run reliability soak are separate gates."
-  },
-  "forbidden": ["resume or repair successor20", "rerun or materialize successor21", "unratified host-loss closure", "source-tree mutation", "duplicate identity", "invalid cohort pooling", "holdout consumption", "Phase Two or Phase 3", "authoritative-v5 mutation or cutover", "live/authenticated trading", "wallet signing", "real orders or cancels", "blind long data-collection extension"],
-  "safety": {"LIVE_ENABLED": false, "REAL_ORDERS_POSSIBLE": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_3_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED", "authoritative_v5_immutable": true},
-  "exact_next_action": "Owner separately authorizes creation/specification of a canonical exact-identity host-loss closure mechanism. The current conditional authorization cannot be consumed; stop without materializing or launching Successor22."
+  "checkpoint_local": "2026-08-24T19:04:00+07:00",
+  "state": "SUCCESSOR20_CANONICAL_CLOSURE_IMPLEMENTED_VERIFIED_NOT_EXECUTED",
+  "implementation": ["lite_frequency_v4/host_loss_recovery.py", "tools/v4_successor20_host_loss_close.py", "tests/test_frequency_v4_host_loss_recovery.py"],
+  "identity": {"session_id": "27cad22fef8f4d43a68034c7e9f18af2", "runtime_nonce": "13a4198c8f96427582a3e8c7e7b8bb4c", "former_launcher_pid": 14236, "former_runtime_pid": 11508},
+  "affected_validation": {"passed": 437, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0, "junit_sha256": "c3ab0fad55a9384103fce77d6fca082cdaccf510a9cc24d142a2561bfd1f63e7"},
+  "real_closure_applied": false,
+  "successor22_prior_seal_valid": false,
+  "exact_next_action": "Document, then create one replacement exact-once Successor22 source seal. Only a green post-verified replacement seal can precede the real preview/apply.",
+  "safety": {"LIVE_ENABLED": false, "REAL_ORDERS_POSSIBLE": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_3_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED", "authoritative_v5_immutable": true}
 }
