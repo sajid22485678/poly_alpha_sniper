@@ -8,8 +8,12 @@ with tested tree
 `e532aa398eca8154c3df5603242806a6d089651e54033829a60f0e464576543b`
 and manifest
 `cad7de6fb24c2d41f582c1c4d629f27000ca60b1f40502f35f589850e122f38f`.
-Its full-suite launch count remains zero at this checkpoint. The exact next
-action is to consume that authority once and preserve any result.
+Its full-suite authority is consumed PASS: launch count one, exit 0,
+4,169/4,169, zero failure/error/skip, JUnit
+`3afbd99d1df3158768d47e8986bf0002727df739c4a4f79972717c04af5386ff`,
+exact post-tree equality and unchanged authoritative v5. Never rerun it. The
+exact next action is one new successor20 exact-v6 materialization and cold
+verification under a fresh nonce/root.
 
 Successor19 is terminal, permanently failed, and ineligible. Its sole session
 `ee3a18f37f98459ebc71a7126b29878a` and Phase-One nonce

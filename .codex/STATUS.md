@@ -8,9 +8,11 @@ Tested-tree SHA-256 is
 `e532aa398eca8154c3df5603242806a6d089651e54033829a60f0e464576543b`;
 manifest SHA-256 is
 `cad7de6fb24c2d41f582c1c4d629f27000ca60b1f40502f35f589850e122f38f`.
-The create-once full-suite authority is prepared but not yet consumed at this
-checkpoint. Do not mutate the repository until its run and post-tree verification
-finish. Never rerun this identity after consumption.
+The create-once full-suite authority is consumed PASS: 4,169/4,169, exit 0,
+zero failure/error/skip, JUnit SHA-256
+`3afbd99d1df3158768d47e8986bf0002727df739c4a4f79972717c04af5386ff`,
+and exact post-tree equality. Authoritative v5 is independently byte-identical;
+materialization is authorized. Never rerun this seal identity.
 
 Successor19 is permanently FAILED / INELIGIBLE and must never be relaunched,
 finalized, calibrated, registered, evaluated, pooled, repaired, or reused.
@@ -42,8 +44,8 @@ RUNNING; a dead worker still fails closed. Focused results: 2/2 regressions,
 36/36 worker+Polymarket tests, 41/41 engine tests, and 82/82 runtime/config/fatal
 diagnostic tests pass.
 
-Next action: finish durable ledger reconciliation, freeze the stable dirty tree,
-then create and run one distinct successor20 exact-once full-repository source
-seal. Materialize/launch only if that seal passes and v5 remains byte-identical.
+Next action: create exactly one fresh successor20 materialization nonce/root,
+materialize the sealed tree once, and cold-verify empty exact-v6/research/holdout
+state plus safety and v5 immutability before any Phase-One launch.
 Safety remains live-disabled, unsigned, unauthenticated, order/cancel-incapable,
 kill-switched; Phase 3 prohibited; V4-HO-001 nonexistent/unconsumed.
