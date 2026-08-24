@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-24T22:18:04+07:00",
-  "state": "SUCCESSOR22_SOURCE_QUALIFIED_MATERIALIZATION_PREPARED",
+  "checkpoint_local": "2026-08-24T22:30:11+07:00",
+  "state": "SUCCESSOR22_MATERIALIZED_COLD_VERIFIED_PHASE_ONE_PREPARED",
   "implementation": ["lite_frequency_v4/host_loss_recovery.py", "tools/v4_successor20_host_loss_close.py", "tests/test_frequency_v4_host_loss_recovery.py"],
   "identity": {"session_id": "27cad22fef8f4d43a68034c7e9f18af2", "runtime_nonce": "13a4198c8f96427582a3e8c7e7b8bb4c", "former_launcher_pid": 14236, "former_runtime_pid": 11508},
   "affected_validation": {"passed": 437, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0, "junit_sha256": "c3ab0fad55a9384103fce77d6fca082cdaccf510a9cc24d142a2561bfd1f63e7"},
@@ -10,7 +10,9 @@
   "successor22_prior_seal_valid": false,
   "replacement_seal": {"root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor22_replacement1_20260824T144950Z", "tested_tree_sha256": "386991dc9c001ddf54290c2092e09725be7f5ad5a5f2d51bc901322cba2d23cc", "manifest_sha256": "1d5de7656c641a55f88bf0571f0a684e8bcb7c509c352bd6c580bd055fbee8bf", "runner_sha256": "780ef5cf92da7d60f952b3de5863e77ec4f204f0c31249047a2f083791475f8a", "pytest_launch_count": 1, "tests": 4185, "failures": 0, "errors": 0, "skipped": 0, "exit_code": 0, "junit_sha256": "06db06cbd51822208c8819a07655805d6f97a607016af5f957f21f0f9bc0bd16", "post_verification_sha256": "e2ffa43c0b77ec4a54cd195b3987339650d64d9337d7612e5685340596554287", "verified": true},
   "startup_census": {"exact_v4_processes": 0, "active_runtime_sessions": 0, "incomplete_commands": 0, "blocking_count": 0, "successor22_root_preexisting": false},
-  "planned_materialization": {"root": "D:\\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z", "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR22-20260824T151804Z", "nonce": "6871292fc9674d9196c4660a666c84e0", "created_ts_ms": 1787584684126},
-  "exact_next_action": "Materialize the reserved Successor22 identity exactly once, then independently cold-verify before any Phase-One launch.",
+  "materialization": {"root": "D:\\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z", "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR22-20260824T151804Z", "nonce": "6871292fc9674d9196c4660a666c84e0", "created_ts_ms": 1787584684126, "manifest_sha256": "2af2f9ba42d00034cde02447ba2f054ec27dea6915600864eee59a5f513dc9e3", "database_sha256": "0adfd163f7094d2e623d3592f097efe700658686f4728d2d77e04172854602d9", "verification_sha256": "e56014466896587de2a5425e9eff7869ab460f495c0a4e466c1dd7d41cb39b6d", "cold_verified": true, "empty_business_state": true},
+  "phase_one": {"nonce": "99d60fab076e4bcfae6e3a8831d6393a", "consumed": false, "operator_launch_sha256": "20e94f6a31495a7f64fbaa6ee6f54083e9bc9aed591c91e9ce821d68f42a1f48"},
+  "phase_two": {"nonce": "9f22eca6d2c548c8bcd6b8d687a3f261", "authorized": false},
+  "exact_next_action": "Execute the prepared Successor22 Phase-One launch script exactly once, prove runtime/session/heartbeat, and start the independent four-hour guardian.",
   "safety": {"LIVE_ENABLED": false, "REAL_ORDERS_POSSIBLE": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_3_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED", "authoritative_v5_immutable": true}
 }

@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: 2026-08-24T22:18:04+07:00
+Updated: 2026-08-24T22:30:11+07:00
 
 ## State
 
-`SUCCESSOR22_SOURCE_QUALIFIED_MATERIALIZATION_PREPARED`
+`SUCCESSOR22_MATERIALIZED_COLD_VERIFIED_PHASE_ONE_PREPARED`
 
 The owner authorized one canonical Successor20 host-loss closure followed by a
 replacement Successor22 source seal, materialization, cold verification,
@@ -47,10 +47,22 @@ post-verified PASS:
 
 Safety remains `LIVE_ENABLED=false`, `REAL_ORDERS_POSSIBLE=false`, signing/authenticated trading unavailable, kill switch engaged, no Phase 3, `V4-HO-001=NONEXISTENT_UNCONSUMED`, authoritative v5 immutable.
 
-Startup census is clean: exact V4 process count `0`, Successor20 open sessions
+Startup census was clean: exact V4 process count `0`, Successor20 open sessions
 `0`, incomplete journal commands `0`, startup blockers `0`, and no pre-existing
-Successor22 root/session. Exact next action: materialize once at
-`D:\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z` using
-acquisition `V4-PR-001-PROSPECTIVE-SUCCESSOR22-20260824T151804Z`, nonce
-`6871292fc9674d9196c4660a666c84e0`, and created timestamp `1787584684126`;
-then cold-verify before any Phase-One launch.
+Successor22 root/session. Successor22 then materialized exactly once at
+`D:\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z` using nonce
+`6871292fc9674d9196c4660a666c84e0`. Manifest SHA-256 is
+`2af2f9ba42d00034cde02447ba2f054ec27dea6915600864eee59a5f513dc9e3`;
+fresh DB SHA-256 is
+`0adfd163f7094d2e623d3592f097efe700658686f4728d2d77e04172854602d9`.
+CLI cold verification and a separate immutable census both passed: quick-check
+`ok`, FK `0`, schema v6, 70 application tables, only three schema-migration
+rows, and zero business/research/holdout rows. Materialization-verification
+SHA-256 is
+`e56014466896587de2a5425e9eff7869ab460f495c0a4e466c1dd7d41cb39b6d`.
+
+Phase-One nonce `99d60fab076e4bcfae6e3a8831d6393a` is prepared but unconsumed.
+Phase-Two nonce `9f22eca6d2c548c8bcd6b8d687a3f261` is reserved and unauthorized.
+Exact next action: execute `operator\launch_once.ps1` once, prove the runtime
+identity/heartbeat/session, then start `watch_phase_one.py` as the independent
+four-hour guardian and stop Codex after advancing healthy acquisition is proven.

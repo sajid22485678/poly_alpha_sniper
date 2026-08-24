@@ -2,8 +2,9 @@
 
 Current boundary: Successor20 was canonically closed exactly once and remains
 permanently forensic/ineligible. The prior Successor22 source seal is
-superseded; one distinct replacement seal passed exactly once and its fresh
-materialization identity is reserved but unconsumed.
+superseded; one distinct replacement seal passed exactly once. Its fresh
+Successor22 database is materialized, cold-verified, and awaiting one Phase-One
+launch.
 
 Implementation:
 
@@ -32,17 +33,26 @@ Prepared replacement seal:
 - Post-tree equals tested tree exactly; authoritative v5 is byte-identical.
 - Post-verification SHA-256: `e2ffa43c0b77ec4a54cd195b3987339650d64d9337d7612e5685340596554287`.
 
-Still forbidden until the replacement source seal passes: Successor22
-materialization and Phase-One launch. Always forbidden in this run:
+Phase-One launch is now authorized exactly once for the prepared nonce. Always
+forbidden in this run:
 calibration/tournament/Phase Two/holdout, Phase 3, live/authenticated trading,
 signing, real orders/cancels, authoritative-v5 mutation, and any reuse or
 rehabilitation of Successors20/21.
 
 Startup census: zero exact V4 processes, zero open Successor20 sessions, zero
 incomplete commands/blockers, and no pre-existing Successor22 root/session.
-Reserved materialization: root
+Materialized root:
 `D:\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z`, acquisition
 `V4-PR-001-PROSPECTIVE-SUCCESSOR22-20260824T151804Z`, nonce
-`6871292fc9674d9196c4660a666c84e0`, timestamp `1787584684126`. Materialize it
-once, cold-verify, then launch Phase One once with an independent guardian. Stop
-Codex when healthy advancing collection is proven.
+`6871292fc9674d9196c4660a666c84e0`, timestamp `1787584684126`. Manifest SHA-256
+is `2af2f9ba42d00034cde02447ba2f054ec27dea6915600864eee59a5f513dc9e3`;
+fresh DB SHA-256 is
+`0adfd163f7094d2e623d3592f097efe700658686f4728d2d77e04172854602d9`;
+materialization-verification SHA-256 is
+`e56014466896587de2a5425e9eff7869ab460f495c0a4e466c1dd7d41cb39b6d`.
+Immutable census is quick-check/FK clean, schema v6, only three migration rows,
+and zero business/research/holdout rows. Phase-One nonce
+`99d60fab076e4bcfae6e3a8831d6393a` is prepared/unconsumed. Phase-Two nonce
+`9f22eca6d2c548c8bcd6b8d687a3f261` is reserved/unauthorized. Launch Phase One
+once, start the independent guardian, and stop Codex when healthy advancing
+collection is proven.
