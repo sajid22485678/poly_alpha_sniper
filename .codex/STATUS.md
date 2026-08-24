@@ -1,6 +1,16 @@
 # Codex progress bridge
 
-Updated: 2026-08-24T10:50:03+07:00
+Updated: 2026-08-24T10:56:20+07:00
+
+Successor20 source seal is prepared and source-frozen at
+`D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor20_20260824T0355Z`.
+Tested-tree SHA-256 is
+`e532aa398eca8154c3df5603242806a6d089651e54033829a60f0e464576543b`;
+manifest SHA-256 is
+`cad7de6fb24c2d41f582c1c4d629f27000ca60b1f40502f35f589850e122f38f`.
+The create-once full-suite authority is prepared but not yet consumed at this
+checkpoint. Do not mutate the repository until its run and post-tree verification
+finish. Never rerun this identity after consumption.
 
 Successor19 is permanently FAILED / INELIGIBLE and must never be relaunched,
 finalized, calibrated, registered, evaluated, pooled, repaired, or reused.
@@ -37,4 +47,3 @@ then create and run one distinct successor20 exact-once full-repository source
 seal. Materialize/launch only if that seal passes and v5 remains byte-identical.
 Safety remains live-disabled, unsigned, unauthenticated, order/cancel-incapable,
 kill-switched; Phase 3 prohibited; V4-HO-001 nonexistent/unconsumed.
-
