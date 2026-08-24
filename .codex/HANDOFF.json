@@ -1,12 +1,14 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-24T19:04:00+07:00",
-  "state": "SUCCESSOR20_CANONICAL_CLOSURE_IMPLEMENTED_VERIFIED_NOT_EXECUTED",
+  "checkpoint_local": "2026-08-24T21:52:09+07:00",
+  "state": "SUCCESSOR20_CANONICALLY_CLOSED_SUCCESSOR22_REPLACEMENT_SEAL_PREPARED",
   "implementation": ["lite_frequency_v4/host_loss_recovery.py", "tools/v4_successor20_host_loss_close.py", "tests/test_frequency_v4_host_loss_recovery.py"],
   "identity": {"session_id": "27cad22fef8f4d43a68034c7e9f18af2", "runtime_nonce": "13a4198c8f96427582a3e8c7e7b8bb4c", "former_launcher_pid": 14236, "former_runtime_pid": 11508},
   "affected_validation": {"passed": 437, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0, "junit_sha256": "c3ab0fad55a9384103fce77d6fca082cdaccf510a9cc24d142a2561bfd1f63e7"},
-  "real_closure_applied": false,
+  "real_closure_applied": true,
+  "closure": {"closure_nonce": "03fce00bffed4963a1cb953d5dcf0e8b", "ended_ts_ms": 1787574261428, "preview_file_sha256": "7913c0168c2531d2ea6829e63017eaff399db7445b91ee59d525d0fb059e3776", "preview_content_sha256": "47d489cc4ea40ee25d9609436fbd34b05468ee57ec717f50c847512eba9ef225", "closure_file_sha256": "c2b89e9724287b5c8224c9add169acc894f097a2e0fce5396b4ecb1ca5d85fd7", "journal": {"committed": 55499, "failed": 1, "unresolved": 0, "terminal": 1}, "startup_blockers": 0},
   "successor22_prior_seal_valid": false,
-  "exact_next_action": "Document, then create one replacement exact-once Successor22 source seal. Only a green post-verified replacement seal can precede the real preview/apply.",
+  "replacement_seal": {"root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor22_replacement1_20260824T144950Z", "tested_tree_sha256": "386991dc9c001ddf54290c2092e09725be7f5ad5a5f2d51bc901322cba2d23cc", "manifest_sha256": "1d5de7656c641a55f88bf0571f0a684e8bcb7c509c352bd6c580bd055fbee8bf", "runner_sha256": "780ef5cf92da7d60f952b3de5863e77ec4f204f0c31249047a2f083791475f8a", "pytest_launch_count": 0},
+  "exact_next_action": "Run the prepared replacement seal runner exactly once; only a green post-verified result can authorize startup census and one fresh Successor22 materialization/launch.",
   "safety": {"LIVE_ENABLED": false, "REAL_ORDERS_POSSIBLE": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_3_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED", "authoritative_v5_immutable": true}
 }
