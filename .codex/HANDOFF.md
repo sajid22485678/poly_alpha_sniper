@@ -15,6 +15,15 @@ exact post-tree equality and unchanged authoritative v5. Never rerun it. The
 exact next action is one new successor20 exact-v6 materialization and cold
 verification under a fresh nonce/root.
 
+That next action is complete: materialization nonce
+`531571f5ec6b412fb0ff03f10f57f0cf` was consumed once and cold verification
+passed with empty research/holdout/trade state and unchanged v5. Phase One then
+launched once under nonce `13a4198c8f96427582a3e8c7e7b8bb4c`, session
+`27cad22fef8f4d43a68034c7e9f18af2`, PIDs `14236/11508`. It is RUNNING and must
+never be relaunched. Guardian process chain `14676/16852/2668` is attached for
+one bounded hour; first snapshot is clean. Reserved Phase-Two nonce
+`d8c06d01b91940889705983966d071a4` is unauthorized until all frozen gates pass.
+
 Successor19 is terminal, permanently failed, and ineligible. Its sole session
 `ee3a18f37f98459ebc71a7126b29878a` and Phase-One nonce
 `0b9c9b75c9f149798948449673963b30` ended without a valid ready observation.

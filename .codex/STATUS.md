@@ -2,6 +2,25 @@
 
 Updated: 2026-08-24T10:56:20+07:00
 
+Successor20 materialized exactly once and cold-verified PASS under materialization
+nonce `531571f5ec6b412fb0ff03f10f57f0cf`. The database is empty exact-v6,
+quick/FK/schema clean, has zero research/tournament/holdout/trade state, and v5
+remains byte-identical. Materialization manifest SHA-256 is
+`ccffce5672436041f7f76df1e7cb0b21d2b07452d5fdc27f9b3dfc24557f25f4`.
+
+Phase One launched exactly once under nonce
+`13a4198c8f96427582a3e8c7e7b8bb4c`, session
+`27cad22fef8f4d43a68034c7e9f18af2`, launcher/runtime PIDs `14236/11508`.
+It is RUNNING, shadow-only, live-disabled, unsigned, order-incapable and
+kill-switched. Never relaunch it. The bounded guardian watcher chain is
+`14676 -> 16852 -> 2668` with Codex session `52111`; initial durable snapshot
+SHA-256 is
+`f13855861000b53cfd2082da762f00fe5a9811a97579a217f5b87ee0d97a8f37`.
+Latest observed sample has 44 capsules, 86 predictions, 48 markets, zero
+outcomes/loss/overflow/failure, and one normal young in-flight command while
+Polymarket is HYDRATING. Reserved Phase-Two nonce
+`d8c06d01b91940889705983966d071a4` remains unauthorized.
+
 Successor20 source seal is prepared and source-frozen at
 `D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor20_20260824T0355Z`.
 Tested-tree SHA-256 is
@@ -44,8 +63,8 @@ RUNNING; a dead worker still fails closed. Focused results: 2/2 regressions,
 36/36 worker+Polymarket tests, 41/41 engine tests, and 82/82 runtime/config/fatal
 diagnostic tests pass.
 
-Next action: create exactly one fresh successor20 materialization nonce/root,
-materialize the sealed tree once, and cold-verify empty exact-v6/research/holdout
-state plus safety and v5 immutability before any Phase-One launch.
+Next action: preserve the same runtime/session/nonce and bounded guardian
+coverage. Do not finalize or stop before OOS and every conjunctive readiness
+gate; fail closed on any first binding breach without relaunching.
 Safety remains live-disabled, unsigned, unauthenticated, order/cancel-incapable,
 kill-switched; Phase 3 prohibited; V4-HO-001 nonexistent/unconsumed.
