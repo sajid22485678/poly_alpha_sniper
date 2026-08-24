@@ -1,65 +1,45 @@
-# Poly Alpha durable Codex handoff
+# Poly Alpha continuation handoff
 
-Checkpoint: 2026-08-24T10:50:03+07:00
+## Current boundary
 
-Successor20 source is now frozen at
-`D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor20_20260824T0355Z`
-with tested tree
-`e532aa398eca8154c3df5603242806a6d089651e54033829a60f0e464576543b`
-and manifest
-`cad7de6fb24c2d41f582c1c4d629f27000ca60b1f40502f35f589850e122f38f`.
-Its full-suite authority is consumed PASS: launch count one, exit 0,
-4,169/4,169, zero failure/error/skip, JUnit
-`3afbd99d1df3158768d47e8986bf0002727df739c4a4f79972717c04af5386ff`,
-exact post-tree equality and unchanged authoritative v5. Never rerun it. The
-exact next action is one new successor20 exact-v6 materialization and cold
-verification under a fresh nonce/root.
+Successor22 is source-qualified and post-seal verified but is not authorized for materialization. The owner conditionally authorized one canonical Successor20 host-loss closure, but disk inspection proved that no repository-defined host-loss closure mechanism exists. The authorization's precondition therefore fails. No mutation was made; no runtime or guardian is running; nothing should be relaunched.
 
-That next action is complete: materialization nonce
-`531571f5ec6b412fb0ff03f10f57f0cf` was consumed once and cold verification
-passed with empty research/holdout/trade state and unchanged v5. Phase One then
-launched once under nonce `13a4198c8f96427582a3e8c7e7b8bb4c`, session
-`27cad22fef8f4d43a68034c7e9f18af2`, PIDs `14236/11508`. It is RUNNING and must
-never be relaunched. Guardian process chain `7424/6692` is attached across OOS
-for 46,800 seconds; snapshot `1787546093021` is clean at 151 capsules, 300
-predictions and zero incomplete/loss/overflow/failure. Reserved Phase-Two nonce
-`d8c06d01b91940889705983966d071a4` is unauthorized until all frozen gates pass.
+## Source identity
 
-Independent work is blocked on prospective data/time. OOS ends at
-`1787588920488`; both targets independently require rank-one/unique >=300,
-positive/negative >=60 and unlabeled=0. Runtime and guardian continue
-independently. Resume from current disk state and never relaunch this identity.
+- Repository: `D:\claude\poly_alpha_sniper`
+- Branch/HEAD/index: `master` / `d3364f219feb37a09a547ff1daba6f0f96377fe4` / `700307bdbc9a4fdab7615d79eea83fe1bf6463cb`
+- Deliberate source tree SHA-256: `66f3739a96b29629aadfa25038d197c4b760e389823738a8a9129c7737bc938e`
+- Sealed Successor22 root: `D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor22_20260824T1746Z`
+- Exact-once result: 4,175/4,175 pass, exit 0, exact post-tree equality.
 
-Successor19 is terminal, permanently failed, and ineligible. Its sole session
-`ee3a18f37f98459ebc71a7126b29878a` and Phase-One nonce
-`0b9c9b75c9f149798948449673963b30` ended without a valid ready observation.
-PIDs `18280/2264` are absent, session/lease closure is durable, final journal is
-26,391/26,391 committed, and the exact-v6 database passes integrity. Its 33,815
-lost accepted ingress events are binding and cannot be cured. Never execute its
-prepared normal-stop path and never reuse any successor19 identity or population.
+## Successor20 forensic boundary
 
-The preserved fatal diagnostic at
-`D:\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\runtime\fatal_diagnostic.json`
-has SHA-256
-`228abb43b9ba118571e70ee9aba364aaeb292d9aa24c3e4151ef78b3a2b7671f`.
-It proves sequential defects: saturation reached queue capacity 50,000 during
-measured loop lag and the non-backpressured callback discarded 33,815 accepted
-events; the queue then drained. Later the supervisor's stop-request read expired
-behind the shared FIFO I/O lane and propagated as fatal while worker and
-persistence health remained valid.
+Successor20 is permanently ineligible. Its former session/nonce/PIDs are `27cad22fef8f4d43a68034c7e9f18af2` / `13a4198c8f96427582a3e8c7e7b8bb4c` / `14236,11508`. The processes are absent, but the database has one open runtime session. Full SQLite quick check, integrity check, foreign-key check, schema/migration checks passed; the cohort nevertheless failed semantically and cannot supply release evidence. The integrity report is `D:\pytest_tmp_v4\poly_alpha_successor20_full_db_integrity_20260824T1720Z\integrity_report.json`, SHA-256 `ce9393f6d210f9732b3b4521a7244b04621162f9d05368d161d26df1c8bc4431`.
 
-Two deterministic regressions were observed RED before correction and are now
-GREEN. Accepted evidence uses bounded cancellable backpressure. A transient
-stop-poll timeout/queue-full is retried only when worker health is RUNNING;
-dead/not-running state remains fatal. Focused validation is green: 2/2, 36/36,
-41/41, and 82/82 across regression, ingestion/worker, engine, and runtime.
+No canonical host-loss closure exists. `scripts/stop_lite_frequency_v4_shadow.ps1` requires the original live PID for a graceful stop; when the PID is absent it only removes stale control files and leaves the open database session unchanged. `V4Store.end_runtime_session` is an internal persistence method, not a host-loss operator authority, and invoking it directly would violate the prohibition on manual session-status repair. Repository mission/release/handoff documents explicitly record that the mechanism is absent. The conditional authorization cannot be consumed, so do not materialize Successor22.
 
-Next action is ledger reconciliation followed by one new, non-overwrite
-successor20 source manifest and exact-once full-suite seal. Only exit 0, zero
-failure/error/skip, exact post-tree equality, and unchanged v5 may authorize a
-fresh successor20 materialization and shadow-only Phase-One launch.
+## Verified correction and qualification lineage
 
-Successors1-19 remain unavailable as dictated by terminal history. V4-HO-001
-remains nonexistent/unconsumed. Authoritative v5 stays immutable. Live/auth
-trading, signing, real orders/cancels, Phase 3, failed-cohort pooling, and early
-calibration/tournament/holdout work remain prohibited.
+- First-causal book provenance is preserved across compact-equivalent rows without weakening collision checks.
+- Telemetry JSON writes fsync the sibling temporary file before atomic replacement and do not reopen the destination after replacement.
+- The CEX shutdown test now proves consumer start deterministically while retaining the late-callback regression.
+- Affected union: 373 pass, zero failures/errors/skips; JUnit SHA-256 `cfdd1398496ab9d6db23227a6a00a5663727bd7fda491ec47a341e1f57f15d9f`.
+- Successor21 exact-once qualification failed one nondeterministic test and remains immutable/ineligible.
+- Successor22 exact-once qualification passed all 4,175 tests. JUnit SHA-256 `7f7ffd6e195b4781ef5bee8e88e468c6ea5ac1fbceb46459abaebc44d15fc272`; post-verification SHA-256 `b83c537a89d203b3ded613143926478184109f1785941ea08985e9503746a1de`.
+
+## Authorized future sequence
+
+1. Owner separately authorizes creation/specification of a canonical, exact-identity Successor20 host-loss closure mechanism; the present authorization does not permit that implementation work.
+2. Apply it only under its exact conditions and preserve terminal evidence.
+3. Re-run only the required read-only startup census/release checks.
+4. If every gate passes, materialize/start Successor22 once through the repository-defined mechanism with a fresh identity, clean census, healthy detached guardian, shadow-only safety, and durable independence from Codex.
+5. Perform only minimum launch-health verification, publish the running handoff, return `SUCCESSOR22_RUNNING_CODEX_STOP_BOUNDARY_REACHED`, and stop Codex while leaving runtime/guardian running.
+6. Active strategy/execution collection uses a 2-hour evidence-density review and 4-hour hard review; no blind 8/12/24-hour extension. Historical/replay evidence should cover questions that do not require current live conditions.
+
+## Forbidden
+
+Do not resume Successor20; rerun/materialize Successor21; invent or apply an unratified closure; mutate the sealed source; duplicate materialization/session/nonce; reuse invalid cohort evidence; consume holdout; enter Phase Two or Phase 3; mutate/cut over v5; enable signing/authenticated/live trading; place or cancel real orders; lower filters to inflate samples; or treat time alone as evidence sufficiency.
+
+## Safety tuple
+
+`LIVE_ENABLED=false`, `REAL_ORDERS_POSSIBLE=false`, signing/authenticated trading unavailable, kill switch engaged, Phase 3 false, `V4-HO-001=NONEXISTENT_UNCONSUMED`, authoritative-v5 mutation forbidden.

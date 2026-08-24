@@ -1,17 +1,42 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-24T10:50:03+07:00",
+  "checkpoint_local": "2026-08-24T18:11:18+07:00",
   "project": "poly_alpha_sniper",
   "sole_writer": "Codex",
-  "successor20_source_seal": {"root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor20_20260824T0355Z", "tested_tree_sha256": "e532aa398eca8154c3df5603242806a6d089651e54033829a60f0e464576543b", "manifest_sha256": "cad7de6fb24c2d41f582c1c4d629f27000ca60b1f40502f35f589850e122f38f", "pytest_launch_count": 1, "pytest_exit_code": 0, "tests": 4169, "failures": 0, "errors": 0, "skipped": 0, "junit_sha256": "3afbd99d1df3158768d47e8986bf0002727df739c4a4f79972717c04af5386ff", "post_tree_equal": true, "v5_unchanged": true, "status": "CONSUMED_PASS_MATERIALIZATION_AUTHORIZED"},
-  "successor20": {"acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR20-20260824T0355Z", "root": "D:\\poly_alpha_prospective_exact_v6_successor20_20260824T0355Z", "materialization_nonce": "531571f5ec6b412fb0ff03f10f57f0cf", "materialization_status": "CONSUMED_PASS_COLD_VERIFIED", "phase_one_nonce": "13a4198c8f96427582a3e8c7e7b8bb4c", "reserved_phase_two_nonce": "d8c06d01b91940889705983966d071a4", "session_id": "27cad22fef8f4d43a68034c7e9f18af2", "launcher_pid": 14236, "runtime_pid": 11508, "runtime_state": "RUNNING", "must_not_relaunch": true, "oos_end_ts_ms": 1787588920488, "target_thresholds": {"rank1": 300, "unique": 300, "positive": 60, "negative": 60, "unlabeled": 0}, "guardian_process_chain": [7424, 6692], "guardian_duration_s": 46800, "guardian_stdout": "D:\\poly_alpha_prospective_exact_v6_successor20_20260824T0355Z\\operator\\guardian_oos.stdout.txt", "guardian_latest_snapshot_sha256": "90e752c3caee96dd34d336ffe2cf5e160792733a2d80968359340637f25d06c0", "latest_observation": {"capsules": 151, "predictions": 300, "markets": 48, "outcomes": 0, "committed": 1324, "incomplete": 0, "critical_failed": 0, "critical_lost": 0, "queue_overflow": 0}},
-  "external_blocker": "Prospective OOS time/data until 1787588920488 and conjunctive readiness for both targets. Guardian and runtime continue independently.",
-  "successor19": {"status": "PERMANENTLY_FAILED_INELIGIBLE", "session_id": "ee3a18f37f98459ebc71a7126b29878a", "phase_one_nonce": "0b9c9b75c9f149798948449673963b30", "runtime_pid": 2264, "launcher_pid": 18280, "processes_absent": true, "session_ended_ts_ms": 1787497584655, "lease_released_ts_ms": 1787497585300, "stop_reason": "fatal_V4WorkerJobTimeout", "binding_failure": "polymarket_ingest_queue_overflow_fail_closed", "lost_ingress_rows": 33815, "journal_committed": 26391, "journal_incomplete": 0, "critical_failures": 0, "reconciliation_blockers": 0, "database_integrity": "OK", "phase_one_ready_observation_exists": false, "never_reuse": true},
-  "readiness_at_failure": {"ensemble": {"rank1": 275, "unique": 275, "positive": 135, "negative": 122, "unlabeled": 18}, "model": {"rank1": 264, "unique": 264, "positive": 129, "negative": 117, "unlabeled": 18}},
-  "evidence": {"fatal_diagnostic_path": "D:\\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\\runtime\\fatal_diagnostic.json", "fatal_diagnostic_sha256": "228abb43b9ba118571e70ee9aba364aaeb292d9aa24c3e4151ef78b3a2b7671f", "latest_guardian_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\\operator\\guardian_snapshot_1787495847028.json", "latest_guardian_snapshot_sha256": "62f7e0c7c8559ceaef98b0ad8f10ee1a85175fe8746c3625f29da67a6795cadb"},
-  "causal_chain": {"ingress": "Short saturation reached capacity/high-water 50000 during loop lag up to 5307 ms; put_nowait discarded 33815 accepted events; queue later drained to zero.", "fatal": "A later runtime_stop_requested read expired behind shared FIFO runtime-I/O; the deadline included queue wait and escaped run_until_stopped although worker/persistence remained healthy.", "relationship": "Sequential independent defects; the later timeout did not create or cure the earlier binding ingress loss."},
-  "verified_fix": {"ingress": "Await bounded cancellable queue admission for accepted evidence.", "supervisor": "Retry timeout/queue-full only while runtime-I/O health proves RUNNING; propagate dead-worker state fail-closed.", "tests": ["2/2 causal regressions", "36/36 workers plus Polymarket", "41/41 engine", "82/82 runtime/config/fatal diagnostics"]},
-  "next_action": "Read current disk/process/guardian authority for the same successor20 identity. Never relaunch. On first binding breach reconcile and terminalize; otherwise wait for OOS plus every target threshold before ready observation or graceful stop.",
-  "forbidden": ["successor19 relaunch/repair/finalize/calibrate/register/evaluate/pool/reuse", "execute successor19 prepared normal stop", "live/authenticated trading", "wallet signing", "real orders/cancels", "authoritative-v5 mutation/cutover", "Phase 3", "early V4-HO-001/holdout", "failed cohort pooling", "duplicate exact-once identity"],
-  "safety": {"LIVE_ENABLED": false, "REAL_ORDERS_POSSIBLE": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_3_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED"}
+  "state": "SUCCESSOR20_CANONICAL_CLOSURE_BLOCKED",
+  "source": {"repository": "D:\\claude\\poly_alpha_sniper", "branch": "master", "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4", "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb", "deliberate_dirty_tree_sha256": "66f3739a96b29629aadfa25038d197c4b760e389823738a8a9129c7737bc938e", "must_remain_untouched": true},
+  "predecessors": {
+    "successor20": "Permanent forensic-only binding failure; absent original processes, one open runtime session, no canonical host-loss closure; never resume or use cohort evidence.",
+    "successor21": "Immutable failed exact-once source qualification; never rerun or materialize."
+  },
+  "successor22": {
+    "source_qualification": "EXACT_ONCE_PASS_POST_SEAL_VERIFIED",
+    "source_root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor22_20260824T1746Z",
+    "tree_sha256": "66f3739a96b29629aadfa25038d197c4b760e389823738a8a9129c7737bc938e",
+    "manifest_sha256": "b49653106a0d0f0a3d1b34b926f362ae9f019f8573c8aa596297bb67b9596bd4",
+    "junit_sha256": "7f7ffd6e195b4781ef5bee8e88e468c6ea5ac1fbceb46459abaebc44d15fc272",
+    "post_verification_sha256": "b83c537a89d203b3ded613143926478184109f1785941ea08985e9503746a1de",
+    "tests": {"passed": 4175, "failed": 0, "errors": 0, "skipped": 0, "exit_code": 0},
+    "materialization_authorized": false,
+    "materialized": false,
+    "runtime_or_guardian_present": false
+  },
+  "blocking_gate": {"owner_controlled": true, "description": "Conditional owner authorization was received but requires an existing repository-defined canonical host-loss mechanism. None exists. The PID-bound stop script cannot terminalize an absent process session, and direct persistence repair is forbidden.", "closure_applied": false, "mutation_performed": false},
+  "authorized_sequence_after_owner_action": [
+    "Apply only the ratified exact-identity closure and preserve terminal evidence.",
+    "Run only required read-only startup census and release checks.",
+    "If every gate passes, canonically materialize/start Successor22 exactly once with a fresh session and nonce.",
+    "Verify one owner, advancing heartbeat, correct source/DB, zero unsafe journal work, healthy detached guardian, no crash/integrity error, and shadow-only safety.",
+    "Publish the running checkpoint, return SUCCESSOR22_RUNNING_CODEX_STOP_BOUNDARY_REACHED, and stop Codex without stopping runtime/guardian."
+  ],
+  "collection_constraint": {
+    "strategy_execution_session": "2-4 hours maximum active collection per session",
+    "review_at_2h": ["EARLY_STOP_SUFFICIENT", "CONTINUE_TO_4H"],
+    "hard_review_at_4h": ["DATA_COLLECTION_SUFFICIENT", "DATA_COLLECTION_INSUFFICIENT_LOW_EVENT_DENSITY", "DATA_COLLECTION_INSUFFICIENT_COVERAGE", "DATA_COLLECTION_BLOCKED_BY_RUNTIME_OR_DATA_QUALITY"],
+    "rule": "Evidence quota and coverage govern sufficiency; never force trades or weaken filters.",
+    "separation": "Software qualification, active strategy/execution collection, and long-run reliability soak are separate gates."
+  },
+  "forbidden": ["resume or repair successor20", "rerun or materialize successor21", "unratified host-loss closure", "source-tree mutation", "duplicate identity", "invalid cohort pooling", "holdout consumption", "Phase Two or Phase 3", "authoritative-v5 mutation or cutover", "live/authenticated trading", "wallet signing", "real orders or cancels", "blind long data-collection extension"],
+  "safety": {"LIVE_ENABLED": false, "REAL_ORDERS_POSSIBLE": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_3_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED", "authoritative_v5_immutable": true},
+  "exact_next_action": "Owner separately authorizes creation/specification of a canonical exact-identity host-loss closure mechanism. The current conditional authorization cannot be consumed; stop without materializing or launching Successor22."
 }
