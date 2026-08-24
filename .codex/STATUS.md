@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: 2026-08-24T21:52:09+07:00
+Updated: 2026-08-24T22:18:04+07:00
 
 ## State
 
-`SUCCESSOR20_CANONICALLY_CLOSED_SUCCESSOR22_REPLACEMENT_SEAL_PREPARED`
+`SUCCESSOR22_SOURCE_QUALIFIED_MATERIALIZATION_PREPARED`
 
 The owner authorized one canonical Successor20 host-loss closure followed by a
 replacement Successor22 source seal, materialization, cold verification,
@@ -31,17 +31,26 @@ SHA-256 remains `4848a897f4eff16181756dbefcfbbb6f0306093018d7102656772f7996ce22a
 Successor20 remains permanently failed/forensic/ineligible; Successor21 remains
 immutable/ineligible.
 
-The former Successor22 seal (`66f373…`) is superseded. One distinct replacement
-seal is prepared but its pytest launch count is still zero:
+The former Successor22 seal (`66f373…`) is superseded. Its one distinct
+replacement seal completed exactly one full-suite launch and independently
+post-verified PASS:
 
 - root: `D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor22_replacement1_20260824T144950Z`
 - tested tree: `386991dc9c001ddf54290c2092e09725be7f5ad5a5f2d51bc901322cba2d23cc`
 - manifest: `1d5de7656c641a55f88bf0571f0a684e8bcb7c509c352bd6c580bd055fbee8bf`
 - runner: `780ef5cf92da7d60f952b3de5863e77ec4f204f0c31249047a2f083791475f8a`
+- full suite: `4,185 / 4,185 PASS`, zero failure/error/skip, exit `0`, launch count `1`
+- JUnit: `06db06cbd51822208c8819a07655805d6f97a607016af5f957f21f0f9bc0bd16`
+- exact post-tree equality: `true`
+- post-verification: `e2ffa43c0b77ec4a54cd195b3987339650d64d9337d7612e5685340596554287`
+- authoritative-v5 DB/WAL/SHM exact equality: `true`
 
 Safety remains `LIVE_ENABLED=false`, `REAL_ORDERS_POSSIBLE=false`, signing/authenticated trading unavailable, kill switch engaged, no Phase 3, `V4-HO-001=NONEXISTENT_UNCONSUMED`, authoritative v5 immutable.
 
-Exact next action: run the prepared replacement seal runner exactly once. If
-and only if the full suite and independent post-tree/v5 verification pass,
-perform the zero-owner startup census, materialize Successor22 once, cold
-verify it, launch Phase One once, and start its independent guardian.
+Startup census is clean: exact V4 process count `0`, Successor20 open sessions
+`0`, incomplete journal commands `0`, startup blockers `0`, and no pre-existing
+Successor22 root/session. Exact next action: materialize once at
+`D:\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z` using
+acquisition `V4-PR-001-PROSPECTIVE-SUCCESSOR22-20260824T151804Z`, nonce
+`6871292fc9674d9196c4660a666c84e0`, and created timestamp `1787584684126`;
+then cold-verify before any Phase-One launch.

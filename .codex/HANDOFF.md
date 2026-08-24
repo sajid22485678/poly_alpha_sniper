@@ -2,7 +2,8 @@
 
 Current boundary: Successor20 was canonically closed exactly once and remains
 permanently forensic/ineligible. The prior Successor22 source seal is
-superseded; one distinct replacement seal is prepared but has not launched.
+superseded; one distinct replacement seal passed exactly once and its fresh
+materialization identity is reserved but unconsumed.
 
 Implementation:
 
@@ -26,7 +27,10 @@ Prepared replacement seal:
 - Tree SHA-256: `386991dc9c001ddf54290c2092e09725be7f5ad5a5f2d51bc901322cba2d23cc`.
 - Manifest SHA-256: `1d5de7656c641a55f88bf0571f0a684e8bcb7c509c352bd6c580bd055fbee8bf`.
 - Runner SHA-256: `780ef5cf92da7d60f952b3de5863e77ec4f204f0c31249047a2f083791475f8a`.
-- Pytest launch count: `0`; no result is claimed.
+- Full suite: `4,185 / 4,185 PASS`, zero failure/error/skip, exit `0`, launch count `1`.
+- JUnit SHA-256: `06db06cbd51822208c8819a07655805d6f97a607016af5f957f21f0f9bc0bd16`.
+- Post-tree equals tested tree exactly; authoritative v5 is byte-identical.
+- Post-verification SHA-256: `e2ffa43c0b77ec4a54cd195b3987339650d64d9337d7612e5685340596554287`.
 
 Still forbidden until the replacement source seal passes: Successor22
 materialization and Phase-One launch. Always forbidden in this run:
@@ -34,7 +38,11 @@ calibration/tournament/Phase Two/holdout, Phase 3, live/authenticated trading,
 signing, real orders/cancels, authoritative-v5 mutation, and any reuse or
 rehabilitation of Successors20/21.
 
-Next sequence: run the prepared seal runner exactly once; independently verify
-current-tree equality, JUnit census and v5 identity; run the zero-owner startup
-census; then canonically materialize, cold-verify and launch Successor22 and its
-independent guardian. Stop Codex when healthy advancing collection is proven.
+Startup census: zero exact V4 processes, zero open Successor20 sessions, zero
+incomplete commands/blockers, and no pre-existing Successor22 root/session.
+Reserved materialization: root
+`D:\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z`, acquisition
+`V4-PR-001-PROSPECTIVE-SUCCESSOR22-20260824T151804Z`, nonce
+`6871292fc9674d9196c4660a666c84e0`, timestamp `1787584684126`. Materialize it
+once, cold-verify, then launch Phase One once with an independent guardian. Stop
+Codex when healthy advancing collection is proven.
