@@ -1,49 +1,40 @@
 # Codex progress bridge
 
-Updated: 2026-08-23T20:51:55+07:00
+Updated: 2026-08-24T10:50:03+07:00
 
-Active Codex work has stopped for quota preservation. The complete authoritative
-continuation checkpoint is in `.codex/HANDOFF.md` and `.codex/HANDOFF.json`.
-The successor19 runtime, guardian watcher, heartbeat, lease, session and source
-seal remain active and unchanged.
+Successor19 is permanently FAILED / INELIGIBLE and must never be relaunched,
+finalized, calibrated, registered, evaluated, pooled, repaired, or reused.
+Session `ee3a18f37f98459ebc71a7126b29878a`, Phase-One nonce
+`0b9c9b75c9f149798948449673963b30`, launcher/runtime PIDs `18280/2264` are
+terminal and absent. Session ended `1787497584655`; lease released
+`1787497585300`; no ready observation exists.
 
-Successors seventeen and eighteen are immutable and permanently ineligible
-after binding critical-evidence-incompleteness guardian failures. Both drained
-losslessly, but neither may be relaunched, finalized, evaluated or pooled.
+Binding result: `fatal_V4WorkerJobTimeout` plus 33,815 accepted Polymarket
+events discarded by `polymarket_ingest_queue_overflow_fail_closed`. Final
+journal is 26,391 committed, zero incomplete/failed/reconciliation blockers;
+database integrity is OK. Final readiness was ensemble 275 rank-1/unique,
+135 positive, 122 negative, 18 unlabeled; model 264 rank-1/unique, 129
+positive, 117 negative, 18 unlabeled.
 
-Successor nineteen passed its exact-once source seal: 4,168/4,168 tests,
-exit 0, zero failure/error/skip, tested-tree SHA-256
-`b202ebfd07c92c9e57e3dd77fc5d983792beb765a868884d5c3296ba4f9d7fcc`.
-Post-tree equality, exit capture and authoritative-v5 hashes agree.
+Primary evidence proves two sequential defects. A short saturation episode
+reached ingest high-water/capacity 50,000 during measured event-loop lag up to
+5,307 ms; the callback used `put_nowait` and discarded rather than applying
+backpressure. Depth later returned to zero. Separately, the supervisor's
+two-second stop poll queued on the shared FIFO runtime-I/O lane, expired while
+the worker remained healthy, and the uncaught timeout terminated the runtime.
+Fatal diagnostic SHA-256 is
+`228abb43b9ba118571e70ee9aba364aaeb292d9aa24c3e4151ef78b3a2b7671f`.
 
-The new non-authoritative exact-v6 database materialized exactly once and
-passed independent cold/read-only validation without authoritative-v5 drift.
-Phase one then launched exactly once under nonce
-`0b9c9b75c9f149798948449673963b30`, session
-`ee3a18f37f98459ebc71a7126b29878a`. It must never be relaunched.
+Fail-first regressions reproduced both invariants. The minimal correction now
+uses cancellable bounded backpressure for accepted source evidence and retries
+only transient stop-probe timeout/queue-full results while worker health proves
+RUNNING; a dead worker still fails closed. Focused results: 2/2 regressions,
+36/36 worker+Polymarket tests, 41/41 engine tests, and 82/82 runtime/config/fatal
+diagnostic tests pass.
 
-The latest durable guardian snapshot is
-`D:\poly_alpha_prospective_exact_v6_successor19_20260823T1225Z\operator\guardian_snapshot_1787493105462.json`
-(SHA-256
-`72ff6a0a176aaf0032620645440b715798ea2acfad023cbe75f078e1b39b5876`).
-The one-hour watcher expired normally at its prescribed duration with no
-guardian-failure artifact. A new watcher—not a new runtime—started against the
-same session. The latest snapshot has 2,391 capsules, 4,761 predictions, 181
-markets, 145 outcomes and journal `COMMITTED=16,676`, zero incomplete. The guardian remains
-binding-clean: zero failed, lost, overflow or discarded work. Telemetry is in
-the frozen guardian's accepted recovered-only degraded state while queue
-recovery is incomplete. There are no trade, tournament, holdout or live effects.
+Next action: finish durable ledger reconciliation, freeze the stable dirty tree,
+then create and run one distinct successor20 exact-once full-repository source
+seal. Materialize/launch only if that seal passes and v5 remains byte-identical.
+Safety remains live-disabled, unsigned, unauthenticated, order/cancel-incapable,
+kill-switched; Phase 3 prohibited; V4-HO-001 nonexistent/unconsumed.
 
-Current target readiness is still incomplete. Ensemble has 163 unique/rank-1
-rows, 77 positive, 68 negative and 18 unlabeled. The model has 156 unique/rank-1
-rows, 73 positive, 65 negative and 18 unlabeled. Exact OOS end remains required
-independently of these counts.
-
-Phase one is not ready merely because capsule count exceeds 300. The frozen
-protocol requires the OOS boundary `1787530026799`, at least 300 unique labeled
-markets and the complete per-target positive/negative/readiness gates. Continue
-read-only guardian monitoring of this same session. Reserved phase-two nonce
-`c66f6a80e1624b4a9eff5b4fa3450e7a` remains unauthorized.
-
-V4-HO-001 remains nonexistent/unconsumed. Live/authenticated trading, signing,
-orders, Phase 3 and authoritative-v5 mutation or cutover remain prohibited.
