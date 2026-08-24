@@ -12,13 +12,13 @@ Phase One launched exactly once under nonce
 `13a4198c8f96427582a3e8c7e7b8bb4c`, session
 `27cad22fef8f4d43a68034c7e9f18af2`, launcher/runtime PIDs `14236/11508`.
 It is RUNNING, shadow-only, live-disabled, unsigned, order-incapable and
-kill-switched. Never relaunch it. The bounded guardian watcher chain is
-`14676 -> 16852 -> 2668` with Codex session `52111`; initial durable snapshot
-SHA-256 is
-`f13855861000b53cfd2082da762f00fe5a9811a97579a217f5b87ee0d97a8f37`.
-Latest observed sample has 44 capsules, 86 predictions, 48 markets, zero
-outcomes/loss/overflow/failure, and one normal young in-flight command while
-Polymarket is HYDRATING. Reserved Phase-Two nonce
+kill-switched. Never relaunch it. Guardian coverage extends across OOS under
+background chain `7424 -> 6692` for 46,800 seconds with 30-second checks and
+300-second snapshots. Output is `operator\guardian_oos.stdout.txt`; stderr is
+empty. Latest durable snapshot `guardian_snapshot_1787546093021.json` has
+SHA-256 `90e752c3caee96dd34d336ffe2cf5e160792733a2d80968359340637f25d06c0`
+and records 151 capsules, 300 predictions, 48 markets, zero outcomes, 1,324
+committed, zero incomplete/loss/overflow/failure. Reserved Phase-Two nonce
 `d8c06d01b91940889705983966d071a4` remains unauthorized.
 
 Successor20 source seal is prepared and source-frozen at
@@ -66,5 +66,10 @@ diagnostic tests pass.
 Next action: preserve the same runtime/session/nonce and bounded guardian
 coverage. Do not finalize or stop before OOS and every conjunctive readiness
 gate; fail closed on any first binding breach without relaunching.
+
+Independent work is blocked only on prospective market time/data: OOS ends at
+`1787588920488`; each target requires rank-1/unique >=300, positive/negative
+>=60 and unlabeled=0. Runtime/guardian continue independently. Resume from
+current disk authority, never from these counters.
 Safety remains live-disabled, unsigned, unauthenticated, order/cancel-incapable,
 kill-switched; Phase 3 prohibited; V4-HO-001 nonexistent/unconsumed.

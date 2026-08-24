@@ -20,9 +20,15 @@ That next action is complete: materialization nonce
 passed with empty research/holdout/trade state and unchanged v5. Phase One then
 launched once under nonce `13a4198c8f96427582a3e8c7e7b8bb4c`, session
 `27cad22fef8f4d43a68034c7e9f18af2`, PIDs `14236/11508`. It is RUNNING and must
-never be relaunched. Guardian process chain `14676/16852/2668` is attached for
-one bounded hour; first snapshot is clean. Reserved Phase-Two nonce
+never be relaunched. Guardian process chain `7424/6692` is attached across OOS
+for 46,800 seconds; snapshot `1787546093021` is clean at 151 capsules, 300
+predictions and zero incomplete/loss/overflow/failure. Reserved Phase-Two nonce
 `d8c06d01b91940889705983966d071a4` is unauthorized until all frozen gates pass.
+
+Independent work is blocked on prospective data/time. OOS ends at
+`1787588920488`; both targets independently require rank-one/unique >=300,
+positive/negative >=60 and unlabeled=0. Runtime and guardian continue
+independently. Resume from current disk state and never relaunch this identity.
 
 Successor19 is terminal, permanently failed, and ineligible. Its sole session
 `ee3a18f37f98459ebc71a7126b29878a` and Phase-One nonce
