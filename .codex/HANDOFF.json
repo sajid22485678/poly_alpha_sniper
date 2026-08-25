@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T20:35:53.5079304+07:00",
-  "state": "SUCCESSOR25_PHASE_ONE_LAUNCH_AUTHORIZED",
+  "checkpoint_local": "2026-08-25T20:42:29.3940660+07:00",
+  "state": "SUCCESSOR25_PHASE_ONE_STARTED_GUARDIAN_READY",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
-  "canonical_artifact": ".codex/SUCCESSOR25_PHASE_ONE_LAUNCH_AUTHORITY.json",
-  "canonical_artifact_sha256": "753d43892667fc3ea514a5c46b07b76a0fd673d8c31b14bc9eea6dcbdcac454e",
+  "canonical_artifact": ".codex/SUCCESSOR25_PHASE_ONE_STARTED_GUARDIAN_READY.json",
+  "canonical_artifact_sha256": "c28637d215b26d2bab95a65ae63d54165b3a97c8959974fccd631816aa434082",
   "successor24": {
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR24-20260825T104125Z",
     "root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
@@ -128,10 +128,25 @@
     "nonce": "8ab5f199f40b47b5963944e4bc356f59",
     "authority_sha256": "a99325edf331d46cdd5f4669c5afadcc2a93e4fb1180d89b12a882965bd6f458",
     "launcher_sha256": "792f5527d4e2b4ba6b1cf11131211f69e5df46f86db111204002882e62c51370",
+    "launch_count": 1,
+    "session_id": "50ac10343a4044fa8f2fe71113ac014f",
+    "launcher_pid": 8320,
+    "runtime_pid": 17108,
+    "started_ts_ms": 1787665128740,
+    "runtime_root_preexisting": true,
+    "prelaunch_guard_exclusive_open_available": true,
+    "processes_present": true,
+    "running": true,
+    "state": "RUNNING",
+    "must_not_relaunch": true,
+    "oos_end_ts_ms": 1787708328740
+  },
+  "successor25_guardian": {
+    "launcher_sha256": "971de4d41b716521011add6bb625cbc292ddeaaab40c09e04db8b6de1bac4280",
     "launch_count": 0,
-    "runtime_root_preexisting": false,
-    "guard_exclusive_open_available": true,
-    "processes_present": false
+    "duration_s": 14400,
+    "interval_s": 30,
+    "snapshot_s": 300
   },
   "safety": {
     "LIVE_ENABLED": false,
@@ -143,6 +158,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Invoke launch_phase_one_once.ps1 exactly once, capture the consumed session/PID identity, then launch exactly one bound guardian.",
+  "next_action": "Invoke launch_guardian_once.ps1 exactly once for the bound session/PID identity, then capture two bounded clean growth observations and stop without stopping runtime or guardian.",
   "codex_active_work_stopping": false
 }

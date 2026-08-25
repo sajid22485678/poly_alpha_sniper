@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T20:35:53.5079304+07:00`
+Updated: `2026-08-25T20:42:29.3940660+07:00`
 
 ## Current boundary
 
-`SUCCESSOR25_PHASE_ONE_LAUNCH_AUTHORIZED`
+`SUCCESSOR25_PHASE_ONE_STARTED_GUARDIAN_READY`
 
 Successor24 did not survive the host power loss. Its exact runtime and guardian
 are absent after reboot and were not relaunched. The recovered SQLite journal
@@ -71,5 +71,8 @@ migrations nonempty, all economic/research/holdout counts zero, no runtime,
 and unchanged v5. Phase One is bound to nonce
 `8ab5f199f40b47b5963944e4bc356f59`; launch count is zero, runtime root is
 absent, guard availability is proven, and no prospective runtime exists. Exact
-next action: invoke the launcher once, capture the session/PID identity, then
-launch exactly one guardian.
+The launcher ran once and consumed session
+`50ac10343a4044fa8f2fe71113ac014f`, PID pair `8320 -> 17108`. Runtime state is
+`RUNNING`; source, integrity, persistence, telemetry accounting, holdout, and
+safety checks are clean. Exact next action: invoke the bound guardian launcher
+once, then capture two bounded clean growth observations without relaunching.

@@ -1,13 +1,13 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T20:35:53.5079304+07:00`
+Updated: `2026-08-25T20:42:29.3940660+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR25_PHASE_ONE_LAUNCH_AUTHORIZED`
+`SUCCESSOR25_PHASE_ONE_STARTED_GUARDIAN_READY`
 
 Canonical transition detail is in
-`.codex/SUCCESSOR25_PHASE_ONE_LAUNCH_AUTHORITY.json`.
+`.codex/SUCCESSOR25_PHASE_ONE_STARTED_GUARDIAN_READY.json`.
 The boot-evidence correction remains at
 `.codex/SUCCESSOR24_BOOT_EVIDENCE_CORRECTION.json`, SHA-256
 `d7dc60eebfe94c4a474e1eb22b88c554d4a34962efb5cc2b4d1d49fc54377377`.
@@ -138,8 +138,12 @@ schema-migration rows, zero economic/research/holdout rows, no runtime process,
 and unchanged v5. Phase One is bound to nonce
 `8ab5f199f40b47b5963944e4bc356f59`; its launch count is zero, runtime root is
 absent, the guard is exclusively available, and no exact-v6 runtime exists.
-Invoke the launcher exactly once, capture its session/PID identity, then launch
-exactly one guardian. Phase Two remains unauthorized.
+The launcher ran exactly once. Consumed identity: session
+`50ac10343a4044fa8f2fe71113ac014f`, PID pair `8320 -> 17108`, same nonce and
+tested tree. The runtime is `RUNNING`, source-ready, integrity/critical
+persistence/telemetry accounting are clean, and safety is fail-closed. Invoke
+the bound guardian launcher exactly once, then capture two clean growth
+observations. Phase Two remains unauthorized.
 
 Do not enter calibration, tournament, Phase Two, holdout, Phase Three, live or
 authenticated trading, signing, orders/cancels, or authoritative-v5 mutation.
