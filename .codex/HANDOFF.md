@@ -2,7 +2,7 @@
 
 ## Durable boundary
 
-`SUCCESSOR23_SOURCE_SEAL_PREPARED_EXACT_ONCE_LAUNCH_NEXT`
+`SUCCESSOR23_SOURCE_SEAL_PASSED_MATERIALIZATION_NEXT`
 
 Successor22 is terminal, forensic-only, permanently ineligible, and cannot be
 relaunched. Root cause and mandatory RED are at bridge commit
@@ -30,7 +30,11 @@ The frozen Successor23 source-seal root is
 Tree `249c1ec0aee2f38ccd954b9fe6a76f4be053dabcf1dc7ffa9d5eb880ec701afd`,
 manifest `3c464a56a297532995bf80b1809baff79e2eec905ff10ec7b476bb1bd56b76dc`,
 runner `d3d3d63b7ca2c6a511df424c25c1eb87a1353feb41fa94c0cda1f4f358acf48d`;
-launch count zero; v5 unchanged.
+the single launch passed 4,188 tests with zero failures, errors, or skips.
+Post-tree equality is exact and post-verification
+`9fb81c3adcda93b65d2727cd640b897e74c17c2f9e565bb3708ca125f7a411fe`
+proves v5 unchanged with no journal.
 
-Exact next action: execute the bound runner exactly once and never retry this
-seal identity after failure, interruption, or ambiguity.
+Exact next action: construct a fresh reserved Successor23 acquisition identity
+and create-once materialization operator from the sealed manifest, then execute
+materialization exactly once.

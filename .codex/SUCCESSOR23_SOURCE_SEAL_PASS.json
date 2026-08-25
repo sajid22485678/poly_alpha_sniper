@@ -1,0 +1,31 @@
+{
+  "schema": "POLY_ALPHA_SUCCESSOR23_SOURCE_SEAL_PASS_V1",
+  "verified_at_utc": "2026-08-25T06:34:07.449919Z",
+  "root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor23_20260825T060219Z",
+  "tested_tree_sha256": "249c1ec0aee2f38ccd954b9fe6a76f4be053dabcf1dc7ffa9d5eb880ec701afd",
+  "post_tree_sha256": "249c1ec0aee2f38ccd954b9fe6a76f4be053dabcf1dc7ffa9d5eb880ec701afd",
+  "manifest_sha256": "3c464a56a297532995bf80b1809baff79e2eec905ff10ec7b476bb1bd56b76dc",
+  "runner_sha256": "d3d3d63b7ca2c6a511df424c25c1eb87a1353feb41fa94c0cda1f4f358acf48d",
+  "pytest_launch_count": 1,
+  "pytest_exit_code": 0,
+  "tests": 4188,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "junit_sha256": "61b334d95989652d287a04dfa9c52c0335d7a448ceb70b3b518e380655d00e10",
+  "run_started_sha256": "f545125d406b445ba055ad9184bc86b22089cb82cf73d97cfbcba0f8cde3b541",
+  "pytest_exit_sha256": "dbb4b817004d2eac18838fe626a712766bdfc2bc3596bd372496010f9f4cab0d",
+  "run_control_sha256": "4f8cee8e61a0b0c8904b1ccced695b399b3a9bb20c593580cc7c2cebcf5812d6",
+  "post_verification_sha256": "9fb81c3adcda93b65d2727cd640b897e74c17c2f9e565bb3708ca125f7a411fe",
+  "authoritative_v5": {
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "journal_exists": false,
+    "immutable": true
+  },
+  "tree_exact": true,
+  "verified": true,
+  "materialization_authorized": true,
+  "exact_next_action": "Construct a fresh reserved Successor23 acquisition identity and create-once materialization operator from the sealed manifest, then execute materialization exactly once."
+}
