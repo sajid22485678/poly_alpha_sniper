@@ -4,7 +4,7 @@ Updated: `2026-08-25T12:59:32.6995202+07:00`
 
 ## Current boundary
 
-`SUCCESSOR22_RETENTION_FIX_VERIFIED_SUCCESSOR23_SOURCE_SEAL_NEXT`
+`SUCCESSOR23_SOURCE_SEAL_PREPARED_EXACT_ONCE_LAUNCH_NEXT`
 
 Successor22 remains gracefully terminal, permanently forensic/ineligible, and
 `MUST_NOT_RELAUNCH`. Its database and immutable failure evidence were not
@@ -39,6 +39,12 @@ Safety remains fail-closed. The deliberate dirty tree is preserved at branch
 `master`, HEAD `d3364f219feb37a09a547ff1daba6f0f96377fe4`, index tree
 `700307bdbc9a4fdab7615d79eea83fe1bf6463cb`, with zero staged paths.
 
-Exact next action: freeze this current source, create a fresh Successor23
-create-once source-seal root/manifest/runner, and execute the repository-defined
-full suite exactly once.
+Successor23 source-seal preparation is create-once at
+`D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor23_20260825T060219Z`:
+tested tree `249c1ec0aee2f38ccd954b9fe6a76f4be053dabcf1dc7ffa9d5eb880ec701afd`,
+manifest `3c464a56a297532995bf80b1809baff79e2eec905ff10ec7b476bb1bd56b76dc`,
+runner `d3d3d63b7ca2c6a511df424c25c1eb87a1353feb41fa94c0cda1f4f358acf48d`.
+Launch count is zero and authoritative v5 matches its immutable baseline.
+
+Exact next action: execute that bound runner exactly once. Any failure or
+ambiguity is terminal for this source-seal identity; do not retry it.

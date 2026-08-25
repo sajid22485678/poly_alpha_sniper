@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "checkpoint_local": "2026-08-25T12:59:32.6995202+07:00",
-  "state": "SUCCESSOR22_RETENTION_FIX_VERIFIED_SUCCESSOR23_SOURCE_SEAL_NEXT",
+  "state": "SUCCESSOR23_SOURCE_SEAL_PREPARED_EXACT_ONCE_LAUNCH_NEXT",
   "classification": "TERMINAL_FORENSIC_INELIGIBLE",
   "prior_bridge_commit": "855a4ace97e4cdf8944c31cb38eff7cec44e761d",
   "containing_bridge_commit": "SELF",
@@ -74,7 +74,15 @@
     "authoritative_v5_immutable": true,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "exact_next_action": "Freeze the current source, construct a fresh create-once Successor23 source-seal root/manifest/runner, and execute the repository-defined full suite exactly once.",
+  "successor23_source_seal": {
+    "prepared": true,
+    "pytest_launch_count": 0,
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor23_20260825T060219Z",
+    "tested_tree_sha256": "249c1ec0aee2f38ccd954b9fe6a76f4be053dabcf1dc7ffa9d5eb880ec701afd",
+    "manifest_sha256": "3c464a56a297532995bf80b1809baff79e2eec905ff10ec7b476bb1bd56b76dc",
+    "runner_sha256": "d3d3d63b7ca2c6a511df424c25c1eb87a1353feb41fa94c0cda1f4f358acf48d"
+  },
+  "exact_next_action": "Execute the bound Successor23 source-seal runner exactly once; never retry this identity after failure or ambiguity.",
   "successor22_relaunch_performed": false,
   "later_phase_entered": false,
   "codex_active_work_stopping": false

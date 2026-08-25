@@ -2,7 +2,7 @@
 
 ## Durable boundary
 
-`SUCCESSOR22_RETENTION_FIX_VERIFIED_SUCCESSOR23_SOURCE_SEAL_NEXT`
+`SUCCESSOR23_SOURCE_SEAL_PREPARED_EXACT_ONCE_LAUNCH_NEXT`
 
 Successor22 is terminal, forensic-only, permanently ineligible, and cannot be
 relaunched. Root cause and mandatory RED are at bridge commit
@@ -25,6 +25,12 @@ Repository authority remains branch `master`, HEAD
 `700307bdbc9a4fdab7615d79eea83fe1bf6463cb`; deliberate unknown changes are
 preserved and nothing is staged.
 
-Exact next action: create a unique Successor23 source-seal evidence root,
-capture the current canonical working-tree manifest, construct a create-once
-runner bound to its hashes, then launch the full repository suite exactly once.
+The frozen Successor23 source-seal root is
+`D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor23_20260825T060219Z`.
+Tree `249c1ec0aee2f38ccd954b9fe6a76f4be053dabcf1dc7ffa9d5eb880ec701afd`,
+manifest `3c464a56a297532995bf80b1809baff79e2eec905ff10ec7b476bb1bd56b76dc`,
+runner `d3d3d63b7ca2c6a511df424c25c1eb87a1353feb41fa94c0cda1f4f358acf48d`;
+launch count zero; v5 unchanged.
+
+Exact next action: execute the bound runner exactly once and never retry this
+seal identity after failure, interruption, or ambiguity.

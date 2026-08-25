@@ -1,0 +1,22 @@
+{
+  "schema": "POLY_ALPHA_SUCCESSOR23_SOURCE_SEAL_PREPARED_V1",
+  "prepared_at_utc": "2026-08-25T06:05:16.234077Z",
+  "root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor23_20260825T060219Z",
+  "tested_tree_sha256": "249c1ec0aee2f38ccd954b9fe6a76f4be053dabcf1dc7ffa9d5eb880ec701afd",
+  "manifest_sha256": "3c464a56a297532995bf80b1809baff79e2eec905ff10ec7b476bb1bd56b76dc",
+  "runner_sha256": "d3d3d63b7ca2c6a511df424c25c1eb87a1353feb41fa94c0cda1f4f358acf48d",
+  "path_count": 665,
+  "staged_path_count": 0,
+  "tracked_modified_path_count": 55,
+  "untracked_path_count": 108,
+  "pytest_launch_count": 0,
+  "source_tree_frozen": true,
+  "authoritative_v5_pre_sha256": "f7a58eaff7e5de4aaa77f6300aadaa838276971b52e6c63714bbdc4eecc6853b",
+  "authoritative_v5": {
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "journal_exists": false
+  },
+  "exact_next_action": "Execute run_full_suite_once.py exactly once. Do not retry this source-seal identity on any failure or ambiguity."
+}
