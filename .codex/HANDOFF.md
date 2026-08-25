@@ -1,14 +1,16 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T19:28:03.6460704+07:00`
+Updated: `2026-08-25T19:34:45.5673245+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_READY`
+`SUCCESSOR24_HOST_LOSS_APPLY_V1_REFUSED_NO_MUTATION`
 
 Canonical transition detail is in
-`.codex/SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW.json`, SHA-256
-`6bd734f18f6b3f7655c5b3dc57d2a8a4a297fc31ccfb352c661d1987f4086821`.
+`.codex/SUCCESSOR24_HOST_LOSS_APPLY_V1_REFUSAL.json`, SHA-256
+`4899944a75c9d72955c762994ef46f3282539b705ca3623cd786042083070ff1`.
+The external refusal artifact is SHA-256
+`ed111670da59041bf9082d05dfacfc5638a38c73a9670f2d6386e9bea9f83129`.
 The causal fix verification remains in
 `.codex/SUCCESSOR24_POWER_LOSS_DURABILITY_FIX_VERIFICATION.json`, SHA-256
 `c7ddd3a9f434dfb958d005846332418effae815b2260f5a4018cb9ed597acaf2`.
@@ -103,12 +105,12 @@ WAL SHA-256 is
 
 ## Exact next action
 
-Execute the prepared repository-defined closure apply exactly once using
-`operator\successor24_host_loss_preview_v1.json`, closure nonce
-`f42ba7127c164e678d905490bdee7b6d`, and terminal timestamp `1787660780673`.
-Do not regenerate or rerun the preview. Only after terminal forensic closure is
-proven may a fresh successor be source-qualified, materialized, cold-verified,
-and launched exactly once.
+Preview/apply v1 and nonce `f42ba7127c164e678d905490bdee7b6d` are terminal
+refused and must never be reapplied or reused. Observe a mandatory fail-first
+regression for stable Windows boot evidence, implement the smallest
+canonicalization fix, validate it, then create a distinct correction preview
+and nonce. Only after terminal closure is proven may Successor25 qualification
+begin.
 
 Do not enter calibration, tournament, Phase Two, holdout, Phase Three, live or
 authenticated trading, signing, orders/cancels, or authoritative-v5 mutation.

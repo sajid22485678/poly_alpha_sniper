@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR24_HOST_LOSS_APPLY_V1_REFUSAL_CHECKPOINT_V1",
+  "captured_at": "2026-08-25T19:34:45.5673245+07:00",
+  "classification": "PRECONDITION_DRIFT_REFUSED_NO_MUTATION",
+  "apply_invocation_count": 1,
+  "apply_exit_code": 1,
+  "operator_error": "host-loss preview state drift detected",
+  "external_artifact": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\successor24_host_loss_apply_v1_refusal.json",
+    "sha256": "ed111670da59041bf9082d05dfacfc5638a38c73a9670f2d6386e9bea9f83129"
+  },
+  "preview_v1": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\successor24_host_loss_preview_v1.json",
+    "file_sha256": "92b4cf06e12fff782ed4adb83ef3bee53a0844badd020bed7db889ecd5903ab3",
+    "content_sha256": "ed5649ccd47d14ae301f86e0f8ef0ff7d4b8e8d46bfbe51517ab6d3b4912793a",
+    "closure_nonce": "f42ba7127c164e678d905490bdee7b6d",
+    "closure_ts_ms": 1787660780673,
+    "disposition": "TERMINAL_REFUSED_MUST_NOT_APPLY_OR_REUSE_NONCE"
+  },
+  "root_cause": {
+    "difference_count": 1,
+    "only_difference_path": "host_boot.boot_ts_ms",
+    "preview_value": 1787657510049,
+    "fresh_value": 1787657510054,
+    "diagnosis": "Raw psutil.boot_time millisecond estimates are not repeatable precondition evidence on Windows.",
+    "binding_evidence_changed": false
+  },
+  "post_refusal": {
+    "target_files_equal_preview": true,
+    "db_sha256": "fa79e3bcda893fd420092dfff370b768f0bb25277771bf1e6f8ca6f056484fb0",
+    "wal_sha256": "196f6868cc2ae9045338b11a7077732f6ddb0c82cdac27dfd70157841cec1841",
+    "shm_sha256": "430edda9cce8a6ac04aa0873539c2dffd26234f5a3b3cc084c7176d96504990d",
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "journal_total": 7431,
+    "journal_committed": 7431,
+    "closure_rows": 0,
+    "session_open": true,
+    "closure_output_exists": false,
+    "closure_lease_evidence_exists": false
+  },
+  "next_action": "Observe a mandatory fail-first regression for repeatable boot evidence, implement the smallest canonicalization fix, validate it, and create a distinct correction preview and nonce. Never retry preview v1."
+}

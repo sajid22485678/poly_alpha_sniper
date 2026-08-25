@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T19:28:03.6460704+07:00`
+Updated: `2026-08-25T19:34:45.5673245+07:00`
 
 ## Current boundary
 
-`SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_READY`
+`SUCCESSOR24_HOST_LOSS_APPLY_V1_REFUSED_NO_MUTATION`
 
 Successor24 did not survive the host power loss. Its exact runtime and guardian
 are absent after reboot and were not relaunched. The recovered SQLite journal
@@ -39,11 +39,13 @@ fail-closed: live disabled, real orders impossible, signing and authenticated
 trading unavailable, kill switch engaged, no Phase Two/Three, and `V4-HO-001`
 nonexistent/unconsumed.
 
-The repository-defined create-once closure preview passed once at
-`operator\successor24_host_loss_preview_v1.json`, file SHA-256
-`92b4cf06e12fff782ed4adb83ef3bee53a0844badd020bed7db889ecd5903ab3`.
-It authorizes exactly one apply under nonce
-`f42ba7127c164e678d905490bdee7b6d`; no apply has run yet.
+The sole v1 apply invocation refused before lease acquisition or database
+mutation. Exact read-only comparison found one difference only: the raw
+Windows `psutil.boot_time()` estimate moved from `1787657510049` to
+`1787657510054`. DB/WAL/SHM remain byte-identical to the preview; the journal
+is still 7,431 committed rows, the session is open, and no closure row, output,
+or lease exists. Preview/apply v1 and its nonce are terminal refused.
 
-Exact next action: execute that prepared closure apply exactly once. Do not
-regenerate or rerun the preview before qualifying any fresh successor.
+Exact next action: mandatory fail-first test and minimal boot-evidence
+canonicalization, then a distinct correction preview and nonce. Never retry
+preview/apply v1.

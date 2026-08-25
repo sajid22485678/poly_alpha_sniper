@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-25T19:28:03.6460704+07:00",
-  "agent_state": "SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_READY",
+  "updated_at": "2026-08-25T19:34:45.5673245+07:00",
+  "agent_state": "SUCCESSOR24_HOST_LOSS_APPLY_V1_REFUSED_NO_MUTATION",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
   "sole_writer": "Codex",
   "prior_bridge_commit": "05c9c13981954a28633bc163b78b252cfed7e882",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW.json",
-  "canonical_artifact_sha256": "6bd734f18f6b3f7655c5b3dc57d2a8a4a297fc31ccfb352c661d1987f4086821",
+  "canonical_artifact": ".codex/SUCCESSOR24_HOST_LOSS_APPLY_V1_REFUSAL.json",
+  "canonical_artifact_sha256": "4899944a75c9d72955c762994ef46f3282539b705ca3623cd786042083070ff1",
   "repository": {
     "path": "D:\\claude\\poly_alpha_sniper",
     "branch": "master",
@@ -62,8 +62,19 @@
     "closure_nonce": "f42ba7127c164e678d905490bdee7b6d",
     "closure_ts_ms": 1787660780673,
     "preview_launch_count": 1,
-    "apply_launch_count": 0,
-    "ready_to_close": true
+    "apply_launch_count": 1,
+    "ready_to_close": false,
+    "result": "TERMINAL_REFUSED_NO_MUTATION",
+    "must_not_reapply_or_reuse_nonce": true
+  },
+  "apply_v1_refusal": {
+    "external_sha256": "ed111670da59041bf9082d05dfacfc5638a38c73a9670f2d6386e9bea9f83129",
+    "only_drift_field": "host_boot.boot_ts_ms",
+    "preview_value": 1787657510049,
+    "fresh_value": 1787657510054,
+    "database_mutated": false,
+    "closure_lease_acquired": false,
+    "closure_output_created": false
   },
   "authoritative_v5": {
     "immutable": true,
@@ -83,7 +94,7 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Execute the prepared Successor24 closure apply exactly once from its create-once preview; do not regenerate or rerun the preview.",
+  "next_action": "Fail-first test and fix repeatable boot evidence, then create a distinct correction preview and nonce. Never retry preview/apply v1.",
   "forbidden": [
     "Successor24 relaunch repair finalization calibration pooling or reuse",
     "Successors1-23 relaunch repair rehabilitation pooling or reuse",
