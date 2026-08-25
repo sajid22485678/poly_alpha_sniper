@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T19:09:31.8145868+07:00",
-  "state": "SUCCESSOR24_CAUSAL_DURABILITY_FIX_VERIFIED_CLOSURE_PENDING",
+  "checkpoint_local": "2026-08-25T19:28:03.6460704+07:00",
+  "state": "SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_READY",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
-  "canonical_artifact": ".codex/SUCCESSOR24_POWER_LOSS_DURABILITY_FIX_VERIFICATION.json",
-  "canonical_artifact_sha256": "c7ddd3a9f434dfb958d005846332418effae815b2260f5a4018cb9ed597acaf2",
+  "canonical_artifact": ".codex/SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW.json",
+  "canonical_artifact_sha256": "6bd734f18f6b3f7655c5b3dc57d2a8a4a297fc31ccfb352c661d1987f4086821",
   "successor24": {
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR24-20260825T104125Z",
     "root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
@@ -40,6 +40,17 @@
     "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
   },
+  "closure_preview": {
+    "external_path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\successor24_host_loss_preview_v1.json",
+    "file_sha256": "92b4cf06e12fff782ed4adb83ef3bee53a0844badd020bed7db889ecd5903ab3",
+    "content_sha256": "ed5649ccd47d14ae301f86e0f8ef0ff7d4b8e8d46bfbe51517ab6d3b4912793a",
+    "precondition_sha256": "539f2dde308e3591497713689ffa1de706c7d1805bb40fd60bbbc93746f95c60",
+    "closure_nonce": "f42ba7127c164e678d905490bdee7b6d",
+    "closure_ts_ms": 1787660780673,
+    "preview_launch_count": 1,
+    "apply_launch_count": 0,
+    "result": "READY_TO_CLOSE"
+  },
   "safety": {
     "LIVE_ENABLED": false,
     "REAL_ORDERS_POSSIBLE": false,
@@ -50,6 +61,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Build and fail-first test the exact Successor24 host-loss closure authority, then execute it exactly once against the stranded session and lease before any fresh-successor qualification.",
+  "next_action": "Execute the prepared Successor24 closure apply exactly once from its create-once preview; do not regenerate or rerun the preview.",
   "codex_active_work_stopping": false
 }

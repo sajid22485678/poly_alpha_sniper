@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_CHECKPOINT_V1",
+  "captured_at": "2026-08-25T19:28:03.6460704+07:00",
+  "classification": "HOST_LOSS_INTEGRITY_FAILURE",
+  "result": "READY_TO_CLOSE",
+  "sole_writer": "Codex",
+  "source_authority": {
+    "post_fix_working_tree_sha256": "d9cf35ce94c9cca1e94e562e5bf95c858b6589ae80ce3e914b4af0d4fb4a376a",
+    "closure_red": {
+      "test": "tests/test_frequency_v4_successor24_host_loss_recovery.py::test_exact_integrity_failure_closure_preserves_loss_and_terminalizes_once",
+      "tests": 1,
+      "failures": 1,
+      "reason": "canonical Successor24 host-loss closure was not repository-defined",
+      "production_changed_before_red": false
+    },
+    "closure_focused_green": {
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "latest_affected_green": {
+      "tests": 260,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "diff_check_exit_code": 0,
+    "py_compile_exit_code": 0
+  },
+  "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR24-20260825T104125Z",
+    "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
+    "session_id": "b1e0463d97b54df888535ce5ef0883b5",
+    "phase_one_nonce": "f138bd0a49fb413c9fb29e9911163c93",
+    "launcher_pid": 15836,
+    "runtime_pid": 16544,
+    "runtime_processes_present": false,
+    "competing_owner_present": false,
+    "session_open": true,
+    "phase_one_lease_stranded": true
+  },
+  "preview": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\successor24_host_loss_preview_v1.json",
+    "file_sha256": "92b4cf06e12fff782ed4adb83ef3bee53a0844badd020bed7db889ecd5903ab3",
+    "content_sha256": "ed5649ccd47d14ae301f86e0f8ef0ff7d4b8e8d46bfbe51517ab6d3b4912793a",
+    "precondition_sha256": "539f2dde308e3591497713689ffa1de706c7d1805bb40fd60bbbc93746f95c60",
+    "closure_nonce": "f42ba7127c164e678d905490bdee7b6d",
+    "closure_ts_ms": 1787660780673,
+    "launch_count": 1,
+    "exit_code": 0,
+    "permitted_database_changes": {
+      "persistence_commands_inserted": 1,
+      "runtime_sessions_updated": 1
+    }
+  },
+  "integrity_failure": {
+    "recovered_committed": 7431,
+    "state_acknowledged": 7432,
+    "lost_acknowledged_command_count": 1,
+    "lost_command_present_in_database": false,
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "incomplete_commands": 0,
+    "duplicate_command_ids": 0,
+    "duplicate_idempotency_keys": 0
+  },
+  "guardian": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\guardian_snapshot_1787657094098.json",
+    "sha256": "974c2a09c4cd7455700c66e69fb959b759aa9dc59f5729322c800c16234ae1f3",
+    "failure_artifacts": 0,
+    "stderr_bytes": 0
+  },
+  "target_before_apply": {
+    "db_sha256": "fa79e3bcda893fd420092dfff370b768f0bb25277771bf1e6f8ca6f056484fb0",
+    "wal_sha256": "196f6868cc2ae9045338b11a7077732f6ddb0c82cdac27dfd70157841cec1841",
+    "shm_sha256": "430edda9cce8a6ac04aa0873539c2dffd26234f5a3b3cc084c7176d96504990d"
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "closure_apply_invocations": 0,
+  "closure_output_exists": false,
+  "next_action": "Execute the prepared repository-defined Successor24 closure apply exactly once with this preview; do not regenerate, rerun, or change its nonce or timestamp."
+}

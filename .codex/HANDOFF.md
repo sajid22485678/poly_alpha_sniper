@@ -1,12 +1,15 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T19:09:31.8145868+07:00`
+Updated: `2026-08-25T19:28:03.6460704+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR24_CAUSAL_DURABILITY_FIX_VERIFIED_CLOSURE_PENDING`
+`SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_READY`
 
-Canonical fix verification is in
+Canonical transition detail is in
+`.codex/SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW.json`, SHA-256
+`6bd734f18f6b3f7655c5b3dc57d2a8a4a297fc31ccfb352c661d1987f4086821`.
+The causal fix verification remains in
 `.codex/SUCCESSOR24_POWER_LOSS_DURABILITY_FIX_VERIFICATION.json`, SHA-256
 `c7ddd3a9f434dfb958d005846332418effae815b2260f5a4018cb9ed597acaf2`.
 Its immutable forensic input is
@@ -100,10 +103,12 @@ WAL SHA-256 is
 
 ## Exact next action
 
-Build and fail-first test the exact Successor24 host-loss closure authority,
-then execute it exactly once against the stranded session and lease. Only after
-terminal forensic closure is proven may a fresh successor be source-qualified,
-materialized, cold-verified, and launched exactly once.
+Execute the prepared repository-defined closure apply exactly once using
+`operator\successor24_host_loss_preview_v1.json`, closure nonce
+`f42ba7127c164e678d905490bdee7b6d`, and terminal timestamp `1787660780673`.
+Do not regenerate or rerun the preview. Only after terminal forensic closure is
+proven may a fresh successor be source-qualified, materialized, cold-verified,
+and launched exactly once.
 
 Do not enter calibration, tournament, Phase Two, holdout, Phase Three, live or
 authenticated trading, signing, orders/cancels, or authoritative-v5 mutation.

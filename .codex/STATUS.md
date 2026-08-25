@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T19:09:31.8145868+07:00`
+Updated: `2026-08-25T19:28:03.6460704+07:00`
 
 ## Current boundary
 
-`SUCCESSOR24_CAUSAL_DURABILITY_FIX_VERIFIED_CLOSURE_PENDING`
+`SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_READY`
 
 Successor24 did not survive the host power loss. Its exact runtime and guardian
 are absent after reboot and were not relaunched. The recovered SQLite journal
@@ -39,6 +39,11 @@ fail-closed: live disabled, real orders impossible, signing and authenticated
 trading unavailable, kill switch engaged, no Phase Two/Three, and `V4-HO-001`
 nonexistent/unconsumed.
 
-Exact next action: build and fail-first test the exact Successor24 host-loss
-closure authority, then execute it exactly once before qualifying any fresh
-successor.
+The repository-defined create-once closure preview passed once at
+`operator\successor24_host_loss_preview_v1.json`, file SHA-256
+`92b4cf06e12fff782ed4adb83ef3bee53a0844badd020bed7db889ecd5903ab3`.
+It authorizes exactly one apply under nonce
+`f42ba7127c164e678d905490bdee7b6d`; no apply has run yet.
+
+Exact next action: execute that prepared closure apply exactly once. Do not
+regenerate or rerun the preview before qualifying any fresh successor.

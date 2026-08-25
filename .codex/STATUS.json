@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-25T19:09:31.8145868+07:00",
-  "agent_state": "SUCCESSOR24_CAUSAL_DURABILITY_FIX_VERIFIED_CLOSURE_PENDING",
+  "updated_at": "2026-08-25T19:28:03.6460704+07:00",
+  "agent_state": "SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_READY",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
   "sole_writer": "Codex",
   "prior_bridge_commit": "05c9c13981954a28633bc163b78b252cfed7e882",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR24_POWER_LOSS_DURABILITY_FIX_VERIFICATION.json",
-  "canonical_artifact_sha256": "c7ddd3a9f434dfb958d005846332418effae815b2260f5a4018cb9ed597acaf2",
+  "canonical_artifact": ".codex/SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW.json",
+  "canonical_artifact_sha256": "6bd734f18f6b3f7655c5b3dc57d2a8a4a297fc31ccfb352c661d1987f4086821",
   "repository": {
     "path": "D:\\claude\\poly_alpha_sniper",
     "branch": "master",
@@ -55,6 +55,16 @@
     "errors": 0,
     "skips": 0
   },
+  "closure_preview": {
+    "external_path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\successor24_host_loss_preview_v1.json",
+    "file_sha256": "92b4cf06e12fff782ed4adb83ef3bee53a0844badd020bed7db889ecd5903ab3",
+    "content_sha256": "ed5649ccd47d14ae301f86e0f8ef0ff7d4b8e8d46bfbe51517ab6d3b4912793a",
+    "closure_nonce": "f42ba7127c164e678d905490bdee7b6d",
+    "closure_ts_ms": 1787660780673,
+    "preview_launch_count": 1,
+    "apply_launch_count": 0,
+    "ready_to_close": true
+  },
   "authoritative_v5": {
     "immutable": true,
     "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
@@ -73,7 +83,7 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Build and fail-first test the exact Successor24 host-loss closure authority, then execute it exactly once before any fresh-successor qualification.",
+  "next_action": "Execute the prepared Successor24 closure apply exactly once from its create-once preview; do not regenerate or rerun the preview.",
   "forbidden": [
     "Successor24 relaunch repair finalization calibration pooling or reuse",
     "Successors1-23 relaunch repair rehabilitation pooling or reuse",
