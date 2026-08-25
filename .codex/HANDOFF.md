@@ -2,7 +2,7 @@
 
 ## Durable boundary
 
-`SUCCESSOR23_MATERIALIZATION_PREPARED_EXACT_ONCE_LAUNCH_NEXT`
+`SUCCESSOR23_MATERIALIZED_COLD_VERIFIED_PHASE_ONE_PREPARATION_NEXT`
 
 Successor22 is terminal, forensic-only, permanently ineligible, and cannot be
 relaunched. Root cause and mandatory RED are at bridge commit
@@ -42,5 +42,16 @@ materialization nonce `9267184128614eb29a904c8c2654e427`, Phase-One nonce
 `cb94a3af73994324b3290ab599f0467a`, and a distinct Phase-Two nonce that remains
 unauthorized. Startup process census is zero and the target root is absent.
 
-Exact next action: execute the bound materialization runner exactly once. Never
-retry this identity after failure or ambiguity.
+Materialization ran once and exited zero. Manifest
+`bd1aa9c5c0967200317e3c21ce13209b3bce8aed4a6c3697a9a6c26d4e637d8d`
+binds fresh database
+`7866fc6bee896cdcc4ef0d53b0ae544407cc3adf85f767c11ae15da8cdfaba53`.
+Independent immutable cold verification
+`3fd55f19f77ca42d3dfdbf1ae537102bef820ddb0fc48a9e9656aefcac39c3e6`
+passed exact-v6 schema, quick/FK, empty business/research/holdout state, released
+lease, zero runtime processes, and unchanged v5. A corrected verifier predicate
+was rerun only because its first invocation stopped before creating either
+output; materialization was not rerun.
+
+Exact next action: prepare a create-once Phase-One launcher bound to this cold
+verification and sealed source, then execute it exactly once.
