@@ -7,4 +7,3 @@ The preserved first failure is `V4PersistenceTimeout`. Two commands exceeded the
 Terminal evidence is lossless: 62,306/62,306 committed, one committed terminal command, zero failed/unresolved/duplicate/retried/incomplete/lost/mismatched/overflow rows. Exact-v6 quick-check is `ok`, FK 0, schema 6, and the managed fingerprint matches. Safety remains fail-closed and v5 is byte-identical.
 
 Next: causal latency forensics, a real per-class budget, witnessed causal RED, then the minimal fix. Do not relaunch Successor26 or enter any later phase.
-

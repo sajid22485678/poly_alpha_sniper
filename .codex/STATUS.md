@@ -10,4 +10,3 @@
 - Next: causal latency forensics -> per-class budget -> witnessed RED -> minimal fix
 
 Canonical checkpoint: `.codex/SUCCESSOR26_TERMINAL_CLOSURE.json`
-
