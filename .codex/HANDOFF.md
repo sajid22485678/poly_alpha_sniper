@@ -1,13 +1,15 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T21:00:43.9707386+07:00`
+Updated: `2026-08-25T22:07:36.0027011+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR25_TERMINAL_BINDING_FAILURE_CLOSED`
+`SUCCESSOR26_SOURCE_SEAL_PREPARATION_READY`
 
-Canonical detail is in `.codex/SUCCESSOR25_TERMINAL_FAILURE_CLOSURE.json`,
-SHA-256 `296e6b36e95d60bf13866cadade0161f73db450b1c9f79b7ffc10d12a22e8919`.
+Canonical current detail is in
+`.codex/SUCCESSOR25_DEADLINE_FIX_VERIFICATION.json`, SHA-256
+`dab190bf5c420ac9d7bc429afc05dc12e69227ab83a20881cc72a4e1abed6841`.
+The immutable terminal closure remains in its prior canonical artifact.
 
 Successor25 consumed exactly one Phase-One identity: root
 `D:\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z`, session
@@ -46,9 +48,11 @@ immutable dispositions.
 
 ## Exact next action
 
-Use mandatory fail-first TDD to reproduce the durability-latency
-health-boundary defect. Implement only the smallest causal fail-closed fix and
-run bounded affected validation. A distinct Successor26 source seal may be
-prepared only after that verification is green. Do not enter calibration,
-tournament, Phase Two, holdout, Phase Three, live/authenticated trading,
-signing, orders/cancels, or authoritative-v5 mutation.
+The mandatory RED, causal correction, adversarial deadline/registry/shutdown
+tests and bounded affected validation are green. Prepare one fresh Successor26
+source-seal root and run the repository full suite exactly once. Preserve the
+identity on failure or ambiguity. Only an exact green post-tree/v5 verification
+may authorize fresh materialization, cold verification, one Phase-One launch
+and one standalone monotonic guardian. Do not enter calibration, tournament,
+Phase Two, holdout, Phase Three, live/authenticated trading, signing,
+orders/cancels, or authoritative-v5 mutation.

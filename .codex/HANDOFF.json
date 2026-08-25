@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T21:00:43.9707386+07:00",
-  "state": "SUCCESSOR25_TERMINAL_BINDING_FAILURE_CLOSED",
-  "classification": "CONFIRMED_BINDING_CRITICAL_EVIDENCE_INCOMPLETE_GUARDIAN_FAILURE",
-  "canonical_artifact": ".codex/SUCCESSOR25_TERMINAL_FAILURE_CLOSURE.json",
-  "canonical_artifact_sha256": "296e6b36e95d60bf13866cadade0161f73db450b1c9f79b7ffc10d12a22e8919",
+  "checkpoint_local": "2026-08-25T22:07:36.0027011+07:00",
+  "state": "SUCCESSOR26_SOURCE_SEAL_PREPARATION_READY",
+  "classification": "SUCCESSOR25_CAUSAL_FIX_AND_PRESEAL_AFFECTED_VALIDATION_PASSED",
+  "canonical_artifact": ".codex/SUCCESSOR25_DEADLINE_FIX_VERIFICATION.json",
+  "canonical_artifact_sha256": "dab190bf5c420ac9d7bc429afc05dc12e69227ab83a20881cc72a4e1abed6841",
   "successor25": {
     "root": "D:\\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z",
     "session_id": "50ac10343a4044fa8f2fe71113ac014f",
@@ -49,7 +49,19 @@
     "execute_ms": 10556,
     "ack_ms": 10697,
     "overlapping_registered_checkpoints": 0,
-    "disposition": "NEW_DURABILITY_LATENCY_HEALTH_BOUNDARY_DEFECT_REQUIRES_RED_AND_FIX"
+    "disposition": "CAUSAL_FIX_AND_PRESEAL_AFFECTED_VALIDATION_PASSED"
+  },
+  "source_fix": {
+    "monotonic_per_envelope_lifetime": true,
+    "idle_heartbeat_separate_from_active_command_deadline": true,
+    "configured_acknowledgement_deadline_preserved": true,
+    "late_commit_cannot_cure_timeout_latch": true,
+    "atomic_registry_accounting": true,
+    "shutdown_terminal_fence": true,
+    "accepted_handoff_and_background_producer_drain": true,
+    "stopped_requires_writer_close": true,
+    "standalone_monotonic_successor26_guardian_required": true,
+    "affected_validation": "PASS"
   },
   "authoritative_v5": {
     "immutable": true,
@@ -67,6 +79,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Reproduce the durability-latency health-boundary defect with one mandatory RED, implement the smallest causal fail-closed fix, run bounded affected validation, and only then prepare a distinct Successor26 source seal.",
+  "next_action": "Prepare one fresh Successor26 source-seal root, run the repository full suite exactly once, and preserve the identity on any failure or ambiguity.",
   "codex_active_work_stopping": false
 }

@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR25_DEADLINE_FIX_VERIFICATION_V1",
+  "captured_at": "2026-08-25T22:07:36.0027011+07:00",
+  "classification": "CAUSAL_FIX_AND_PRESEAL_AFFECTED_VALIDATION_PASSED",
+  "successor25": {
+    "terminal": true,
+    "permanently_ineligible": true,
+    "must_not_relaunch_or_reuse": true,
+    "first_failure_sha256": "312ae0dfabc19eb4e6e98d57cc8dbf1e89f7a0fa1b26ca5b22ed9644064d3df2",
+    "later_lossless_drain_does_not_cure": true
+  },
+  "root_cause": {
+    "proven": true,
+    "defect": "A synchronous accepted SQLite command was judged by the 5-second idle writer-heartbeat limit instead of its configured 15-second acknowledgement deadline.",
+    "causal_command": 830,
+    "execute_ms": 10556,
+    "ack_ms": 10697,
+    "configured_acknowledgement_deadline_ms": 15000,
+    "overlapping_registered_checkpoints": 0
+  },
+  "implementation": {
+    "accepted_command_lifetime": "one monotonic per-envelope registry from pre-scheduler admission through final acknowledgement",
+    "health": "idle work uses writer heartbeat; accepted work requires RUNNING live thread and known age at or below the configured command deadline",
+    "timeout": "a genuine acknowledgement timeout permanently latches DEGRADED_PERSISTENCE even after late commit",
+    "metrics": "count and oldest age are sampled atomically from the sequence-keyed registry",
+    "guardian": "runtime publishes the configured deadline and the Successor26 guardian must use monotonic effective age; exact D is clean and D+1 fails",
+    "shutdown": "atomic session-terminal fence drains all earlier work; accepted callbacks and background producers quiesce before the ingest fence; STOPPED and lock release require successful writer close"
+  },
+  "source_hashes": {
+    "lite_frequency_v4/persistence.py": "e11c73b8a7ee4c30458173618f1bbd76b948c838473f8465c30b1b44b19bd606",
+    "lite_frequency_v4/engine.py": "678060aba5fe9aceea50e8879c93232594597577a5a7d30609bbf1d25601b324",
+    "lite_frequency_v4/export.py": "c5002c63331cb93cd59fbd45f50c0f15c07aed2abb09d92d032ce2f16050f575",
+    "lite_frequency_v4/guardian.py": "931da17554ca0ce3258c4fb09331bed70aeb15e9c1c29d0ef401554f79427806",
+    "lite_frequency_v4/bot.py": "9540a2926d7bf6b29855167c787422bd3e29add11d339e7bc1a3d364d88b2fb6",
+    "lite_frequency_v4/prospective_v6_bot.py": "7b2f01979adff175fb9fe76fccc325c90f95a2d3925b2bff0767d2a4ce511ef6"
+  },
+  "verification": {
+    "mandatory_red_preserved": true,
+    "focused_deadline_registry_export_guardian": "PASS",
+    "persistence_export_guardian_files": "PASS",
+    "engine_and_ingest_files": "PASS",
+    "persistence_lifecycle_prospective_files": "PASS",
+    "schema_v6_and_store_files": "PASS",
+    "telemetry_accounting_writer_throughput_capacity_recovery_files": "PASS",
+    "runtime_prospective_host_loss_hydration_polymarket_files": "PASS",
+    "diff_check": "PASS",
+    "source_seal_started": false
+  },
+  "repository": {
+    "path": "D:\\claude\\poly_alpha_sniper",
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "staged_paths": 0,
+    "tracked_modified_paths": 57,
+    "untracked_paths": 113,
+    "deliberate_dirty_tree_preserved": true
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_mutation_allowed": false
+  },
+  "next_action": "Prepare one fresh Successor26 source-seal root, run the repository full suite exactly once, and preserve the identity on any failure or ambiguity."
+}

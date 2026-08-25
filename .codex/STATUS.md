@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T21:00:43.9707386+07:00`
+Updated: `2026-08-25T22:07:36.0027011+07:00`
 
 ## Current boundary
 
-`SUCCESSOR25_TERMINAL_BINDING_FAILURE_CLOSED`
+`SUCCESSOR26_SOURCE_SEAL_PREPARATION_READY`
 
 Successor25 is permanently ineligible. Its one Phase-One identity was session
 `50ac10343a4044fa8f2fe71113ac014f`, nonce
@@ -38,14 +38,23 @@ economic rows. Terminal reconciliation SHA-256 is
 The causal boundary is not a checkpoint collision: command 830 was still
 `EXECUTING` at the binding observation and later committed after 10,556 ms
 execution / 10,697 ms acknowledgement latency; no registered checkpoint
-overlapped it. This new durability-latency health-boundary defect requires one
-mandatory RED and the smallest causal fail-closed fix before any fresh
-Successor26 qualification.
+overlapped it. The mandatory RED is preserved and the causal correction is now
+green: accepted work has one monotonic per-envelope lifetime and uses the exact
+configured acknowledgement deadline, while genuinely idle writers retain the
+short heartbeat boundary. A dead/stopped writer, unknown/overdue age, or actual
+timeout remains fail-closed; a later commit cannot clear a timeout latch.
+
+The accepted-command registry now publishes before scheduler visibility, uses
+unique envelope sequence identity, and supplies atomic count/age metrics.
+Shutdown uses one terminal fence after all accepted cross-key work, completes
+accepted full-queue handoffs, quiesces background producers, and requires the
+writer to close before STOPPED or runtime-lock release. Successor26 must use a
+standalone monotonic guardian; the predecessor wall-clock guardian is forbidden.
 
 The deliberate source tree remains preserved at branch `master`, HEAD
 `d3364f219feb37a09a547ff1daba6f0f96377fe4`, index tree
-`700307bdbc9a4fdab7615d79eea83fe1bf6463cb`, with zero staged paths, 56
-tracked modifications, and 111 untracked paths. Successor25’s tested tree is
+`700307bdbc9a4fdab7615d79eea83fe1bf6463cb`, with zero staged paths, 57
+tracked modifications, and 113 untracked paths. Successor25’s tested tree is
 `7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7`;
 its single full suite passed 4,208/4,208.
 
@@ -54,6 +63,7 @@ Authoritative v5 remains byte-identical. Safety is fail-closed:
 trading/orders/cancels unavailable, kill switch engaged, no Phase Two/Three,
 and `V4-HO-001` nonexistent/unconsumed.
 
-Exact next action: reproduce the durability-latency health-boundary defect with
-one mandatory RED, implement the smallest causal fix, run bounded affected
-validation, and only then prepare a distinct Successor26 source seal.
+Exact next action: prepare one fresh Successor26 source-seal root and run the
+repository full suite exactly once. Preserve the identity on any failure or
+ambiguity. Only a green exact post-tree/v5 verification may authorize fresh
+materialization, cold verification, one Phase-One launch and one guardian.
