@@ -1,13 +1,13 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T19:43:52.8859091+07:00`
+Updated: `2026-08-25T19:51:49.5858504+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_V2_READY`
+`SUCCESSOR24_HOST_LOSS_CLOSURE_COMPLETE`
 
 Canonical transition detail is in
-`.codex/SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_V2.json`.
+`.codex/SUCCESSOR24_HOST_LOSS_CLOSURE_COMPLETE.json`.
 The boot-evidence correction remains at
 `.codex/SUCCESSOR24_BOOT_EVIDENCE_CORRECTION.json`, SHA-256
 `d7dc60eebfe94c4a474e1eb22b88c554d4a34962efb5cc2b4d1d49fc54377377`.
@@ -42,9 +42,10 @@ permanently ineligible under their existing immutable dispositions.
 
 The current Windows boot began at `2026-08-25T11:31:46.500Z`. None of the
 Successor24 runtime/guardian processes exists, no automatic relaunch occurred,
-and the old PIDs were not reused. The acquired Phase-One lease and sole runtime
-session remain stranded/open on disk. No stop, terminal, recovery, readiness,
-or guardian-failure artifact existed at recovery census.
+and the old PIDs were not reused. Canonical forensic closure ended the sole
+runtime session at `1787661736890` with stop reason
+`host_loss_integrity_failure_forensic_only`. The original Phase-One lease
+remains stranded as evidence; no false release was written.
 
 ## Binding integrity failure
 
@@ -111,12 +112,16 @@ WAL SHA-256 is
 ## Exact next action
 
 Preview/apply v1 and nonce `f42ba7127c164e678d905490bdee7b6d` remain terminal
-refused. Correction preview v2 passed exactly once under nonce
+refused. Correction preview v2 passed exactly once and its apply ran exactly
+once under nonce
 `506642682e50407c86f458976726bf8b`, timestamp `1787661736890`, and stable
 precondition SHA-256
 `b27ce7fc70dfb6e210295e94a341e2c114facac753599d6776cba1ec01786759`.
-Invoke its apply exactly once. Only after terminal closure is proven may
-Successor25 qualification begin.
+The terminal closure is
+`operator\successor24_host_loss_closure_v2.json`, SHA-256
+`72957f833524a2bdd2d724e1c792c945d9984eb93b60570bc0d50075c1424f12`.
+Freeze the corrected current source tree and run the fresh Successor25 exact
+source qualification exactly once. Never relaunch or reuse Successor24.
 
 Do not enter calibration, tournament, Phase Two, holdout, Phase Three, live or
 authenticated trading, signing, orders/cancels, or authoritative-v5 mutation.

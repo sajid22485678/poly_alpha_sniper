@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR24_HOST_LOSS_CLOSURE_COMPLETE_CHECKPOINT_V1",
+  "captured_at": "2026-08-25T19:51:49.5858504+07:00",
+  "classification": "HOST_LOSS_INTEGRITY_FAILURE",
+  "result": "CLOSED",
+  "successor24": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR24-20260825T104125Z",
+    "root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
+    "session_id": "b1e0463d97b54df888535ce5ef0883b5",
+    "phase_one_nonce": "f138bd0a49fb413c9fb29e9911163c93",
+    "launcher_pid": 15836,
+    "runtime_pid": 16544,
+    "processes_present": false,
+    "relaunch_detected": false,
+    "permanently_ineligible": true
+  },
+  "closure": {
+    "preview_path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\successor24_host_loss_preview_v2.json",
+    "preview_file_sha256": "50dbabc03f6561ea26a435ee562962c4eb07f71d796372cf54855409dc60bbc0",
+    "preview_content_sha256": "21fb75f5ee4ab83db0848a35a8dbab0a5a09ddb3ad507155e14f9ed4e280a81d",
+    "precondition_sha256": "b27ce7fc70dfb6e210295e94a341e2c114facac753599d6776cba1ec01786759",
+    "output_path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\successor24_host_loss_closure_v2.json",
+    "output_sha256": "72957f833524a2bdd2d724e1c792c945d9984eb93b60570bc0d50075c1424f12",
+    "closure_nonce": "506642682e50407c86f458976726bf8b",
+    "closure_ts_ms": 1787661736890,
+    "preview_launch_count": 1,
+    "apply_launch_count": 1,
+    "session_ended_ts_ms": 1787661736890,
+    "stop_reason": "host_loss_integrity_failure_forensic_only",
+    "closure_lease_acquired_sha256": "26dd4e0cf36076705de6f29f7f9150daedfd646efc314a2dd49f349fb24b54fb",
+    "closure_lease_released_sha256": "2740c447aced1134c531ca0dd53b4182a21036c0c7488c8140b9c09de5e84630",
+    "phase_one_lease_release_forged": false
+  },
+  "database": {
+    "committed_before": 7431,
+    "committed_after": 7432,
+    "closure_journal_rows": 1,
+    "lost_acknowledged_commands": 1,
+    "lost_acknowledged_command_present": false,
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "incomplete_commands": 0,
+    "duplicate_command_ids": 0,
+    "economic_or_research_rows_changed": false,
+    "db_sha256": "fa79e3bcda893fd420092dfff370b768f0bb25277771bf1e6f8ca6f056484fb0",
+    "wal_sha256": "4d50327baabb190d54363ffa8c2600a1fd0768ef0506417fe4ea62cf68ea0943",
+    "shm_sha256": "d6c40b0336268a282b4560707f0a0e7e09004882086e18ffd064e3afd45fbddb"
+  },
+  "causal_fix": {
+    "root_cause": "WAL synchronous=NORMAL permits an acknowledged commit to roll back after physical power loss",
+    "mandatory_red_observed": true,
+    "final_commit_uses_synchronous_full": true,
+    "affected_tests_green": 261,
+    "unique_fix_validation_tests_green": 539,
+    "post_fix_working_tree_sha256": "7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7"
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Freeze the corrected current source tree and run the fresh Successor25 exact source qualification exactly once. Never relaunch or reuse Successor24."
+}

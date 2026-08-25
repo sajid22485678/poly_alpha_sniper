@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-25T19:43:52.8859091+07:00",
-  "agent_state": "SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_V2_READY",
+  "updated_at": "2026-08-25T19:51:49.5858504+07:00",
+  "agent_state": "SUCCESSOR24_HOST_LOSS_CLOSURE_COMPLETE",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
   "sole_writer": "Codex",
   "prior_bridge_commit": "05c9c13981954a28633bc163b78b252cfed7e882",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_V2.json",
-  "canonical_artifact_sha256": "c59d8ae68f64c0cc836809c6b6bdbbac9e09113047cf800c762670c6a131dfc5",
+  "canonical_artifact": ".codex/SUCCESSOR24_HOST_LOSS_CLOSURE_COMPLETE.json",
+  "canonical_artifact_sha256": "768e82d680f93a6da2d29be7020f69eb9e475abff2ceff64b2ab1e2b7b43835f",
   "repository": {
     "path": "D:\\claude\\poly_alpha_sniper",
     "branch": "master",
@@ -16,7 +16,7 @@
     "tested_tree_sha256": "7a1c9c09d124a44d732e0cbdd26336616e2804d9a97c1fc6f8ccd6bfed08f3b5",
     "staged_paths": 0,
     "tracked_modified_paths": 56,
-    "untracked_paths": 108,
+    "untracked_paths": 111,
     "deliberate_dirty_tree_preserved": true,
     "production_source_changed_after_host_loss": true,
     "post_fix_working_tree_sha256": "d9cf35ce94c9cca1e94e562e5bf95c858b6589ae80ce3e914b4af0d4fb4a376a"
@@ -27,12 +27,12 @@
     "phase_one_nonce": "f138bd0a49fb413c9fb29e9911163c93",
     "processes_present": false,
     "automatic_relaunch_detected": false,
-    "runtime_session_open": true,
+    "runtime_session_open": false,
     "lease_released": false,
     "classification": "HOST_LOSS_INTEGRITY_FAILURE",
     "permanently_ineligible": true,
     "must_not_relaunch": true,
-    "canonical_terminal_closure_complete": false
+    "canonical_terminal_closure_complete": true
   },
   "journal_contradiction": {
     "recovered_committed": 7431,
@@ -90,8 +90,21 @@
     "closure_nonce": "506642682e50407c86f458976726bf8b",
     "closure_ts_ms": 1787661736890,
     "preview_launch_count": 1,
-    "apply_launch_count": 0,
-    "ready_to_close": true
+    "apply_launch_count": 1,
+    "ready_to_close": false,
+    "result": "CLOSED"
+  },
+  "terminal_closure": {
+    "external_path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\successor24_host_loss_closure_v2.json",
+    "file_sha256": "72957f833524a2bdd2d724e1c792c945d9984eb93b60570bc0d50075c1424f12",
+    "ended_ts_ms": 1787661736890,
+    "stop_reason": "host_loss_integrity_failure_forensic_only",
+    "journal_committed": 7432,
+    "closure_journal_rows": 1,
+    "lost_acknowledged_command_remains_absent": true,
+    "economic_or_research_rows_changed": false,
+    "closure_lease_released": true,
+    "phase_one_lease_release_forged": false
   },
   "authoritative_v5": {
     "immutable": true,
@@ -111,7 +124,7 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Invoke Successor24 correction preview v2 apply exactly once. Never invoke or reuse v1.",
+  "next_action": "Freeze the corrected current source tree and run the fresh Successor25 exact source qualification exactly once. Never relaunch or reuse Successor24.",
   "forbidden": [
     "Successor24 relaunch repair finalization calibration pooling or reuse",
     "Successors1-23 relaunch repair rehabilitation pooling or reuse",

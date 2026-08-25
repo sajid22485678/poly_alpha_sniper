@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T19:43:52.8859091+07:00`
+Updated: `2026-08-25T19:51:49.5858504+07:00`
 
 ## Current boundary
 
-`SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_V2_READY`
+`SUCCESSOR24_HOST_LOSS_CLOSURE_COMPLETE`
 
 Successor24 did not survive the host power loss. Its exact runtime and guardian
 are absent after reboot and were not relaunched. The recovered SQLite journal
@@ -27,12 +27,12 @@ narrow fix applies FULL only to the final atomic domain-plus-COMMITTED-journal
 transaction, restores NORMAL before acknowledgement, and leaves the earlier
 journal transitions on NORMAL. All 539 unique affected, recovery, concurrency,
 telemetry, runtime, and broader safety tests pass with zero skips. Exact
-Successor24 terminal closure remains pending.
+Successor24 terminal closure is complete.
 
 The deliberate source tree remains preserved at branch `master`, HEAD
 `d3364f219feb37a09a547ff1daba6f0f96377fe4`, index tree
 `700307bdbc9a4fdab7615d79eea83fe1bf6463cb`, with zero staged paths,
-56 tracked modifications, and 108 untracked paths.
+56 tracked modifications, and 111 untracked paths.
 
 Authoritative v5 is independently byte-identical after reboot. Safety remains
 fail-closed: live disabled, real orders impossible, signing and authenticated
@@ -49,5 +49,11 @@ or lease exists. Preview/apply v1 and its nonce are terminal refused.
 Correction preview v2 passed once at
 `operator\successor24_host_loss_preview_v2.json`, file SHA-256
 `50dbabc03f6561ea26a435ee562962c4eb07f71d796372cf54855409dc60bbc0`,
-under distinct nonce `506642682e50407c86f458976726bf8b`. Exact next
-action: invoke v2 apply exactly once. Never retry preview/apply v1.
+under distinct nonce `506642682e50407c86f458976726bf8b`; its apply ran
+exactly once and closed the session. Closure output SHA-256 is
+`72957f833524a2bdd2d724e1c792c945d9984eb93b60570bc0d50075c1424f12`.
+The journal now has 7,432 committed rows: the single new row is the canonical
+closure, while lost acknowledged command 7,432 remains absent. No economic or
+research rows changed, the closure lease acquired and released exactly once,
+and no Phase-One release was forged. Exact next action: freeze the corrected
+tree and run fresh Successor25 exact source qualification exactly once.
