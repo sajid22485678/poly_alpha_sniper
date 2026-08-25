@@ -4,7 +4,7 @@ Updated: `2026-08-25T22:34:20.2489449+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR26_PHASE_ONE_RUNNING_GUARDIAN_AUTHORIZED_NOT_EXECUTED`
+`SUCCESSOR26_HEALTHY_OOS_ACQUISITION_RUNNING_CODEX_STOPPING`
 
 Canonical current detail is in `.codex/SUCCESSOR26_SOURCE_SEAL_PASS.json`,
 SHA-256 `9b1c2fe3b7d27d775c1d8d62644080a92004866e6b601b42f93524e3d2b5dc8e`.
@@ -93,7 +93,19 @@ progressing. Guardian authority SHA-256 is
 launcher SHA-256 is
 `30fe457c30da26d3635a5e6a8a8c8fb6f32f6f3200f7a5b5dfe6a66815f0f1a5`.
 
-Execute the guardian launcher exactly once, prove bounded clean increasing
-acquisition, push final handoff, and stop Codex while runtime and guardian
-continue. Do not enter calibration, tournament, Phase Two, holdout, Phase
-Three, live/authenticated trading, signing, orders/cancels, or v5 mutation.
+Guardian launched exactly once as `12992 -> 6048`, bound to runtime pair
+`8604 -> 6720`. Five clean observations proved strict capsule, prediction, and
+committed-command growth; bounded proof SHA-256 is
+`abe610f7ba7f450d8259f5783886e199057ee6ac6058b1174fa3331f8f386d05`.
+Latest clean snapshot SHA-256 is
+`5c2c8d61cbbb441d3271983b827c4d0c89deea666c0f8320230c5e0af82bc465`.
+All binding persistence, monotonic deadline, integrity, reconciliation, source,
+safety, holdout, and phase checks are clean. At proof: 147 capsules, 294
+predictions, 56 markets, 0 outcomes, and 1,358 committed commands.
+
+Phase One is not ready and OOS ends at `1787717005335`. Stop Codex now and
+leave runtime plus guardian running independently for the 2-4 hour review
+cycle. The next session must inspect this same identity from disk; never
+relaunch, finalize, calibrate, register/evaluate a tournament, enter Phase Two,
+create/consume holdout, enter Phase Three, enable live/signing/authenticated
+trading, place/cancel orders, or mutate v5.

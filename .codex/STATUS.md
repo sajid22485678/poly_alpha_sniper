@@ -4,7 +4,7 @@ Updated: `2026-08-25T22:34:20.2489449+07:00`
 
 ## Current boundary
 
-`SUCCESSOR26_PHASE_ONE_RUNNING_GUARDIAN_AUTHORIZED_NOT_EXECUTED`
+`SUCCESSOR26_HEALTHY_OOS_ACQUISITION_RUNNING_CODEX_STOPPING`
 
 Successor25 is permanently ineligible. Its one Phase-One identity was session
 `50ac10343a4044fa8f2fe71113ac014f`, nonce
@@ -114,5 +114,20 @@ Guardian authority SHA-256 is
 `faea0739e832f5567b89c1bcbd791b79e60a59059677f7a5c1e63b41b1cea594`;
 guardian launcher SHA-256 is
 `30fe457c30da26d3635a5e6a8a8c8fb6f32f6f3200f7a5b5dfe6a66815f0f1a5`.
-Exact next action: execute it once, prove bounded clean increasing acquisition,
-push final handoff, and stop Codex while runtime and guardian continue.
+Guardian launched exactly once as PID pair `12992 -> 6048`, bound to the exact
+runtime identity. Five clean observations proved growth from 97 to 141 capsules,
+194 to 282 predictions, and 857 to 1,338 committed commands. The bounded proof
+then observed 147 capsules, 294 predictions, 56 markets, 0 outcomes, and 1,358
+committed commands. Its one normal in-flight command was 1,766 ms old against
+the exact 15,000 ms configured deadline. No projection, classifier, persistence,
+integrity, reconciliation, source-discard, safety, holdout, or phase violation
+exists. Initial healthy proof SHA-256 is
+`abe610f7ba7f450d8259f5783886e199057ee6ac6058b1174fa3331f8f386d05`;
+latest clean snapshot SHA-256 is
+`5c2c8d61cbbb441d3271983b827c4d0c89deea666c0f8320230c5e0af82bc465`.
+
+Phase One is not ready. OOS ends at `1787717005335`; each target still requires
+300 rank-1 rows, 300 unique markets, 60 positive, 60 negative, and zero
+unlabeled rows. Stop Codex now. Leave both PID pairs running for the independent
+2-4 hour review cycle. At the next review, inspect this exact identity only;
+never relaunch or advance beyond Phase One.

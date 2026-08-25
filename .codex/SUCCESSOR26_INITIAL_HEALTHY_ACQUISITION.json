@@ -1,0 +1,164 @@
+{
+  "contract": "POLY_ALPHA_CODEX_SUCCESSOR26_INITIAL_HEALTHY_ACQUISITION_CHECKPOINT_V1",
+  "recorded_utc": "2026-08-25T16:13:00Z",
+  "classification": "HEALTHY_PROGRESSING_SHADOW_ONLY_PRE_OOS_REVIEW",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z",
+  "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z",
+  "source_seal_root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor26_20260825T1509Z",
+  "source_tree_sha256": "9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21",
+  "source_manifest_sha256": "42f1d43bf674074793ce851d9362adf25cb853f3a06ae0871556f403f057a5d6",
+  "source_junit_sha256": "2b6194b5286de37c267fcb21b2a6eaae76ec33dd89ba238657dd2d928e306564",
+  "source_tests": 4246,
+  "source_failures": 0,
+  "source_errors": 0,
+  "source_skips": 0,
+  "session_id": "94b7f805b73d4c82b851938e20570477",
+  "phase_one_nonce": "6e80d3ea67cc4d12994c1f20427de260",
+  "runtime_launcher_pid": 8604,
+  "runtime_pid": 6720,
+  "guardian_launcher_pid": 12992,
+  "guardian_worker_pid": 6048,
+  "process_pairs_alive_at_proof": true,
+  "phase_one_launch_count": 1,
+  "guardian_launch_count": 1,
+  "must_not_relaunch": true,
+  "materialization": {
+    "nonce": "fbc7431281e24a0c90d5ffb18e55e949",
+    "launch_count": 1,
+    "exit_code": 0,
+    "manifest_sha256": "bf70107800e0f623c23db9c3e733d2c52ee51eb876e43f6da3278f4c6245d1b6",
+    "cold_verification_sha256": "568887dce73cf8bd2a470e8b56ac99b3ae1d55e780312b09ab95f86eefab8693",
+    "cold_database_sha256": "c10a55c0b7ec806edc41178f4bf5f436d0b76bdf6b0bcef7bf88db7f495377de"
+  },
+  "guardian_operator": {
+    "unit_tests": 25,
+    "unit_failures": 0,
+    "unit_errors": 0,
+    "unit_skips": 0,
+    "unit_junit_sha256": "6acc3ea0c654c64619b9c427cddc561615ab4fce13dd856fee39ae3e6376741b",
+    "monitor_sha256": "269bb894e9e619277e64fd2fe6084923300a688e101ef7c4338089987d9f5b53",
+    "watcher_sha256": "5e7654e35f040ef0b9a51b7615c05b9c56334ddb66783d9429d006b0938b817a",
+    "authority_sha256": "faea0739e832f5567b89c1bcbd791b79e60a59059677f7a5c1e63b41b1cea594",
+    "launch_request_sha256": "6fe5b9cedf223a564fde33f56ae08158feecf5933ea5c7177ca92a2ec83fccf6",
+    "process_start_sha256": "5325e024ee70a8ab3b2348316be2e783e5c3e6cd4f6cdec4b23112ef2f006c0b",
+    "exact_command_sha256": "c17aae05b497cd6ce4f6885167135fa4ef3b25cffd6a82d33f75eafde524a32d",
+    "duration_s": 14400,
+    "interval_s": 30,
+    "snapshot_s": 300,
+    "stderr_empty": true,
+    "failure_artifacts": 0,
+    "clock_contract": "MONOTONIC_RAW_PLUS_SNAPSHOT_ELAPSED; EXACT_D_CLEAN; D_PLUS_1_BINDING; WALL_CLOCK_UNUSED"
+  },
+  "initial_healthy_proof": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z\\operator\\initial_healthy_acquisition.json",
+    "sha256": "abe610f7ba7f450d8259f5783886e199057ee6ac6058b1174fa3331f8f386d05",
+    "capture_script_sha256": "325d4434eea1f93ea710ae44f893837e4e5d6e7ef3aa34b2970935b54a054843",
+    "guardian_observations": 5,
+    "first": {
+      "observed_ts_ms": 1787674238521,
+      "capsules": 97,
+      "predictions": 194,
+      "markets": 56,
+      "outcomes": 0,
+      "committed": 857
+    },
+    "latest_guardian": {
+      "observed_ts_ms": 1787674359561,
+      "capsules": 141,
+      "predictions": 282,
+      "markets": 56,
+      "outcomes": 0,
+      "committed": 1338
+    },
+    "growth": {
+      "capsules": 44,
+      "predictions": 88,
+      "committed": 481
+    },
+    "current_at_capture": {
+      "observed_ts_ms": 1787674368977,
+      "capsules": 147,
+      "predictions": 294,
+      "markets": 56,
+      "outcomes": 0,
+      "committed": 1358,
+      "incomplete_commands": 1,
+      "unconfirmed_commands": 1,
+      "unconfirmed_effective_oldest_age_ms": 1766.0,
+      "critical_command_acknowledgement_deadline_ms": 15000,
+      "normal_inflight_within_deadline": true
+    },
+    "binding_violations": [],
+    "telemetry_reconciliation_mismatch": 0,
+    "telemetry_reconciliation_unexpected_loss": 0
+  },
+  "latest_clean_guardian_snapshot": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z\\operator\\guardian_snapshot_1787674238550.json",
+    "captured_ts_ms": 1787674238550,
+    "sha256": "5c2c8d61cbbb441d3271983b827c4d0c89deea666c0f8320230c5e0af82bc465",
+    "violations": []
+  },
+  "oos": {
+    "protocol_status": "REGISTERED",
+    "start_ts_ms": 1787673805337,
+    "end_ts_ms": 1787717005335,
+    "phase_one_ready": false,
+    "review_not_before_ts_ms": 1787681437373,
+    "guardian_window_end_ts_ms": 1787688637373,
+    "readiness_thresholds_per_target": {
+      "rank1_rows": 300,
+      "unique_markets": 300,
+      "positive_labels": 60,
+      "negative_labels": 60,
+      "unlabeled": 0
+    },
+    "sealed_capsule_minimum": 300,
+    "ensemble_at_proof": {
+      "rank1_rows": 16,
+      "unique_markets": 16,
+      "positive_labels": 0,
+      "negative_labels": 0,
+      "unlabeled": 16
+    },
+    "model_at_proof": {
+      "rank1_rows": 16,
+      "unique_markets": 16,
+      "positive_labels": 0,
+      "negative_labels": 0,
+      "unlabeled": 16
+    }
+  },
+  "reserved_phase_two_nonce_unauthorized": "2a8e2b8caabe4f22a725e7a5fd641362",
+  "phase_two_authorized": false,
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "predecessors": "SUCCESSORS_1_THROUGH_25_TERMINAL_PERMANENTLY_INELIGIBLE_NO_REUSE",
+  "forbidden": [
+    "RELAUNCH_SUCCESSOR26_RUNTIME",
+    "RELAUNCH_SUCCESSOR26_GUARDIAN",
+    "CALIBRATION_FINALIZATION",
+    "TOURNAMENT_REGISTRATION_OR_EVALUATION",
+    "PHASE_TWO",
+    "HOLDOUT_CREATION_OR_CONSUMPTION",
+    "PHASE_THREE",
+    "LIVE_OR_AUTHENTICATED_TRADING",
+    "WALLET_SIGNING",
+    "REAL_ORDERS_OR_CANCELS",
+    "AUTHORITATIVE_V5_MUTATION"
+  ],
+  "next_action": "Stop active Codex work now. Leave the exact runtime and guardian PID pairs running. At the next 2-4 hour same-identity review, read current disk/journal/snapshot/process authority only; never relaunch. OOS finalization remains forbidden until end_ts_ms and every preregistered readiness and binding gate are satisfied."
+}
