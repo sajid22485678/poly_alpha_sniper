@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "checkpoint_local": "2026-08-25T22:34:20.2489449+07:00",
-  "state": "SUCCESSOR26_SOURCE_SEAL_PASSED",
-  "classification": "EXACT_ONCE_4246_TEST_SEAL_GREEN_MATERIALIZATION_AUTHORIZED",
-  "canonical_artifact": ".codex/SUCCESSOR26_SOURCE_SEAL_PASS.json",
-  "canonical_artifact_sha256": "9b1c2fe3b7d27d775c1d8d62644080a92004866e6b601b42f93524e3d2b5dc8e",
+  "state": "SUCCESSOR26_MATERIALIZATION_AUTHORIZED_NOT_EXECUTED",
+  "classification": "FRESH_CREATE_ONCE_IDENTITY_BOUND_TO_GREEN_SOURCE_SEAL",
+  "canonical_artifact": ".codex/SUCCESSOR26_MATERIALIZATION_AUTHORITY.json",
+  "canonical_artifact_sha256": "80d3f86d08570c94458006653e31ffd18e31f4d803e28658a14f69399de56bbc",
   "successor25": {
     "root": "D:\\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z",
     "session_id": "50ac10343a4044fa8f2fe71113ac014f",
@@ -63,6 +63,20 @@
     "standalone_monotonic_successor26_guardian_required": true,
     "affected_validation": "PASS"
   },
+  "successor26": {
+    "source_seal_root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor26_20260825T1509Z",
+    "tested_tree_sha256": "9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21",
+    "source_tests": 4246,
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z",
+    "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z",
+    "materialization_nonce": "fbc7431281e24a0c90d5ffb18e55e949",
+    "phase_one_nonce": "6e80d3ea67cc4d12994c1f20427de260",
+    "reserved_phase_two_nonce_unauthorized": "2a8e2b8caabe4f22a725e7a5fd641362",
+    "materialization_authority_sha256": "ad5b00bbec303b0a40a2ba383cfa288fc4c9bb002bd5d2d39cbfe526ce39bcd9",
+    "materialization_runner_sha256": "eb72b12eab741668f0872addd9862d3955d6445aa5a9db00063d39314924a008",
+    "materialization_launch_count": 0,
+    "target_root_preexisting": false
+  },
   "authoritative_v5": {
     "immutable": true,
     "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
@@ -79,6 +93,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Create one fresh Successor26 materialization authority with a new acquisition root and three distinct nonces, then execute its materialization exactly once.",
+  "next_action": "Execute the hash-bound Successor26 materialization runner exactly once, preserve the first result, then cold-verify exactly once if and only if it exits cleanly.",
   "codex_active_work_stopping": false
 }

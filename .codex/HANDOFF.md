@@ -4,7 +4,7 @@ Updated: `2026-08-25T22:34:20.2489449+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR26_SOURCE_SEAL_PASSED`
+`SUCCESSOR26_MATERIALIZATION_AUTHORIZED_NOT_EXECUTED`
 
 Canonical current detail is in `.codex/SUCCESSOR26_SOURCE_SEAL_PASS.json`,
 SHA-256 `9b1c2fe3b7d27d775c1d8d62644080a92004866e6b601b42f93524e3d2b5dc8e`.
@@ -59,7 +59,18 @@ JUnit SHA-256 is
 `2b6194b5286de37c267fcb21b2a6eaae76ec33dd89ba238657dd2d928e306564`;
 post-verification SHA-256 is
 `50b1014cb90fc8df4c6310a03df726bde4a57506a7013f2c61cace7ce297dcd4`.
-Create one fresh materialization authority/root with three distinct nonces,
-execute it once, and cold-verify once. Do not enter calibration, tournament,
-Phase Two, holdout, Phase Three, live/authenticated trading, signing,
-orders/cancels, or authoritative-v5 mutation.
+Fresh acquisition identity `V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z`
+is bound to root `D:\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z`.
+The materialization nonce is `fbc7431281e24a0c90d5ffb18e55e949`, the
+Phase-One nonce is `6e80d3ea67cc4d12994c1f20427de260`, and the reserved
+unauthorized Phase-Two nonce is `2a8e2b8caabe4f22a725e7a5fd641362`.
+The target root is absent and the complete prospective-runtime census is zero.
+Authority SHA-256 is
+`ad5b00bbec303b0a40a2ba383cfa288fc4c9bb002bd5d2d39cbfe526ce39bcd9`;
+runner SHA-256 is
+`eb72b12eab741668f0872addd9862d3955d6445aa5a9db00063d39314924a008`.
+
+Execute this runner exactly once and preserve its first result. Cold-verify once
+only after a clean exit. Do not enter calibration, tournament, Phase Two,
+holdout, Phase Three, live/authenticated trading, signing, orders/cancels, or
+authoritative-v5 mutation.

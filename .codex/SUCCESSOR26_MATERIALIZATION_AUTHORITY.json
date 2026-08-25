@@ -1,0 +1,39 @@
+{
+  "contract": "POLY_ALPHA_CODEX_SUCCESSOR26_MATERIALIZATION_AUTHORITY_CHECKPOINT_V1",
+  "recorded_utc": "2026-08-25T15:38:00Z",
+  "source_seal_root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor26_20260825T1509Z",
+  "tested_tree_sha256": "9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21",
+  "source_manifest_sha256": "42f1d43bf674074793ce851d9362adf25cb853f3a06ae0871556f403f057a5d6",
+  "source_junit_sha256": "2b6194b5286de37c267fcb21b2a6eaae76ec33dd89ba238657dd2d928e306564",
+  "source_post_verification_sha256": "50b1014cb90fc8df4c6310a03df726bde4a57506a7013f2c61cace7ce297dcd4",
+  "source_tests": 4246,
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z",
+  "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z",
+  "database_path": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z\\prospective-exact-v6.db",
+  "materialization_nonce": "fbc7431281e24a0c90d5ffb18e55e949",
+  "phase_one_nonce": "6e80d3ea67cc4d12994c1f20427de260",
+  "reserved_phase_two_nonce_unauthorized": "2a8e2b8caabe4f22a725e7a5fd641362",
+  "materialization_authority_path": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor26_20260825T1509Z\\successor26_materialization_authority.json",
+  "materialization_authority_sha256": "ad5b00bbec303b0a40a2ba383cfa288fc4c9bb002bd5d2d39cbfe526ce39bcd9",
+  "materialization_runner_path": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor26_20260825T1509Z\\run_successor26_materialization_once.py",
+  "materialization_runner_sha256": "eb72b12eab741668f0872addd9862d3955d6445aa5a9db00063d39314924a008",
+  "materialization_launch_count": 0,
+  "target_root_preexisting": false,
+  "startup_process_census": {
+    "enumeration_complete": true,
+    "exact_v4_processes": 0,
+    "exact_pids": []
+  },
+  "authoritative_v5_immutable": true,
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Execute run_successor26_materialization_once.py exactly once. Preserve this identity on any failure or ambiguity; never retry or overwrite it."
+}

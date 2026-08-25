@@ -4,7 +4,7 @@ Updated: `2026-08-25T22:34:20.2489449+07:00`
 
 ## Current boundary
 
-`SUCCESSOR26_SOURCE_SEAL_PASSED`
+`SUCCESSOR26_MATERIALIZATION_AUTHORIZED_NOT_EXECUTED`
 
 Successor25 is permanently ineligible. Its one Phase-One identity was session
 `50ac10343a4044fa8f2fe71113ac014f`, nonce
@@ -76,6 +76,17 @@ post-verification SHA-256 is
 `50b1014cb90fc8df4c6310a03df726bde4a57506a7013f2c61cace7ce297dcd4`.
 Exact post-tree equality and authoritative-v5 equality passed.
 
-Exact next action: create one fresh Successor26 materialization authority with a
-new acquisition root and three distinct nonces, then execute materialization
-exactly once and cold-verify it exactly once.
+Fresh Successor26 acquisition identity
+`V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z` is now bound to root
+`D:\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z`. Its distinct
+materialization, Phase-One, and reserved unauthorized Phase-Two nonces are
+`fbc7431281e24a0c90d5ffb18e55e949`,
+`6e80d3ea67cc4d12994c1f20427de260`, and
+`2a8e2b8caabe4f22a725e7a5fd641362`. The target root remains absent and the
+complete exact-v4 process census is zero. Authority SHA-256 is
+`ad5b00bbec303b0a40a2ba383cfa288fc4c9bb002bd5d2d39cbfe526ce39bcd9`;
+runner SHA-256 is
+`eb72b12eab741668f0872addd9862d3955d6445aa5a9db00063d39314924a008`.
+
+Exact next action: execute that hash-bound materialization runner exactly once.
+Preserve its first result without retry; cold-verify once only after a clean exit.
