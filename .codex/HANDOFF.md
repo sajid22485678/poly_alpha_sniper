@@ -1,13 +1,13 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T20:22:35.3662979+07:00`
+Updated: `2026-08-25T20:25:29.7929101+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR25_SOURCE_SEAL_PASSED`
+`SUCCESSOR25_MATERIALIZATION_AUTHORIZED`
 
 Canonical transition detail is in
-`.codex/SUCCESSOR25_SOURCE_SEAL_PASSED.json`.
+`.codex/SUCCESSOR25_MATERIALIZATION_AUTHORITY.json`.
 The boot-evidence correction remains at
 `.codex/SUCCESSOR24_BOOT_EVIDENCE_CORRECTION.json`, SHA-256
 `d7dc60eebfe94c4a474e1eb22b88c554d4a34962efb5cc2b4d1d49fc54377377`.
@@ -129,8 +129,11 @@ tested tree SHA-256
 and an exact 4,208-test inventory. Its one full-suite launch passed 4,208/4,208
 with exit 0 and zero failures, errors, or skips; JUnit SHA-256 is
 `a30da2c22e3097807d5b3ace2bd97cf678e04768c8bbe55aca4d73bdbe28b9e8`.
-The post-tree is exact and v5 remains byte-identical. Prepare and invoke one
-fresh Successor25 materialization, then cold-verify it before any launch.
+The post-tree is exact and v5 remains byte-identical. Fresh materialization is
+bound to root
+`D:\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z`, nonce
+`6ebcec417d1743a2a5403990cfbecdde`. Invoke its create-once runner exactly once,
+then cold-verify it before any launch. Phase Two remains unauthorized.
 
 Do not enter calibration, tournament, Phase Two, holdout, Phase Three, live or
 authenticated trading, signing, orders/cancels, or authoritative-v5 mutation.
