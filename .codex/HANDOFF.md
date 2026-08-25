@@ -2,7 +2,7 @@
 
 ## Durable boundary
 
-`SUCCESSOR23_SOURCE_SEAL_PASSED_MATERIALIZATION_NEXT`
+`SUCCESSOR23_MATERIALIZATION_PREPARED_EXACT_ONCE_LAUNCH_NEXT`
 
 Successor22 is terminal, forensic-only, permanently ineligible, and cannot be
 relaunched. Root cause and mandatory RED are at bridge commit
@@ -35,6 +35,12 @@ Post-tree equality is exact and post-verification
 `9fb81c3adcda93b65d2727cd640b897e74c17c2f9e565bb3708ca125f7a411fe`
 proves v5 unchanged with no journal.
 
-Exact next action: construct a fresh reserved Successor23 acquisition identity
-and create-once materialization operator from the sealed manifest, then execute
-materialization exactly once.
+Fresh Successor23 acquisition
+`V4-PR-001-PROSPECTIVE-SUCCESSOR23-20260825T063851Z` is reserved at
+`D:\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z` with
+materialization nonce `9267184128614eb29a904c8c2654e427`, Phase-One nonce
+`cb94a3af73994324b3290ab599f0467a`, and a distinct Phase-Two nonce that remains
+unauthorized. Startup process census is zero and the target root is absent.
+
+Exact next action: execute the bound materialization runner exactly once. Never
+retry this identity after failure or ambiguity.

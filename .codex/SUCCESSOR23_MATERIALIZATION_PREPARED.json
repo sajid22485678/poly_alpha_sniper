@@ -1,0 +1,17 @@
+{
+  "schema": "POLY_ALPHA_SUCCESSOR23_MATERIALIZATION_PREPARED_V1",
+  "prepared_at": "2026-08-25T13:41:57.6642003+07:00",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR23-20260825T063851Z",
+  "root": "D:\\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z",
+  "materialization_nonce": "9267184128614eb29a904c8c2654e427",
+  "phase_one_nonce": "cb94a3af73994324b3290ab599f0467a",
+  "phase_two_nonce_reserved_unauthorized": "e35cf6bc0ecb4948b6fa545ad00a4be3",
+  "authority_sha256": "dbc2e5416916fe74226074ef35043e48d009c5b632db106a42456d0c786d1e8b",
+  "runner_sha256": "2b20c5715d1ecc895b599258167276ee301f325ca935c62d32282d846899d2c6",
+  "source_tree_sha256": "249c1ec0aee2f38ccd954b9fe6a76f4be053dabcf1dc7ffa9d5eb880ec701afd",
+  "materialization_launch_count": 0,
+  "startup_exact_v4_processes": 0,
+  "target_root_preexisting": false,
+  "phase_two_authorized": false,
+  "exact_next_action": "Execute the bound Successor23 materialization runner exactly once; never retry this identity after failure or ambiguity."
+}

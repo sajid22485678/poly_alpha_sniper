@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T13:34:53.2148076+07:00`
+Updated: `2026-08-25T13:41:57.6642003+07:00`
 
 ## Current boundary
 
-`SUCCESSOR23_SOURCE_SEAL_PASSED_MATERIALIZATION_NEXT`
+`SUCCESSOR23_MATERIALIZATION_PREPARED_EXACT_ONCE_LAUNCH_NEXT`
 
 Successor22 remains gracefully terminal, permanently forensic/ineligible, and
 `MUST_NOT_RELAUNCH`. Its database and immutable failure evidence were not
@@ -49,6 +49,12 @@ equality is exact; post-verification
 `9fb81c3adcda93b65d2727cd640b897e74c17c2f9e565bb3708ca125f7a411fe`
 also proves authoritative v5 remains byte-identical with no journal.
 
-Exact next action: construct a fresh reserved Successor23 acquisition identity
-and create-once materialization operator from this sealed manifest, then execute
-materialization exactly once.
+Fresh Successor23 acquisition
+`V4-PR-001-PROSPECTIVE-SUCCESSOR23-20260825T063851Z` is reserved at
+`D:\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z` with
+materialization nonce `9267184128614eb29a904c8c2654e427`, Phase-One nonce
+`cb94a3af73994324b3290ab599f0467a`, and a distinct Phase-Two nonce that remains
+unauthorized. Startup process census is zero and the target root is absent.
+
+Exact next action: execute the bound materialization runner exactly once. Never
+retry this identity after failure or ambiguity.
