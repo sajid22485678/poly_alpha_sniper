@@ -1,0 +1,89 @@
+{
+  "contract": "POLY_ALPHA_CODEX_PROGRESS_SUCCESSOR22_TERMINAL_FORENSIC_CLOSURE_V1",
+  "checkpoint_local": "2026-08-25T12:24:09.6209010+07:00",
+  "prior_bridge_commit": "855a4ace97e4cdf8944c31cb38eff7cec44e761d",
+  "classification": "TERMINAL_FORENSIC_INELIGIBLE",
+  "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR22-20260824T151804Z",
+    "source_tree_sha256": "386991dc9c001ddf54290c2092e09725be7f5ad5a5f2d51bc901322cba2d23cc",
+    "phase_one_nonce": "99d60fab076e4bcfae6e3a8831d6393a",
+    "session_id": "bc0614b5d1494a91854863b9ef527f13",
+    "launcher_pid": 1964,
+    "runtime_pid": 8536,
+    "must_not_relaunch": true
+  },
+  "stop": {
+    "exact_request_created_once": true,
+    "request_sha256": "5557ab42ad4070d62e548ee63e92c7afe240dccd2e6fdbdc0ca03cc4a91844b5",
+    "request_consumed": true,
+    "request_present": false,
+    "process_lock_present": false,
+    "launcher_present": false,
+    "runtime_present": false,
+    "lease_released": true,
+    "lease_release_sha256": "8ea8bedf46342eccb9a74861b2f49c4600614b3e8a90cf5e0aa8b49c869498e3"
+  },
+  "terminal": {
+    "state": "STOPPED",
+    "ended_ts_ms": 1787635017509,
+    "stop_reason": "graceful_stop",
+    "telemetry_shutdown_ok": true,
+    "shutdown_drain_timed_out": false,
+    "cex_discarded": 0,
+    "polymarket_discarded": 0,
+    "journal_total": 117303,
+    "journal_committed": 117302,
+    "journal_failed": 1,
+    "journal_unresolved": 0,
+    "critical_evidence_lost": 2,
+    "capsules": 9865,
+    "predictions": 18339,
+    "markets": 1360,
+    "outcomes": 1257
+  },
+  "failure": {
+    "command_id": "bc0614b5d1494a91854863b9ef527f13:000000093248:persist-execution-book-bundle",
+    "attempt_count": 3,
+    "error_type": "V4EvidenceConflict",
+    "payload_sha256": "27b4f48a4f196252ffcf091d6cc3e52c4b028bfdf0f4ff65cafa9f846fd46b04",
+    "stored_retention_class": "RAW",
+    "offered_retention_class": "PERMANENT",
+    "guardian_failure_sha256": "af8d57a9cdc8788c2e320bfd045e2ebeeb403a369c9a4eef8f88474ccc8cd313"
+  },
+  "forensic_evidence": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z\\operator\\successor22_terminal_forensic_closure.json",
+    "sha256": "6b59cc1694bea110e54d926422293e68f2536991b347e5ef58d58ca25eb4d346",
+    "database_verification_sha256": "34ccb53b35a130ea32a1117c9ed9f64bb768db9a5e1e58710c24973378bfae82",
+    "database_sha256": "3865df20ffee7daa63f52bf0ef77ed7c2ffc1b1ff7c715dec9b45f2c89c815b8",
+    "wal_sha256": "95bab22a649dc98cd35d997ccd0246e149553d28c75066ff8eeadcac5e303ab3",
+    "quick_check": "ok",
+    "foreign_key_violations": 0
+  },
+  "empty_state": {
+    "entries": 0,
+    "positions": 0,
+    "exits": 0,
+    "pnl_records": 0,
+    "calibration_artifacts": 0,
+    "tournaments": 0,
+    "holdout_rows": 0
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_order_placement_available": false,
+    "real_order_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Trace the RAW-to-PERMANENT producer path, establish the canonical retention contract, and capture the mandatory pre-fix RED regression before production code changes."
+}

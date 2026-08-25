@@ -1,78 +1,46 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T11:31:26.2198199+07:00",
-  "state": "SUCCESSOR22_POST_OOS_FAILED_RUNTIME_STILL_RUNNING_OWNER_STOP_AUTHORITY_REQUIRED",
-  "classification": "POST_OOS_FAILED",
-  "prior_bridge_commit": "d2443a753dae4f76e247ca2979bf9af8e8049ac9",
+  "checkpoint_local": "2026-08-25T12:24:09.6209010+07:00",
+  "state": "SUCCESSOR22_TERMINAL_FORENSIC_CLOSURE_COMPLETE_ROOT_CAUSE_TDD_NEXT",
+  "classification": "TERMINAL_FORENSIC_INELIGIBLE",
+  "prior_bridge_commit": "855a4ace97e4cdf8944c31cb38eff7cec44e761d",
   "containing_bridge_commit": "SELF",
-  "review_artifacts": {
-    "json": {"path": ".codex/SUCCESSOR22_POST_OOS_REVIEW.json", "sha256": "e7898c69889b86a0b928f39a949b08f64781cf2de6cc9feb603225283e8226f8"},
-    "markdown": {"path": ".codex/SUCCESSOR22_POST_OOS_REVIEW.md", "sha256": "6a3170a8eabcf612e1931510576c3f64f3b69d46dd0dd336156cd6d02138ef78"}
-  },
   "identity": {
     "source_tree_sha256": "386991dc9c001ddf54290c2092e09725be7f5ad5a5f2d51bc901322cba2d23cc",
-    "source_tree_verified_equal": true,
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR22-20260824T151804Z",
     "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z",
-    "materialization_nonce": "6871292fc9674d9196c4660a666c84e0",
     "phase_one_nonce": "99d60fab076e4bcfae6e3a8831d6393a",
     "session_id": "bc0614b5d1494a91854863b9ef527f13",
     "launcher_pid": 1964,
     "runtime_pid": 8536,
-    "runtime_state": "DEGRADED_PERSISTENCE",
-    "runtime_running": true,
-    "relaunch_detected": false,
-    "identity_fork": false,
-    "must_not_relaunch": true
+    "runtime_state": "STOPPED",
+    "runtime_running": false,
+    "session_open": false,
+    "lease_released": true,
+    "must_not_relaunch": true,
+    "permanently_ineligible": true
   },
-  "guardian": {
-    "state": "FAILED_AND_EXITED",
-    "historical_pids": [11624, 13504],
-    "latest_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z\\operator\\guardian_snapshot_1787585848823.json",
-    "latest_snapshot_sha256": "81aba2daf324068ed7b9467ccd26801a0163803568645363b5fd58b642aa2e9d",
-    "first_failure_path": "D:\\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z\\operator\\guardian_failure_1787586120094.json",
-    "first_failure_sha256": "af8d57a9cdc8788c2e320bfd045e2ebeeb403a369c9a4eef8f88474ccc8cd313",
-    "first_failure_ts_ms": 1787586120094,
-    "phase_one_ready_observation_exists": false,
-    "binding_failure": true
-  },
-  "snapshot": {
-    "ts_ms": 1787632063381,
-    "capsules": 9570,
-    "predictions": 18339,
-    "markets": 1280,
-    "outcomes": 1184,
-    "journal_total": 109790,
-    "journal_committed": 109788,
+  "terminal": {
+    "ended_ts_ms": 1787635017509,
+    "stop_reason": "graceful_stop",
+    "stop_request_created_once_and_consumed": true,
+    "processes_absent": true,
+    "lock_and_request_absent": true,
+    "journal_total": 117303,
+    "journal_committed": 117302,
     "journal_failed": 1,
-    "journal_unresolved": 1,
-    "journal_unresolved_status": "SUBMITTED",
-    "duplicate_command_ids": 0,
+    "journal_unresolved": 0,
     "critical_evidence_lost": 2,
-    "queue_overflow": 0,
-    "cex_discarded": 0,
-    "polymarket_discarded": 0,
-    "reconciliation_mismatch": 0,
-    "unexpected_loss": 0
+    "telemetry_shutdown_ok": true,
+    "ingest_discarded": 0
   },
-  "readiness": {
-    "ensemble": {"rank1_rows": 1120, "unique_markets": 1120, "positive_labels": 543, "negative_labels": 577, "unlabeled": 0, "quota_result": "PASS", "admissibility_result": "FAIL"},
-    "model": {"target_name": "paired_book_fair_value_parity", "rank1_rows": 1114, "unique_markets": 1114, "positive_labels": 541, "negative_labels": 573, "unlabeled": 0, "quota_result": "PASS", "admissibility_result": "FAIL"},
-    "lineage": "PASS",
-    "temporal_oos_validity": "PASS",
-    "quota_deficits": []
-  },
-  "integrity": {
-    "database_quick_check": "ok",
-    "foreign_key_violations": 0,
-    "managed_v6_fingerprint_match": true,
-    "structural": "PASS",
-    "persistence_admissibility": "FAIL",
-    "first_failed_command_id": "bc0614b5d1494a91854863b9ef527f13:000000093248:persist-execution-book-bundle",
-    "first_failed_command_completed_ts_ms": 1787625808458,
-    "first_failed_command_error_type": "V4EvidenceConflict",
-    "first_failed_command_payload_sha256": "27b4f48a4f196252ffcf091d6cc3e52c4b028bfdf0f4ff65cafa9f846fd46b04",
-    "critical_evidence_lost": 2
+  "evidence": {
+    "terminal_forensic_path": "D:\\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z\\operator\\successor22_terminal_forensic_closure.json",
+    "terminal_forensic_sha256": "6b59cc1694bea110e54d926422293e68f2536991b347e5ef58d58ca25eb4d346",
+    "database_verification_sha256": "34ccb53b35a130ea32a1117c9ed9f64bb768db9a5e1e58710c24973378bfae82",
+    "guardian_failure_sha256": "af8d57a9cdc8788c2e320bfd045e2ebeeb403a369c9a4eef8f88474ccc8cd313",
+    "failed_command_id": "bc0614b5d1494a91854863b9ef527f13:000000093248:persist-execution-book-bundle",
+    "failed_payload_sha256": "27b4f48a4f196252ffcf091d6cc3e52c4b028bfdf0f4ff65cafa9f846fd46b04"
   },
   "safety": {
     "LIVE_ENABLED": false,
@@ -86,19 +54,8 @@
     "authoritative_v5_immutable": true,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "phase": {
-    "oos_end_ts_ms": 1787628813002,
-    "oos_endpoint_passed": true,
-    "protocol_status": "REGISTERED",
-    "phase_two_nonce": "9f22eca6d2c548c8bcd6b8d687a3f261",
-    "phase_two_authorized": false,
-    "phase_two_entered": false,
-    "holdout_consumed": false
-  },
-  "exact_next_action": "Obtain separate owner authorization for one create-once normal-stop request bound exactly to session bc0614b5d1494a91854863b9ef527f13, nonce 99d60fab076e4bcfae6e3a8831d6393a, launcher PID 1964 and runtime PID 8536, followed only by terminal snapshot, journal reconciliation and forensic closure.",
-  "smallest_owner_authorization_required": "One exact session/nonce/PID-bound graceful stop and terminal forensic closure; no replay, rehabilitation, replacement or later-phase authority.",
-  "stop_request_created": false,
+  "exact_next_action": "Trace the complete RAW-to-PERMANENT producer and retry path, establish the canonical retention invariant from source, then add and observe the mandatory pre-fix RED regression before production changes.",
   "successor22_relaunch_performed": false,
   "later_phase_entered": false,
-  "codex_active_work_stopping": true
+  "codex_active_work_stopping": false
 }

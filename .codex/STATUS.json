@@ -1,30 +1,24 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-25T11:31:26.2198199+07:00",
-  "agent_state": "SUCCESSOR22_POST_OOS_FAILED_RUNTIME_STILL_RUNNING_OWNER_STOP_AUTHORITY_REQUIRED",
-  "classification": "POST_OOS_FAILED",
+  "updated_at": "2026-08-25T12:24:09.6209010+07:00",
+  "agent_state": "SUCCESSOR22_TERMINAL_FORENSIC_CLOSURE_COMPLETE_ROOT_CAUSE_TDD_NEXT",
+  "classification": "TERMINAL_FORENSIC_INELIGIBLE",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "d2443a753dae4f76e247ca2979bf9af8e8049ac9",
+  "prior_bridge_commit": "855a4ace97e4cdf8944c31cb38eff7cec44e761d",
   "containing_bridge_commit": "SELF",
-  "review_evidence": {
-    "json_path": ".codex/SUCCESSOR22_POST_OOS_REVIEW.json",
-    "json_sha256": "e7898c69889b86a0b928f39a949b08f64781cf2de6cc9feb603225283e8226f8",
-    "markdown_path": ".codex/SUCCESSOR22_POST_OOS_REVIEW.md",
-    "markdown_sha256": "6a3170a8eabcf612e1931510576c3f64f3b69d46dd0dd336156cd6d02138ef78"
-  },
   "repository": {
     "path": "D:\\claude\\poly_alpha_sniper",
     "branch": "master",
     "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
     "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
     "tested_tree_sha256": "386991dc9c001ddf54290c2092e09725be7f5ad5a5f2d51bc901322cba2d23cc",
-    "source_tree_recomputed_equal": true,
     "staged_paths": 0,
     "tracked_modified_paths": 55,
     "untracked_paths": 108,
-    "deliberate_dirty_tree_preserved": true
+    "deliberate_dirty_tree_preserved": true,
+    "production_source_changed_since_successor22": false
   },
-  "identity": {
+  "successor22": {
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR22-20260824T151804Z",
     "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z",
     "materialization_nonce": "6871292fc9674d9196c4660a666c84e0",
@@ -32,77 +26,63 @@
     "session_id": "bc0614b5d1494a91854863b9ef527f13",
     "launcher_pid": 1964,
     "runtime_pid": 8536,
-    "runtime_processes_present": true,
-    "runtime_state": "DEGRADED_PERSISTENCE",
-    "runtime_session_open": true,
-    "identity_fork": false,
+    "runtime_processes_present": false,
+    "runtime_state": "STOPPED",
+    "runtime_session_open": false,
+    "ended_ts_ms": 1787635017509,
+    "stop_reason": "graceful_stop",
+    "stop_request_created_once": true,
+    "stop_request_consumed": true,
+    "process_lock_present": false,
+    "lease_released": true,
     "relaunch_detected": false,
-    "must_not_relaunch": true
+    "must_not_relaunch": true,
+    "permanently_ineligible": true
   },
-  "guardian": {
-    "launcher_pid": 11624,
-    "worker_pid": 13504,
-    "processes_present": false,
-    "state": "FAILED_AND_EXITED",
-    "latest_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z\\operator\\guardian_snapshot_1787585848823.json",
-    "latest_snapshot_sha256": "81aba2daf324068ed7b9467ccd26801a0163803568645363b5fd58b642aa2e9d",
-    "first_failure_path": "D:\\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z\\operator\\guardian_failure_1787586120094.json",
-    "first_failure_sha256": "af8d57a9cdc8788c2e320bfd045e2ebeeb403a369c9a4eef8f88474ccc8cd313",
-    "first_failure_ts_ms": 1787586120094,
-    "first_failure_violations": [
-      "runtime_state:DEGRADED_PERSISTENCE:True",
-      "critical_health:FAILED:False",
-      "telemetry:critical_evidence_incomplete_count:1"
-    ],
-    "phase_one_ready_observation_exists": false,
-    "binding_failure": true
-  },
-  "acquisition_snapshot": {
-    "snapshot_ts_ms": 1787632063381,
-    "capsules": 9570,
+  "terminal_census": {
+    "capsules": 9865,
     "predictions": 18339,
-    "markets": 1280,
-    "outcomes": 1184,
-    "journal": {
-      "total": 109790,
-      "committed": 109788,
-      "failed": 1,
-      "unresolved": 1,
-      "unresolved_status": "SUBMITTED",
-      "duplicate_command_ids": 0
-    },
+    "markets": 1360,
+    "outcomes": 1257,
+    "journal": {"total": 117303, "committed": 117302, "failed": 1, "unresolved": 0, "duplicate_command_ids": 0},
+    "critical_evidence_lost": 2,
     "queue_overflow": 0,
     "cex_discarded": 0,
     "polymarket_discarded": 0,
-    "critical_evidence_lost": 2,
-    "true_lost_critical_rows": 2,
     "reconciliation_mismatch": 0,
-    "unexpected_loss": 0
+    "unexpected_loss": 0,
+    "entries": 0,
+    "positions": 0,
+    "exits": 0,
+    "pnl_records": 0,
+    "calibration_artifacts": 0,
+    "tournament_rows": 0,
+    "holdout_rows": 0
   },
-  "readiness": {
-    "thresholds": {"rank1_rows": 300, "unique_markets": 300, "positive_labels": 60, "negative_labels": 60, "unlabeled": 0},
-    "ensemble": {"rank1_rows": 1120, "unique_markets": 1120, "positive_labels": 543, "negative_labels": 577, "unlabeled": 0, "quota_result": "PASS", "admissibility_result": "FAIL"},
-    "model": {"target_name": "paired_book_fair_value_parity", "rank1_rows": 1114, "unique_markets": 1114, "positive_labels": 541, "negative_labels": 573, "unlabeled": 0, "quota_result": "PASS", "admissibility_result": "FAIL"},
-    "lineage_recomputation": "PASS",
-    "temporal_oos_validity": "PASS",
-    "quota_deficits": []
-  },
-  "integrity": {
-    "quick_check": "ok",
-    "foreign_key_violations": 0,
-    "managed_v6_fingerprint": "3289a18ccc9f6287360fcab9338e5e36d4070532f27b0d12377f9555bd7954dd",
-    "capsule_lineage_failures": 0,
-    "structural_result": "PASS",
-    "persistence_admissibility": "FAIL",
+  "failure": {
+    "engine_latched_failure_reason": "V4EvidenceConflict",
     "failed_command_id": "bc0614b5d1494a91854863b9ef527f13:000000093248:persist-execution-book-bundle",
-    "failed_command_type": "EXECUTION_BOOK_EVIDENCE",
-    "failed_command_completed_ts_ms": 1787625808458,
+    "failed_command_attempt_count": 3,
     "failed_command_payload_sha256": "27b4f48a4f196252ffcf091d6cc3e52c4b028bfdf0f4ff65cafa9f846fd46b04",
-    "failed_command_error_type": "V4EvidenceConflict",
-    "engine_latched_failure_reason": "V4EvidenceConflict"
+    "stored_retention_class": "RAW",
+    "offered_retention_class": "PERMANENT",
+    "guardian_failure_sha256": "af8d57a9cdc8788c2e320bfd045e2ebeeb403a369c9a4eef8f88474ccc8cd313"
+  },
+  "forensic_evidence": {
+    "bridge_path": ".codex/SUCCESSOR22_TERMINAL_FORENSIC_CLOSURE.json",
+    "external_path": "D:\\poly_alpha_prospective_exact_v6_successor22_20260824T151804Z\\operator\\successor22_terminal_forensic_closure.json",
+    "external_sha256": "6b59cc1694bea110e54d926422293e68f2536991b347e5ef58d58ca25eb4d346",
+    "database_verification_sha256": "34ccb53b35a130ea32a1117c9ed9f64bb768db9a5e1e58710c24973378bfae82",
+    "quick_check": "ok",
+    "foreign_key_violations": 0
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
   },
   "safety": {
-    "dry_run": true,
     "LIVE_ENABLED": false,
     "REAL_ORDERS_POSSIBLE": false,
     "wallet_signing_available": false,
@@ -111,23 +91,9 @@
     "real_order_cancellation_available": false,
     "kill_switch_engaged": true,
     "phase_3_entered": false,
-    "authoritative_v5_immutable": true,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "phase": {
-    "oos_start_ts_ms": 1787585613004,
-    "oos_end_ts_ms": 1787628813002,
-    "oos_endpoint_passed": true,
-    "protocol_status": "REGISTERED",
-    "calibration_finalized": false,
-    "tournament_registered": false,
-    "phase_two_nonce": "9f22eca6d2c548c8bcd6b8d687a3f261",
-    "phase_two_authorized": false,
-    "phase_two_entered": false,
-    "holdout_consumed": false
-  },
-  "next_action": "Obtain separate owner authorization for one create-once normal-stop request bound exactly to session bc0614b5d1494a91854863b9ef527f13, nonce 99d60fab076e4bcfae6e3a8831d6393a, launcher PID 1964 and runtime PID 8536, followed only by terminal snapshot, journal reconciliation and forensic closure.",
-  "forbidden": ["Successor22 relaunch", "evidence repair or replay", "calibration finalization", "tournament registration or evaluation", "Phase Two", "holdout consumption", "Phase 3", "live/authenticated/signing/order capability"],
-  "stop_request_created": false,
-  "codex_active_work_stopping": true
+  "next_action": "Trace the complete RAW-to-PERMANENT producer and retry path, establish the canonical retention invariant from source, then add and observe the mandatory pre-fix RED regression before production changes.",
+  "forbidden": ["Successor22 relaunch or repair", "failed-cohort reuse", "calibration finalization", "tournament registration or evaluation", "Phase Two", "holdout consumption", "Phase 3", "live authenticated signing order or cancel capability"],
+  "codex_active_work_stopping": false
 }
