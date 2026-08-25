@@ -2,7 +2,12 @@
 
 ## Durable boundary
 
-`SUCCESSOR23_HEALTHY_PHASE_ONE_ACQUISITION_CODEX_STOPPED`
+`SUCCESSOR23_TWO_HOUR_REVIEW_FAILED_CODEX_STOPPED`
+
+The bounded two-hour classification is `TWO_HOUR_REVIEW_FAILED`. The canonical
+record is `.codex/SUCCESSOR23_TWO_HOUR_REVIEW.json`. It supersedes the initial
+healthy handoff for current continuation authority; earlier material below is
+historical.
 
 Successor22 is terminal, forensic-only, permanently ineligible, and cannot be
 relaunched. Root cause and mandatory RED are at bridge commit
@@ -53,19 +58,22 @@ output; materialization was not rerun.
 Phase One launched exactly once: session
 `e8cc5e49b94d4f59b9e1eb5f16e5544e`, nonce
 `cb94a3af73994324b3290ab599f0467a`, PID pair `16088 -> 11856`.
-It is healthy and `MUST_NOT_RELAUNCH`. The independent guardian is running as
-`11512 -> 15300`; first clean snapshot
-`guardian_snapshot_1787641386588.json` hashes to
-`a48974ed41f1d8f50c93506d0a95c5dc58e9b88b8fc80945cea2f74306d5882c`.
+It remains the same running consumed identity and `MUST_NOT_RELAUNCH`.
 
-Initial durable proof has 76 capsules, 150 predictions, 56 markets, 1,280
-committed commands, zero failed/incomplete journal rows, zero critical loss,
-overflow, CEX/Polymarket discard, reconciliation mismatch, guardian failure,
-or safety breach. Full handoff is
-`.codex/SUCCESSOR23_INITIAL_HEALTHY_HANDOFF.json`.
+The independent guardian `11512 -> 15300` is terminal after 230 clean
+observations and one binding create-once failure. Preserve
+`guardian_failure_1787648489397.json`, SHA-256
+`26169b2c3fca7e9db9f0f9ef850e9d96bee4b7c7b2b2bc14395523696145a490`.
+The violation is `telemetry_data_safety:UNSAFE` from accounting reconciliation
+mismatch `-1`. Later capacity recovery cannot rehabilitate the first result.
 
-Codex active work is stopped. Leave Successor23 and its guardian running
-unchanged. The bounded two-hour review is
-`2026-08-25T08:58:42.7960000Z`; the four-hour hard review is
-`2026-08-25T10:58:42.7960000Z`; frozen OOS end is
-`2026-08-25T18:58:42.7960000Z`.
+Review census: 1,447 capsules, 2,885 predictions, 238 markets, 181 outcomes,
+25,654/25,654 committed commands, and zero failed/unresolved/duplicate journal
+rows. Both ensemble and model have 211 rank-1 rows, 211 unique markets, 82
+positive, 99 negative, and 30 unlabeled. Lineage and structural integrity pass;
+the guardian/accounting safety gate fails. No Successor22 retention conflict
+recurred. Safety, v5 immutability, and untouched holdout state pass.
+
+Exact next action: owner-controlled forensic disposition only. Do not perform
+the four-hour review, relaunch, repair, replay, or execute a stop without a
+separate exact nonce/PID-bound authority. Codex active work is stopped.

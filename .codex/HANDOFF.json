@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T14:11:48.8863301+07:00",
-  "state": "SUCCESSOR23_HEALTHY_PHASE_ONE_ACQUISITION_CODEX_STOPPED",
-  "classification": "HEALTHY_PHASE_ONE_ACQUISITION",
-  "prior_bridge_commit": "855a4ace97e4cdf8944c31cb38eff7cec44e761d",
+  "checkpoint_local": "2026-08-25T16:15:07.3932319+07:00",
+  "state": "SUCCESSOR23_TWO_HOUR_REVIEW_FAILED_CODEX_STOPPED",
+  "classification": "TWO_HOUR_REVIEW_FAILED",
+  "prior_bridge_commit": "316c20695ad24350d01599d89a268fa58709823c",
   "containing_bridge_commit": "SELF",
   "identity": {
     "source_tree_sha256": "386991dc9c001ddf54290c2092e09725be7f5ad5a5f2d51bc901322cba2d23cc",
@@ -128,14 +128,38 @@
     "launch_count": 1,
     "launcher_pid": 11512,
     "worker_pid": 15300,
-    "running": true,
-    "clean_observations": 18,
-    "failure_count": 0,
+    "running": false,
+    "state": "TERMINAL_FAILED",
+    "clean_observations": 230,
+    "failure_count": 1,
     "stderr_bytes": 0,
-    "first_snapshot_sha256": "a48974ed41f1d8f50c93506d0a95c5dc58e9b88b8fc80945cea2f74306d5882c"
+    "latest_clean_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z\\operator\\guardian_snapshot_1787648176994.json",
+    "latest_clean_snapshot_sha256": "f361cc5a46b2f97da8588d0528c7ef7056ec37674afccfe0c765acc358504dd4",
+    "first_failure_path": "D:\\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z\\operator\\guardian_failure_1787648489397.json",
+    "first_failure_sha256": "26169b2c3fca7e9db9f0f9ef850e9d96bee4b7c7b2b2bc14395523696145a490",
+    "first_failure": "telemetry_data_safety:UNSAFE",
+    "reconciliation_mismatch": -1
   },
   "initial_acquisition": {"capsules": 76, "predictions": 150, "markets": 56, "outcomes": 0, "journal_committed": 1280, "journal_failed": 0, "journal_incomplete": 0, "critical_lost": 0, "queue_overflow": 0, "cex_discarded": 0, "polymarket_discarded": 0, "evidence_sha256": "d9102c7abddb99c3344ec97037268613ef6c063a8bda69349d40537823e1824c"},
-  "exact_next_action": "Codex active work is stopped. Leave Successor23 and its guardian unchanged; perform one bounded disk-first review at 2026-08-25T08:58:42.7960000Z.",
+  "successor23_two_hour_review": {
+    "canonical_artifact": ".codex/SUCCESSOR23_TWO_HOUR_REVIEW.json",
+    "classification": "TWO_HOUR_REVIEW_FAILED",
+    "review_capture_ts_ms": 1787649059870,
+    "runtime_running_same_identity": true,
+    "relaunch_or_fork_detected": false,
+    "readiness": {
+      "ensemble": {"rank1_rows": 211, "unique_markets": 211, "positive_labels": 82, "negative_labels": 99, "unlabeled": 30, "passes_all": false},
+      "model": {"rank1_rows": 211, "unique_markets": 211, "positive_labels": 82, "negative_labels": 99, "unlabeled": 30, "passes_all": false}
+    },
+    "journal": {"total": 25654, "committed": 25654, "failed": 0, "unresolved": 0, "duplicate_command_ids": 0},
+    "lineage": "PASS_FOR_COUNTED_ROWS",
+    "V4EvidenceConflict_recurrence": false,
+    "critical_evidence_lost": 0,
+    "binding_guardian_failure": true,
+    "safety": "PASS",
+    "holdout": "NONEXISTENT_UNCONSUMED"
+  },
+  "exact_next_action": "Owner-controlled forensic disposition only. Preserve the first guardian failure and still-running consumed Successor23 identity. Do not perform the four-hour readiness review, relaunch, repair, replay, or stop without separate exact nonce/PID-bound authority.",
   "successor22_relaunch_performed": false,
   "later_phase_entered": false,
   "codex_active_work_stopping": true
