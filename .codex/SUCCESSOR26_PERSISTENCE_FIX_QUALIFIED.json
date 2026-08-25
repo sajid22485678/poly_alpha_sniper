@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR26_PERSISTENCE_FIX_QUALIFIED_V1",
+  "captured_at": "2026-08-26T06:55:54.1461271+07:00",
+  "classification": "SUCCESSOR26_TERMINAL_INELIGIBLE_CAUSAL_FIX_QUALIFIED_SUCCESSOR27_SOURCE_SEAL_NEXT",
+  "prior_bridge_commit": "919e5f9fddfeec02f140ab85fa3e9cc8312100b4",
+  "successor26": {
+    "source_tree_sha256": "9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21",
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z",
+    "session_id": "94b7f805b73d4c82b851938e20570477",
+    "phase_one_nonce": "6e80d3ea67cc4d12994c1f20427de260",
+    "must_not_relaunch": true,
+    "permanently_ineligible": true,
+    "guardian_failure_sha256": "62901f4186f4ec344ed6a676fb21ea0da73be3db8e4c41bf09756fb2760639e7",
+    "terminal_closure_sha256": "43fede9fa22ffcfdad1e512a8b16b82481849eaaad2da6734051bfbfb8245e4c",
+    "terminal_journal": "62306/62306 committed; zero failed, unresolved, duplicate, retry, critical incomplete/lost, mismatch, unexpected loss, overflow or abandoned"
+  },
+  "root_cause": {
+    "artifact_path": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z\\operator\\successor26_persistence_timeout_root_cause.json",
+    "artifact_sha256": "89646ce692e5f7b4fce641703de4151eeea1591e5e42b7cea683fca3836ce993",
+    "causal_checkpoint": "PASSIVE busy=0 frames=4967/4967 before=after=164400392 bytes followed by unnecessary TRUNCATE",
+    "binding_entry_command": "94b7f805b73d4c82b851938e20570477:000000018004:persist-evaluation-bundle",
+    "entry_queue_ms": 189,
+    "entry_execute_ms": 14944,
+    "entry_ack_ms": 15133,
+    "deadline_ms": 15000,
+    "serial_market_victim_ack_ms": 15221,
+    "conclusion": "physical WAL allocation was incorrectly treated as logical checkpoint backlog"
+  },
+  "fix": {
+    "summary": "record complete logical PASSIVE backfill, reset pressure on complete backfill, keep ordinary live maintenance PASSIVE, retain busy/partial escalation and offline TRUNCATE",
+    "full_durability_unchanged": true,
+    "acknowledgement_deadline_unchanged": true,
+    "red_observed": true
+  },
+  "verification": {
+    "affected": {
+      "tests": 803,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "junit_sha256": "2e5607bc8a64770825f19e689eb844df9189304c171fc4f248f3e3a5a8611a6b",
+      "correction_sha256": "859cdfe5b97d422f3f8ce47e311de1774e40f1a04ab7ad53124780fb4bb74c58"
+    },
+    "post_final_patch": {
+      "tests": 265,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "junit_sha256": "ef72199e84f001bc1bebc85ff7a72c54c799f69dc7e01bda7628cff98d14f8ad",
+      "result_sha256": "5b98ac2f717bb7f9120de366556fec1705d2c445e57bf6dd05bfbff5ba99c35d"
+    },
+    "invalid_runner_invocation": {
+      "classification": "NOT_A_PRODUCT_RESULT",
+      "reason": "pytest plug-in autoload was disabled, preventing async test execution",
+      "artifact_sha256": "9538ccf4e06c55de79d19df9570001f1d3deb992ba76f34d59f3c05850331f9f"
+    }
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_order_placement_available": false,
+    "real_order_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Prepare one fresh Successor27 source-seal root from the current frozen tree and execute the full repository suite exactly once. Only exact PASS authorizes materialization."
+}

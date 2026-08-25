@@ -1,12 +1,15 @@
-# Poly Alpha Codex Progress
+# Poly Alpha status
 
-- State: `SUCCESSOR26_TERMINAL_FORENSIC_CLOSURE_COMPLETE_LATENCY_ROOT_CAUSE_IN_PROGRESS`
-- Successor26: terminal, immutable, permanently ineligible, `MUST_NOT_RELAUNCH`
-- Stop: exactly one owner-authorized request consumed; PIDs `8604 -> 6720` absent; lease released
-- Failure: `V4PersistenceTimeout`; acknowledgements 15,133 ms and 15,221 ms against 15,000 ms
-- Terminal journal: 62,306/62,306 committed; failed/unresolved/duplicate/retry/loss/mismatch/overflow all zero
-- Database: quick-check `ok`, FK 0, schema 6, managed fingerprint match
-- Safety: live/real orders/signing/auth disabled; kill switch engaged; no Phase Two/Three; holdout untouched; v5 unchanged
-- Next: causal latency forensics -> per-class budget -> witnessed RED -> minimal fix
+Successor26 is terminal, permanently ineligible, and MUST NOT be relaunched.
+Its binding persistence timeout has a durable causal finding: SQLite had fully
+backfilled the logical WAL but retained its physical allocation, and the policy
+needlessly escalated live reclamation. The minimal correction is implemented
+without changing FULL durability or the 15-second acknowledgement deadline.
 
-Canonical checkpoint: `.codex/SUCCESSOR26_TERMINAL_CLOSURE.json`
+Verification is green: 803/803 affected tests and 265/265 final-patch focused
+tests passed. The next exact authority is one fresh Successor27 full source seal.
+No materialization or launch is authorized until that seal passes unchanged.
+
+Safety remains fail-closed: no live trading, signing, authenticated trading,
+real placement/cancellation, Phase Two, Phase Three or holdout exists; the kill
+switch is engaged and authoritative v5 remains immutable.

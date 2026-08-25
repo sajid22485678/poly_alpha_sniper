@@ -1,39 +1,21 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-26T06:18:45.8808873+07:00",
-  "state": "SUCCESSOR26_TERMINAL_FORENSIC_CLOSURE_COMPLETE_LATENCY_ROOT_CAUSE_IN_PROGRESS",
-  "classification": "SUCCESSOR26_TERMINAL_FORENSIC_INELIGIBLE",
-  "prior_bridge_commit": "592760d478b75312cdd881861a7b4e17b0025e1b",
+  "checkpoint_local": "2026-08-26T06:55:54.1461271+07:00",
+  "state": "SUCCESSOR26_CAUSAL_FIX_QUALIFIED_SUCCESSOR27_SOURCE_SEAL_NEXT",
+  "classification": "SUCCESSOR26_TERMINAL_INELIGIBLE_FIX_QUALIFIED",
+  "prior_bridge_commit": "919e5f9fddfeec02f140ab85fa3e9cc8312100b4",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR26_TERMINAL_CLOSURE.json",
-  "external_closure_path": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z\\operator\\successor26_terminal_forensic_closure.json",
-  "external_closure_sha256": "43fede9fa22ffcfdad1e512a8b16b82481849eaaad2da6734051bfbfb8245e4c",
-  "identity": {
-    "source_tree_sha256": "9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21",
-    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z",
+  "canonical_artifact": ".codex/SUCCESSOR26_PERSISTENCE_FIX_QUALIFIED.json",
+  "successor26": {
     "session_id": "94b7f805b73d4c82b851938e20570477",
     "phase_one_nonce": "6e80d3ea67cc4d12994c1f20427de260",
-    "runtime_pair_alive": false,
-    "lease_released": true,
-    "must_not_relaunch": true
+    "runtime_state": "STOPPED",
+    "must_not_relaunch": true,
+    "permanently_ineligible": true
   },
-  "terminal_result": {
-    "stop_execute_invocations": 1,
-    "session_ended_ts_ms": 1787699652959,
-    "stop_reason": "graceful_stop",
-    "journal": "62306 total / 62306 committed / 0 failed / 0 unresolved / 0 duplicate / 0 retry / 1 terminal committed",
-    "critical_loss": 0,
-    "reconciliation_mismatch": 0,
-    "unexpected_loss": 0,
-    "database": "quick_check ok / FK 0 / user_version 6 / managed fingerprint match"
-  },
-  "failure": {
-    "reason": "V4PersistenceTimeout",
-    "deadline_ms": 15000,
-    "entry_decision_ack_ms": 15133,
-    "market_discovery_ack_ms": 15221,
-    "later_lossless_commit_does_not_cure": true
-  },
+  "root_cause": "Complete logical PASSIVE backfill was misread from unchanged physical WAL allocation, provoking unnecessary live TRUNCATE before the 15133 ms deadline breach.",
+  "fix": "Logical frame completion resets pressure; routine live checkpoints remain PASSIVE; partial/busy and offline reclamation semantics remain fail-closed.",
+  "verification": "803/803 affected and 265/265 post-final-patch tests passed with zero failure/error/skip.",
   "safety": {
     "LIVE_ENABLED": false,
     "REAL_ORDERS_POSSIBLE": false,
@@ -45,5 +27,5 @@
     "V4_HO_001": "NONEXISTENT_UNCONSUMED",
     "authoritative_v5_immutable": true
   },
-  "next_action": "Trace immutable Successor26 latency from admission through queue residence, transaction execution, FULL/WAL durability and acknowledgement publication; define the per-class budget; witness causal RED; implement only the minimal root-cause fix."
+  "next_action": "Create a new Successor27 seal root, freeze the current source/documentation tree, and run the full repository suite exactly once. A passing immutable result alone authorizes materialization."
 }

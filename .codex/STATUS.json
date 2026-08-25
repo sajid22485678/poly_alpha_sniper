@@ -1,39 +1,15 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-26T06:18:45.8808873+07:00",
-  "agent_state": "SUCCESSOR26_TERMINAL_FORENSIC_CLOSURE_COMPLETE_LATENCY_ROOT_CAUSE_IN_PROGRESS",
-  "classification": "SUCCESSOR26_TERMINAL_FORENSIC_INELIGIBLE",
+  "updated_at": "2026-08-26T06:55:54.1461271+07:00",
+  "agent_state": "SUCCESSOR26_CAUSAL_FIX_QUALIFIED_SUCCESSOR27_SOURCE_SEAL_NEXT",
+  "classification": "SUCCESSOR26_TERMINAL_INELIGIBLE_FIX_QUALIFIED",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "592760d478b75312cdd881861a7b4e17b0025e1b",
+  "prior_bridge_commit": "919e5f9fddfeec02f140ab85fa3e9cc8312100b4",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR26_TERMINAL_CLOSURE.json",
-  "successor26": {
-    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z",
-    "session_id": "94b7f805b73d4c82b851938e20570477",
-    "phase_one_nonce": "6e80d3ea67cc4d12994c1f20427de260",
-    "runtime_state": "STOPPED",
-    "process_pair_alive": false,
-    "lease_released": true,
-    "stop_consumed_once": true,
-    "must_not_relaunch": true,
-    "permanently_ineligible": true
-  },
-  "failure": {
-    "guardian_failure_sha256": "62901f4186f4ec344ed6a676fb21ea0da73be3db8e4c41bf09756fb2760639e7",
-    "reason": "V4PersistenceTimeout",
-    "deadline_ms": 15000,
-    "ack_ms": [15133, 15221]
-  },
-  "terminal": {
-    "closure_sha256": "43fede9fa22ffcfdad1e512a8b16b82481849eaaad2da6734051bfbfb8245e4c",
-    "journal_committed": 62306,
-    "journal_failed_or_unresolved": 0,
-    "critical_incomplete_or_lost": 0,
-    "reconciliation_mismatch_or_unexpected_loss": 0,
-    "quick_check": "ok",
-    "foreign_key_violations": 0,
-    "schema_version": 6
-  },
+  "canonical_artifact": ".codex/SUCCESSOR26_PERSISTENCE_FIX_QUALIFIED.json",
+  "successor26_must_not_relaunch": true,
+  "root_cause_sha256": "89646ce692e5f7b4fce641703de4151eeea1591e5e42b7cea683fca3836ce993",
+  "verification": "803/803 affected PASS; 265/265 final-patch focused PASS",
   "authoritative_v5_immutable": true,
   "safety": {
     "LIVE_ENABLED": false,
@@ -45,5 +21,5 @@
     "phase_three_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Causal acknowledgement-latency forensics and per-class budget, then witnessed causal RED before production fix."
+  "next_action": "Execute one fresh Successor27 exact-once full source seal from the frozen corrected tree."
 }

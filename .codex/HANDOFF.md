@@ -1,9 +1,14 @@
-# Poly Alpha Handoff
+# Poly Alpha handoff
 
-Successor26 is terminal and permanently ineligible. Its exact Phase-One identity was not relaunched. One owner-authorized graceful-stop request was consumed; both processes are absent, the lock/request are gone, the lease is released, and the session ended `graceful_stop`.
+Current boundary: Successor26 terminal forensic closure and its causal
+checkpoint-policy fix are complete. Canonical detail is in
+`.codex/SUCCESSOR26_PERSISTENCE_FIX_QUALIFIED.json`.
 
-The preserved first failure is `V4PersistenceTimeout`. Two commands exceeded the 15,000 ms acknowledgement deadline: `ENTRY_DECISION_EVIDENCE` at 15,133 ms (189 queue + 14,944 execute) and `MARKET_DISCOVERY` at 15,221 ms (15,204 queue + 17 execute). Later commits do not cure the failure.
+Exact next action: freeze the current corrected source and documentation into a
+new Successor27 source-seal root and execute the full repository suite exactly
+once. Continue to materialization, cold verification, Phase-One launch and a
+standalone guardian only if the seal is an exact green result with unchanged
+post-tree and authoritative-v5 identities.
 
-Terminal evidence is lossless: 62,306/62,306 committed, one committed terminal command, zero failed/unresolved/duplicate/retried/incomplete/lost/mismatched/overflow rows. Exact-v6 quick-check is `ok`, FK 0, schema 6, and the managed fingerprint matches. Safety remains fail-closed and v5 is byte-identical.
-
-Next: causal latency forensics, a real per-class budget, witnessed causal RED, then the minimal fix. Do not relaunch Successor26 or enter any later phase.
+Never relaunch or reuse Successor26 or any predecessor. Do not enter calibration,
+tournament, Phase Two, holdout, Phase Three, or any live-capability path.
