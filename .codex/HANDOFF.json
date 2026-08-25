@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T13:55:44.6909600+07:00",
-  "state": "SUCCESSOR23_PHASE_ONE_PREPARED_EXACT_ONCE_LAUNCH_NEXT",
-  "classification": "COLD_VERIFIED_PHASE_ONE_PREPARED",
+  "checkpoint_local": "2026-08-25T14:11:48.8863301+07:00",
+  "state": "SUCCESSOR23_HEALTHY_PHASE_ONE_ACQUISITION_CODEX_STOPPED",
+  "classification": "HEALTHY_PHASE_ONE_ACQUISITION",
   "prior_bridge_commit": "855a4ace97e4cdf8944c31cb38eff7cec44e761d",
   "containing_bridge_commit": "SELF",
   "identity": {
@@ -108,18 +108,35 @@
     "manifest_sha256": "bd1aa9c5c0967200317e3c21ce13209b3bce8aed4a6c3697a9a6c26d4e637d8d",
     "database_sha256": "7866fc6bee896cdcc4ef0d53b0ae544407cc3adf85f767c11ae15da8cdfaba53",
     "cold_verification_sha256": "3fd55f19f77ca42d3dfdbf1ae537102bef820ddb0fc48a9e9656aefcac39c3e6",
-    "phase_one_nonce_consumed": false
+    "phase_one_nonce_consumed": true
   },
   "successor23_phase_one": {
     "prepared": true,
-    "launch_count": 0,
+    "launch_count": 1,
     "nonce": "cb94a3af73994324b3290ab599f0467a",
-    "nonce_consumed": false,
+    "nonce_consumed": true,
     "launcher_sha256": "7dc0c80642dca4a5dce4a5ddd988de523b12cdc3df3f590043d76f70c850651f",
-    "authority_sha256": "b15eac3769fe15bf1106589900fa58605d5f5826f3d5e3dce31859695ad98f5d"
+    "authority_sha256": "b15eac3769fe15bf1106589900fa58605d5f5826f3d5e3dce31859695ad98f5d",
+    "session_id": "e8cc5e49b94d4f59b9e1eb5f16e5544e",
+    "launcher_pid": 16088,
+    "runtime_pid": 11856,
+    "started_ts_ms": 1787641122796,
+    "running": true,
+    "must_not_relaunch": true
   },
-  "exact_next_action": "Execute the prepared Phase-One launcher exactly once. Once consumed, Successor23 MUST_NOT_RELAUNCH.",
+  "successor23_guardian": {
+    "launch_count": 1,
+    "launcher_pid": 11512,
+    "worker_pid": 15300,
+    "running": true,
+    "clean_observations": 18,
+    "failure_count": 0,
+    "stderr_bytes": 0,
+    "first_snapshot_sha256": "a48974ed41f1d8f50c93506d0a95c5dc58e9b88b8fc80945cea2f74306d5882c"
+  },
+  "initial_acquisition": {"capsules": 76, "predictions": 150, "markets": 56, "outcomes": 0, "journal_committed": 1280, "journal_failed": 0, "journal_incomplete": 0, "critical_lost": 0, "queue_overflow": 0, "cex_discarded": 0, "polymarket_discarded": 0, "evidence_sha256": "d9102c7abddb99c3344ec97037268613ef6c063a8bda69349d40537823e1824c"},
+  "exact_next_action": "Codex active work is stopped. Leave Successor23 and its guardian unchanged; perform one bounded disk-first review at 2026-08-25T08:58:42.7960000Z.",
   "successor22_relaunch_performed": false,
   "later_phase_entered": false,
-  "codex_active_work_stopping": false
+  "codex_active_work_stopping": true
 }

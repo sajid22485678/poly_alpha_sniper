@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T13:55:44.6909600+07:00`
+Updated: `2026-08-25T14:11:48.8863301+07:00`
 
 ## Current boundary
 
-`SUCCESSOR23_PHASE_ONE_PREPARED_EXACT_ONCE_LAUNCH_NEXT`
+`SUCCESSOR23_HEALTHY_PHASE_ONE_ACQUISITION_CODEX_STOPPED`
 
 Successor22 remains gracefully terminal, permanently forensic/ineligible, and
 `MUST_NOT_RELAUNCH`. Its database and immutable failure evidence were not
@@ -50,11 +50,8 @@ equality is exact; post-verification
 also proves authoritative v5 remains byte-identical with no journal.
 
 Fresh Successor23 acquisition
-`V4-PR-001-PROSPECTIVE-SUCCESSOR23-20260825T063851Z` is reserved at
-`D:\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z` with
-materialization nonce `9267184128614eb29a904c8c2654e427`, Phase-One nonce
-`cb94a3af73994324b3290ab599f0467a`, and a distinct Phase-Two nonce that remains
-unauthorized. Startup process census is zero and the target root is absent.
+`V4-PR-001-PROSPECTIVE-SUCCESSOR23-20260825T063851Z` is running at
+`D:\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z`.
 
 Materialization ran once and exited zero. Manifest
 `bd1aa9c5c0967200317e3c21ce13209b3bce8aed4a6c3697a9a6c26d4e637d8d`
@@ -67,11 +64,22 @@ lease, zero runtime processes, and unchanged v5. A corrected verifier predicate
 was rerun only because its first invocation stopped before creating either
 output; materialization was not rerun.
 
-The create-once Phase-One launcher is bound to cold verification
-`3fd55f19f77ca42d3dfdbf1ae537102bef820ddb0fc48a9e9656aefcac39c3e6`
-and sealed tree `249c1ec0…01afd`. Its hash is
-`7dc0c80642dca4a5dce4a5ddd988de523b12cdc3df3f590043d76f70c850651f`;
-runtime root and launch outputs remain absent; process census is zero.
+Phase One launched exactly once: session
+`e8cc5e49b94d4f59b9e1eb5f16e5544e`, nonce
+`cb94a3af73994324b3290ab599f0467a`, PID pair `16088 -> 11856`.
+It is healthy and `MUST_NOT_RELAUNCH`. The independent guardian is running as
+`11512 -> 15300`; first clean snapshot
+`guardian_snapshot_1787641386588.json` hashes to
+`a48974ed41f1d8f50c93506d0a95c5dc58e9b88b8fc80945cea2f74306d5882c`.
 
-Exact next action: execute it exactly once. After nonce consumption,
-Successor23 `MUST_NOT_RELAUNCH`.
+Initial durable proof has 76 capsules, 150 predictions, 56 markets, 1,280
+committed commands, zero failed/incomplete journal rows, zero critical loss,
+overflow, CEX/Polymarket discard, reconciliation mismatch, guardian failure,
+or safety breach. Full handoff is
+`.codex/SUCCESSOR23_INITIAL_HEALTHY_HANDOFF.json`.
+
+Codex active work is stopped. Leave Successor23 and its guardian running
+unchanged. The bounded two-hour review is
+`2026-08-25T08:58:42.7960000Z`; the four-hour hard review is
+`2026-08-25T10:58:42.7960000Z`; frozen OOS end is
+`2026-08-25T18:58:42.7960000Z`.
