@@ -1,0 +1,16 @@
+{
+  "schema": "POLY_ALPHA_SUCCESSOR23_PHASE_ONE_PREPARED_V1",
+  "prepared_at": "2026-08-25T13:55:44.6909600+07:00",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR23-20260825T063851Z",
+  "root": "D:\\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z",
+  "phase_one_nonce": "cb94a3af73994324b3290ab599f0467a",
+  "phase_one_launch_count": 0,
+  "launcher_sha256": "7dc0c80642dca4a5dce4a5ddd988de523b12cdc3df3f590043d76f70c850651f",
+  "authority_sha256": "b15eac3769fe15bf1106589900fa58605d5f5826f3d5e3dce31859695ad98f5d",
+  "materialization_verification_sha256": "3fd55f19f77ca42d3dfdbf1ae537102bef820ddb0fc48a9e9656aefcac39c3e6",
+  "source_tree_sha256": "249c1ec0aee2f38ccd954b9fe6a76f4be053dabcf1dc7ffa9d5eb880ec701afd",
+  "runtime_root_preexisting": false,
+  "prelaunch_exact_v4_processes": 0,
+  "phase_two_authorized": false,
+  "exact_next_action": "Execute the prepared Phase-One launcher exactly once. Once consumed, Successor23 MUST_NOT_RELAUNCH."
+}

@@ -2,7 +2,7 @@
 
 ## Durable boundary
 
-`SUCCESSOR23_MATERIALIZED_COLD_VERIFIED_PHASE_ONE_PREPARATION_NEXT`
+`SUCCESSOR23_PHASE_ONE_PREPARED_EXACT_ONCE_LAUNCH_NEXT`
 
 Successor22 is terminal, forensic-only, permanently ineligible, and cannot be
 relaunched. Root cause and mandatory RED are at bridge commit
@@ -53,5 +53,11 @@ lease, zero runtime processes, and unchanged v5. A corrected verifier predicate
 was rerun only because its first invocation stopped before creating either
 output; materialization was not rerun.
 
-Exact next action: prepare a create-once Phase-One launcher bound to this cold
-verification and sealed source, then execute it exactly once.
+The create-once Phase-One launcher is bound to cold verification
+`3fd55f19f77ca42d3dfdbf1ae537102bef820ddb0fc48a9e9656aefcac39c3e6`
+and sealed tree `249c1ec0…01afd`. Its hash is
+`7dc0c80642dca4a5dce4a5ddd988de523b12cdc3df3f590043d76f70c850651f`;
+runtime root and launch outputs remain absent; process census is zero.
+
+Exact next action: execute it exactly once. After nonce consumption,
+Successor23 `MUST_NOT_RELAUNCH`.

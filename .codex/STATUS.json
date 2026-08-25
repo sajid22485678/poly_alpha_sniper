@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-25T13:51:49.2061664+07:00",
-  "agent_state": "SUCCESSOR23_MATERIALIZED_COLD_VERIFIED_PHASE_ONE_PREPARATION_NEXT",
-  "classification": "COLD_VERIFIED_PHASE_ONE_AUTHORIZED",
+  "updated_at": "2026-08-25T13:55:44.6909600+07:00",
+  "agent_state": "SUCCESSOR23_PHASE_ONE_PREPARED_EXACT_ONCE_LAUNCH_NEXT",
+  "classification": "COLD_VERIFIED_PHASE_ONE_PREPARED",
   "sole_writer": "Codex",
   "prior_bridge_commit": "855a4ace97e4cdf8944c31cb38eff7cec44e761d",
   "containing_bridge_commit": "SELF",
@@ -153,7 +153,15 @@
     "cold_verification_sha256": "3fd55f19f77ca42d3dfdbf1ae537102bef820ddb0fc48a9e9656aefcac39c3e6",
     "phase_one_nonce_consumed": false
   },
-  "next_action": "Prepare a create-once Successor23 Phase-One launch operator bound to the cold verification and sealed source, then execute it exactly once.",
+  "successor23_phase_one": {
+    "prepared": true,
+    "launch_count": 0,
+    "nonce": "cb94a3af73994324b3290ab599f0467a",
+    "nonce_consumed": false,
+    "launcher_sha256": "7dc0c80642dca4a5dce4a5ddd988de523b12cdc3df3f590043d76f70c850651f",
+    "authority_sha256": "b15eac3769fe15bf1106589900fa58605d5f5826f3d5e3dce31859695ad98f5d"
+  },
+  "next_action": "Execute the prepared Phase-One launcher exactly once. Once consumed, Successor23 MUST_NOT_RELAUNCH.",
   "forbidden": ["Successor22 relaunch or repair", "failed-cohort reuse", "calibration finalization", "tournament registration or evaluation", "Phase Two", "holdout consumption", "Phase 3", "live authenticated signing order or cancel capability"],
   "codex_active_work_stopping": false
 }
