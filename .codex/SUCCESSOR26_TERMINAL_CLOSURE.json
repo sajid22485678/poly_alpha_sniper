@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR26_TERMINAL_CLOSURE_CHECKPOINT_V1",
+  "checkpoint_local": "2026-08-26T06:18:45.8808873+07:00",
+  "prior_bridge_commit": "592760d478b75312cdd881861a7b4e17b0025e1b",
+  "classification": "SUCCESSOR26_TERMINAL_FORENSIC_INELIGIBLE",
+  "identity": {
+    "source_tree_sha256": "9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21",
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z",
+    "materialization_nonce": "fbc7431281e24a0c90d5ffb18e55e949",
+    "phase_one_nonce": "6e80d3ea67cc4d12994c1f20427de260",
+    "session_id": "94b7f805b73d4c82b851938e20570477",
+    "launcher_pid": 8604,
+    "runtime_pid": 6720,
+    "must_not_relaunch": true,
+    "permanently_ineligible": true
+  },
+  "first_binding_failure": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z\\operator\\guardian_failure_1787680938064.json",
+    "sha256": "62901f4186f4ec344ed6a676fb21ea0da73be3db8e4c41bf09756fb2760639e7",
+    "reason": "V4PersistenceTimeout",
+    "deadline_ms": 15000,
+    "ack_ms": [15133, 15221],
+    "preserved": true
+  },
+  "graceful_stop": {
+    "authorized_execution_count": 1,
+    "actual_execute_invocations": 1,
+    "operator_sha256": "c135e49b963e974268ab02b19137ad1ae16e8e18f1056f95be7cd9c93371577c",
+    "declaration_sha256": "ce32954b4521fcbdbdcc85e3eeab22c12f6e9354d904ef92542a3a9953933822",
+    "authority_sha256": "b11cfab0fa6506df6fac73e8c1a18f219f27bfce7104b6f389f4a311ef6f62a1",
+    "created_evidence_sha256": "8c4e2e84015bd1def1e5dab8fff4d0aa6603241d01a88c5649f95615dad0f847",
+    "stop_request_sha256": "c58446abb096285ab808dd93bb66a70fd8f026d865a099a12dc4d4f282c58bc2",
+    "ended_ts_ms": 1787699652959,
+    "stop_reason": "graceful_stop",
+    "process_pair_absent": true,
+    "process_lock_absent": true,
+    "stop_request_absent": true,
+    "lease_released": true,
+    "shutdown_drain_timed_out": false,
+    "telemetry_shutdown_ok": true
+  },
+  "terminal": {
+    "external_closure_path": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z\\operator\\successor26_terminal_forensic_closure.json",
+    "external_closure_sha256": "43fede9fa22ffcfdad1e512a8b16b82481849eaaad2da6734051bfbfb8245e4c",
+    "journal_total": 62306,
+    "journal_committed": 62306,
+    "journal_failed_or_unresolved": 0,
+    "duplicate_or_retried": 0,
+    "terminal_committed": 1,
+    "critical_incomplete_or_lost": 0,
+    "reconciliation_mismatch_or_unexpected_loss": 0,
+    "queue_overflow_or_shutdown_abandoned": 0,
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "user_version": 6,
+    "managed_v6_fingerprint_match": true
+  },
+  "acquisition_counts": {
+    "capsules": 1583,
+    "predictions": 3154,
+    "candidates": 1583,
+    "markets": 708,
+    "outcomes": 216,
+    "calibration_artifacts": 0,
+    "strategy_experiments": 0,
+    "strategy_candidates": 0,
+    "strategy_evaluations": 0,
+    "holdout_registrations": 0,
+    "entries_positions_exits_pnl": 0
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "database_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Causal acknowledgement-latency forensics and per-class budget, then witnessed causal RED before any production fix."
+}

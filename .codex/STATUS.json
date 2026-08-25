@@ -1,130 +1,49 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-26T05:49:00.894958+07:00",
-  "agent_state": "SUCCESSOR26_FOUR_HOUR_REVIEW_FAILED_RUNTIME_UNTOUCHED_CODEX_STOPPING",
-  "classification": "FOUR_HOUR_REVIEW_FAILED",
+  "updated_at": "2026-08-26T06:18:45.8808873+07:00",
+  "agent_state": "SUCCESSOR26_TERMINAL_FORENSIC_CLOSURE_COMPLETE_LATENCY_ROOT_CAUSE_IN_PROGRESS",
+  "classification": "SUCCESSOR26_TERMINAL_FORENSIC_INELIGIBLE",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "13241ae93ce01709d757c65f35d276c47168bc32",
+  "prior_bridge_commit": "592760d478b75312cdd881861a7b4e17b0025e1b",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR26_FOUR_HOUR_HARD_REVIEW.json",
-  "canonical_artifact_sha256": "4adb9dd7fe5f02c874faa1e0ad2d3b5e37bf6c64b26705c4dafbfd2dedb99f94",
-  "repository": {
-    "path": "D:\\claude\\poly_alpha_sniper",
-    "branch": "master",
-    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
-    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
-    "tested_and_current_tree_sha256": "9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21",
-    "staged_paths": 0,
-    "tracked_modified_paths": 57,
-    "untracked_paths": 113,
-    "deliberate_dirty_tree_preserved": true
-  },
+  "canonical_artifact": ".codex/SUCCESSOR26_TERMINAL_CLOSURE.json",
   "successor26": {
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z",
-    "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z",
-    "materialization_nonce": "fbc7431281e24a0c90d5ffb18e55e949",
-    "phase_one_nonce": "6e80d3ea67cc4d12994c1f20427de260",
-    "reserved_phase_two_nonce_unauthorized": "2a8e2b8caabe4f22a725e7a5fd641362",
     "session_id": "94b7f805b73d4c82b851938e20570477",
-    "runtime_launcher_pid": 8604,
-    "runtime_pid": 6720,
-    "runtime_process_pair_alive": true,
-    "runtime_state": "DEGRADED_PERSISTENCE",
-    "engine_latched_failure_reason": "V4PersistenceTimeout",
-    "guardian_launcher_pid": 12992,
-    "guardian_worker_pid": 6048,
-    "guardian_process_pair_alive": false,
-    "guardian_observations": 220,
-    "guardian_clean_snapshots": 22,
-    "guardian_failure_artifacts": 1,
-    "relaunch_or_fork_detected": false,
+    "phase_one_nonce": "6e80d3ea67cc4d12994c1f20427de260",
+    "runtime_state": "STOPPED",
+    "process_pair_alive": false,
+    "lease_released": true,
+    "stop_consumed_once": true,
     "must_not_relaunch": true,
     "permanently_ineligible": true
   },
-  "first_binding_failure": {
-    "captured_ts_ms": 1787680938064,
-    "path": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z\\operator\\guardian_failure_1787680938064.json",
-    "sha256": "62901f4186f4ec344ed6a676fb21ea0da73be3db8e4c41bf09756fb2760639e7",
-    "violations": [
-      "runtime_state:DEGRADED_PERSISTENCE:True",
-      "critical_latch:V4PersistenceTimeout"
-    ],
-    "configured_acknowledgement_deadline_ms": 15000,
-    "over_deadline_ack_ms": [15133, 15221],
-    "later_lossless_commit_does_not_cure": true
+  "failure": {
+    "guardian_failure_sha256": "62901f4186f4ec344ed6a676fb21ea0da73be3db8e4c41bf09756fb2760639e7",
+    "reason": "V4PersistenceTimeout",
+    "deadline_ms": 15000,
+    "ack_ms": [15133, 15221]
   },
-  "census": {
-    "captured_ts_ms": 1787698140893,
-    "capsules": 1583,
-    "predictions": 3154,
-    "candidates": 1583,
-    "markets": 659,
-    "outcomes": 216,
-    "journal_total": 59679,
-    "journal_committed": 59679,
-    "journal_failed": 0,
-    "journal_unresolved": 0,
-    "journal_duplicates": 0,
-    "journal_retries": 0,
-    "critical_evidence_incomplete": 0,
-    "critical_evidence_lost": 0,
-    "reconciliation_mismatch": 0,
-    "reconciliation_unexpected_loss": 0,
-    "queue_overflow_or_source_discard": 0
-  },
-  "readiness": {
-    "ensemble": {
-      "rank1_rows": 216,
-      "unique_markets": 216,
-      "positive_labels": 117,
-      "negative_labels": 99,
-      "unlabeled": 0,
-      "rank1_deficit": 84,
-      "unique_market_deficit": 84
-    },
-    "model": {
-      "rank1_rows": 215,
-      "unique_markets": 215,
-      "positive_labels": 117,
-      "negative_labels": 98,
-      "unlabeled": 0,
-      "rank1_deficit": 85,
-      "unique_market_deficit": 85
-    },
-    "lineage_exclusions": 0,
-    "frozen_oos_end_ts_ms": 1787717005335,
-    "frozen_oos_passed": false,
-    "phase_one_ready": false
-  },
-  "integrity": {
+  "terminal": {
+    "closure_sha256": "43fede9fa22ffcfdad1e512a8b16b82481849eaaad2da6734051bfbfb8245e4c",
+    "journal_committed": 62306,
+    "journal_failed_or_unresolved": 0,
+    "critical_incomplete_or_lost": 0,
+    "reconciliation_mismatch_or_unexpected_loss": 0,
     "quick_check": "ok",
     "foreign_key_violations": 0,
-    "user_version": 6,
-    "managed_v6_fingerprint_match": true,
-    "complete_exact_v6_graph_validation": "PASS",
-    "lineage_valid": true,
-    "temporal_valid": true,
-    "holdout_contamination": 0
+    "schema_version": 6
   },
-  "authoritative_v5": {
-    "immutable": true,
-    "database_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
-    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
-    "rollback_journal_exists": false
-  },
+  "authoritative_v5_immutable": true,
   "safety": {
     "LIVE_ENABLED": false,
     "REAL_ORDERS_POSSIBLE": false,
     "wallet_signing_available": false,
     "authenticated_trading_available": false,
-    "real_order_placement_available": false,
-    "real_order_cancellation_available": false,
     "kill_switch_engaged": true,
     "phase_two_entered": false,
     "phase_three_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Obtain distinct owner authority for exactly one create-once graceful-stop request bound to Successor26 session 94b7f805b73d4c82b851938e20570477, nonce 6e80d3ea67cc4d12994c1f20427de260 and PID pair 8604->6720, followed only by terminal snapshot, journal reconciliation and causal forensic closure. Do not relaunch, repair, create a successor, calibrate, register a tournament, enter Phase Two, consume holdout, enter Phase Three, enable live capabilities, or mutate authoritative v5.",
-  "codex_active_work_stopping": true
+  "next_action": "Causal acknowledgement-latency forensics and per-class budget, then witnessed causal RED before production fix."
 }

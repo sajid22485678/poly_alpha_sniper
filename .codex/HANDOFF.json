@@ -1,97 +1,49 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-26T05:49:00.894958+07:00",
-  "state": "SUCCESSOR26_FOUR_HOUR_REVIEW_FAILED_RUNTIME_UNTOUCHED_CODEX_STOPPING",
-  "classification": "FOUR_HOUR_REVIEW_FAILED",
-  "prior_bridge_commit": "13241ae93ce01709d757c65f35d276c47168bc32",
+  "checkpoint_local": "2026-08-26T06:18:45.8808873+07:00",
+  "state": "SUCCESSOR26_TERMINAL_FORENSIC_CLOSURE_COMPLETE_LATENCY_ROOT_CAUSE_IN_PROGRESS",
+  "classification": "SUCCESSOR26_TERMINAL_FORENSIC_INELIGIBLE",
+  "prior_bridge_commit": "592760d478b75312cdd881861a7b4e17b0025e1b",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR26_FOUR_HOUR_HARD_REVIEW.json",
-  "canonical_artifact_sha256": "4adb9dd7fe5f02c874faa1e0ad2d3b5e37bf6c64b26705c4dafbfd2dedb99f94",
+  "canonical_artifact": ".codex/SUCCESSOR26_TERMINAL_CLOSURE.json",
+  "external_closure_path": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z\\operator\\successor26_terminal_forensic_closure.json",
+  "external_closure_sha256": "43fede9fa22ffcfdad1e512a8b16b82481849eaaad2da6734051bfbfb8245e4c",
   "identity": {
     "source_tree_sha256": "9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21",
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z",
     "session_id": "94b7f805b73d4c82b851938e20570477",
-    "materialization_nonce": "fbc7431281e24a0c90d5ffb18e55e949",
     "phase_one_nonce": "6e80d3ea67cc4d12994c1f20427de260",
-    "reserved_phase_two_nonce_unauthorized": "2a8e2b8caabe4f22a725e7a5fd641362",
-    "runtime_launcher_pid": 8604,
-    "runtime_pid": 6720,
-    "runtime_pair_alive": true,
-    "guardian_launcher_pid": 12992,
-    "guardian_worker_pid": 6048,
-    "guardian_pair_alive": false,
-    "duplicate_or_relaunch_detected": false,
+    "runtime_pair_alive": false,
+    "lease_released": true,
     "must_not_relaunch": true
   },
+  "terminal_result": {
+    "stop_execute_invocations": 1,
+    "session_ended_ts_ms": 1787699652959,
+    "stop_reason": "graceful_stop",
+    "journal": "62306 total / 62306 committed / 0 failed / 0 unresolved / 0 duplicate / 0 retry / 1 terminal committed",
+    "critical_loss": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "database": "quick_check ok / FK 0 / user_version 6 / managed fingerprint match"
+  },
   "failure": {
-    "captured_ts_ms": 1787680938064,
-    "path": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z\\operator\\guardian_failure_1787680938064.json",
-    "sha256": "62901f4186f4ec344ed6a676fb21ea0da73be3db8e4c41bf09756fb2760639e7",
-    "violations": [
-      "runtime_state:DEGRADED_PERSISTENCE:True",
-      "critical_latch:V4PersistenceTimeout"
-    ],
-    "genuine_ack_deadline_breach": true,
-    "acknowledgement_deadline_ms": 15000,
-    "ack_ms": [15133, 15221],
-    "later_lossless_commit_does_not_cure": true,
-    "successor26_permanently_ineligible": true
-  },
-  "guardian": {
-    "observations": 220,
-    "clean_snapshots": 22,
-    "coverage_start_ts_ms": 1787674238521,
-    "coverage_end_ts_ms": 1787680937952,
-    "latest_clean_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z\\operator\\guardian_snapshot_1787680627000.json",
-    "latest_clean_snapshot_sha256": "4e7ca5fdcf458979f4f52f463439f41aa97c2b9960465899b70ae6b456826d52",
-    "stderr_empty": true,
-    "ended_on_failure": true,
-    "post_failure_independent_coverage": false
-  },
-  "current_census": {
-    "captured_ts_ms": 1787698140893,
-    "runtime_state": "DEGRADED_PERSISTENCE",
-    "runtime_alive": true,
-    "capsules": 1583,
-    "predictions": 3154,
-    "markets": 659,
-    "outcomes": 216,
-    "journal_committed": 59679,
-    "journal_failed_or_unresolved": 0,
-    "critical_evidence_incomplete_or_lost": 0,
-    "reconciliation_mismatch_or_unexpected_loss": 0,
-    "queue_overflow_or_discard": 0,
-    "latest_prediction_ts_ms": 1787681889501,
-    "acquisition_progressing": false
-  },
-  "readiness": {
-    "ensemble": "216 rank-1 / 216 unique / 117 positive / 99 negative / 0 unlabeled; deficits 84 rank-1 and 84 unique",
-    "model": "215 rank-1 / 215 unique / 117 positive / 98 negative / 0 unlabeled; deficits 85 rank-1 and 85 unique",
-    "lineage_exclusions": 0,
-    "frozen_oos_end_ts_ms": 1787717005335,
-    "frozen_oos_passed": false,
-    "phase_one_ready_observation_exists": false
-  },
-  "integrity": {
-    "quick_check": "ok",
-    "foreign_key_violations": 0,
-    "user_version": 6,
-    "managed_v6_fingerprint_match": true,
-    "complete_exact_v6_graph_validation": "PASS",
-    "authoritative_v5_immutable": true,
-    "holdout": "V4-HO-001 NONEXISTENT_UNCONSUMED"
+    "reason": "V4PersistenceTimeout",
+    "deadline_ms": 15000,
+    "entry_decision_ack_ms": 15133,
+    "market_discovery_ack_ms": 15221,
+    "later_lossless_commit_does_not_cure": true
   },
   "safety": {
     "LIVE_ENABLED": false,
     "REAL_ORDERS_POSSIBLE": false,
     "wallet_signing_available": false,
     "authenticated_trading_available": false,
-    "real_order_placement_available": false,
-    "real_order_cancellation_available": false,
     "kill_switch_engaged": true,
     "phase_two_entered": false,
-    "phase_three_entered": false
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
   },
-  "next_action": "Seek owner authorization for exactly one create-once nonce/PID/session-bound graceful stop of the still-alive failed Successor26 identity, followed only by a terminal snapshot, journal reconciliation, and causal forensic closure. Revalidate the process creation identities before any stop mutation. Do not relaunch Successor26, restart its guardian, repair or pool the cohort, create Successor27, finalize calibration, register/evaluate a tournament, enter Phase Two, create/consume holdout, enter Phase Three, enable live capabilities, or mutate authoritative v5.",
-  "codex_active_work_stopping": true
+  "next_action": "Trace immutable Successor26 latency from admission through queue residence, transaction execution, FULL/WAL durability and acknowledgement publication; define the per-class budget; witness causal RED; implement only the minimal root-cause fix."
 }
