@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR24_POWER_LOSS_DURABILITY_FIX_VERIFICATION_V1",
+  "captured_at": "2026-08-25T19:09:31.8145868+07:00",
+  "classification": "CAUSAL_FIX_VERIFIED_SUCCESSOR24_CLOSURE_PENDING",
+  "sole_writer": "Codex",
+  "forensic_input": {
+    "bridge_artifact": ".codex/SUCCESSOR24_POST_HOST_LOSS_FORENSIC_BOUNDARY.json",
+    "bridge_artifact_sha256": "cf996709d3bf1776f6a5b80c8132441e6a801a3a840efe54e4098176bf978a5e",
+    "successor24_classification": "HOST_LOSS_INTEGRITY_FAILURE",
+    "lost_acknowledged_command_count": 1,
+    "recovered_journal_last_sequence": 7431,
+    "pre_loss_acknowledged_last_sequence": 7432
+  },
+  "root_cause": {
+    "proven": true,
+    "sqlite_mode": "WAL",
+    "pre_fix_connection_synchronous": "NORMAL",
+    "commit_ack_order": "domain_and_journal_commit_returns_then_ack_is_published",
+    "defect": "The final exact-v6 domain-plus-COMMITTED-journal transaction was acknowledged without a physical-power-loss durability barrier. WAL synchronous=NORMAL permits the returned commit to roll back after host power loss.",
+    "primary_documentation": [
+      "https://www.sqlite.org/pragma.html#pragma_synchronous",
+      "https://www.sqlite.org/wal.html"
+    ]
+  },
+  "tdd": {
+    "production_code_changed_before_mandatory_red": false,
+    "test_node": "tests/test_frequency_v4_schema_v6.py::test_exact_v6_writer_acknowledges_only_power_loss_durable_final_commit",
+    "mandatory_red": {
+      "pytest_executable": ".venv\\Scripts\\python.exe",
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0,
+      "exit_code": 1,
+      "expected_failure": "dispatch_synchronous was [1] but the power-loss-durable final transaction requires [2]"
+    },
+    "non_test_environment_invocation": {
+      "credited_as_test": false,
+      "result": "System Python lacked pytest; no test was collected or run"
+    },
+    "first_implementation_validation": {
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0,
+      "exit_code": 1,
+      "diagnosis": "The durability argument was initially placed on startup recovery rather than the final commit; no green result was credited. The placement was corrected and startup recovery restored to NORMAL."
+    },
+    "final_focused": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "exit_code": 0
+    }
+  },
+  "implementation": {
+    "store_path": "lite_frequency_v4/store.py",
+    "writer_path": "lite_frequency_v4/persistence.py",
+    "test_path": "tests/test_frequency_v4_schema_v6.py",
+    "model": "TARGETED_FINAL_COMMIT_FULL_SYNCHRONOUS",
+    "details": [
+      "V4Store.transaction accepts a strict durable flag only for the private authorized existing-exact-v6 writer.",
+      "An outer durable transaction switches the connection from its established NORMAL baseline to FULL before BEGIN, verifies the switch, commits or rolls back, and restores the prior policy before returning.",
+      "Nested mutations inherit the outer FULL transaction; a nested durable request under a non-durable outer transaction fails closed.",
+      "Only V4PersistenceWriter._commit_command requests durability, so domain evidence and the journal COMMITTED transition share one FULL transaction before acknowledgement.",
+      "SUBMITTED, EXECUTING, startup recovery, and failure-finalization transactions retain NORMAL; the connection returns to NORMAL before acknowledgement."
+    ],
+    "connection_wide_full_rejected": true,
+    "frozen_acknowledgement_thresholds_weakened": false,
+    "safety_or_loss_taxonomy_changed": false
+  },
+  "verification": {
+    "focused": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "exact_v6_schema": {
+      "tests": 96,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "persistence": {
+      "tests": 62,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "files": [
+        "tests/test_frequency_v4_persistence.py",
+        "tests/test_frequency_v4_persistence_integration.py"
+      ]
+    },
+    "crash_recovery_runtime": {
+      "tests": 117,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "files": [
+        "tests/test_frequency_v4_host_loss_recovery.py",
+        "tests/test_frequency_v4_hydration_recovery.py",
+        "tests/test_frequency_v4_telemetry_recovery.py",
+        "tests/test_frequency_v4_runtime.py",
+        "tests/test_frequency_v4_prospective_runtime.py"
+      ]
+    },
+    "concurrency_telemetry": {
+      "tests": 141,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "files": [
+        "tests/test_frequency_v4_telemetry_writer.py",
+        "tests/test_frequency_v4_telemetry_throughput.py",
+        "tests/test_frequency_v4_telemetry_sink_capacity.py",
+        "tests/test_frequency_v4_telemetry_accounting.py"
+      ]
+    },
+    "broader_config_engine_safety": {
+      "tests": 123,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "files": [
+        "tests/test_frequency_v4_config.py",
+        "tests/test_frequency_v4_cohort.py",
+        "tests/test_frequency_v4_engine.py",
+        "tests/test_frequency_v4_prospective_config.py",
+        "tests/test_frequency_v4_release_risk.py",
+        "tests/test_frequency_v4_prospective_v6.py"
+      ]
+    },
+    "unique_final_tests": 539,
+    "diff_check_exit_code": 0,
+    "py_compile_exit_code": 0
+  },
+  "repository": {
+    "path": "D:\\claude\\poly_alpha_sniper",
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "post_fix_working_tree_sha256": "d9cf35ce94c9cca1e94e562e5bf95c858b6589ae80ce3e914b4af0d4fb4a376a",
+    "manifest_entry_count": 665,
+    "staged_paths": 0,
+    "tracked_modified_paths": 56,
+    "untracked_paths": 108,
+    "deliberate_dirty_tree_preserved": true
+  },
+  "successor24": {
+    "permanently_ineligible": true,
+    "must_not_relaunch": true,
+    "canonical_terminal_closure_complete": false
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_mutated": false
+  },
+  "next_action": "Build and fail-first test the exact Successor24 host-loss closure authority, then execute it exactly once against the stranded session and lease. Do not qualify a fresh successor until terminal forensic closure is proven."
+}

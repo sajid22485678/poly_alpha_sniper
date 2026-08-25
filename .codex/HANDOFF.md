@@ -1,12 +1,15 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T18:53:36.4104535+07:00`
+Updated: `2026-08-25T19:09:31.8145868+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR24_HOST_LOSS_INTEGRITY_FAILURE_IDENTIFIED`
+`SUCCESSOR24_CAUSAL_DURABILITY_FIX_VERIFIED_CLOSURE_PENDING`
 
-Canonical primary-evidence reconciliation is in
+Canonical fix verification is in
+`.codex/SUCCESSOR24_POWER_LOSS_DURABILITY_FIX_VERIFICATION.json`, SHA-256
+`c7ddd3a9f434dfb958d005846332418effae815b2260f5a4018cb9ed597acaf2`.
+Its immutable forensic input is
 `.codex/SUCCESSOR24_POST_HOST_LOSS_FORENSIC_BOUNDARY.json`, SHA-256
 `cf996709d3bf1776f6a5b80c8132441e6a801a3a840efe54e4098176bf978a5e`.
 
@@ -55,9 +58,18 @@ that acknowledgement only after SQLite commit returns. This is one lost
 acknowledged command across physical power loss and is binding even though the
 guardian vanished before it could record a failure.
 
-The causal defect is narrowed to WAL `synchronous=NORMAL` on the acknowledged
-final domain-plus-journal commit. A fail-first regression has not yet been
-written, and production code has not been changed.
+The causal defect was WAL `synchronous=NORMAL` on the acknowledged final
+domain-plus-journal commit. The mandatory regression first failed with the
+actual dispatch at NORMAL. The narrow fix keeps SUBMITTED, EXECUTING, recovery,
+and failure finalization at NORMAL, elevates only the atomic domain-plus-
+COMMITTED-journal transaction to FULL, restores NORMAL before acknowledgement,
+and fails closed if the transition cannot be made or restored.
+
+Final verification is green across 539 unique tests: 96 exact-v6 schema, 62
+persistence, 117 crash/recovery/runtime, 141 concurrency/telemetry, and 123
+broader config/engine/safety tests, with zero failures, errors, or skips. The
+post-fix working-tree identity is
+`d9cf35ce94c9cca1e94e562e5bf95c858b6589ae80ce3e914b4af0d4fb4a376a`.
 
 ## Evidence preservation note
 
@@ -88,12 +100,9 @@ WAL SHA-256 is
 
 ## Exact next action
 
-Write the smallest fail-first power-loss durability regression and observe the
-mandatory RED without production changes. Then implement the narrow final
-acknowledged-commit durability barrier while preserving the normal baseline
-policy, validate affected concurrency/crash/recovery/safety behavior, and use
-one exact-identity authority to canonically close Successor24. Only after the
-fix and closure are proven may a fresh successor be source-qualified,
+Build and fail-first test the exact Successor24 host-loss closure authority,
+then execute it exactly once against the stranded session and lease. Only after
+terminal forensic closure is proven may a fresh successor be source-qualified,
 materialized, cold-verified, and launched exactly once.
 
 Do not enter calibration, tournament, Phase Two, holdout, Phase Three, live or

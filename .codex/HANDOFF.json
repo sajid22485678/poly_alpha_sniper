@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T18:53:36.4104535+07:00",
-  "state": "SUCCESSOR24_HOST_LOSS_INTEGRITY_FAILURE_IDENTIFIED",
+  "checkpoint_local": "2026-08-25T19:09:31.8145868+07:00",
+  "state": "SUCCESSOR24_CAUSAL_DURABILITY_FIX_VERIFIED_CLOSURE_PENDING",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
-  "canonical_artifact": ".codex/SUCCESSOR24_POST_HOST_LOSS_FORENSIC_BOUNDARY.json",
-  "canonical_artifact_sha256": "cf996709d3bf1776f6a5b80c8132441e6a801a3a840efe54e4098176bf978a5e",
+  "canonical_artifact": ".codex/SUCCESSOR24_POWER_LOSS_DURABILITY_FIX_VERIFICATION.json",
+  "canonical_artifact_sha256": "c7ddd3a9f434dfb958d005846332418effae815b2260f5a4018cb9ed597acaf2",
   "successor24": {
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR24-20260825T104125Z",
     "root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
@@ -28,8 +28,10 @@
     "stale_state_last_command_id": "b1e0463d97b54df888535ce5ef0883b5:000000007432:persist-fee-authority-bundle",
     "lost_acknowledged_commands": 1,
     "root_cause": "WAL synchronous=NORMAL permits a returned commit to roll back after physical power loss",
-    "mandatory_red_observed": false,
-    "production_fix_applied": false,
+    "mandatory_red_observed": true,
+    "production_fix_applied": true,
+    "post_fix_working_tree_sha256": "d9cf35ce94c9cca1e94e562e5bf95c858b6589ae80ce3e914b4af0d4fb4a376a",
+    "final_verified_tests": 539,
     "canonical_closure_complete": false
   },
   "authoritative_v5": {
@@ -48,6 +50,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Write and observe the smallest fail-first power-loss durability regression, implement and validate the narrow final acknowledged-commit durability fix, then canonically close Successor24 before any fresh-successor qualification.",
+  "next_action": "Build and fail-first test the exact Successor24 host-loss closure authority, then execute it exactly once against the stranded session and lease before any fresh-successor qualification.",
   "codex_active_work_stopping": false
 }

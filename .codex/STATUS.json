@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-25T18:53:36.4104535+07:00",
-  "agent_state": "SUCCESSOR24_HOST_LOSS_INTEGRITY_FAILURE_IDENTIFIED",
+  "updated_at": "2026-08-25T19:09:31.8145868+07:00",
+  "agent_state": "SUCCESSOR24_CAUSAL_DURABILITY_FIX_VERIFIED_CLOSURE_PENDING",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
   "sole_writer": "Codex",
   "prior_bridge_commit": "05c9c13981954a28633bc163b78b252cfed7e882",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR24_POST_HOST_LOSS_FORENSIC_BOUNDARY.json",
-  "canonical_artifact_sha256": "cf996709d3bf1776f6a5b80c8132441e6a801a3a840efe54e4098176bf978a5e",
+  "canonical_artifact": ".codex/SUCCESSOR24_POWER_LOSS_DURABILITY_FIX_VERIFICATION.json",
+  "canonical_artifact_sha256": "c7ddd3a9f434dfb958d005846332418effae815b2260f5a4018cb9ed597acaf2",
   "repository": {
     "path": "D:\\claude\\poly_alpha_sniper",
     "branch": "master",
@@ -18,7 +18,8 @@
     "tracked_modified_paths": 56,
     "untracked_paths": 108,
     "deliberate_dirty_tree_preserved": true,
-    "production_source_changed_after_host_loss": false
+    "production_source_changed_after_host_loss": true,
+    "post_fix_working_tree_sha256": "d9cf35ce94c9cca1e94e562e5bf95c858b6589ae80ce3e914b4af0d4fb4a376a"
   },
   "successor24": {
     "root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
@@ -46,9 +47,13 @@
   "causal_fix": {
     "root_cause_identified": true,
     "root_cause": "WAL synchronous=NORMAL lacks a physical-power-loss durability barrier for the acknowledged final commit",
-    "mandatory_red_observed": false,
-    "production_fix_applied": false,
-    "validation_complete": false
+    "mandatory_red_observed": true,
+    "production_fix_applied": true,
+    "validation_complete": true,
+    "unique_final_tests": 539,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0
   },
   "authoritative_v5": {
     "immutable": true,
@@ -68,7 +73,7 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Write and observe the smallest fail-first power-loss durability regression, implement and validate the narrow final acknowledged-commit durability fix, then canonically close Successor24 before any fresh-successor qualification.",
+  "next_action": "Build and fail-first test the exact Successor24 host-loss closure authority, then execute it exactly once before any fresh-successor qualification.",
   "forbidden": [
     "Successor24 relaunch repair finalization calibration pooling or reuse",
     "Successors1-23 relaunch repair rehabilitation pooling or reuse",
