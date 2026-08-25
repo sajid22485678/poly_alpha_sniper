@@ -1,0 +1,113 @@
+{
+  "schema": "POLY_ALPHA_SUCCESSOR22_RETENTION_FIX_VERIFICATION_V1",
+  "recorded_at": "2026-08-25T12:59:32.6995202+07:00",
+  "root_cause_checkpoint": "b21c7f8329462a27be3096879731b32889d5b275",
+  "canonical_contract": {
+    "model": "MODEL_B_MONOTONIC_PROMOTION",
+    "order": ["RAW", "TRADE_EVIDENCE", "PERMANENT"],
+    "immutable_evidence_comparison_preserved": true,
+    "promotion_requires_owning_transaction": true,
+    "promotion_after_equivalence_only": true,
+    "weaker_reoffer_cannot_downgrade": true
+  },
+  "implementation": {
+    "files": {
+      "lite_frequency_v4/store.py": "229e575bf9b15e2d049bd8fe175570b3fd7089bebfd21acc908578ec5b641ece",
+      "lite_frequency_v4/persistence.py": "8f620929797806a2378867185ce66bd445ec3e5d38a80fe4dca013ee7b93e39a",
+      "tests/test_frequency_v4_store.py": "fa44142f4e3be16a987ca155763d73ca8aa50473d280dab27c4e62544edd378f",
+      "tests/test_frequency_v4_persistence.py": "e5fe6651b87633b3a36055dd98d34cd01f486fadaf61e7c4b8fe7875e1b8ff04",
+      "tests/test_frequency_v4_prospective_runtime.py": "d2acf69b1a5bc5b12a30d1348bf8e89074aa0130ee31d68ccc96f965f867345c"
+    },
+    "source_behavior": [
+      "Equivalent source rows are validated on all prior immutable fields, then promoted atomically to PERMANENT.",
+      "Equivalent book rows retain exact evidence comparison and use the same monotonic promotion transition.",
+      "Trade-evidence pinning increments pin counts but preserves an existing PERMANENT class for source, book, and CEX rows.",
+      "Failure finalization preserves the actual attempt_count written by each semantic dispatch instead of replacing it with max_attempts."
+    ],
+    "last_write_wins": false,
+    "exception_suppression_added": false,
+    "successor22_history_mutated": false
+  },
+  "verification": {
+    "mandatory_red": {
+      "tests": 1,
+      "failures": 1,
+      "failure": "V4EvidenceConflict: retention_class stored=RAW offered=PERMANENT",
+      "junit_sha256": "9663f37e8ee0329142b120ea9cdea20545f9f92c96584a54da9c875df85f8331"
+    },
+    "final_focused_green": {
+      "root": "D:\\pytest_tmp_v4\\poly_alpha_successor22_retention_final_focused_20260825T0635Z",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "junit_sha256": "e2f2ff455abd13b3aee11a1caf55a9f8eec04c712210b62a3f256d322ef73d8e"
+    },
+    "affected_layer_2": {
+      "root": "D:\\pytest_tmp_v4\\poly_alpha_successor22_retention_affected_layer2_20260825T0612Z",
+      "tests": 425,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "junit_sha256": "ae0dc9feb9fcc40bde648dab30ba67dccd06fc52aa50ce67867fb8d6a785a105"
+    },
+    "adversarial_layer_3": {
+      "root": "D:\\pytest_tmp_v4\\poly_alpha_successor22_retention_adversarial_layer3_20260825T0618Z",
+      "tests": 177,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "junit_sha256": "cbbdba09d008926731f23eee4a8ad3a61db70f16acb666e7c561e3bce9ef0d4e"
+    },
+    "broader_layer_4": {
+      "root": "D:\\pytest_tmp_v4\\poly_alpha_successor22_retention_broader_layer4_20260825T0625Z",
+      "tests": 208,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "junit_sha256": "b55cc5e76353fa957079ca6d39f9cf302fc423c17e476c05f6ac975912dca2cb"
+    },
+    "covered_cases": [
+      "exact RAW-first production failure",
+      "exact same-class duplicate",
+      "canonical retry",
+      "weaker reversed re-offer",
+      "simultaneous same-identity bundle producers",
+      "concurrent retention transition ordering",
+      "partial RAW graph followed by critical bundle",
+      "monotonic promotion",
+      "invalid downgrade prevention",
+      "unrelated identity isolation",
+      "genuine immutable source conflict",
+      "dead and stopped writer behavior",
+      "delayed acknowledgement and queue residence",
+      "worker saturation and shutdown during persistence",
+      "critical-loss accounting",
+      "guardian-visible persistence telemetry",
+      "journal and reconciliation",
+      "source lineage and runtime safety"
+    ],
+    "ruff_available": false,
+    "ruff_note": "The project virtual environment does not contain ruff; this is recorded as unavailable rather than credited. Python import/compile occurred through passing pytest collections."
+  },
+  "repository": {
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "staged_paths": 0,
+    "tracked_modified_paths": 55,
+    "untracked_paths": 108,
+    "deliberate_dirty_tree_preserved": true,
+    "source_seal_started": false
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Freeze the current source, construct a fresh create-once Successor23 source-seal root/manifest/runner, and execute the repository-defined full suite exactly once."
+}

@@ -2,34 +2,29 @@
 
 ## Durable boundary
 
-`SUCCESSOR22_ROOT_CAUSE_AND_MANDATORY_RED_COMPLETE_FIX_NEXT`
+`SUCCESSOR22_RETENTION_FIX_VERIFIED_SUCCESSOR23_SOURCE_SEAL_NEXT`
 
-Successor22 is terminal, permanently forensic/ineligible, and unavailable.
-Its exact closure evidence remains at bridge commit
-`8f121530b2e72a432488af76ebc793cd15c3f4dc`.
+Successor22 is terminal, forensic-only, permanently ineligible, and cannot be
+relaunched. Root cause and mandatory RED are at bridge commit
+`b21c7f8329462a27be3096879731b32889d5b275`.
 
-Root cause is proven end-to-end: the same accepted source observation and first
-causal book can commit as RAW through telemetry/evaluation before the critical
-execution-book command asks for PERMANENT. Retention is documented in source as
-mutable lifecycle state, but the bundle treats it as immutable evidence after
-duplicate resolution. This deterministic ordering rolls back the critical
-transaction, accounts two lost logical rows, and trips the guardian. The
-durable journal's attempt count of three is misleading: non-retryable
-`V4EvidenceConflict` dispatched once, while failure finalization stamps the
-configured maximum.
+The minimal fix is complete. Retention is an explicit monotonic lifecycle
+transition (`RAW < TRADE_EVIDENCE < PERMANENT`) performed only after immutable
+source/book equivalence is proven inside the critical transaction. No
+last-write-wins behavior or exception suppression was introduced. Permanent
+rows cannot be lowered by later telemetry, evaluation, or trade pinning.
+Deterministic failure accounting now records the actual dispatch count.
 
-The canonical invariant is Model B:
-`RAW < TRADE_EVIDENCE < PERMANENT`, monotonic and atomic after immutable-field
-equivalence. No last-write-wins behavior and no weakening of
-`V4EvidenceConflict` is permitted.
+All pre-seal layers pass: focused 5, affected 425, adversarial 177, and broader
+runtime/safety 208, each with zero failures/errors/skips. Exact paths, hashes,
+case coverage, and source-file hashes are in
+`.codex/SUCCESSOR22_RETENTION_FIX_VERIFICATION.json`.
 
-Mandatory RED is preserved at
-`D:\pytest_tmp_v4\poly_alpha_successor22_retention_red2_20260825T0530Z`.
-The single production-path regression executed and failed exactly on
-`RAW -> PERMANENT`; JUnit SHA-256 is
-`9663f37e8ee0329142b120ea9cdea20545f9f92c96584a54da9c875df85f8331`.
-No production code had changed.
+Repository authority remains branch `master`, HEAD
+`d3364f219feb37a09a547ff1daba6f0f96377fe4`, index tree
+`700307bdbc9a4fdab7615d79eea83fe1bf6463cb`; deliberate unknown changes are
+preserved and nothing is staged.
 
-Exact next action: implement the minimal monotonic transition in the store,
-guard all trade-evidence pin paths against downgrading PERMANENT, then make the
-causal and required adjacent cases GREEN before broader qualification.
+Exact next action: create a unique Successor23 source-seal evidence root,
+capture the current canonical working-tree manifest, construct a create-once
+runner bound to its hashes, then launch the full repository suite exactly once.

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T12:36:57.7077092+07:00",
-  "state": "SUCCESSOR22_ROOT_CAUSE_AND_MANDATORY_RED_COMPLETE_FIX_NEXT",
+  "checkpoint_local": "2026-08-25T12:59:32.6995202+07:00",
+  "state": "SUCCESSOR22_RETENTION_FIX_VERIFIED_SUCCESSOR23_SOURCE_SEAL_NEXT",
   "classification": "TERMINAL_FORENSIC_INELIGIBLE",
   "prior_bridge_commit": "855a4ace97e4cdf8944c31cb38eff7cec44e761d",
   "containing_bridge_commit": "SELF",
@@ -52,6 +52,16 @@
     "weaker_reoffer_preserves_stronger_state": true,
     "genuine_immutable_conflict_still_fails_closed": true
   },
+  "fix_verification": {
+    "artifact": ".codex/SUCCESSOR22_RETENTION_FIX_VERIFICATION.json",
+    "production_fix_complete": true,
+    "focused_green": 5,
+    "affected_green": 425,
+    "adversarial_green": 177,
+    "broader_green": 208,
+    "failures_errors_skips": 0,
+    "successor23_source_seal_started": false
+  },
   "safety": {
     "LIVE_ENABLED": false,
     "REAL_ORDERS_POSSIBLE": false,
@@ -64,7 +74,7 @@
     "authoritative_v5_immutable": true,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "exact_next_action": "Implement explicit atomic monotonic promotion for equivalent source/book rows, prevent trade-evidence pinning from lowering PERMANENT, preserve immutable conflict semantics, and run the causal plus adjacent verification ladder.",
+  "exact_next_action": "Freeze the current source, construct a fresh create-once Successor23 source-seal root/manifest/runner, and execute the repository-defined full suite exactly once.",
   "successor22_relaunch_performed": false,
   "later_phase_entered": false,
   "codex_active_work_stopping": false
