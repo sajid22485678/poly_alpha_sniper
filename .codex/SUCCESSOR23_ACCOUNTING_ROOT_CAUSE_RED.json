@@ -1,0 +1,68 @@
+{
+  "contract": "POLY_ALPHA_SUCCESSOR23_ACCOUNTING_ROOT_CAUSE_RED_V1",
+  "recorded_at": "2026-08-25T16:55:56.3272053+07:00",
+  "state": "SUCCESSOR23_ACCOUNTING_ROOT_CAUSE_PROVEN_MANDATORY_RED",
+  "sole_writer": "Codex",
+  "prior_bridge_commit": "a5db7faaba4d49ad3da5a78ece3535e72c6008b9",
+  "containing_bridge_commit": "SELF",
+  "successor23_terminal_closure_sha256": "765204957b31eebd778ad8179af976f6347b8c08feea2eb243e1976b6975dbe9",
+  "forensic_copy": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_successor23_accounting_forensics_20260825T0950Z",
+    "manifest_sha256": "9a0b558ffa52d07cb590ce57da995b5e7c2396ad383a5745bf2af9a5bfa512bb",
+    "db_sha256": "9f95e1c38792cc3125bec3138f5acb2eaffb4507db76b1304bc5d555807c19bb",
+    "wal_sha256": "502e75396dde9a853b641f4488463830864341b3b38d853f69cf559b43c0da5b"
+  },
+  "first_causal_epoch": {
+    "last_clean_snapshot_ts_ms": 1787648176994,
+    "last_clean_snapshot_sha256": "f361cc5a46b2f97da8588d0528c7ef7056ec37674afccfe0c765acc358504dd4",
+    "last_clean_deduplicated": 0,
+    "last_clean_mismatch": 0,
+    "first_failure_ts_ms": 1787648489397,
+    "first_failure_sha256": "26169b2c3fca7e9db9f0f9ef850e9d96bee4b7c7b2b2bc14395523696145a490",
+    "first_failure_deduplicated": 1,
+    "first_failure_mismatch": -1
+  },
+  "root_cause": {
+    "producer": "V4TelemetryWriter.submit pre-admission dedupe_key branch",
+    "producer_effect": "one row increments both _coalesced umbrella and _deduplicated subtype",
+    "consumer": "V4TelemetryWriter._reconcile_locked",
+    "consumer_effect": "adds policy_coalesced and policy_deduplicated as separate terminal exits",
+    "defect": "one pre-admission duplicate is counted twice in accounted",
+    "observed_identity": "mismatch=submitted-accounted=-deduplicated",
+    "contract": "raw coalesced remains an inclusive diagnostic; conservation policy_coalesced excludes the pre-admission deduplication subset; policy_deduplicated counts it exactly once"
+  },
+  "mandatory_red": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_successor23_accounting_red_20260825T0954Z",
+    "test_node": "tests/test_frequency_v4_telemetry_accounting.py::test_pre_admission_deduplication_is_one_exclusive_conservation_exit",
+    "launch_count": 1,
+    "exit_code": 1,
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skips": 0,
+    "authority_sha256": "e2c8a2b35073d748813737777e1a529dfbfae2ecb14bc71518b4efa6088ade6d",
+    "junit_sha256": "f2a6080786ac31ae3455af217e526568afaabbcd70a3ca47abc1e7710d3e9bc2",
+    "observation_sha256": "8ed15ccbaa5678071c6d317b885beb5d8f50cf7bc998fbdd36364854e957db9e",
+    "actual": {
+      "submitted": 2,
+      "accounted": 3,
+      "policy_coalesced": 1,
+      "policy_deduplicated": 1,
+      "mismatch": -1
+    },
+    "required": {
+      "submitted": 2,
+      "accounted": 2,
+      "policy_coalesced": 0,
+      "policy_deduplicated": 1,
+      "mismatch": 0
+    }
+  },
+  "source_ordering": {
+    "production_fix_applied_before_red": false,
+    "test_sha256": "4cfabc703b66f57a862182941c1d8b12a37c79786fc8dd38131e4ee460748b97",
+    "production_telemetry_sha256": "b4372372d35ab892f8bea24e59098acf91049ac8d1b95c7389f6c83f5aa0b014",
+    "preexisting_deliberate_production_diff_preserved": true
+  },
+  "exact_next_action": "Apply the minimal reconciliation fix that derives an exclusive policy_coalesced bucket by removing the pre-admission _deduplicated subset exactly once, without changing raw coalesced/deduplicated counters, disposition, controller behavior, loss taxonomy, or fail-closed mismatch gating."
+}

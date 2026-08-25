@@ -2,17 +2,21 @@
 
 ## Durable boundary
 
-`SUCCESSOR23_TERMINAL_FORENSIC_CLOSED_ROOT_CAUSE_PENDING`
+`SUCCESSOR23_ACCOUNTING_ROOT_CAUSE_PROVEN_MANDATORY_RED`
 
 The canonical current record is
-`.codex/SUCCESSOR23_TERMINAL_FORENSIC_CLOSURE.json`. The exact graceful stop ran
-once and completed: runtime and launcher are absent, lock/request are absent,
-lease and session are closed, and the terminal journal command committed.
-Successor23 is permanently forensic/ineligible and `MUST_NOT_RELAUNCH`.
+`.codex/SUCCESSOR23_ACCOUNTING_ROOT_CAUSE_RED.json`. Successor23 remains
+terminal, permanently forensic/ineligible, and `MUST_NOT_RELAUNCH`.
 
-Exact next action: trace the accounting formula and sole deduplication epoch to
-root cause, define the conservation contract, and obtain a mandatory causal RED
-before any production source change.
+Root cause is proven: the pre-admission dedupe branch increments both the raw
+coalescing umbrella and its deduplication subtype, while reconciliation counts
+both as separate exits. The single Successor23 dedupe therefore caused the
+exact `-1` mismatch. One focused causal test failed exactly as required; no
+production fix preceded RED.
+
+Exact next action: make `policy_coalesced` exclusive by removing the
+pre-admission deduplication subset once, preserving all raw diagnostics,
+controller behavior, loss taxonomy, and fail-closed mismatch gating.
 
 The bounded two-hour classification remains `TWO_HOUR_REVIEW_FAILED`. Its
 canonical forensic record is `.codex/SUCCESSOR23_TWO_HOUR_REVIEW.json`; earlier
