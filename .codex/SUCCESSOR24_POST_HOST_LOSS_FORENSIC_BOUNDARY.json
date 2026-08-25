@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR24_POST_HOST_LOSS_FORENSIC_BOUNDARY_V1",
+  "captured_at": "2026-08-25T18:53:36.4104535+07:00",
+  "classification": "HOST_LOSS_INTEGRITY_FAILURE",
+  "sole_writer": "Codex",
+  "prior_bridge_commit": "05c9c13981954a28633bc163b78b252cfed7e882",
+  "authority": "CURRENT_DISK_HOST_PROCESS_DATABASE_JOURNAL_AND_IMMUTABLE_EVIDENCE",
+  "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR24-20260825T104125Z",
+    "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
+    "source_tree_sha256": "7a1c9c09d124a44d732e0cbdd26336616e2804d9a97c1fc6f8ccd6bfed08f3b5",
+    "materialization_nonce": "a4d60ae0194c4850ad64c2ad8b0e8c79",
+    "phase_one_nonce": "f138bd0a49fb413c9fb29e9911163c93",
+    "phase_two_nonce_reserved_unauthorized": "779cf700edeb4b57a57a7b8d111e2df9",
+    "session_id": "b1e0463d97b54df888535ce5ef0883b5",
+    "launcher_pid": 15836,
+    "runtime_pid": 16544,
+    "guardian_launcher_pid": 4016,
+    "guardian_worker_pid": 19272,
+    "phase_one_launch_count": 1,
+    "guardian_launch_count": 1,
+    "must_not_relaunch": true
+  },
+  "host_loss": {
+    "current_boot_utc": "2026-08-25T11:31:46.5000000Z",
+    "predecessor_processes_present_after_boot": false,
+    "matching_successor24_processes_present": false,
+    "automatic_relaunch_detected": false,
+    "old_pids_reused": false,
+    "interpretation": "The consumed Successor24 runtime and guardian disappeared with the prior host instance. Stale state and heartbeat files are forensic evidence only and are not process authority after reboot."
+  },
+  "runtime_evidence": {
+    "process_lock_sha256": "e3952d0f9016a9f95025270b0d34be336646b04bcd1800c899b702c26a74d70e",
+    "process_guard_sha256": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+    "state_json_sha256": "3a00ec03d0948452f76a85c58c199ed8f697e9ddd07a636696813d4b3db23a75",
+    "state_last_write_utc": "2026-08-25T11:29:44.1371147Z",
+    "heartbeat_json_sha256": "9133d49202896a5ff8668f967ea70de1cac0e04c4c3895337b4a7a0b649629af",
+    "heartbeat_ts_ms": 1787657381982,
+    "orphan_heartbeat_temp_path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\runtime\\heartbeat.json.tmp.16544.d3a38e394b584e99b0e66d3ea5378423",
+    "orphan_heartbeat_temp_sha256": "92823c5b4c3ad2294ff2add553d06b67142117205450eab7922615302d494f0d",
+    "orphan_heartbeat_temp_ts_ms": 1787657384120,
+    "orphan_heartbeat_temp_interpretation": "Complete temporary heartbeat JSON left before atomic replacement; preserve as host-loss evidence.",
+    "runtime_stdout_sha256": "8333a60e2d8480b07ebddaba3e5cb69591da2b2e3bf98f9cb8146f4c28ed04be",
+    "runtime_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "guardian": {
+    "latest_durable_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\guardian_snapshot_1787657094098.json",
+    "latest_durable_snapshot_sha256": "974c2a09c4cd7455700c66e69fb959b759aa9dc59f5729322c800c16234ae1f3",
+    "latest_durable_snapshot_ts_ms": 1787657094098,
+    "snapshot_counts": {
+      "capsules": 355,
+      "predictions": 705,
+      "markets": 88,
+      "outcomes": 25,
+      "journal_committed": 6387
+    },
+    "snapshot_binding_failures": {
+      "critical_failed": 0,
+      "critical_lost": 0,
+      "incomplete": 0,
+      "queue_overflow": 0,
+      "source_discard": 0,
+      "reconciliation_mismatch": 0
+    },
+    "guardian_stdout_sha256": "228756a01cf31513d3866d90ba8357a2fe0a254f96354be6b2b0d7455adef0c6",
+    "guardian_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "last_stdout_observation_ts_ms": 1787657367829,
+    "last_stdout_counts": {
+      "capsules": 421,
+      "predictions": 837,
+      "markets": 96,
+      "outcomes": 33,
+      "journal_committed": 7379
+    },
+    "failure_artifact_present": false,
+    "shutdown_artifact_present": false,
+    "interpretation": "The guardian remained clean through its last durable observation. The later recovered-database contradiction is a physical-power-loss durability failure that could not be recorded by the vanished guardian."
+  },
+  "recovered_database": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\prospective-exact-v6.db",
+    "db_length": 307224576,
+    "db_sha256": "fa79e3bcda893fd420092dfff370b768f0bb25277771bf1e6f8ca6f056484fb0",
+    "wal_length": 111693232,
+    "wal_sha256": "196f6868cc2ae9045338b11a7077732f6ddb0c82cdac27dfd70157841cec1841",
+    "original_post_reboot_shm_length": 294912,
+    "original_post_reboot_shm_sha256": "b9c048de34d844a2381155656d249036a85a52b60cb9fd06bf1600e44d7aa3ae",
+    "current_shm_length": 32768,
+    "current_shm_sha256": "430edda9cce8a6ac04aa0873539c2dffd26234f5a3b3cc084c7176d96504990d",
+    "reader_effect_disclosure": "The first post-reboot repository monitor opened the WAL database query-only and SQLite rebuilt SHM. DB and WAL bytes, hashes, and mtimes did not change. The original and resulting SHM identities are both preserved here; no restoration was attempted.",
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "schema_user_version": 6,
+    "runtime_session_rows": 1,
+    "runtime_session_open": true,
+    "runtime_lease_acquired": true,
+    "runtime_lease_released": false,
+    "journal": {
+      "total": 7431,
+      "committed": 7431,
+      "failed": 0,
+      "unresolved": 0,
+      "duplicate_command_ids": 0,
+      "duplicate_idempotency_keys": 0,
+      "retries": 0,
+      "terminal_commands": 0,
+      "sequence_min": 1,
+      "sequence_max": 7431,
+      "sequence_contiguous": true,
+      "last_command_id": "b1e0463d97b54df888535ce5ef0883b5:000000007431:persist-fee-authority-bundle",
+      "last_committed_ts_ms": 1787657380994
+    },
+    "counts": {
+      "decision_replay_capsules": 421,
+      "calibration_predictions": 837,
+      "markets": 96,
+      "outcomes": 33,
+      "entries": 0,
+      "positions": 0,
+      "exits": 0,
+      "pnl_records": 0,
+      "calibration_artifacts": 0,
+      "tournament_rows": 0,
+      "holdout_rows": 0
+    },
+    "readiness": {
+      "ensemble": {
+        "rank1_rows": 56,
+        "unique_markets": 56,
+        "positive_labels": 9,
+        "negative_labels": 24,
+        "unlabeled": 23
+      },
+      "model": {
+        "rank1_rows": 55,
+        "unique_markets": 55,
+        "positive_labels": 9,
+        "negative_labels": 23,
+        "unlabeled": 23
+      },
+      "phase_one_ready": false
+    }
+  },
+  "integrity_failure": {
+    "stale_state_commands_submitted": 7432,
+    "stale_state_commands_committed": 7432,
+    "stale_state_commands_failed": 0,
+    "stale_state_unconfirmed_commands": 0,
+    "stale_state_last_committed_command_id": "b1e0463d97b54df888535ce5ef0883b5:000000007432:persist-fee-authority-bundle",
+    "stale_state_last_commit_ts_ms": 1787657383322,
+    "recovered_database_command_7432_present": false,
+    "lost_acknowledged_command_count": 1,
+    "binding_interpretation": "The persistence worker reported command 7432 committed and acknowledged only after SQLite commit returned, yet the recovered database contains a contiguous journal ending at 7431. Successor24 therefore cannot be classified clean or recoverable and is permanently ineligible.",
+    "causal_hypothesis": "Exact-v6 uses SQLite WAL with synchronous=NORMAL. SQLite documents that a transaction committed in WAL mode at NORMAL can roll back after power loss. The final atomic domain-plus-journal commit was acknowledged without a power-loss durability barrier.",
+    "production_fix_applied": false,
+    "mandatory_red_observed": false
+  },
+  "authoritative_v5": {
+    "verified_at_utc": "2026-08-25T11:52:01.3827724Z",
+    "immutable": true,
+    "db_length": 16627990528,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_length": 0,
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_length": 32768,
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_order_placement_available": false,
+    "real_order_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "disposition": {
+    "successor24": "PERMANENTLY_INELIGIBLE_MUST_NOT_RELAUNCH_REPAIR_FINALIZE_POOL_OR_REUSE",
+    "canonical_terminal_closure_complete": false,
+    "fresh_successor_authorized_after_fix_and_qualification": true
+  },
+  "next_action": "Create the fail-first power-loss durability regression, observe the mandatory RED without production changes, implement the narrow final-commit durability fix, validate it, then execute one exact-identity Successor24 host-loss forensic closure before qualifying any fresh successor.",
+  "forbidden": [
+    "Successor24 relaunch, repair, calibration finalization, tournament use, pooling, or reuse",
+    "Successors 1 through 23 relaunch, repair, rehabilitation, pooling, or reuse",
+    "Phase Two or reserved Phase-Two nonce consumption",
+    "holdout creation or consumption",
+    "Phase Three",
+    "live or authenticated trading, wallet signing, real orders, or cancels",
+    "authoritative-v5 mutation or cutover"
+  ]
+}
