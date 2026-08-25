@@ -1,13 +1,13 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T22:10:58.0990115+07:00`
+Updated: `2026-08-25T22:34:20.2489449+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR26_SOURCE_SEAL_PREPARED_NOT_EXECUTED`
+`SUCCESSOR26_SOURCE_SEAL_PASSED`
 
-Canonical current detail is in `.codex/SUCCESSOR26_SOURCE_SEAL_PREPARED.json`,
-SHA-256 `dcfc8d1c8e6603e895faf57a86e07e95a7e7ad50a8570fd33c708cf1eab8b81e`.
+Canonical current detail is in `.codex/SUCCESSOR26_SOURCE_SEAL_PASS.json`,
+SHA-256 `9b1c2fe3b7d27d775c1d8d62644080a92004866e6b601b42f93524e3d2b5dc8e`.
 The immutable terminal closure and causal-fix verification remain in their prior
 canonical artifacts.
 
@@ -54,10 +54,12 @@ Its tested tree is
 `9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21`,
 manifest SHA-256 is
 `42f1d43bf674074793ce851d9362adf25cb853f3a06ae0871556f403f057a5d6`,
-and pytest launch count is zero. Execute `run_full_suite_once.py` exactly once
-and preserve this identity on failure or ambiguity. Only an exact green
-post-tree/v5 verification may authorize fresh materialization, cold
-verification, one Phase-One launch and one standalone monotonic guardian. Do
-not enter calibration, tournament, Phase Two, holdout, Phase Three,
-live/authenticated trading, signing, orders/cancels, or authoritative-v5
-mutation.
+and its exact-once suite passed 4,246/4,246 with zero failure/error/skip, exit 0.
+JUnit SHA-256 is
+`2b6194b5286de37c267fcb21b2a6eaae76ec33dd89ba238657dd2d928e306564`;
+post-verification SHA-256 is
+`50b1014cb90fc8df4c6310a03df726bde4a57506a7013f2c61cace7ce297dcd4`.
+Create one fresh materialization authority/root with three distinct nonces,
+execute it once, and cold-verify once. Do not enter calibration, tournament,
+Phase Two, holdout, Phase Three, live/authenticated trading, signing,
+orders/cancels, or authoritative-v5 mutation.

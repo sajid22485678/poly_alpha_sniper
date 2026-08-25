@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T22:10:58.0990115+07:00",
-  "state": "SUCCESSOR26_SOURCE_SEAL_PREPARED_NOT_EXECUTED",
-  "classification": "CREATE_ONCE_SOURCE_SEAL_PREPARED_PYTEST_LAUNCH_COUNT_ZERO",
-  "canonical_artifact": ".codex/SUCCESSOR26_SOURCE_SEAL_PREPARED.json",
-  "canonical_artifact_sha256": "dcfc8d1c8e6603e895faf57a86e07e95a7e7ad50a8570fd33c708cf1eab8b81e",
+  "checkpoint_local": "2026-08-25T22:34:20.2489449+07:00",
+  "state": "SUCCESSOR26_SOURCE_SEAL_PASSED",
+  "classification": "EXACT_ONCE_4246_TEST_SEAL_GREEN_MATERIALIZATION_AUTHORIZED",
+  "canonical_artifact": ".codex/SUCCESSOR26_SOURCE_SEAL_PASS.json",
+  "canonical_artifact_sha256": "9b1c2fe3b7d27d775c1d8d62644080a92004866e6b601b42f93524e3d2b5dc8e",
   "successor25": {
     "root": "D:\\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z",
     "session_id": "50ac10343a4044fa8f2fe71113ac014f",
@@ -79,6 +79,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Execute the prepared Successor26 run_full_suite_once.py exactly once and preserve this seal identity on any failure, interruption, or ambiguity.",
+  "next_action": "Create one fresh Successor26 materialization authority with a new acquisition root and three distinct nonces, then execute its materialization exactly once.",
   "codex_active_work_stopping": false
 }

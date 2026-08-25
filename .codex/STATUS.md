@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T22:10:58.0990115+07:00`
+Updated: `2026-08-25T22:34:20.2489449+07:00`
 
 ## Current boundary
 
-`SUCCESSOR26_SOURCE_SEAL_PREPARED_NOT_EXECUTED`
+`SUCCESSOR26_SOURCE_SEAL_PASSED`
 
 Successor25 is permanently ineligible. Its one Phase-One identity was session
 `50ac10343a4044fa8f2fe71113ac014f`, nonce
@@ -65,13 +65,17 @@ and `V4-HO-001` nonexistent/unconsumed.
 
 Successor26 seal root
 `D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor26_20260825T1509Z`
-is prepared create-once at tested tree
+passed its exact-once qualification at tested tree
 `9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21`.
 Manifest SHA-256 is
 `42f1d43bf674074793ce851d9362adf25cb853f3a06ae0871556f403f057a5d6`;
-pytest launch count is zero and authoritative v5 passed its pre-seal hash gate.
+pytest launch count is one: 4,246 tests, zero failure/error/skip, exit 0. JUnit
+SHA-256 is
+`2b6194b5286de37c267fcb21b2a6eaae76ec33dd89ba238657dd2d928e306564`;
+post-verification SHA-256 is
+`50b1014cb90fc8df4c6310a03df726bde4a57506a7013f2c61cace7ce297dcd4`.
+Exact post-tree equality and authoritative-v5 equality passed.
 
-Exact next action: execute the prepared `run_full_suite_once.py` exactly once.
-Preserve this seal identity on any failure, interruption or ambiguity. Only a
-green exact post-tree/v5 verification may authorize fresh materialization, cold
-verification, one Phase-One launch and one guardian.
+Exact next action: create one fresh Successor26 materialization authority with a
+new acquisition root and three distinct nonces, then execute materialization
+exactly once and cold-verify it exactly once.

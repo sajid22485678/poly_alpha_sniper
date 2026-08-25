@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR26_SOURCE_SEAL_PASS_V1",
+  "captured_at": "2026-08-25T22:34:20.2489449+07:00",
+  "classification": "EXACT_ONCE_SOURCE_SEAL_PASSED_MATERIALIZATION_AUTHORIZED",
+  "seal_root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor26_20260825T1509Z",
+  "tested_tree_sha256": "9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21",
+  "post_tree_sha256": "9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21",
+  "manifest_sha256": "42f1d43bf674074793ce851d9362adf25cb853f3a06ae0871556f403f057a5d6",
+  "junit_sha256": "2b6194b5286de37c267fcb21b2a6eaae76ec33dd89ba238657dd2d928e306564",
+  "post_verification_sha256": "50b1014cb90fc8df4c6310a03df726bde4a57506a7013f2c61cace7ce297dcd4",
+  "pytest_launch_count": 1,
+  "pytest_exit_code": 0,
+  "tests": 4246,
+  "failures": 0,
+  "errors": 0,
+  "skips": 0,
+  "tree_exact": true,
+  "authoritative_v5_equal": true,
+  "materialization_authorized": true,
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Create one fresh Successor26 materialization authority with new acquisition root and three distinct nonces, then execute its materialization exactly once."
+}
