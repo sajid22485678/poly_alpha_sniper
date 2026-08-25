@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-25T19:59:48.4651722+07:00",
-  "agent_state": "SUCCESSOR25_SOURCE_SEAL_PREPARED",
+  "updated_at": "2026-08-25T20:22:35.3662979+07:00",
+  "agent_state": "SUCCESSOR25_SOURCE_SEAL_PASSED",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
   "sole_writer": "Codex",
   "prior_bridge_commit": "05c9c13981954a28633bc163b78b252cfed7e882",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR25_SOURCE_SEAL_PREPARED.json",
-  "canonical_artifact_sha256": "2f8a9762f7673f14733ad8745bd44215b3e24ff7d245e62a629cbe3ce5c48ef9",
+  "canonical_artifact": ".codex/SUCCESSOR25_SOURCE_SEAL_PASSED.json",
+  "canonical_artifact_sha256": "27e8663dd08e0661a052a96e875c6520cc0a078166c46bda5da24386d481869d",
   "repository": {
     "path": "D:\\claude\\poly_alpha_sniper",
     "branch": "master",
@@ -112,9 +112,17 @@
     "tested_tree_sha256": "7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7",
     "runner_sha256": "178f0839981eb37d8c5da65fbca2e7c51b4f4bf9b1a4ac2c7072f98db45fa19f",
     "expected_tests": 4208,
-    "pytest_launch_count": 0,
+    "pytest_launch_count": 1,
     "prepared": true,
-    "verified": false
+    "verified": true,
+    "pytest_exit_code": 0,
+    "tests": 4208,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "junit_sha256": "a30da2c22e3097807d5b3ace2bd97cf678e04768c8bbe55aca4d73bdbe28b9e8",
+    "post_verification_sha256": "5b826157b0a70c821e52a1f9ebc0ca12d67641cf054691bc8f56385c7a2f8692",
+    "materialization_authorized": true
   },
   "authoritative_v5": {
     "immutable": true,
@@ -134,7 +142,7 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Invoke the prepared Successor25 run_full_suite_once.py exactly once. Never rerun this source-seal identity.",
+  "next_action": "Prepare and invoke exactly one fresh Successor25 materialization with a new root and nonce, then cold-verify it before any launch.",
   "forbidden": [
     "Successor24 relaunch repair finalization calibration pooling or reuse",
     "Successors1-23 relaunch repair rehabilitation pooling or reuse",

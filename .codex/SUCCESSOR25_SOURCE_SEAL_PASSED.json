@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR25_SOURCE_SEAL_PASSED_CHECKPOINT_V1",
+  "captured_at": "2026-08-25T20:22:35.3662979+07:00",
+  "result": "PASSED",
+  "root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor25_20260825T1257Z",
+  "pytest_launch_count": 1,
+  "pytest_exit_code": 0,
+  "tests": 4208,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "source": {
+    "manifest_sha256": "91f5c2bb8bb44096071752aac783e5115aad6e09caa0f946469dedbaa8a6bafe",
+    "tested_tree_sha256": "7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7",
+    "post_tree_sha256": "7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7",
+    "tree_exact": true
+  },
+  "evidence": {
+    "post_verification_sha256": "5b826157b0a70c821e52a1f9ebc0ca12d67641cf054691bc8f56385c7a2f8692",
+    "junit_sha256": "a30da2c22e3097807d5b3ace2bd97cf678e04768c8bbe55aca4d73bdbe28b9e8",
+    "pytest_exit_sha256": "358301bb16145c56c3223a8552ddee52e2efb6be35f3856c4ba74798f991b7fa",
+    "run_control_sha256": "e24d4faa75f4ce73af6bf61b7a6b6b0b48172262920ee800fbd1291ad57b2526",
+    "run_started_sha256": "ab0b62c36130431d33ba1bd56ad8ecf4cf665c16ab06677f7bb07bd7634dab29",
+    "exact_command_sha256": "2ea5f7a7cdd5d7b911f709659eadd2d1359be5dd88ea74c807c8477c2968568b",
+    "runner_sha256": "178f0839981eb37d8c5da65fbca2e7c51b4f4bf9b1a4ac2c7072f98db45fa19f"
+  },
+  "checks": {
+    "manifest_hash_matches": true,
+    "tested_tree_matches": true,
+    "runner_hash_matches": true,
+    "run_started_contract_matches": true,
+    "exit_capture_matches": true,
+    "run_control_matches": true,
+    "junit_inventory_exact_and_green": true,
+    "authoritative_v5_equal": true
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "materialization_authorized": true,
+  "next_action": "Prepare and invoke exactly one fresh Successor25 materialization with a new root and nonce, then cold-verify it before any launch."
+}

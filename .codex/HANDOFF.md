@@ -1,13 +1,13 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T19:59:48.4651722+07:00`
+Updated: `2026-08-25T20:22:35.3662979+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR25_SOURCE_SEAL_PREPARED`
+`SUCCESSOR25_SOURCE_SEAL_PASSED`
 
 Canonical transition detail is in
-`.codex/SUCCESSOR25_SOURCE_SEAL_PREPARED.json`.
+`.codex/SUCCESSOR25_SOURCE_SEAL_PASSED.json`.
 The boot-evidence correction remains at
 `.codex/SUCCESSOR24_BOOT_EVIDENCE_CORRECTION.json`, SHA-256
 `d7dc60eebfe94c4a474e1eb22b88c554d4a34962efb5cc2b4d1d49fc54377377`.
@@ -126,8 +126,11 @@ It binds manifest SHA-256
 `91f5c2bb8bb44096071752aac783e5115aad6e09caa0f946469dedbaa8a6bafe`,
 tested tree SHA-256
 `7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7`,
-and an exact 4,208-test inventory. Invoke `run_full_suite_once.py` exactly once.
-Never rerun this seal identity or relaunch/reuse Successor24.
+and an exact 4,208-test inventory. Its one full-suite launch passed 4,208/4,208
+with exit 0 and zero failures, errors, or skips; JUnit SHA-256 is
+`a30da2c22e3097807d5b3ace2bd97cf678e04768c8bbe55aca4d73bdbe28b9e8`.
+The post-tree is exact and v5 remains byte-identical. Prepare and invoke one
+fresh Successor25 materialization, then cold-verify it before any launch.
 
 Do not enter calibration, tournament, Phase Two, holdout, Phase Three, live or
 authenticated trading, signing, orders/cancels, or authoritative-v5 mutation.
