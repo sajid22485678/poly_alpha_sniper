@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR25_PHASE_ONE_LAUNCH_AUTHORITY_CHECKPOINT_V1",
+  "captured_at": "2026-08-25T20:35:53.5079304+07:00",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR25-20260825T1324Z",
+  "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z",
+  "phase_one_nonce": "8ab5f199f40b47b5963944e4bc356f59",
+  "phase_one_launch_count": 0,
+  "phase_two_nonce_reserved_unauthorized": "d400619322274f239760d393133a87c1",
+  "phase_two_authorized": false,
+  "authority": {
+    "path": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor25_20260825T1257Z\\successor25_phase_one_launch_authority.json",
+    "sha256": "a99325edf331d46cdd5f4669c5afadcc2a93e4fb1180d89b12a882965bd6f458",
+    "launcher_path": "D:\\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z\\operator\\launch_phase_one_once.ps1",
+    "launcher_sha256": "792f5527d4e2b4ba6b1cf11131211f69e5df46f86db111204002882e62c51370",
+    "monitor_sha256": "67599127323089531fbcef6e9bea243b1f12f1ede3be310b984ad8cfb7b15899",
+    "guardian_sha256": "1191074868e8089744bb73ec40b8e5187456d8a198c886965549f414a391739c"
+  },
+  "bindings": {
+    "source_tree_sha256": "7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7",
+    "source_manifest_sha256": "91f5c2bb8bb44096071752aac783e5115aad6e09caa0f946469dedbaa8a6bafe",
+    "materialization_manifest_sha256": "3d53110188c91bd4ee9f6de321d50cb71aee1463fc27c405e9099cad892eac5c",
+    "materialization_verification_sha256": "9cd99f99f94fa3af4e088c2c96a422473301c1bce0c36481009ddf7be1f961c6"
+  },
+  "prelaunch": {
+    "runtime_root_preexisting": false,
+    "guard_exclusive_open_available": true,
+    "enumeration_complete": true,
+    "exact_v4_processes": 0,
+    "exact_pids": [],
+    "launch_outputs_present": false
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Invoke launch_phase_one_once.ps1 exactly once, capture the consumed session/PID identity, then launch exactly one bound guardian."
+}

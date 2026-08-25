@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T20:32:40.0081811+07:00`
+Updated: `2026-08-25T20:35:53.5079304+07:00`
 
 ## Current boundary
 
-`SUCCESSOR25_MATERIALIZATION_VERIFIED`
+`SUCCESSOR25_PHASE_ONE_LAUNCH_AUTHORIZED`
 
 Successor24 did not survive the host power loss. Its exact runtime and guardian
 are absent after reboot and were not relaunched. The recovered SQLite journal
@@ -68,5 +68,8 @@ create-once authorized for root
 `6ebcec417d1743a2a5403990cfbecdde`; its single launch exited 0. Cold immutable
 verification proves the exact-v6 fingerprint, 70 tables, only the three schema
 migrations nonempty, all economic/research/holdout counts zero, no runtime,
-and unchanged v5. Exact next action: prepare and checkpoint the bound Phase-One
-and one-guardian authority, then launch Phase One exactly once.
+and unchanged v5. Phase One is bound to nonce
+`8ab5f199f40b47b5963944e4bc356f59`; launch count is zero, runtime root is
+absent, guard availability is proven, and no prospective runtime exists. Exact
+next action: invoke the launcher once, capture the session/PID identity, then
+launch exactly one guardian.

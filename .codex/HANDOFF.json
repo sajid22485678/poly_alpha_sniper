@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T20:32:40.0081811+07:00",
-  "state": "SUCCESSOR25_MATERIALIZATION_VERIFIED",
+  "checkpoint_local": "2026-08-25T20:35:53.5079304+07:00",
+  "state": "SUCCESSOR25_PHASE_ONE_LAUNCH_AUTHORIZED",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
-  "canonical_artifact": ".codex/SUCCESSOR25_MATERIALIZATION_VERIFIED.json",
-  "canonical_artifact_sha256": "e6bd4fc5f78a7c34b33ad3a16e7d552523860653363dda7fbdcd05551cdc40dc",
+  "canonical_artifact": ".codex/SUCCESSOR25_PHASE_ONE_LAUNCH_AUTHORITY.json",
+  "canonical_artifact_sha256": "753d43892667fc3ea514a5c46b07b76a0fd673d8c31b14bc9eea6dcbdcac454e",
   "successor24": {
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR24-20260825T104125Z",
     "root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
@@ -124,6 +124,15 @@
     "verified": true,
     "empty": true
   },
+  "successor25_phase_one": {
+    "nonce": "8ab5f199f40b47b5963944e4bc356f59",
+    "authority_sha256": "a99325edf331d46cdd5f4669c5afadcc2a93e4fb1180d89b12a882965bd6f458",
+    "launcher_sha256": "792f5527d4e2b4ba6b1cf11131211f69e5df46f86db111204002882e62c51370",
+    "launch_count": 0,
+    "runtime_root_preexisting": false,
+    "guard_exclusive_open_available": true,
+    "processes_present": false
+  },
   "safety": {
     "LIVE_ENABLED": false,
     "REAL_ORDERS_POSSIBLE": false,
@@ -134,6 +143,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Prepare the exact Successor25 Phase-One launch and one guardian authority, checkpoint them, then launch Phase One exactly once.",
+  "next_action": "Invoke launch_phase_one_once.ps1 exactly once, capture the consumed session/PID identity, then launch exactly one bound guardian.",
   "codex_active_work_stopping": false
 }

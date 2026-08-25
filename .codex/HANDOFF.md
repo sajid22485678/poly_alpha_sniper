@@ -1,13 +1,13 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T20:32:40.0081811+07:00`
+Updated: `2026-08-25T20:35:53.5079304+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR25_MATERIALIZATION_VERIFIED`
+`SUCCESSOR25_PHASE_ONE_LAUNCH_AUTHORIZED`
 
 Canonical transition detail is in
-`.codex/SUCCESSOR25_MATERIALIZATION_VERIFIED.json`.
+`.codex/SUCCESSOR25_PHASE_ONE_LAUNCH_AUTHORITY.json`.
 The boot-evidence correction remains at
 `.codex/SUCCESSOR24_BOOT_EVIDENCE_CORRECTION.json`, SHA-256
 `d7dc60eebfe94c4a474e1eb22b88c554d4a34962efb5cc2b4d1d49fc54377377`.
@@ -135,8 +135,11 @@ bound to root
 `6ebcec417d1743a2a5403990cfbecdde`. Its one materialization passed and the cold
 immutable verification proves exact-v6 schema identity, 70 tables, only three
 schema-migration rows, zero economic/research/holdout rows, no runtime process,
-and unchanged v5. Prepare the exact Phase-One and single-guardian authority,
-checkpoint it, then launch Phase One exactly once. Phase Two remains unauthorized.
+and unchanged v5. Phase One is bound to nonce
+`8ab5f199f40b47b5963944e4bc356f59`; its launch count is zero, runtime root is
+absent, the guard is exclusively available, and no exact-v6 runtime exists.
+Invoke the launcher exactly once, capture its session/PID identity, then launch
+exactly one guardian. Phase Two remains unauthorized.
 
 Do not enter calibration, tournament, Phase Two, holdout, Phase Three, live or
 authenticated trading, signing, orders/cancels, or authoritative-v5 mutation.
