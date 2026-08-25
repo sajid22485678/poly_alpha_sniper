@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR24_BOOT_EVIDENCE_CORRECTION_V1",
+  "captured_at": "2026-08-25T19:40:16.8768286+07:00",
+  "classification": "CAUSAL_CORRECTION_VERIFIED_NEW_PREVIEW_REQUIRED",
+  "input_refusal": {
+    "bridge_artifact": ".codex/SUCCESSOR24_HOST_LOSS_APPLY_V1_REFUSAL.json",
+    "bridge_artifact_sha256": "4899944a75c9d72955c762994ef46f3282539b705ca3623cd786042083070ff1",
+    "external_artifact_sha256": "ed111670da59041bf9082d05dfacfc5638a38c73a9670f2d6386e9bea9f83129",
+    "preview_v1_nonce": "f42ba7127c164e678d905490bdee7b6d",
+    "preview_v1_disposition": "TERMINAL_REFUSED_MUST_NOT_APPLY_OR_REUSE_NONCE"
+  },
+  "root_cause": "Windows psutil.boot_time is a wall-clock-minus-uptime estimate whose millisecond tail varies between calls; the v1 authority incorrectly hashed that false precision.",
+  "tdd": {
+    "test_node": "tests/test_frequency_v4_successor24_host_loss_recovery.py::test_windows_boot_evidence_is_repeatable_across_estimator_jitter",
+    "production_changed_before_red": false,
+    "mandatory_red": {
+      "tests": 1,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0,
+      "exit_code": 1,
+      "observed": "1800000000049 != 1800000000054"
+    },
+    "focused_green": {
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    }
+  },
+  "fix": {
+    "path": "lite_frequency_v4/successor24_host_loss_recovery.py",
+    "model": "CONSERVATIVE_UTC_BOOT_MINUTE_BUCKET",
+    "precision_ms": 60000,
+    "invariant": "The canonical boot evidence is stable across estimator jitter and still must postdate both the exact session start and stale state file.",
+    "identity_or_safety_relaxed": false,
+    "database_or_runtime_changed": false
+  },
+  "verification": {
+    "latest_affected_tests": 261,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "diff_check_exit_code": 0,
+    "py_compile_exit_code": 0
+  },
+  "repository": {
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "working_tree_sha256": "7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7",
+    "entries": 668,
+    "staged_paths": 0,
+    "tracked_modified_paths": 56,
+    "untracked_paths": 111,
+    "deliberate_dirty_tree_preserved": true
+  },
+  "next_action": "Generate a distinct correction closure nonce and timestamp, create correction preview v2 exactly once, verify it, checkpoint it, then invoke its apply exactly once."
+}

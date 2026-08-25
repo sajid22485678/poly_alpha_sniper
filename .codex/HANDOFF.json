@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T19:34:45.5673245+07:00",
-  "state": "SUCCESSOR24_HOST_LOSS_APPLY_V1_REFUSED_NO_MUTATION",
+  "checkpoint_local": "2026-08-25T19:40:16.8768286+07:00",
+  "state": "SUCCESSOR24_BOOT_EVIDENCE_CORRECTION_VERIFIED",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
-  "canonical_artifact": ".codex/SUCCESSOR24_HOST_LOSS_APPLY_V1_REFUSAL.json",
-  "canonical_artifact_sha256": "4899944a75c9d72955c762994ef46f3282539b705ca3623cd786042083070ff1",
+  "canonical_artifact": ".codex/SUCCESSOR24_BOOT_EVIDENCE_CORRECTION.json",
+  "canonical_artifact_sha256": "d7dc60eebfe94c4a474e1eb22b88c554d4a34962efb5cc2b4d1d49fc54377377",
   "successor24": {
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR24-20260825T104125Z",
     "root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
@@ -59,6 +59,13 @@
     "lease_acquired": false,
     "closure_output_created": false
   },
+  "boot_evidence_correction": {
+    "mandatory_red_observed": true,
+    "fix": "UTC_BOOT_MINUTE_BUCKET",
+    "affected_tests_green": 261,
+    "working_tree_sha256": "7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7",
+    "correction_preview_created": false
+  },
   "safety": {
     "LIVE_ENABLED": false,
     "REAL_ORDERS_POSSIBLE": false,
@@ -69,6 +76,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Fail-first test and fix repeatable boot evidence, then create a distinct correction preview and nonce. Never retry preview/apply v1.",
+  "next_action": "Generate a distinct correction nonce/timestamp and create Successor24 closure preview v2 exactly once. Never retry preview/apply v1.",
   "codex_active_work_stopping": false
 }

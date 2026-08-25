@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T19:34:45.5673245+07:00`
+Updated: `2026-08-25T19:40:16.8768286+07:00`
 
 ## Current boundary
 
-`SUCCESSOR24_HOST_LOSS_APPLY_V1_REFUSED_NO_MUTATION`
+`SUCCESSOR24_BOOT_EVIDENCE_CORRECTION_VERIFIED`
 
 Successor24 did not survive the host power loss. Its exact runtime and guardian
 are absent after reboot and were not relaunched. The recovered SQLite journal
@@ -46,6 +46,8 @@ Windows `psutil.boot_time()` estimate moved from `1787657510049` to
 is still 7,431 committed rows, the session is open, and no closure row, output,
 or lease exists. Preview/apply v1 and its nonce are terminal refused.
 
-Exact next action: mandatory fail-first test and minimal boot-evidence
-canonicalization, then a distinct correction preview and nonce. Never retry
-preview/apply v1.
+The repeatability regression failed first on the exact 5 ms estimator jitter.
+The minimal fix binds a UTC boot-minute bucket and still requires it to postdate
+the session and stale state. All 261 affected tests pass. Exact next action:
+generate a distinct correction nonce/timestamp and create preview v2 once.
+Never retry preview/apply v1.
