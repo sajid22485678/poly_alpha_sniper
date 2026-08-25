@@ -1,15 +1,15 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T17:38:26.9970680+07:00`
+Updated: `2026-08-25T18:01:49.1187322+07:00`
 
 ## Current boundary
 
-`SUCCESSOR24_SOURCE_SEAL_PASS_MATERIALIZATION_AUTHORIZED`
+`SUCCESSOR24_HEALTHY_PHASE_ONE_ACQUISITION_RUNNING`
 
-The canonical current records are
-`.codex/SUCCESSOR23_ACCOUNTING_FIX_VERIFICATION.json` and
-`.codex/SUCCESSOR24_SOURCE_SEAL_PASS.json`. Successor23 remains terminal,
-permanently forensic/ineligible, and `MUST_NOT_RELAUNCH`.
+The canonical current record is
+`.codex/SUCCESSOR24_INITIAL_HEALTHY_HANDOFF.json`. Successors 1 through 23 are
+terminal, permanently ineligible, and may not be relaunched, repaired, pooled,
+or reused.
 
 The accounting root cause is fixed without changing raw telemetry diagnostics,
 controller behavior, loss taxonomy, or fail-closed mismatch gating. Mandatory
@@ -21,9 +21,21 @@ zero failures, errors, or skips. Tested and post-test tree are exactly
 `7a1c9c09d124a44d732e0cbdd26336616e2804d9a97c1fc6f8ccd6bfed08f3b5`;
 authoritative v5 remained byte-identical and journal-free.
 
-Exact next action: create fresh Successor24 acquisition/nonces, materialize
-exactly once from this tested tree, cold-verify it independently, then prepare
-and consume one Phase-One launch authority and one independent guardian.
+Successor24 materialized exactly once, passed independent cold verification,
+and launched Phase One exactly once. The same session
+`b1e0463d97b54df888535ce5ef0883b5` is running under nonce
+`f138bd0a49fb413c9fb29e9911163c93` and PID pair `15836 -> 16544`.
+The sole independent guardian is running as `4016 -> 19272`.
+
+At the durable initial capture, four guardian observations proved forward
+progress from 26 to 39 capsules, 51 to 76 predictions, and 514 to 895 committed
+commands. There are zero binding persistence, integrity, source, safety, or
+holdout violations; reconciliation is exact and both stderr files are empty.
+
+Exact next action: resume from current disk authority, verify only this same
+identity and the latest single guardian state, then continue bounded Phase-One
+acquisition under the frozen OOS/readiness protocol. Never relaunch the runtime
+or duplicate the guardian while it is running.
 
 The bounded two-hour classification remains `TWO_HOUR_REVIEW_FAILED`. Its
 canonical forensic record is `.codex/SUCCESSOR23_TWO_HOUR_REVIEW.json`; earlier
@@ -109,8 +121,7 @@ unlabeled rows to resolve. Lineage, temporal validity, SQLite quick-check, FK,
 schema fingerprint, Successor22 failure-class regression, safety, v5
 immutability, and holdout separation pass.
 
-Codex active work is continuing only through the authorized Successor24
-materialization, cold verification, Phase-One launch, independent guardian,
-and initial healthy-progress handoff. No calibration, tournament, Phase Two,
-holdout, Phase 3, live/authenticated trading, signing, orders/cancels, or v5
-mutation is authorized.
+Codex active work is stopped at the healthy initial-acquisition handoff.
+Successor24 and its independent guardian remain running unchanged. No stop,
+calibration, tournament, Phase Two, holdout, Phase 3, live/authenticated
+trading, signing, orders/cancels, or v5 mutation is authorized.
