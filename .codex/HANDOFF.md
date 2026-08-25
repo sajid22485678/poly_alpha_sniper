@@ -1,12 +1,14 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T19:40:16.8768286+07:00`
+Updated: `2026-08-25T19:43:52.8859091+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR24_BOOT_EVIDENCE_CORRECTION_VERIFIED`
+`SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_V2_READY`
 
 Canonical transition detail is in
+`.codex/SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_V2.json`.
+The boot-evidence correction remains at
 `.codex/SUCCESSOR24_BOOT_EVIDENCE_CORRECTION.json`, SHA-256
 `d7dc60eebfe94c4a474e1eb22b88c554d4a34962efb5cc2b4d1d49fc54377377`.
 The refused v1 record remains immutable at
@@ -109,10 +111,12 @@ WAL SHA-256 is
 ## Exact next action
 
 Preview/apply v1 and nonce `f42ba7127c164e678d905490bdee7b6d` remain terminal
-refused. The boot-evidence regression failed first and is green after binding a
-stable, conservative UTC boot-minute bucket; 261 affected tests pass. Generate
-a distinct correction nonce/timestamp and create preview v2 exactly once. Only
-after terminal closure is proven may Successor25 qualification begin.
+refused. Correction preview v2 passed exactly once under nonce
+`506642682e50407c86f458976726bf8b`, timestamp `1787661736890`, and stable
+precondition SHA-256
+`b27ce7fc70dfb6e210295e94a341e2c114facac753599d6776cba1ec01786759`.
+Invoke its apply exactly once. Only after terminal closure is proven may
+Successor25 qualification begin.
 
 Do not enter calibration, tournament, Phase Two, holdout, Phase Three, live or
 authenticated trading, signing, orders/cancels, or authoritative-v5 mutation.

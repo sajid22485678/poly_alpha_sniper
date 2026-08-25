@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_V2_CHECKPOINT_V1",
+  "captured_at": "2026-08-25T19:43:52.8859091+07:00",
+  "classification": "HOST_LOSS_INTEGRITY_FAILURE",
+  "result": "READY_TO_CLOSE",
+  "predecessor_v1": {
+    "nonce": "f42ba7127c164e678d905490bdee7b6d",
+    "disposition": "TERMINAL_REFUSED_MUST_NOT_APPLY_OR_REUSE_NONCE",
+    "refusal_sha256": "ed111670da59041bf9082d05dfacfc5638a38c73a9670f2d6386e9bea9f83129"
+  },
+  "correction": {
+    "bridge_artifact": ".codex/SUCCESSOR24_BOOT_EVIDENCE_CORRECTION.json",
+    "bridge_artifact_sha256": "d7dc60eebfe94c4a474e1eb22b88c554d4a34962efb5cc2b4d1d49fc54377377",
+    "boot_ts_ms": 1787657460000,
+    "boot_precision_ms": 60000,
+    "boot_source": "psutil_boot_time_windows_minute_bucket"
+  },
+  "preview_v2": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\successor24_host_loss_preview_v2.json",
+    "file_sha256": "50dbabc03f6561ea26a435ee562962c4eb07f71d796372cf54855409dc60bbc0",
+    "content_sha256": "21fb75f5ee4ab83db0848a35a8dbab0a5a09ddb3ad507155e14f9ed4e280a81d",
+    "precondition_sha256": "b27ce7fc70dfb6e210295e94a341e2c114facac753599d6776cba1ec01786759",
+    "closure_nonce": "506642682e50407c86f458976726bf8b",
+    "closure_ts_ms": 1787661736890,
+    "launch_count": 1,
+    "exit_code": 0,
+    "apply_launch_count": 0,
+    "closure_output_exists": false,
+    "closure_lease_exists": false
+  },
+  "identity": {
+    "session_id": "b1e0463d97b54df888535ce5ef0883b5",
+    "phase_one_nonce": "f138bd0a49fb413c9fb29e9911163c93",
+    "launcher_pid": 15836,
+    "runtime_pid": 16544,
+    "processes_present": false,
+    "competing_owner_present": false,
+    "session_open": true,
+    "phase_one_lease_stranded": true
+  },
+  "integrity_failure": {
+    "recovered_committed": 7431,
+    "state_acknowledged": 7432,
+    "lost_acknowledged_commands": 1,
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "incomplete_commands": 0
+  },
+  "target": {
+    "db_sha256": "fa79e3bcda893fd420092dfff370b768f0bb25277771bf1e6f8ca6f056484fb0",
+    "wal_sha256": "196f6868cc2ae9045338b11a7077732f6ddb0c82cdac27dfd70157841cec1841",
+    "shm_sha256": "430edda9cce8a6ac04aa0873539c2dffd26234f5a3b3cc084c7176d96504990d"
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "next_action": "Invoke correction preview v2 apply exactly once. Never invoke or reuse v1."
+}

@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T19:40:16.8768286+07:00",
-  "state": "SUCCESSOR24_BOOT_EVIDENCE_CORRECTION_VERIFIED",
+  "checkpoint_local": "2026-08-25T19:43:52.8859091+07:00",
+  "state": "SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_V2_READY",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
-  "canonical_artifact": ".codex/SUCCESSOR24_BOOT_EVIDENCE_CORRECTION.json",
-  "canonical_artifact_sha256": "d7dc60eebfe94c4a474e1eb22b88c554d4a34962efb5cc2b4d1d49fc54377377",
+  "canonical_artifact": ".codex/SUCCESSOR24_HOST_LOSS_CLOSURE_PREVIEW_V2.json",
+  "canonical_artifact_sha256": "c59d8ae68f64c0cc836809c6b6bdbbac9e09113047cf800c762670c6a131dfc5",
   "successor24": {
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR24-20260825T104125Z",
     "root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
@@ -64,7 +64,18 @@
     "fix": "UTC_BOOT_MINUTE_BUCKET",
     "affected_tests_green": 261,
     "working_tree_sha256": "7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7",
-    "correction_preview_created": false
+    "correction_preview_created": true
+  },
+  "closure_preview_v2": {
+    "external_path": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z\\operator\\successor24_host_loss_preview_v2.json",
+    "file_sha256": "50dbabc03f6561ea26a435ee562962c4eb07f71d796372cf54855409dc60bbc0",
+    "content_sha256": "21fb75f5ee4ab83db0848a35a8dbab0a5a09ddb3ad507155e14f9ed4e280a81d",
+    "precondition_sha256": "b27ce7fc70dfb6e210295e94a341e2c114facac753599d6776cba1ec01786759",
+    "closure_nonce": "506642682e50407c86f458976726bf8b",
+    "closure_ts_ms": 1787661736890,
+    "preview_launch_count": 1,
+    "apply_launch_count": 0,
+    "ready_to_close": true
   },
   "safety": {
     "LIVE_ENABLED": false,
@@ -76,6 +87,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Generate a distinct correction nonce/timestamp and create Successor24 closure preview v2 exactly once. Never retry preview/apply v1.",
+  "next_action": "Invoke Successor24 correction preview v2 apply exactly once. Never invoke or reuse v1.",
   "codex_active_work_stopping": false
 }
