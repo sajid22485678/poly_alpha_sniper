@@ -1,13 +1,13 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T20:25:29.7929101+07:00`
+Updated: `2026-08-25T20:32:40.0081811+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR25_MATERIALIZATION_AUTHORIZED`
+`SUCCESSOR25_MATERIALIZATION_VERIFIED`
 
 Canonical transition detail is in
-`.codex/SUCCESSOR25_MATERIALIZATION_AUTHORITY.json`.
+`.codex/SUCCESSOR25_MATERIALIZATION_VERIFIED.json`.
 The boot-evidence correction remains at
 `.codex/SUCCESSOR24_BOOT_EVIDENCE_CORRECTION.json`, SHA-256
 `d7dc60eebfe94c4a474e1eb22b88c554d4a34962efb5cc2b4d1d49fc54377377`.
@@ -132,8 +132,11 @@ with exit 0 and zero failures, errors, or skips; JUnit SHA-256 is
 The post-tree is exact and v5 remains byte-identical. Fresh materialization is
 bound to root
 `D:\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z`, nonce
-`6ebcec417d1743a2a5403990cfbecdde`. Invoke its create-once runner exactly once,
-then cold-verify it before any launch. Phase Two remains unauthorized.
+`6ebcec417d1743a2a5403990cfbecdde`. Its one materialization passed and the cold
+immutable verification proves exact-v6 schema identity, 70 tables, only three
+schema-migration rows, zero economic/research/holdout rows, no runtime process,
+and unchanged v5. Prepare the exact Phase-One and single-guardian authority,
+checkpoint it, then launch Phase One exactly once. Phase Two remains unauthorized.
 
 Do not enter calibration, tournament, Phase Two, holdout, Phase Three, live or
 authenticated trading, signing, orders/cancels, or authoritative-v5 mutation.

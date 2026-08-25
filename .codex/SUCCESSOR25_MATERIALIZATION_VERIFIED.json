@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR25_MATERIALIZATION_VERIFIED_CHECKPOINT_V1",
+  "captured_at": "2026-08-25T20:32:40.0081811+07:00",
+  "result": "VERIFIED",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR25-20260825T1324Z",
+  "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z",
+  "database_path": "D:\\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z\\prospective-exact-v6.db",
+  "materialization_nonce": "6ebcec417d1743a2a5403990cfbecdde",
+  "materialization_launch_count": 1,
+  "materialization_exit_code": 0,
+  "materialization_manifest_sha256": "3d53110188c91bd4ee9f6de321d50cb71aee1463fc27c405e9099cad892eac5c",
+  "manifest_content_sha256": "ac6568f45fb49ae0c3a46738ae721b47d223392ed3b375583fe6000d2b7eea0f",
+  "database": {
+    "size": 1175552,
+    "sha256": "0378ae420ce0f3bb5cd1dd0e20d8629469932a8b56ba60a34bfb515e00cde475",
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "user_version": 6,
+    "managed_v6_fingerprint": "3289a18ccc9f6287360fcab9338e5e36d4070532f27b0d12377f9555bd7954dd",
+    "table_count": 70,
+    "nonempty_tables": {"schema_migrations": 3},
+    "entries": 0,
+    "positions": 0,
+    "exits": 0,
+    "pnl_records": 0,
+    "strategy_experiment_definitions": 0,
+    "strategy_candidate_definitions": 0,
+    "strategy_evaluation_runs": 0,
+    "locked_holdout_registrations": 0
+  },
+  "evidence": {
+    "verification_sha256": "9cd99f99f94fa3af4e088c2c96a422473301c1bce0c36481009ddf7be1f961c6",
+    "immutable_census_sha256": "a79a702b6c8eac8cf38fb9743ab5d5d16ee43e4fc5695d2870665c1b2bce8435",
+    "materialization_exit_sha256": "c69e0b5a01c5769e3d83e90dc95cb38c8fbee1ed1e2da907d21a48a90f41ad46",
+    "materialization_run_control_sha256": "bf5d4389783f735ab4cb31cf5c5ffb4f4811b05462be0f2b64a880fb12d46fc1",
+    "lease_acquired_sha256": "12646ce1370f161b0e3fd636a683dca6b3fa17805106d092675fcb3f991322a1",
+    "lease_released_sha256": "68189ce4dddedf2128ffe3a8aaa5c3a5883e63498dec3b5a239ef749437a4d73",
+    "guard_exclusive_open_available": true
+  },
+  "phase_one_nonce": "8ab5f199f40b47b5963944e4bc356f59",
+  "phase_two_nonce_reserved_unauthorized": "d400619322274f239760d393133a87c1",
+  "prospective_runtime_processes": [],
+  "holdout": {
+    "holdout_id": "V4-HO-001",
+    "registered": false,
+    "state": "UNCONSUMED"
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Prepare the exact Successor25 Phase-One launch and one guardian authority, checkpoint them, then launch Phase One exactly once."
+}

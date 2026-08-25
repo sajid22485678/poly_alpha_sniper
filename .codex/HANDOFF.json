@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T20:25:29.7929101+07:00",
-  "state": "SUCCESSOR25_MATERIALIZATION_AUTHORIZED",
+  "checkpoint_local": "2026-08-25T20:32:40.0081811+07:00",
+  "state": "SUCCESSOR25_MATERIALIZATION_VERIFIED",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
-  "canonical_artifact": ".codex/SUCCESSOR25_MATERIALIZATION_AUTHORITY.json",
-  "canonical_artifact_sha256": "306c3aed8a7f25b18954e8d8cad55812ef1f771d9fae9883ee6cb00fb712c491",
+  "canonical_artifact": ".codex/SUCCESSOR25_MATERIALIZATION_VERIFIED.json",
+  "canonical_artifact_sha256": "e6bd4fc5f78a7c34b33ad3a16e7d552523860653363dda7fbdcd05551cdc40dc",
   "successor24": {
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR24-20260825T104125Z",
     "root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
@@ -116,8 +116,13 @@
     "phase_two_nonce_reserved_unauthorized": "d400619322274f239760d393133a87c1",
     "authority_sha256": "74c55270bd0e8f5fc96f0fee90159eb094a9318978ca5e8b0a2d6f497caaf882",
     "runner_sha256": "8ff9b31a6208556362c93e1d0754bae44c570acb35de11682077a0aa51d42581",
-    "launch_count": 0,
-    "verified": false
+    "launch_count": 1,
+    "exit_code": 0,
+    "manifest_sha256": "3d53110188c91bd4ee9f6de321d50cb71aee1463fc27c405e9099cad892eac5c",
+    "database_sha256": "0378ae420ce0f3bb5cd1dd0e20d8629469932a8b56ba60a34bfb515e00cde475",
+    "verification_sha256": "9cd99f99f94fa3af4e088c2c96a422473301c1bce0c36481009ddf7be1f961c6",
+    "verified": true,
+    "empty": true
   },
   "safety": {
     "LIVE_ENABLED": false,
@@ -129,6 +134,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Invoke run_successor25_materialization_once.py exactly once. Never retry or reuse this acquisition identity after failure or ambiguity.",
+  "next_action": "Prepare the exact Successor25 Phase-One launch and one guardian authority, checkpoint them, then launch Phase One exactly once.",
   "codex_active_work_stopping": false
 }

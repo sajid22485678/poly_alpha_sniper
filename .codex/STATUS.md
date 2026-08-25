@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T20:25:29.7929101+07:00`
+Updated: `2026-08-25T20:32:40.0081811+07:00`
 
 ## Current boundary
 
-`SUCCESSOR25_MATERIALIZATION_AUTHORIZED`
+`SUCCESSOR25_MATERIALIZATION_VERIFIED`
 
 Successor24 did not survive the host power loss. Its exact runtime and guardian
 are absent after reboot and were not relaunched. The recovered SQLite journal
@@ -65,5 +65,8 @@ exit 0, zero failures/errors/skips, JUnit SHA-256
 Post-tree equality and v5 immutability both pass. Fresh materialization is
 create-once authorized for root
 `D:\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z` with nonce
-`6ebcec417d1743a2a5403990cfbecdde`; launch count is zero. Exact next action:
-invoke its runner once, then cold-verify before any Phase-One launch.
+`6ebcec417d1743a2a5403990cfbecdde`; its single launch exited 0. Cold immutable
+verification proves the exact-v6 fingerprint, 70 tables, only the three schema
+migrations nonempty, all economic/research/holdout counts zero, no runtime,
+and unchanged v5. Exact next action: prepare and checkpoint the bound Phase-One
+and one-guardian authority, then launch Phase One exactly once.
