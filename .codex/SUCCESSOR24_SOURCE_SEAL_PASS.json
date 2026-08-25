@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR24_SOURCE_SEAL_PASS_V1",
+  "captured_at": "2026-08-25T17:38:26.9970680+07:00",
+  "root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor24_20260825T1014Z",
+  "tested_tree_sha256": "7a1c9c09d124a44d732e0cbdd26336616e2804d9a97c1fc6f8ccd6bfed08f3b5",
+  "post_tree_sha256": "7a1c9c09d124a44d732e0cbdd26336616e2804d9a97c1fc6f8ccd6bfed08f3b5",
+  "tree_exact": true,
+  "manifest_sha256": "d677407785ce22d04815fe94e31cd159a48d39f7d1831c266bd204a735bfe4e3",
+  "runner_sha256": "40993d2570077622dc859c2682ad687a9aa0740a04c6dbb98cdabc71d284ca2f",
+  "junit_sha256": "32d94946b22aa63204b5fbb5f1b0be39c8e767f9f1d43f252445c7c403fec819",
+  "post_verification_sha256": "90f5f9eeab1d6a43c0e016f2f9a0fc4a5b7de1c67ae0af8f1da72bf1c8bc4329",
+  "pytest_launch_count": 1,
+  "pytest_exit_code": 0,
+  "tests": 4192,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "authoritative_v5_equal": true,
+  "authoritative_v5_journal_exists": false,
+  "materialization_authorized": true,
+  "source_tree_must_remain_untouched": true
+}

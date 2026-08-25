@@ -1,24 +1,29 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T16:48:32.3946982+07:00`
+Updated: `2026-08-25T17:38:26.9970680+07:00`
 
 ## Current boundary
 
-`SUCCESSOR23_ACCOUNTING_ROOT_CAUSE_PROVEN_MANDATORY_RED`
+`SUCCESSOR24_SOURCE_SEAL_PASS_MATERIALIZATION_AUTHORIZED`
 
-The canonical current record is
-`.codex/SUCCESSOR23_ACCOUNTING_ROOT_CAUSE_RED.json`. Successor23 remains
-terminal, permanently forensic/ineligible, and `MUST_NOT_RELAUNCH`.
+The canonical current records are
+`.codex/SUCCESSOR23_ACCOUNTING_FIX_VERIFICATION.json` and
+`.codex/SUCCESSOR24_SOURCE_SEAL_PASS.json`. Successor23 remains terminal,
+permanently forensic/ineligible, and `MUST_NOT_RELAUNCH`.
 
-Root cause is proven: the pre-admission dedupe branch increments both the raw
-coalescing umbrella and its deduplication subtype, while reconciliation counts
-both as separate exits. The single Successor23 dedupe therefore caused the
-exact `-1` mismatch. One focused causal test failed exactly as required; no
-production fix preceded RED.
+The accounting root cause is fixed without changing raw telemetry diagnostics,
+controller behavior, loss taxonomy, or fail-closed mismatch gating. Mandatory
+RED was followed by 1 focused, 42 subsystem, 241 concurrency/persistence, 1
+bounded stress, and 287 broader runtime/safety tests, all green with zero skips.
 
-Exact next action: make `policy_coalesced` exclusive by removing the
-pre-admission deduplication subset once, preserving all raw diagnostics,
-controller behavior, loss taxonomy, and fail-closed mismatch gating.
+Successor24 source qualification ran exactly once and passed 4,192/4,192 with
+zero failures, errors, or skips. Tested and post-test tree are exactly
+`7a1c9c09d124a44d732e0cbdd26336616e2804d9a97c1fc6f8ccd6bfed08f3b5`;
+authoritative v5 remained byte-identical and journal-free.
+
+Exact next action: create fresh Successor24 acquisition/nonces, materialize
+exactly once from this tested tree, cold-verify it independently, then prepare
+and consume one Phase-One launch authority and one independent guardian.
 
 The bounded two-hour classification remains `TWO_HOUR_REVIEW_FAILED`. Its
 canonical forensic record is `.codex/SUCCESSOR23_TWO_HOUR_REVIEW.json`; earlier
@@ -67,8 +72,8 @@ equality is exact; post-verification
 `9fb81c3adcda93b65d2727cd640b897e74c17c2f9e565bb3708ca125f7a411fe`
 also proves authoritative v5 remains byte-identical with no journal.
 
-Fresh Successor23 acquisition
-`V4-PR-001-PROSPECTIVE-SUCCESSOR23-20260825T063851Z` is running at
+The historical Successor23 acquisition
+`V4-PR-001-PROSPECTIVE-SUCCESSOR23-20260825T063851Z` is terminal at
 `D:\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z`.
 
 Materialization ran once and exited zero. Manifest
@@ -85,7 +90,7 @@ output; materialization was not rerun.
 Phase One launched exactly once: session
 `e8cc5e49b94d4f59b9e1eb5f16e5544e`, nonce
 `cb94a3af73994324b3290ab599f0467a`, PID pair `16088 -> 11856`.
-It remains the same running consumed identity and `MUST_NOT_RELAUNCH`.
+It remains the same consumed terminal identity and `MUST_NOT_RELAUNCH`.
 
 The independent guardian `11512 -> 15300` is now terminal after 230 clean
 observations and one binding create-once failure. The first failure artifact is
@@ -104,6 +109,8 @@ unlabeled rows to resolve. Lineage, temporal validity, SQLite quick-check, FK,
 schema fingerprint, Successor22 failure-class regression, safety, v5
 immutability, and holdout separation pass.
 
-Codex active work is stopped. The four-hour readiness review is superseded by
-the binding failure. Owner-controlled forensic disposition is the only next
-action; no stop is authorized without a separate exact nonce/PID-bound packet.
+Codex active work is continuing only through the authorized Successor24
+materialization, cold verification, Phase-One launch, independent guardian,
+and initial healthy-progress handoff. No calibration, tournament, Phase Two,
+holdout, Phase 3, live/authenticated trading, signing, orders/cancels, or v5
+mutation is authorized.

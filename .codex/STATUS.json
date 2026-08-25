@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-25T16:55:56.3272053+07:00",
-  "agent_state": "SUCCESSOR23_ACCOUNTING_ROOT_CAUSE_PROVEN_MANDATORY_RED",
-  "classification": "TWO_HOUR_REVIEW_FAILED",
+  "updated_at": "2026-08-25T17:38:26.9970680+07:00",
+  "agent_state": "SUCCESSOR24_SOURCE_SEAL_PASS_MATERIALIZATION_AUTHORIZED",
+  "classification": "SOURCE_SEAL_PASS",
   "sole_writer": "Codex",
   "prior_bridge_commit": "0023aeab2eec047b9b5400fb04113a6dfa0c9ab0",
   "containing_bridge_commit": "SELF",
@@ -11,9 +11,9 @@
     "branch": "master",
     "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
     "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
-    "tested_tree_sha256": "386991dc9c001ddf54290c2092e09725be7f5ad5a5f2d51bc901322cba2d23cc",
+    "tested_tree_sha256": "7a1c9c09d124a44d732e0cbdd26336616e2804d9a97c1fc6f8ccd6bfed08f3b5",
     "staged_paths": 0,
-    "tracked_modified_paths": 55,
+    "tracked_modified_paths": 56,
     "untracked_paths": 108,
     "deliberate_dirty_tree_preserved": true,
     "production_source_changed_since_successor22": false
@@ -105,6 +105,36 @@
     "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
     "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "successor23_accounting_fix_verification": {
+    "canonical_artifact": ".codex/SUCCESSOR23_ACCOUNTING_FIX_VERIFICATION.json",
+    "root_cause_fixed": true,
+    "raw_diagnostics_preserved": true,
+    "nonzero_mismatch_remains_fail_closed": true,
+    "mandatory_red": {"tests": 1, "failures": 1},
+    "focused_green": {"tests": 1, "failures": 0, "errors": 0, "skips": 0},
+    "accounting_subsystem": {"tests": 42, "failures": 0, "errors": 0, "skips": 0},
+    "concurrency_persistence": {"tests": 241, "failures": 0, "errors": 0, "skips": 0},
+    "bounded_stress": {"tests": 1, "cycles": 16, "submitted_rows": 3072, "failures": 0},
+    "runtime_safety": {"tests": 287, "failures": 0, "errors": 0, "skips": 0}
+  },
+  "successor24_source_seal": {
+    "canonical_artifact": ".codex/SUCCESSOR24_SOURCE_SEAL_PASS.json",
+    "prepared": true,
+    "verified": true,
+    "materialization_authorized": true,
+    "pytest_launch_count": 1,
+    "pytest_exit_code": 0,
+    "tests": 4192,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor24_20260825T1014Z",
+    "tested_tree_sha256": "7a1c9c09d124a44d732e0cbdd26336616e2804d9a97c1fc6f8ccd6bfed08f3b5",
+    "post_tree_sha256": "7a1c9c09d124a44d732e0cbdd26336616e2804d9a97c1fc6f8ccd6bfed08f3b5",
+    "manifest_sha256": "d677407785ce22d04815fe94e31cd159a48d39f7d1831c266bd204a735bfe4e3",
+    "junit_sha256": "32d94946b22aa63204b5fbb5f1b0be39c8e767f9f1d43f252445c7c403fec819",
+    "post_verification_sha256": "90f5f9eeab1d6a43c0e016f2f9a0fc4a5b7de1c67ae0af8f1da72bf1c8bc4329"
   },
   "safety": {
     "LIVE_ENABLED": false,
@@ -248,7 +278,7 @@
     "junit_sha256": "f2a6080786ac31ae3455af217e526568afaabbcd70a3ca47abc1e7710d3e9bc2",
     "production_fix_applied_before_red": false
   },
-  "next_action": "Apply the minimal reconciliation fix that derives an exclusive policy_coalesced bucket by removing the pre-admission _deduplicated subset exactly once, without changing raw counters, disposition, controller behavior, loss taxonomy, or fail-closed mismatch gating.",
-  "forbidden": ["Successor23 relaunch or guardian relaunch", "silent repair, replay, suppression, or rehabilitation", "runtime stop without separate exact nonce/PID-bound authority", "failed-cohort reuse", "calibration finalization", "tournament registration or evaluation", "Phase Two", "holdout creation or consumption", "Phase 3", "live authenticated signing order or cancel capability", "authoritative-v5 mutation"],
+  "next_action": "Materialize a fresh Successor24 exactly once from the tested source tree, cold-verify it independently, then launch one fresh Phase-One identity and one independent guardian.",
+  "forbidden": ["Successors1-23 relaunch, guardian relaunch, repair, rehabilitation, pooling, or reuse", "Successor24 source mutation or seal rerun", "duplicate materialization or duplicate Phase-One launch", "calibration finalization", "tournament registration or evaluation", "Phase Two", "holdout creation or consumption", "Phase 3", "live authenticated signing order or cancel capability", "authoritative-v5 mutation"],
   "codex_active_work_stopping": false
 }

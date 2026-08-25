@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR23_ACCOUNTING_FIX_VERIFICATION_V1",
+  "captured_at": "2026-08-25T17:38:26.9970680+07:00",
+  "classification": "CAUSAL_FIX_VERIFIED",
+  "successor23": {
+    "terminal": true,
+    "permanently_ineligible": true,
+    "must_not_relaunch": true,
+    "first_failure_path": "D:\\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z\\operator\\guardian_failure_1787648489397.json",
+    "first_failure_sha256": "26169b2c3fca7e9db9f0f9ef850e9d96bee4b7c7b2b2bc14395523696145a490",
+    "terminal_forensic_sha256": "765204957b31eebd778ad8179af976f6347b8c08feea2eb243e1976b6975dbe9"
+  },
+  "root_cause": {
+    "event": "one pre-admission dedupe hit",
+    "raw_counter_contract": "deduplicated is a diagnostic subset of the coalesced umbrella",
+    "defective_reconciliation": "policy_coalesced included the raw coalesced umbrella while policy_deduplicated added the same dedupe event again",
+    "observed_formula": "mismatch = submitted - accounted = -deduplicated for the affected event class",
+    "correct_contract": "reconciliation outcomes are disjoint: policy_coalesced excludes the pre-admission deduplicated subset and policy_deduplicated counts it exactly once",
+    "raw_diagnostics_preserved": true,
+    "controller_behavior_preserved": true,
+    "loss_taxonomy_preserved": true,
+    "nonzero_mismatch_remains_fail_closed": true
+  },
+  "implementation": {
+    "path": "lite_frequency_v4/telemetry.py",
+    "sha256": "676825692442d3fe92f1297e33800154eadd4ab08a57ff93a5bf2852b0e00b51",
+    "test_path": "tests/test_frequency_v4_telemetry_accounting.py",
+    "test_sha256": "fee069221c15230c692e598fc714f1548cca287f7933e7d9f82bf577a615a419"
+  },
+  "verification": {
+    "mandatory_red": {"tests": 1, "failures": 1, "errors": 0, "skipped": 0, "observation_sha256": "8ed15ccbaa5678071c6d317b885beb5d8f50cf7bc998fbdd36364854e957db9e"},
+    "focused_green": {"tests": 1, "failures": 0, "errors": 0, "skipped": 0, "observation_sha256": "4b6c37a6e6943015b15080935bc45d3ae1b6dbda229572248bba4c724a219990"},
+    "accounting_subsystem": {"tests": 42, "failures": 0, "errors": 0, "skipped": 0, "observation_sha256": "644ca06851c273f9f76357ead6d9e4d1b5e90e1606ff19f1783f093ac4beebe6"},
+    "concurrency_persistence": {"tests": 241, "failures": 0, "errors": 0, "skipped": 0, "observation_sha256": "e7fbf7f1948034b86fef86d5b24435490f1ab6ba767b6faf097f792080fff2dc"},
+    "bounded_stress": {"tests": 1, "cycles": 16, "submitted_rows": 3072, "minimum_reconciliation_observations": 2048, "failures": 0, "errors": 0, "skipped": 0, "observation_sha256": "af4a7546b95e25c1765c8921a6d0005b9930ba7a0f68c72a372f7078c921b37e"},
+    "runtime_safety": {"tests": 287, "failures": 0, "errors": 0, "skipped": 0, "observation_sha256": "97303dca6712bfb2fa8ddddcc62da20c78e164bd0e74c57c1fca6e51182fc3dc"}
+  },
+  "source_seal_started_after_all_preseal_layers_green": true
+}
