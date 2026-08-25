@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "updated_at": "2026-08-25T22:34:20.2489449+07:00",
-  "agent_state": "SUCCESSOR26_PHASE_ONE_AUTHORIZED_NOT_EXECUTED",
-  "classification": "MATERIALIZATION_AND_COLD_VERIFICATION_GREEN_GUARDIAN_OPERATOR_UNIT_GREEN",
+  "agent_state": "SUCCESSOR26_PHASE_ONE_RUNNING_GUARDIAN_AUTHORIZED_NOT_EXECUTED",
+  "classification": "EXACT_PHASE_ONE_IDENTITY_HEALTHY_AND_PROGRESSING_GUARDIAN_PRECHECK_CLEAN",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "251b96f17dbf939d34aa19d9715ce5d3f167f708",
+  "prior_bridge_commit": "0c714a641a2f5591fe1b8ca1e49bf9ace96fb404",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR26_PHASE_ONE_AUTHORITY.json",
-  "canonical_artifact_sha256": "23c6d09cf5612c2cce5a8cfc5ca23bb871135b43638056d7a9f832d648b8490d",
+  "canonical_artifact": ".codex/SUCCESSOR26_GUARDIAN_AUTHORITY.json",
+  "canonical_artifact_sha256": "d448142cb91bcd55bed8f3bd0d2d9358376a03ff3dfcab9a73ce617498a92e3f",
   "repository": {
     "path": "D:\\claude\\poly_alpha_sniper",
     "branch": "master",
@@ -109,8 +109,15 @@
     "guardian_operator_unit_passed": true,
     "phase_one_authority_sha256": "4d479f74b431ab592d217a8e60e02c7975b397c4d09c754cc848f130332a9ace",
     "phase_one_launcher_sha256": "1813fb30dcdd9444bb9997246eaffc19bb5e4843cf2fe472fe7ad62d762dbb39",
-    "phase_one_launch_count": 0,
-    "runtime_root_preexisting": false
+    "phase_one_launch_count": 1,
+    "session_id": "94b7f805b73d4c82b851938e20570477",
+    "launcher_pid": 8604,
+    "runtime_pid": 6720,
+    "runtime_state": "RUNNING",
+    "runtime_healthy": true,
+    "guardian_authority_sha256": "faea0739e832f5567b89c1bcbd791b79e60a59059677f7a5c1e63b41b1cea594",
+    "guardian_launcher_sha256": "30fe457c30da26d3635a5e6a8a8c8fb6f32f6f3200f7a5b5dfe6a66815f0f1a5",
+    "guardian_launch_count": 0
   },
   "authoritative_v5": {
     "immutable": true,
@@ -128,6 +135,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Execute the hash-bound Successor26 Phase-One launcher exactly once; resolve the one session/PID identity, then authorize and launch one hash-bound guardian.",
+  "next_action": "Execute the bound Successor26 guardian launcher exactly once; prove bounded clean increasing acquisition, push the final handoff, then stop Codex while runtime and guardian continue.",
   "codex_active_work_stopping": false
 }

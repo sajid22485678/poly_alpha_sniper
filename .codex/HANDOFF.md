@@ -4,7 +4,7 @@ Updated: `2026-08-25T22:34:20.2489449+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR26_PHASE_ONE_AUTHORIZED_NOT_EXECUTED`
+`SUCCESSOR26_PHASE_ONE_RUNNING_GUARDIAN_AUTHORIZED_NOT_EXECUTED`
 
 Canonical current detail is in `.codex/SUCCESSOR26_SOURCE_SEAL_PASS.json`,
 SHA-256 `9b1c2fe3b7d27d775c1d8d62644080a92004866e6b601b42f93524e3d2b5dc8e`.
@@ -83,7 +83,17 @@ Phase-One authority SHA-256 is
 `4d479f74b431ab592d217a8e60e02c7975b397c4d09c754cc848f130332a9ace`;
 launcher SHA-256 is
 `1813fb30dcdd9444bb9997246eaffc19bb5e4843cf2fe472fe7ad62d762dbb39`.
-Execute this launcher exactly once, preserve the first result, resolve the one
-session/PID identity, and launch exactly one bound guardian. Do not enter
-calibration, tournament, Phase Two, holdout, Phase Three, live/authenticated
-trading, signing, orders/cancels, or authoritative-v5 mutation.
+Phase One launched exactly once: session
+`94b7f805b73d4c82b851938e20570477`, nonce
+`6e80d3ea67cc4d12994c1f20427de260`, launcher/runtime PIDs `8604 -> 6720`.
+Current runtime and all binding persistence, monotonic deadline, reconciliation,
+safety, source-discard, phase, and holdout checks are clean and acquisition is
+progressing. Guardian authority SHA-256 is
+`faea0739e832f5567b89c1bcbd791b79e60a59059677f7a5c1e63b41b1cea594`;
+launcher SHA-256 is
+`30fe457c30da26d3635a5e6a8a8c8fb6f32f6f3200f7a5b5dfe6a66815f0f1a5`.
+
+Execute the guardian launcher exactly once, prove bounded clean increasing
+acquisition, push final handoff, and stop Codex while runtime and guardian
+continue. Do not enter calibration, tournament, Phase Two, holdout, Phase
+Three, live/authenticated trading, signing, orders/cancels, or v5 mutation.
