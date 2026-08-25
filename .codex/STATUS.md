@@ -1,14 +1,21 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T16:15:07.3932319+07:00`
+Updated: `2026-08-25T16:40:20.8468246+07:00`
 
 ## Current boundary
 
-`SUCCESSOR23_TWO_HOUR_REVIEW_FAILED_CODEX_STOPPED`
+`SUCCESSOR23_EXACT_GRACEFUL_STOP_ADMITTED_NOT_EXECUTED`
 
-The bounded two-hour classification is `TWO_HOUR_REVIEW_FAILED`. The canonical
-record is `.codex/SUCCESSOR23_TWO_HOUR_REVIEW.json`. It supersedes the initial
-healthy handoff for current status; earlier material below remains historical.
+The canonical current record is `.codex/SUCCESSOR23_STOP_ADMISSION.json`.
+Owner authority now admits one exact same-identity, nonce/PID-bound graceful
+stop. The inert operator preflight passed, but Execute has not run and no stop
+request exists. Exact next action: rerun Validate, invoke Execute exactly once,
+and permit only the runtime-owned graceful drain and terminalization. Never
+retry an ambiguous invocation.
+
+The bounded two-hour classification remains `TWO_HOUR_REVIEW_FAILED`. Its
+canonical forensic record is `.codex/SUCCESSOR23_TWO_HOUR_REVIEW.json`; earlier
+material below remains historical.
 
 Successor22 remains gracefully terminal, permanently forensic/ineligible, and
 `MUST_NOT_RELAUNCH`. Its database and immutable failure evidence were not

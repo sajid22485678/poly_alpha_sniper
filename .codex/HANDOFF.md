@@ -2,12 +2,20 @@
 
 ## Durable boundary
 
-`SUCCESSOR23_TWO_HOUR_REVIEW_FAILED_CODEX_STOPPED`
+`SUCCESSOR23_EXACT_GRACEFUL_STOP_ADMITTED_NOT_EXECUTED`
 
-The bounded two-hour classification is `TWO_HOUR_REVIEW_FAILED`. The canonical
-record is `.codex/SUCCESSOR23_TWO_HOUR_REVIEW.json`. It supersedes the initial
-healthy handoff for current continuation authority; earlier material below is
-historical.
+The canonical current record is `.codex/SUCCESSOR23_STOP_ADMISSION.json`.
+One exact same-identity, nonce/PID-bound graceful stop is owner-authorized. The
+prepared operator passed inert validation, but Execute has not run and no stop
+request exists. Exact next action: rerun Validate, execute it exactly once, and
+allow the runtime to drain and terminalize itself. Never retry an ambiguous
+invocation. After immutable terminal closure, trace the accounting formula and
+sole deduplication epoch to root cause and obtain the required causal RED before
+any production fix.
+
+The bounded two-hour classification remains `TWO_HOUR_REVIEW_FAILED`. Its
+canonical forensic record is `.codex/SUCCESSOR23_TWO_HOUR_REVIEW.json`; earlier
+material below is historical.
 
 Successor22 is terminal, forensic-only, permanently ineligible, and cannot be
 relaunched. Root cause and mandatory RED are at bridge commit

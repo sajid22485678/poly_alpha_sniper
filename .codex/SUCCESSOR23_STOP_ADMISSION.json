@@ -1,0 +1,116 @@
+{
+  "schema": "POLY_ALPHA_SUCCESSOR23_STOP_ADMISSION_V1",
+  "recorded_at": "2026-08-25T16:40:20.8468246+07:00",
+  "state": "SUCCESSOR23_EXACT_GRACEFUL_STOP_ADMITTED_NOT_EXECUTED",
+  "sole_writer": "Codex",
+  "prior_bridge_commit": "0023aeab2eec047b9b5400fb04113a6dfa0c9ab0",
+  "containing_bridge_commit": "SELF",
+  "owner_authority": {
+    "packet_path": "C:\\Users\\sajid\\.codex\\attachments\\6ca93bab-4d53-46d7-89ca-3b39c360e0a7\\pasted-text.txt",
+    "packet_sha256": "a6dd59043c7f4279cd1ea854bfaf9eee792457cdbe2e5774e62b9c5542c93e42",
+    "scope": "ONE_EXACT_SAME_IDENTITY_NONCE_PID_BOUND_GRACEFUL_NORMAL_STOP"
+  },
+  "repository": {
+    "path": "D:\\claude\\poly_alpha_sniper",
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "staged_paths": 0,
+    "tracked_modified_paths": 55,
+    "untracked_paths": 108,
+    "deliberate_dirty_tree_preserved": true,
+    "source_mutated_during_admission": false
+  },
+  "successor23": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR23-20260825T063851Z",
+    "root": "D:\\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z",
+    "source_tree_sha256": "249c1ec0aee2f38ccd954b9fe6a76f4be053dabcf1dc7ffa9d5eb880ec701afd",
+    "session_id": "e8cc5e49b94d4f59b9e1eb5f16e5544e",
+    "phase_one_nonce": "cb94a3af73994324b3290ab599f0467a",
+    "launcher_pid": 16088,
+    "runtime_pid": 11856,
+    "runtime_process_create_time": 1787641030.8949697,
+    "runtime_state": "RUNNING",
+    "same_consumed_identity": true,
+    "matching_runtime_processes": 2,
+    "phase_one_lease_acquired_records": 1,
+    "phase_one_lease_released_records": 0,
+    "stop_request_present": false,
+    "stop_execution_artifacts_present": false,
+    "must_not_relaunch": true
+  },
+  "binding_failure": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z\\operator\\guardian_failure_1787648489397.json",
+    "sha256": "26169b2c3fca7e9db9f0f9ef850e9d96bee4b7c7b2b2bc14395523696145a490",
+    "violation": "telemetry_data_safety:UNSAFE",
+    "classification": "CONFIRMED_BINDING_TELEMETRY_ACCOUNTING_RECONCILIATION_MISMATCH_NEGATIVE_ONE",
+    "first_failure_binding": true,
+    "later_recovery_cannot_rehabilitate": true,
+    "critical_evidence_incomplete": 0,
+    "critical_evidence_lost": 0,
+    "critical_rows_lost": 0,
+    "unexpected_loss": 0
+  },
+  "latest_inert_preflight": {
+    "observed_ts_ms": 1787650785273,
+    "eligible": true,
+    "mutation_attempted": false,
+    "heartbeat_age_ms": 2723,
+    "accounting_reconciliation": {
+      "submitted": 991704,
+      "accounted": 991705,
+      "logical_committed": 507821,
+      "buffered": 32,
+      "inflight": 0,
+      "aggregated_in_queue": 0,
+      "policy_coalesced": 106769,
+      "policy_deduplicated": 1,
+      "policy_deferred": 2542,
+      "policy_sampled": 374540,
+      "accounted_from_terms": 991705,
+      "mismatch": -1,
+      "unexpected_loss": 0
+    }
+  },
+  "operator_authority": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z\\operator\\accounting_mismatch_stop_once.ps1",
+    "sha256": "ba7a2c0b604eee21e46730037655d98a6b8cd68ff118906cfa4cb9423f9358b4",
+    "validate_exit_code": 0,
+    "validate_contract": "POLY_ALPHA_SUCCESSOR23_ACCOUNTING_MISMATCH_STOP_PREFLIGHT_V1",
+    "validate_only_completed": true,
+    "execute_invocations": 0,
+    "stop_request_created": false,
+    "execution_count_authorized": 1
+  },
+  "safety": {
+    "dry_run": true,
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_order_placement_available": false,
+    "real_order_cancellation_available": false,
+    "live_adapter_present": false,
+    "kill_switch_engaged": true,
+    "phase_3_entered": false,
+    "phase_two_entered": false,
+    "calibration_finalized": false,
+    "tournament_registered": false,
+    "holdout_state": "V4-HO-001_NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_read_only_and_byte_identical_at_last_full_verification": true
+  },
+  "decision": {
+    "stop_admitted": true,
+    "stop_executed": false,
+    "exact_next_action": "Re-run the inert operator Validate mode against current identity, then invoke Execute exactly once. Do not retry if the result is ambiguous. Permit only runtime-owned graceful drain, terminal snapshot, session close, and lease release.",
+    "post_stop_action": "Create immutable terminal forensic closure before any source edit; then trace the exact accounting formula and sole deduplication epoch to root cause and obtain a mandatory causal RED."
+  },
+  "forbidden": [
+    "Successor23 relaunch, rehabilitation, replay, repair, or reuse",
+    "ad-hoc database mutation or direct session SQL",
+    "forced process termination while graceful drain progresses",
+    "calibration, tournament, Phase Two, holdout, or Phase 3",
+    "live authenticated signing, order, or cancel capability",
+    "authoritative-v5 mutation or cutover"
+  ]
+}

@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-25T16:15:07.3932319+07:00",
-  "agent_state": "SUCCESSOR23_TWO_HOUR_REVIEW_FAILED_CODEX_STOPPED",
+  "updated_at": "2026-08-25T16:40:20.8468246+07:00",
+  "agent_state": "SUCCESSOR23_EXACT_GRACEFUL_STOP_ADMITTED_NOT_EXECUTED",
   "classification": "TWO_HOUR_REVIEW_FAILED",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "316c20695ad24350d01599d89a268fa58709823c",
+  "prior_bridge_commit": "0023aeab2eec047b9b5400fb04113a6dfa0c9ab0",
   "containing_bridge_commit": "SELF",
   "repository": {
     "path": "D:\\claude\\poly_alpha_sniper",
@@ -210,7 +210,18 @@
     "safety": "PASS",
     "holdout": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Owner-controlled forensic disposition only. Preserve the first guardian failure and still-running consumed Successor23 identity. Do not perform the four-hour readiness review or stop/relaunch without separate exact authority.",
+  "successor23_stop_admission": {
+    "canonical_artifact": ".codex/SUCCESSOR23_STOP_ADMISSION.json",
+    "owner_authorized": true,
+    "same_identity_graceful_stop_only": true,
+    "operator_path": "D:\\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z\\operator\\accounting_mismatch_stop_once.ps1",
+    "operator_sha256": "ba7a2c0b604eee21e46730037655d98a6b8cd68ff118906cfa4cb9423f9358b4",
+    "inert_validate_passed": true,
+    "execute_invocations": 0,
+    "stop_request_present": false,
+    "execution_count_authorized": 1
+  },
+  "next_action": "Re-run inert Validate against the current Successor23 identity, then invoke Execute exactly once. Never retry an ambiguous invocation. Allow only runtime-owned graceful drain, terminalization, session close, and lease release.",
   "forbidden": ["Successor23 relaunch or guardian relaunch", "silent repair, replay, suppression, or rehabilitation", "runtime stop without separate exact nonce/PID-bound authority", "failed-cohort reuse", "calibration finalization", "tournament registration or evaluation", "Phase Two", "holdout creation or consumption", "Phase 3", "live authenticated signing order or cancel capability", "authoritative-v5 mutation"],
-  "codex_active_work_stopping": true
+  "codex_active_work_stopping": false
 }
