@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "checkpoint_local": "2026-08-25T22:34:20.2489449+07:00",
-  "state": "SUCCESSOR26_MATERIALIZATION_AUTHORIZED_NOT_EXECUTED",
-  "classification": "FRESH_CREATE_ONCE_IDENTITY_BOUND_TO_GREEN_SOURCE_SEAL",
-  "canonical_artifact": ".codex/SUCCESSOR26_MATERIALIZATION_AUTHORITY.json",
-  "canonical_artifact_sha256": "80d3f86d08570c94458006653e31ffd18e31f4d803e28658a14f69399de56bbc",
+  "state": "SUCCESSOR26_PHASE_ONE_AUTHORIZED_NOT_EXECUTED",
+  "classification": "MATERIALIZATION_AND_COLD_VERIFICATION_GREEN_GUARDIAN_OPERATOR_UNIT_GREEN",
+  "canonical_artifact": ".codex/SUCCESSOR26_PHASE_ONE_AUTHORITY.json",
+  "canonical_artifact_sha256": "23c6d09cf5612c2cce5a8cfc5ca23bb871135b43638056d7a9f832d648b8490d",
   "successor25": {
     "root": "D:\\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z",
     "session_id": "50ac10343a4044fa8f2fe71113ac014f",
@@ -74,8 +74,17 @@
     "reserved_phase_two_nonce_unauthorized": "2a8e2b8caabe4f22a725e7a5fd641362",
     "materialization_authority_sha256": "ad5b00bbec303b0a40a2ba383cfa288fc4c9bb002bd5d2d39cbfe526ce39bcd9",
     "materialization_runner_sha256": "eb72b12eab741668f0872addd9862d3955d6445aa5a9db00063d39314924a008",
-    "materialization_launch_count": 0,
-    "target_root_preexisting": false
+    "materialization_launch_count": 1,
+    "materialization_exit_code": 0,
+    "materialization_manifest_sha256": "bf70107800e0f623c23db9c3e733d2c52ee51eb876e43f6da3278f4c6245d1b6",
+    "cold_verification_sha256": "568887dce73cf8bd2a470e8b56ac99b3ae1d55e780312b09ab95f86eefab8693",
+    "cold_verification_passed": true,
+    "guardian_operator_unit_tests": 25,
+    "guardian_operator_unit_passed": true,
+    "phase_one_authority_sha256": "4d479f74b431ab592d217a8e60e02c7975b397c4d09c754cc848f130332a9ace",
+    "phase_one_launcher_sha256": "1813fb30dcdd9444bb9997246eaffc19bb5e4843cf2fe472fe7ad62d762dbb39",
+    "phase_one_launch_count": 0,
+    "runtime_root_preexisting": false
   },
   "authoritative_v5": {
     "immutable": true,
@@ -93,6 +102,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Execute the hash-bound Successor26 materialization runner exactly once, preserve the first result, then cold-verify exactly once if and only if it exits cleanly.",
+  "next_action": "Execute the hash-bound Successor26 Phase-One launcher exactly once; resolve the one session/PID identity, then authorize and launch one hash-bound guardian.",
   "codex_active_work_stopping": false
 }

@@ -4,7 +4,7 @@ Updated: `2026-08-25T22:34:20.2489449+07:00`
 
 ## Current boundary
 
-`SUCCESSOR26_MATERIALIZATION_AUTHORIZED_NOT_EXECUTED`
+`SUCCESSOR26_PHASE_ONE_AUTHORIZED_NOT_EXECUTED`
 
 Successor25 is permanently ineligible. Its one Phase-One identity was session
 `50ac10343a4044fa8f2fe71113ac014f`, nonce
@@ -88,5 +88,19 @@ complete exact-v4 process census is zero. Authority SHA-256 is
 runner SHA-256 is
 `eb72b12eab741668f0872addd9862d3955d6445aa5a9db00063d39314924a008`.
 
-Exact next action: execute that hash-bound materialization runner exactly once.
-Preserve its first result without retry; cold-verify once only after a clean exit.
+Materialization executed exactly once and exited zero. Manifest SHA-256 is
+`bf70107800e0f623c23db9c3e733d2c52ee51eb876e43f6da3278f4c6245d1b6`.
+Independent cold verification SHA-256 is
+`568887dce73cf8bd2a470e8b56ac99b3ae1d55e780312b09ab95f86eefab8693`:
+quick-check `ok`, zero foreign-key violations, exact v6 schema, zero research,
+economic, tournament, calibration, or holdout rows, released lease, and v5
+byte-identical. The self-contained monotonic guardian operator passed 25/25
+tests exactly once; JUnit SHA-256 is
+`6acc3ea0c654c64619b9c427cddc561615ab4fce13dd856fee39ae3e6376741b`.
+
+Phase-One authority SHA-256 is
+`4d479f74b431ab592d217a8e60e02c7975b397c4d09c754cc848f130332a9ace`;
+launcher SHA-256 is
+`1813fb30dcdd9444bb9997246eaffc19bb5e4843cf2fe472fe7ad62d762dbb39`.
+Exact next action: execute that launcher once, never relaunch its nonce, resolve
+the generated session/PID identity, and launch exactly one bound guardian.

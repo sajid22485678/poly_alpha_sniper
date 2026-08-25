@@ -1,0 +1,79 @@
+{
+  "contract": "POLY_ALPHA_CODEX_SUCCESSOR26_PHASE_ONE_AUTHORITY_CHECKPOINT_V1",
+  "recorded_utc": "2026-08-25T16:00:00Z",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR26-20260825T1537Z",
+  "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor26_20260825T1537Z",
+  "source_seal": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor26_20260825T1509Z",
+    "tested_tree_sha256": "9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21",
+    "manifest_sha256": "42f1d43bf674074793ce851d9362adf25cb853f3a06ae0871556f403f057a5d6",
+    "junit_sha256": "2b6194b5286de37c267fcb21b2a6eaae76ec33dd89ba238657dd2d928e306564",
+    "post_verification_sha256": "50b1014cb90fc8df4c6310a03df726bde4a57506a7013f2c61cace7ce297dcd4",
+    "tests": 4246,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "exit_code": 0,
+    "launch_count": 1
+  },
+  "materialization": {
+    "nonce": "fbc7431281e24a0c90d5ffb18e55e949",
+    "launch_count": 1,
+    "exit_code": 0,
+    "exit_sha256": "5c90bb3de2437fd933e6d266662637b34bbe645d0cce7eb9c5d7a95b7d95c453",
+    "run_control_sha256": "de8afdaabd58bc65c5c95dbf2da1df43ba5e3ffe0a58f2c4311c737eb6354d99",
+    "manifest_sha256": "bf70107800e0f623c23db9c3e733d2c52ee51eb876e43f6da3278f4c6245d1b6",
+    "database_sha256": "c10a55c0b7ec806edc41178f4bf5f436d0b76bdf6b0bcef7bf88db7f495377de",
+    "stderr_empty": true
+  },
+  "cold_verification": {
+    "verified": true,
+    "verification_sha256": "568887dce73cf8bd2a470e8b56ac99b3ae1d55e780312b09ab95f86eefab8693",
+    "census_sha256": "82f46f75968d338d0eb11ccce85e7440799b0f672e48c399fafd4f1c4e29c8ce",
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "user_version": 6,
+    "table_count": 70,
+    "nonempty_tables": {"schema_migrations": 3},
+    "calibration_tournament_holdout_economic_rows": 0,
+    "runtime_processes": [],
+    "guard_exclusive_open_available": true
+  },
+  "guardian_operator_unit": {
+    "launch_count": 1,
+    "tests": 25,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "exit_code": 0,
+    "monitor_sha256": "269bb894e9e619277e64fd2fe6084923300a688e101ef7c4338089987d9f5b53",
+    "watcher_sha256": "5e7654e35f040ef0b9a51b7615c05b9c56334ddb66783d9429d006b0938b817a",
+    "test_sha256": "f1a41b0796f60d7ca39b2990683befd79742c11ab7b06fed7c64ef250b644e57",
+    "junit_sha256": "6acc3ea0c654c64619b9c427cddc561615ab4fce13dd856fee39ae3e6376741b",
+    "run_control_sha256": "34be4c674252b63c4140959610933541853988d09b166a346bc6778460e17ab0",
+    "sealed_guardian_source_sha256": "931da17554ca0ce3258c4fb09331bed70aeb15e9c1c29d0ef401554f79427806",
+    "clock_contract": "MONOTONIC_RAW_PLUS_SNAPSHOT_ELAPSED; EXACT_D_CLEAN; D_PLUS_1_BINDING; WALL_CLOCK_UNUSED"
+  },
+  "phase_one": {
+    "nonce": "6e80d3ea67cc4d12994c1f20427de260",
+    "launch_count": 0,
+    "authority_sha256": "4d479f74b431ab592d217a8e60e02c7975b397c4d09c754cc848f130332a9ace",
+    "launcher_sha256": "1813fb30dcdd9444bb9997246eaffc19bb5e4843cf2fe472fe7ad62d762dbb39",
+    "runtime_root_preexisting": false,
+    "process_census_complete": true,
+    "exact_v4_processes": 0
+  },
+  "reserved_phase_two_nonce_unauthorized": "2a8e2b8caabe4f22a725e7a5fd641362",
+  "authoritative_v5_immutable": true,
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Execute the hash-bound Successor26 Phase-One launcher exactly once, preserve its first result, resolve the generated session and PID pair, then authorize and launch exactly one guardian."
+}
