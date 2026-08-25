@@ -1,0 +1,80 @@
+{
+  "schema": "POLY_ALPHA_SUCCESSOR22_RETENTION_ROOT_CAUSE_RED_V1",
+  "recorded_at": "2026-08-25T12:36:57.7077092+07:00",
+  "successor22": {
+    "session_id": "bc0614b5d1494a91854863b9ef527f13",
+    "phase_one_nonce": "99d60fab076e4bcfae6e3a8831d6393a",
+    "permanently_ineligible": true,
+    "must_not_relaunch": true,
+    "failed_command_id": "bc0614b5d1494a91854863b9ef527f13:000000093248:persist-execution-book-bundle",
+    "failed_payload_sha256": "27b4f48a4f196252ffcf091d6cc3e52c4b028bfdf0f4ff65cafa9f846fd46b04",
+    "critical_evidence_lost": 2
+  },
+  "observed_conflict": {
+    "source_event_id": 1851021,
+    "book_snapshot_id": 109669,
+    "candidate_id": 8854,
+    "outcome_side": "NO",
+    "stored_source_retention": "RAW",
+    "offered_source_retention": "PERMANENT",
+    "stored_book_retention": "RAW",
+    "offered_book_retention": "PERMANENT",
+    "immutable_source_field_differences": 0,
+    "deterministic_under_same_ordering": true
+  },
+  "causal_path": [
+    "FrequencyV4Engine._on_polymarket_event admits one accepted SourceEvent and its first causal BookState into the bounded ingest lane.",
+    "FrequencyV4Engine._process_polymarket_event first queues record_source_event through non-critical telemetry. The row omits retention_class, so V4Store.record_source_event stores RAW.",
+    "The same first causal SourceEvent and BookState are retained in _book_source_provenance and _book_persistence_provenance. Candidate/evaluation persistence can also commit the identical book as RAW.",
+    "FrequencyV4Engine._persist_prospective_execution_book constructs the critical EXECUTION_BOOK_EVIDENCE command from that same frozen source observation and first causal book.",
+    "V4PersistenceWriter hashes and journals the serialized command before V4Store.persist_execution_book_bundle injects PERMANENT into its local source/book rows.",
+    "V4Store.record_source_event resolves the unique identity to the already-stored RAW row but performs no lifecycle promotion.",
+    "persist_execution_book_bundle then compares retention_class as if it were immutable observation evidence and raises V4EvidenceConflict even though all immutable source fields match.",
+    "The enclosing BEGIN IMMEDIATE transaction rolls back, so no execution-book bundle result commits. The same causal book would encounter the equivalent RAW-to-PERMANENT lifecycle issue next.",
+    "V4PersistenceWriter retries only SQLite locked/busy OperationalError. V4EvidenceConflict is deterministic and non-retryable, so the semantic dispatch occurs once; current failure finalization records max_attempts=3, which explains the misleading durable attempt count.",
+    "The engine accounts the command's declared logical_rows=2 as critical evidence lost. The guardian observes DEGRADED_PERSISTENCE, failed critical health, and critical_evidence_incomplete_count=1 and fails closed."
+  ],
+  "scope_analysis": {
+    "same_source_observation": true,
+    "second_write_mechanism": "explicit execution-book retention escalation, not new evidence",
+    "race_required": false,
+    "sustained_runtime_exposure": "The conflict requires a naturally occurring ordering in which lossy telemetry or evaluation persistence commits the observation before the later critical execution-book claim; longer runs increase that ordering's opportunity.",
+    "canonicalization_relative_to_hashing": "The command payload and identity are hashed before store-local PERMANENT assignment.",
+    "affected_surfaces": [
+      "execution-book source evidence",
+      "execution-book book snapshots",
+      "trade-evidence pinning of source, book, and CEX rows, which must not lower PERMANENT"
+    ],
+    "not_generalized_without_evidence": [
+      "market evidence",
+      "outcome authority",
+      "fee authority"
+    ]
+  },
+  "canonical_retention_contract": {
+    "model": "MODEL_B_MONOTONIC_PROMOTION",
+    "order": ["RAW", "TRADE_EVIDENCE", "PERMANENT"],
+    "invariant": "Retention is mutable lifecycle state, not observation evidence. A byte/field-equivalent identity may move only to an equal or stronger class; re-offers at a weaker class preserve the stronger stored class. Immutable evidence mismatches remain V4EvidenceConflict.",
+    "atomicity": "Promotion belongs inside the same BEGIN IMMEDIATE critical transaction that validates immutable equivalence and commits the bundle journal result.",
+    "audit": "The original row identity is preserved, the monotonic lifecycle state is visible on that row, and the critical persistence command journal provides the transition's durable command identity and result."
+  },
+  "mandatory_red": {
+    "production_code_changed_before_red": false,
+    "test_node": "tests/test_frequency_v4_prospective_runtime.py::test_real_prospective_evaluation_atomically_seals_exact_v2_graph",
+    "result": "EXPECTED_RED",
+    "exit_code": 1,
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skips": 0,
+    "failure_type": "V4EvidenceConflict",
+    "failure_field": "retention_class",
+    "junit_path": "D:\\pytest_tmp_v4\\poly_alpha_successor22_retention_red2_20260825T0530Z\\junit.xml",
+    "junit_sha256": "9663f37e8ee0329142b120ea9cdea20545f9f92c96584a54da9c875df85f8331",
+    "observation_path": "D:\\pytest_tmp_v4\\poly_alpha_successor22_retention_red2_20260825T0530Z\\red_observation.json",
+    "observation_sha256": "9ede59ceb00cfbfef9373116d3b87ae2b0bd1f1f5b8c0c85bfd2d48828887aa8",
+    "invalid_invocation_not_credited": "The preceding system-Python invocation lacked pytest and was neither PASS nor RED."
+  },
+  "production_mutation_started": false,
+  "next_action": "Implement the smallest explicit monotonic-promotion transition for equivalent source/book rows, prevent trade-evidence pinning from lowering PERMANENT, retain all immutable conflict checks, then turn the causal and adjacent cases GREEN."
+}

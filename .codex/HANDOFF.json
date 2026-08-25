@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T12:24:09.6209010+07:00",
-  "state": "SUCCESSOR22_TERMINAL_FORENSIC_CLOSURE_COMPLETE_ROOT_CAUSE_TDD_NEXT",
+  "checkpoint_local": "2026-08-25T12:36:57.7077092+07:00",
+  "state": "SUCCESSOR22_ROOT_CAUSE_AND_MANDATORY_RED_COMPLETE_FIX_NEXT",
   "classification": "TERMINAL_FORENSIC_INELIGIBLE",
   "prior_bridge_commit": "855a4ace97e4cdf8944c31cb38eff7cec44e761d",
   "containing_bridge_commit": "SELF",
@@ -40,7 +40,17 @@
     "database_verification_sha256": "34ccb53b35a130ea32a1117c9ed9f64bb768db9a5e1e58710c24973378bfae82",
     "guardian_failure_sha256": "af8d57a9cdc8788c2e320bfd045e2ebeeb403a369c9a4eef8f88474ccc8cd313",
     "failed_command_id": "bc0614b5d1494a91854863b9ef527f13:000000093248:persist-execution-book-bundle",
-    "failed_payload_sha256": "27b4f48a4f196252ffcf091d6cc3e52c4b028bfdf0f4ff65cafa9f846fd46b04"
+    "failed_payload_sha256": "27b4f48a4f196252ffcf091d6cc3e52c4b028bfdf0f4ff65cafa9f846fd46b04",
+    "root_cause_red_artifact": ".codex/SUCCESSOR22_RETENTION_ROOT_CAUSE_RED.json",
+    "red_junit_path": "D:\\pytest_tmp_v4\\poly_alpha_successor22_retention_red2_20260825T0530Z\\junit.xml",
+    "red_junit_sha256": "9663f37e8ee0329142b120ea9cdea20545f9f92c96584a54da9c875df85f8331"
+  },
+  "retention_contract": {
+    "model": "MODEL_B_MONOTONIC_PROMOTION",
+    "order": ["RAW", "TRADE_EVIDENCE", "PERMANENT"],
+    "atomic_after_immutable_equivalence": true,
+    "weaker_reoffer_preserves_stronger_state": true,
+    "genuine_immutable_conflict_still_fails_closed": true
   },
   "safety": {
     "LIVE_ENABLED": false,
@@ -54,7 +64,7 @@
     "authoritative_v5_immutable": true,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "exact_next_action": "Trace the complete RAW-to-PERMANENT producer and retry path, establish the canonical retention invariant from source, then add and observe the mandatory pre-fix RED regression before production changes.",
+  "exact_next_action": "Implement explicit atomic monotonic promotion for equivalent source/book rows, prevent trade-evidence pinning from lowering PERMANENT, preserve immutable conflict semantics, and run the causal plus adjacent verification ladder.",
   "successor22_relaunch_performed": false,
   "later_phase_entered": false,
   "codex_active_work_stopping": false

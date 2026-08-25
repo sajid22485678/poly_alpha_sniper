@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-25T12:24:09.6209010+07:00",
-  "agent_state": "SUCCESSOR22_TERMINAL_FORENSIC_CLOSURE_COMPLETE_ROOT_CAUSE_TDD_NEXT",
+  "updated_at": "2026-08-25T12:36:57.7077092+07:00",
+  "agent_state": "SUCCESSOR22_ROOT_CAUSE_AND_MANDATORY_RED_COMPLETE_FIX_NEXT",
   "classification": "TERMINAL_FORENSIC_INELIGIBLE",
   "sole_writer": "Codex",
   "prior_bridge_commit": "855a4ace97e4cdf8944c31cb38eff7cec44e761d",
@@ -76,6 +76,19 @@
     "quick_check": "ok",
     "foreign_key_violations": 0
   },
+  "root_cause_and_red": {
+    "artifact": ".codex/SUCCESSOR22_RETENTION_ROOT_CAUSE_RED.json",
+    "producer_order": "RAW telemetry/evaluation persistence precedes PERMANENT critical execution-book persistence for the same frozen source observation and causal book",
+    "canonical_retention_model": "MODEL_B_MONOTONIC_PROMOTION",
+    "retention_order": ["RAW", "TRADE_EVIDENCE", "PERMANENT"],
+    "immutable_conflict_checks_preserved": true,
+    "production_code_changed_before_red": false,
+    "red_test_node": "tests/test_frequency_v4_prospective_runtime.py::test_real_prospective_evaluation_atomically_seals_exact_v2_graph",
+    "red_result": {"tests": 1, "failures": 1, "errors": 0, "skips": 0, "exit_code": 1},
+    "red_failure": "V4EvidenceConflict: retention_class stored=RAW offered=PERMANENT",
+    "red_junit_sha256": "9663f37e8ee0329142b120ea9cdea20545f9f92c96584a54da9c875df85f8331",
+    "red_observation_sha256": "9ede59ceb00cfbfef9373116d3b87ae2b0bd1f1f5b8c0c85bfd2d48828887aa8"
+  },
   "authoritative_v5": {
     "immutable": true,
     "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
@@ -93,7 +106,7 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Trace the complete RAW-to-PERMANENT producer and retry path, establish the canonical retention invariant from source, then add and observe the mandatory pre-fix RED regression before production changes.",
+  "next_action": "Implement explicit atomic monotonic promotion for equivalent source/book rows, prevent trade-evidence pinning from lowering PERMANENT, preserve immutable conflict semantics, and run the causal plus adjacent verification ladder.",
   "forbidden": ["Successor22 relaunch or repair", "failed-cohort reuse", "calibration finalization", "tournament registration or evaluation", "Phase Two", "holdout consumption", "Phase 3", "live authenticated signing order or cancel capability"],
   "codex_active_work_stopping": false
 }
