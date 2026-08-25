@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR25_SOURCE_SEAL_PREPARED_CHECKPOINT_V1",
+  "captured_at": "2026-08-25T19:59:48.4651722+07:00",
+  "root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor25_20260825T1257Z",
+  "root_create_count": 1,
+  "source_preparation_count": 1,
+  "pytest_launch_count": 0,
+  "expected_tests": 4208,
+  "source": {
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "manifest_sha256": "91f5c2bb8bb44096071752aac783e5115aad6e09caa0f946469dedbaa8a6bafe",
+    "tested_tree_sha256": "7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7",
+    "path_count": 668,
+    "staged_path_count": 0,
+    "tracked_modified_path_count": 56,
+    "untracked_path_count": 111
+  },
+  "authority": {
+    "prepare_script_sha256": "7535a1cfa5720ba43619ff1761404e162e590f1618c76b7fc5122fac82b0cbb8",
+    "runner_sha256": "178f0839981eb37d8c5da65fbca2e7c51b4f4bf9b1a4ac2c7072f98db45fa19f",
+    "verification_script_sha256": "ddfdaa3a4ab5cd846ac623af3e7c3698c763b51601c08b3411bd2c66690fcd94",
+    "authoritative_v5_pre_sha256": "8367ad1e86b85906bf0201f7f38c82e801456bde0882ce25a2394b44edd18fd6"
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Invoke run_full_suite_once.py exactly once. Never rerun this Successor25 source-seal identity."
+}

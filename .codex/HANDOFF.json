@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T19:51:49.5858504+07:00",
-  "state": "SUCCESSOR24_HOST_LOSS_CLOSURE_COMPLETE",
+  "checkpoint_local": "2026-08-25T19:59:48.4651722+07:00",
+  "state": "SUCCESSOR25_SOURCE_SEAL_PREPARED",
   "classification": "HOST_LOSS_INTEGRITY_FAILURE",
-  "canonical_artifact": ".codex/SUCCESSOR24_HOST_LOSS_CLOSURE_COMPLETE.json",
-  "canonical_artifact_sha256": "768e82d680f93a6da2d29be7020f69eb9e475abff2ceff64b2ab1e2b7b43835f",
+  "canonical_artifact": ".codex/SUCCESSOR25_SOURCE_SEAL_PREPARED.json",
+  "canonical_artifact_sha256": "2f8a9762f7673f14733ad8745bd44215b3e24ff7d245e62a629cbe3ce5c48ef9",
   "successor24": {
     "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR24-20260825T104125Z",
     "root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
@@ -90,6 +90,16 @@
     "closure_lease_released": true,
     "phase_one_lease_release_forged": false
   },
+  "successor25_source_seal": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor25_20260825T1257Z",
+    "manifest_sha256": "91f5c2bb8bb44096071752aac783e5115aad6e09caa0f946469dedbaa8a6bafe",
+    "tested_tree_sha256": "7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7",
+    "runner_sha256": "178f0839981eb37d8c5da65fbca2e7c51b4f4bf9b1a4ac2c7072f98db45fa19f",
+    "expected_tests": 4208,
+    "pytest_launch_count": 0,
+    "prepared": true,
+    "verified": false
+  },
   "safety": {
     "LIVE_ENABLED": false,
     "REAL_ORDERS_POSSIBLE": false,
@@ -100,6 +110,6 @@
     "phase_3_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Freeze the corrected current source tree and run the fresh Successor25 exact source qualification exactly once. Never relaunch or reuse Successor24.",
+  "next_action": "Invoke the prepared Successor25 run_full_suite_once.py exactly once. Never rerun this source-seal identity.",
   "codex_active_work_stopping": false
 }

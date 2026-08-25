@@ -1,13 +1,13 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T19:51:49.5858504+07:00`
+Updated: `2026-08-25T19:59:48.4651722+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR24_HOST_LOSS_CLOSURE_COMPLETE`
+`SUCCESSOR25_SOURCE_SEAL_PREPARED`
 
 Canonical transition detail is in
-`.codex/SUCCESSOR24_HOST_LOSS_CLOSURE_COMPLETE.json`.
+`.codex/SUCCESSOR25_SOURCE_SEAL_PREPARED.json`.
 The boot-evidence correction remains at
 `.codex/SUCCESSOR24_BOOT_EVIDENCE_CORRECTION.json`, SHA-256
 `d7dc60eebfe94c4a474e1eb22b88c554d4a34962efb5cc2b4d1d49fc54377377`.
@@ -120,8 +120,14 @@ precondition SHA-256
 The terminal closure is
 `operator\successor24_host_loss_closure_v2.json`, SHA-256
 `72957f833524a2bdd2d724e1c792c945d9984eb93b60570bc0d50075c1424f12`.
-Freeze the corrected current source tree and run the fresh Successor25 exact
-source qualification exactly once. Never relaunch or reuse Successor24.
+The Successor25 create-once source-seal authority is prepared at
+`D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor25_20260825T1257Z`.
+It binds manifest SHA-256
+`91f5c2bb8bb44096071752aac783e5115aad6e09caa0f946469dedbaa8a6bafe`,
+tested tree SHA-256
+`7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7`,
+and an exact 4,208-test inventory. Invoke `run_full_suite_once.py` exactly once.
+Never rerun this seal identity or relaunch/reuse Successor24.
 
 Do not enter calibration, tournament, Phase Two, holdout, Phase Three, live or
 authenticated trading, signing, orders/cancels, or authoritative-v5 mutation.

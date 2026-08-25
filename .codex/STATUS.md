@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T19:51:49.5858504+07:00`
+Updated: `2026-08-25T19:59:48.4651722+07:00`
 
 ## Current boundary
 
-`SUCCESSOR24_HOST_LOSS_CLOSURE_COMPLETE`
+`SUCCESSOR25_SOURCE_SEAL_PREPARED`
 
 Successor24 did not survive the host power loss. Its exact runtime and guardian
 are absent after reboot and were not relaunched. The recovered SQLite journal
@@ -55,5 +55,10 @@ exactly once and closed the session. Closure output SHA-256 is
 The journal now has 7,432 committed rows: the single new row is the canonical
 closure, while lost acknowledged command 7,432 remains absent. No economic or
 research rows changed, the closure lease acquired and released exactly once,
-and no Phase-One release was forged. Exact next action: freeze the corrected
-tree and run fresh Successor25 exact source qualification exactly once.
+and no Phase-One release was forged.
+
+The fresh Successor25 source-seal root is prepared create-once with tested tree
+SHA-256 `7d08828b6a5cb3a04001e47ecb0dda624dd6e632ea5b0345f888544eab68bae7`
+and exact expected inventory 4,208. Pytest launch count remains zero. Exact next
+action: invoke its `run_full_suite_once.py` exactly once and never rerun this
+seal identity.
