@@ -1,15 +1,15 @@
 # Poly Alpha continuation handoff
 
-Updated: `2026-08-25T22:07:36.0027011+07:00`
+Updated: `2026-08-25T22:10:58.0990115+07:00`
 
 ## Durable boundary
 
-`SUCCESSOR26_SOURCE_SEAL_PREPARATION_READY`
+`SUCCESSOR26_SOURCE_SEAL_PREPARED_NOT_EXECUTED`
 
-Canonical current detail is in
-`.codex/SUCCESSOR25_DEADLINE_FIX_VERIFICATION.json`, SHA-256
-`dab190bf5c420ac9d7bc429afc05dc12e69227ab83a20881cc72a4e1abed6841`.
-The immutable terminal closure remains in its prior canonical artifact.
+Canonical current detail is in `.codex/SUCCESSOR26_SOURCE_SEAL_PREPARED.json`,
+SHA-256 `dcfc8d1c8e6603e895faf57a86e07e95a7e7ad50a8570fd33c708cf1eab8b81e`.
+The immutable terminal closure and causal-fix verification remain in their prior
+canonical artifacts.
 
 Successor25 consumed exactly one Phase-One identity: root
 `D:\poly_alpha_prospective_exact_v6_successor25_20260825T1324Z`, session
@@ -48,11 +48,16 @@ immutable dispositions.
 
 ## Exact next action
 
-The mandatory RED, causal correction, adversarial deadline/registry/shutdown
-tests and bounded affected validation are green. Prepare one fresh Successor26
-source-seal root and run the repository full suite exactly once. Preserve the
-identity on failure or ambiguity. Only an exact green post-tree/v5 verification
-may authorize fresh materialization, cold verification, one Phase-One launch
-and one standalone monotonic guardian. Do not enter calibration, tournament,
-Phase Two, holdout, Phase Three, live/authenticated trading, signing,
-orders/cancels, or authoritative-v5 mutation.
+The create-once Successor26 seal root is
+`D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor26_20260825T1509Z`.
+Its tested tree is
+`9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21`,
+manifest SHA-256 is
+`42f1d43bf674074793ce851d9362adf25cb853f3a06ae0871556f403f057a5d6`,
+and pytest launch count is zero. Execute `run_full_suite_once.py` exactly once
+and preserve this identity on failure or ambiguity. Only an exact green
+post-tree/v5 verification may authorize fresh materialization, cold
+verification, one Phase-One launch and one standalone monotonic guardian. Do
+not enter calibration, tournament, Phase Two, holdout, Phase Three,
+live/authenticated trading, signing, orders/cancels, or authoritative-v5
+mutation.

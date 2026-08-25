@@ -1,10 +1,10 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T22:07:36.0027011+07:00`
+Updated: `2026-08-25T22:10:58.0990115+07:00`
 
 ## Current boundary
 
-`SUCCESSOR26_SOURCE_SEAL_PREPARATION_READY`
+`SUCCESSOR26_SOURCE_SEAL_PREPARED_NOT_EXECUTED`
 
 Successor25 is permanently ineligible. Its one Phase-One identity was session
 `50ac10343a4044fa8f2fe71113ac014f`, nonce
@@ -63,7 +63,15 @@ Authoritative v5 remains byte-identical. Safety is fail-closed:
 trading/orders/cancels unavailable, kill switch engaged, no Phase Two/Three,
 and `V4-HO-001` nonexistent/unconsumed.
 
-Exact next action: prepare one fresh Successor26 source-seal root and run the
-repository full suite exactly once. Preserve the identity on any failure or
-ambiguity. Only a green exact post-tree/v5 verification may authorize fresh
-materialization, cold verification, one Phase-One launch and one guardian.
+Successor26 seal root
+`D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor26_20260825T1509Z`
+is prepared create-once at tested tree
+`9a8ee9b4e6e3840775ab7e50576e545a3c67ef27c44233ef6edd2c2a21b25f21`.
+Manifest SHA-256 is
+`42f1d43bf674074793ce851d9362adf25cb853f3a06ae0871556f403f057a5d6`;
+pytest launch count is zero and authoritative v5 passed its pre-seal hash gate.
+
+Exact next action: execute the prepared `run_full_suite_once.py` exactly once.
+Preserve this seal identity on any failure, interruption or ambiguity. Only a
+green exact post-tree/v5 verification may authorize fresh materialization, cold
+verification, one Phase-One launch and one guardian.
