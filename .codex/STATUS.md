@@ -37,6 +37,10 @@ identity and the latest single guardian state, then continue bounded Phase-One
 acquisition under the frozen OOS/readiness protocol. Never relaunch the runtime
 or duplicate the guardian while it is running.
 
+Known non-authoritative path artifact: the similarly named root under
+`D:\claude` contains only an empty `operator` directory and is not an
+acquisition. The canonical Successor24 root is directly under `D:\`.
+
 The bounded two-hour classification remains `TWO_HOUR_REVIEW_FAILED`. Its
 canonical forensic record is `.codex/SUCCESSOR23_TWO_HOUR_REVIEW.json`; earlier
 material below remains historical.

@@ -28,6 +28,12 @@ guardian failure and terminal forensic closure remain immutable.
 Never relaunch or duplicate this runtime. Never launch another guardian while
 the current watcher is running.
 
+An empty look-alike path exists at
+`D:\claude\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z`
+from correcting an external patch target. It contains only an empty `operator`
+directory—no files, database, manifest, runtime, lease, or process—and is not
+an acquisition. The canonical Successor24 root is the `D:\...` path above.
+
 ## Proven current state
 
 The independent cold verifier passed exact-v6 schema identity, quick/FK

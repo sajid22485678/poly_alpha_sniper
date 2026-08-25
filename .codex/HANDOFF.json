@@ -20,6 +20,13 @@
     "guardian_running": true,
     "must_not_relaunch": true
   },
+  "known_empty_path_artifact": {
+    "path": "D:\\claude\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
+    "classification": "NON_ACQUISITION_EMPTY_PATH_CORRECTION_ARTIFACT",
+    "file_count": 0,
+    "only_child": "operator",
+    "canonical_acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z"
+  },
   "evidence": {
     "source_seal": ".codex/SUCCESSOR24_SOURCE_SEAL_PASS.json",
     "accounting_fix": ".codex/SUCCESSOR23_ACCOUNTING_FIX_VERIFICATION.json",

@@ -21,6 +21,18 @@
     "untracked_paths": 108,
     "deliberate_dirty_tree_preserved": true
   },
+  "known_empty_path_artifact": {
+    "path": "D:\\claude\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z",
+    "classification": "NON_ACQUISITION_EMPTY_PATH_CORRECTION_ARTIFACT",
+    "item_count": 1,
+    "directory_count": 1,
+    "file_count": 0,
+    "only_child": "operator",
+    "database_present": false,
+    "manifest_present": false,
+    "runtime_present": false,
+    "interpretation": "This empty look-alike path was created while correcting an external apply-patch target. It is not the Successor24 acquisition and must never be treated as materialized, launched, or eligible. The canonical acquisition root is D:\\poly_alpha_prospective_exact_v6_successor24_20260825T104125Z."
+  },
   "source_seal": {
     "root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor24_20260825T1014Z",
     "manifest_sha256": "d677407785ce22d04815fe94e31cd159a48d39f7d1831c266bd204a735bfe4e3",
