@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-25T16:40:20.8468246+07:00",
-  "state": "SUCCESSOR23_EXACT_GRACEFUL_STOP_ADMITTED_NOT_EXECUTED",
+  "checkpoint_local": "2026-08-25T16:48:32.3946982+07:00",
+  "state": "SUCCESSOR23_TERMINAL_FORENSIC_CLOSED_ROOT_CAUSE_PENDING",
   "classification": "TWO_HOUR_REVIEW_FAILED",
   "prior_bridge_commit": "0023aeab2eec047b9b5400fb04113a6dfa0c9ab0",
   "containing_bridge_commit": "SELF",
@@ -121,7 +121,7 @@
     "launcher_pid": 16088,
     "runtime_pid": 11856,
     "started_ts_ms": 1787641122796,
-    "running": true,
+    "running": false,
     "must_not_relaunch": true
   },
   "successor23_guardian": {
@@ -166,11 +166,26 @@
     "operator_path": "D:\\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z\\operator\\accounting_mismatch_stop_once.ps1",
     "operator_sha256": "ba7a2c0b604eee21e46730037655d98a6b8cd68ff118906cfa4cb9423f9358b4",
     "inert_validate_passed": true,
-    "execute_invocations": 0,
+    "execute_invocations": 1,
     "stop_request_present": false,
-    "execution_count_authorized": 1
+    "execution_count_authorized": 1,
+    "graceful_stop_complete": true
   },
-  "exact_next_action": "Re-run inert Validate against the current Successor23 identity, then invoke Execute exactly once. Never retry an ambiguous invocation. Allow only runtime-owned graceful drain, terminalization, session close, and lease release.",
+  "successor23_terminal_closure": {
+    "canonical_artifact": ".codex/SUCCESSOR23_TERMINAL_FORENSIC_CLOSURE.json",
+    "external_sha256": "765204957b31eebd778ad8179af976f6347b8c08feea2eb243e1976b6975dbe9",
+    "runtime_state": "STOPPED",
+    "runtime_processes": 0,
+    "lease_released": true,
+    "session_closed": true,
+    "terminal_command_committed": true,
+    "journal_total": 31515,
+    "journal_committed": 31515,
+    "journal_failed": 0,
+    "journal_unresolved": 0,
+    "classification": "TERMINAL_FORENSIC_INELIGIBLE"
+  },
+  "exact_next_action": "Trace the terminal accounting formula and sole policy-deduplication event to the first causal epoch, define the conservation contract, and obtain a mandatory real causal RED before any production source change.",
   "successor22_relaunch_performed": false,
   "later_phase_entered": false,
   "codex_active_work_stopping": false

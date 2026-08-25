@@ -2,16 +2,17 @@
 
 ## Durable boundary
 
-`SUCCESSOR23_EXACT_GRACEFUL_STOP_ADMITTED_NOT_EXECUTED`
+`SUCCESSOR23_TERMINAL_FORENSIC_CLOSED_ROOT_CAUSE_PENDING`
 
-The canonical current record is `.codex/SUCCESSOR23_STOP_ADMISSION.json`.
-One exact same-identity, nonce/PID-bound graceful stop is owner-authorized. The
-prepared operator passed inert validation, but Execute has not run and no stop
-request exists. Exact next action: rerun Validate, execute it exactly once, and
-allow the runtime to drain and terminalize itself. Never retry an ambiguous
-invocation. After immutable terminal closure, trace the accounting formula and
-sole deduplication epoch to root cause and obtain the required causal RED before
-any production fix.
+The canonical current record is
+`.codex/SUCCESSOR23_TERMINAL_FORENSIC_CLOSURE.json`. The exact graceful stop ran
+once and completed: runtime and launcher are absent, lock/request are absent,
+lease and session are closed, and the terminal journal command committed.
+Successor23 is permanently forensic/ineligible and `MUST_NOT_RELAUNCH`.
+
+Exact next action: trace the accounting formula and sole deduplication epoch to
+root cause, define the conservation contract, and obtain a mandatory causal RED
+before any production source change.
 
 The bounded two-hour classification remains `TWO_HOUR_REVIEW_FAILED`. Its
 canonical forensic record is `.codex/SUCCESSOR23_TWO_HOUR_REVIEW.json`; earlier

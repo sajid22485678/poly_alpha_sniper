@@ -1,0 +1,98 @@
+{
+  "contract": "POLY_ALPHA_CODEX_PROGRESS_SUCCESSOR23_TERMINAL_FORENSIC_CLOSURE_V1",
+  "recorded_at": "2026-08-25T16:48:32.3946982+07:00",
+  "state": "SUCCESSOR23_TERMINAL_FORENSIC_CLOSED_ROOT_CAUSE_PENDING",
+  "classification": "TERMINAL_FORENSIC_INELIGIBLE",
+  "sole_writer": "Codex",
+  "prior_bridge_commit": "22d2db83911dfe69cc6334de7eded5216db2f80c",
+  "containing_bridge_commit": "SELF",
+  "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR23-20260825T063851Z",
+    "source_tree_sha256": "249c1ec0aee2f38ccd954b9fe6a76f4be053dabcf1dc7ffa9d5eb880ec701afd",
+    "materialization_nonce": "9267184128614eb29a904c8c2654e427",
+    "phase_one_nonce": "cb94a3af73994324b3290ab599f0467a",
+    "session_id": "e8cc5e49b94d4f59b9e1eb5f16e5544e",
+    "launcher_pid": 16088,
+    "runtime_pid": 11856,
+    "must_not_relaunch": true
+  },
+  "graceful_stop": {
+    "owner_authorized_execution_count": 1,
+    "actual_execute_invocations": 1,
+    "request_sha256": "5a328f20aeec2ce4e555b071d9b53c7b51dc5a48084a07d548f3701e1b675357",
+    "request_consumed": true,
+    "runtime_and_launcher_absent": true,
+    "process_lock_absent": true,
+    "phase_one_lease_released": true,
+    "terminal_command_committed": true,
+    "runtime_state": "STOPPED",
+    "stop_reason": "graceful_stop",
+    "ended_ts_ms": 1787650999294,
+    "telemetry_shutdown_ok": true,
+    "shutdown_drain_timed_out": false
+  },
+  "binding_failure": {
+    "guardian_failure_sha256": "26169b2c3fca7e9db9f0f9ef850e9d96bee4b7c7b2b2bc14395523696145a490",
+    "violation": "telemetry_data_safety:UNSAFE",
+    "accounting_mismatch": -1,
+    "unexpected_loss": 0,
+    "critical_evidence_incomplete": 0,
+    "critical_evidence_lost": 0,
+    "critical_rows_lost": 0,
+    "later_recovery_cannot_rehabilitate": true
+  },
+  "terminal_census": {
+    "capsules": 1890,
+    "predictions": 3765,
+    "candidates": 1890,
+    "markets": 298,
+    "outcomes": 241,
+    "sealed_capsule_failures": 0,
+    "journal_total": 31515,
+    "journal_committed": 31515,
+    "journal_failed": 0,
+    "journal_unresolved": 0,
+    "duplicate_command_id_groups": 0,
+    "entries": 0,
+    "positions": 0,
+    "exits": 0,
+    "pnl_records": 0,
+    "calibration_artifacts": 0,
+    "tournament_rows": 0,
+    "holdout_rows": 0
+  },
+  "database": {
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "managed_v6_fingerprint_match": true,
+    "db_sha256": "9f95e1c38792cc3125bec3138f5acb2eaffb4507db76b1304bc5d555807c19bb",
+    "wal_sha256": "502e75396dde9a853b641f4488463830864341b3b38d853f69cf559b43c0da5b",
+    "db_and_wal_unchanged_by_read_only_verification": true,
+    "shm_wal_index_regenerated_and_disclosed": true,
+    "verification_sha256": "1fcdd8f91a9dd7c63d66370350355b1874851564ee65b4a333757b676f25a740"
+  },
+  "evidence": {
+    "external_path": "D:\\poly_alpha_prospective_exact_v6_successor23_20260825T063851Z\\operator\\successor23_terminal_forensic_closure.json",
+    "external_sha256": "765204957b31eebd778ad8179af976f6347b8c08feea2eb243e1976b6975dbe9",
+    "terminal_state_sha256": "f54a41a4b3c4e87de6518a632b49c4f917adeb9f1918ca301857db25cfece8e9",
+    "lease_release_sha256": "be2868a615e421e1c7c2e1bdcab4e90bc5c6ba394c64dc7f7999d0aeebd472b3"
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_3_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "exact_next_action": "Trace the terminal accounting formula and the sole policy-deduplication event to the first causal epoch, define the intended conservation contract, and obtain a mandatory real causal RED before any production source change.",
+  "disposition": "SUCCESSOR23_PERMANENTLY_FORENSIC_AND_INELIGIBLE;_DO_NOT_RELAUNCH_REPAIR_REPLAY_REHABILITATE_FINALIZE_REGISTER_EVALUATE_POOL_OR_REUSE"
+}

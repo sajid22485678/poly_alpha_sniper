@@ -1,17 +1,20 @@
 # Poly Alpha durable status
 
-Updated: `2026-08-25T16:40:20.8468246+07:00`
+Updated: `2026-08-25T16:48:32.3946982+07:00`
 
 ## Current boundary
 
-`SUCCESSOR23_EXACT_GRACEFUL_STOP_ADMITTED_NOT_EXECUTED`
+`SUCCESSOR23_TERMINAL_FORENSIC_CLOSED_ROOT_CAUSE_PENDING`
 
-The canonical current record is `.codex/SUCCESSOR23_STOP_ADMISSION.json`.
-Owner authority now admits one exact same-identity, nonce/PID-bound graceful
-stop. The inert operator preflight passed, but Execute has not run and no stop
-request exists. Exact next action: rerun Validate, invoke Execute exactly once,
-and permit only the runtime-owned graceful drain and terminalization. Never
-retry an ambiguous invocation.
+The canonical current record is
+`.codex/SUCCESSOR23_TERMINAL_FORENSIC_CLOSURE.json`. The exact graceful stop ran
+once and completed: runtime and launcher are absent, lock/request are absent,
+lease and session are closed, and the terminal journal command committed.
+Successor23 is permanently forensic/ineligible and `MUST_NOT_RELAUNCH`.
+
+Exact next action: trace the accounting formula and sole deduplication epoch to
+root cause, define the conservation contract, and obtain a mandatory causal RED
+before any production source change.
 
 The bounded two-hour classification remains `TWO_HOUR_REVIEW_FAILED`. Its
 canonical forensic record is `.codex/SUCCESSOR23_TWO_HOUR_REVIEW.json`; earlier
