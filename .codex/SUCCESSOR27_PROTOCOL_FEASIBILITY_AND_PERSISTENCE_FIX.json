@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "created_ts_ms": 1787739876132,
+  "contract": "POLY_ALPHA_SUCCESSOR27_PROTOCOL_FEASIBILITY_AND_PERSISTENCE_FIX_V1",
+  "prior_bridge_commit": "65e949861d4c71684749aefa1df2c7a9bdb23c7d",
+  "classification": "PROTOCOL_DEFECT_AND_PRIORITY_STARVATION_CAUSES_FIXED_FOCUSED_VALIDATION_PASS",
+  "successor27": {
+    "classification_unchanged": "OOS_DATA_INSUFFICIENT",
+    "closed_cycle_immutable": true,
+    "must_not_relaunch": true,
+    "terminal_closure_sha256": "0d156c6f05d63f9fd6118819c59a89d0f0d5b6de91ce048dae5205bd27faa47f"
+  },
+  "protocol_feasibility": {
+    "root_cause": "The registered protocol admitted qualifying predictions for twelve hours while the owner cycle closed at four hours and defined no preregistered prediction cutoff, outcome-resolution grace, or immutable dataset close. Predictions near the close therefore made unlabeled=0 depend on luck.",
+    "s27_outcome_retrieval_latency_ms": {
+      "count": 1524,
+      "p50": 892406,
+      "p90": 936310,
+      "p95": 940322,
+      "p99": 951502,
+      "maximum": 1209663
+    },
+    "corrected_contract": {
+      "guardian_startup_buffer_ms": 300000,
+      "prediction_collection_start_offset_ms": 300000,
+      "prediction_cutoff_offset_ms": 12600000,
+      "resolution_grace_ms": 1800000,
+      "immutable_dataset_close_offset_ms": 14400000,
+      "total_cycle_ms": 14400000
+    },
+    "s27_counterfactual_at_exact_corrected_boundaries": {
+      "ensemble": {
+        "rank1": 323,
+        "unique_markets": 323,
+        "positive": 164,
+        "negative": 159,
+        "unlabeled": 0
+      },
+      "model": {
+        "rank1": 322,
+        "unique_markets": 322,
+        "positive": 164,
+        "negative": 158,
+        "unlabeled": 0
+      },
+      "interpretation": "Feasibility evidence only; it does not retroactively change Successor27."
+    }
+  },
+  "post_close_persistence_failure": {
+    "root_cause": "Strict scheduler priority had no aging bound. Each timed-out priority-50 market command was overtaken by a continuing stream of newer priority-15 and priority-20 commands until its 15000 ms acknowledgement deadline expired.",
+    "commands": [
+      {
+        "command_sequence": 84326,
+        "queue_ms": 15931,
+        "execute_ms": 0,
+        "newer_fee_authority_overtakes": 23,
+        "newer_execution_evidence_overtakes": 4
+      },
+      {
+        "command_sequence": 89280,
+        "queue_ms": 16323,
+        "execute_ms": 1,
+        "newer_fee_authority_overtakes": 24,
+        "newer_execution_evidence_overtakes": 4
+      }
+    ],
+    "correction": "Fresh heads retain priority, but an eligible key head aged at least one second is serviced in oldest-sequence order. Per-key FIFO and the shutdown terminal fence remain unchanged."
+  },
+  "source_state": {
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "source_qualification": "PENDING_AFTER_BROADER_VALIDATION",
+    "changed_file_sha256": {
+      "lite_frequency_v4/persistence.py": "74e622b24516f25db7848934d5ac308a1830ed7de0d6f3f9db06dcedb3b2a745",
+      "lite_frequency_v4/prospective_config.py": "b75bdcecccadd54f0210bb23ad84c98b4ead141caf9bc4c2c9c918635db59840",
+      "lite_frequency_v4/schema_v6.py": "a8f03264a2c57827c4f6eeadcdc70c16be72819204fd832c4f23309e4fb2ee53",
+      "lite_frequency_v4/store.py": "3757cc3b71fd86c2442b411dc123f780dac06da6170f3a864effa3f7ba312f2e"
+    }
+  },
+  "validation": {
+    "red_tests_observed": true,
+    "focused_files": {
+      "tests": 90,
+      "failures": 0,
+      "errors": 0
+    },
+    "broader_schema_store_integration": "ONE_BACKWARD_COMPATIBILITY_FAILURE_FOUND_AND_FIXED; CLEAN_RERUN_PENDING",
+    "source_seal": "NOT_STARTED"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "Complete the clean broader rerun, adversarial deadline/cycle validation, then exact source qualification before any distinct successor materialization or launch."
+}

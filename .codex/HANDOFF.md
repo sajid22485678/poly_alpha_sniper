@@ -11,4 +11,8 @@ Successor27 is terminal. Its clean four-hour close remains data-insufficient, no
 
 After the guardian ended, the still-running identity latched two persistence acknowledgement timeouts. The exact stop authority was consumed once; both runtime processes exited, the lease was released, and 92,125/92,125 commands reconciled without loss. The terminal closure SHA-256 is `0d156c6f05d63f9fd6118819c59a89d0f0d5b6de91ce048dae5205bd27faa47f`.
 
-Do not relaunch or reuse Successor27. Audit the prediction cutoff/resolution grace contract and post-close timeout root cause before a distinct cycle. Calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation, and all live capabilities remain forbidden.
+Do not relaunch or reuse Successor27. The protocol audit proved a structural 12-hour prediction-window versus 4-hour-close mismatch. The minimal preregistered correction is +5m guarded prediction start, +3h30m prediction cutoff, 30-minute official-resolution grace, and +4h immutable dataset close. The S27 corpus passes the numerical gate under those exact ex-ante bounds with 323/322 unique rows and zero unlabeled; this is feasibility evidence only.
+
+The post-close timeouts were caused by unbounded strict-priority overtaking, not slow execution: the affected market commands executed in 0/1 ms after 23/24 newer fee commands and four newer execution commands jumped each queue. The scheduler now ages eligible heads after one second, retaining fresh priority and per-key FIFO. RED tests were observed and focused validation is green.
+
+Next: clean broader/adversarial validation, then exact source qualification. Only after that may a distinct fresh cycle be prepared. Calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation, and all live capabilities remain forbidden.

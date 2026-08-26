@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_ts_ms": 1787738798077,
-  "agent_state": "SUCCESSOR27_TERMINAL_PROTOCOL_AUDIT_ACTIVE",
-  "classification": "TERMINAL_CLOSED_OOS_DATA_INSUFFICIENT_WITH_POST_CLOSE_PERSISTENCE_FAILURE",
+  "updated_ts_ms": 1787739876132,
+  "agent_state": "SUCCESSOR27_CAUSAL_FIX_VALIDATION_ACTIVE",
+  "classification": "PROTOCOL_DEFECT_AND_PRIORITY_STARVATION_CAUSES_FIXED_FOCUSED_VALIDATION_PASS",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "4dbf0630af96033d6f5a840951febe251c14748c",
+  "prior_bridge_commit": "65e949861d4c71684749aefa1df2c7a9bdb23c7d",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR27_TERMINAL_DISPOSITION.json",
+  "canonical_artifact": ".codex/SUCCESSOR27_PROTOCOL_FEASIBILITY_AND_PERSISTENCE_FIX.json",
   "identity": {
     "session_id": "2b2e8b62c620488b84168a51e7a7efb7",
     "phase_one_nonce": "6bac76fc7d134539b2937051000527cd",
@@ -16,12 +16,12 @@
     "guardian_state": "NATURALLY_COMPLETED_AFTER_471_CLEAN_OBSERVATIONS",
     "must_not_relaunch": true
   },
-  "guardian_and_integrity": "Closed 4h cycle remains clean. Post-close runtime separately latched V4PersistenceTimeout twice; exact graceful stop reconciled 92125/92125 committed with zero loss or mismatch.",
+  "guardian_and_integrity": "Closed 4h cycle remains clean and immutable. The timing defect and post-close strict-priority starvation are causally fixed with focused tests green; clean broader rerun and source qualification remain.",
   "readiness": {
     "ensemble": "372 rank1 / 372 unique / 180 positive / 177 negative / 15 unlabeled",
     "model": "369 rank1 / 369 unique / 180 positive / 174 negative / 15 unlabeled"
   },
   "blocker": null,
   "safety": "all live capabilities absent; kill switch engaged; no Phase Two/Three; V4-HO-001 nonexistent/unconsumed; v5 immutable",
-  "next_action": "Audit prediction-cutoff/resolution-grace feasibility and the post-close persistence timeout before preparing a distinct cycle."
+  "next_action": "Complete broader/adversarial validation and exact source qualification before preparing a distinct successor cycle."
 }

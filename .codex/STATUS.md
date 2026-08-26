@@ -9,4 +9,6 @@ Readiness at cycle close:
 
 After the guardian-covered close, the still-running identity separately latched two `V4PersistenceTimeout` events. The owner-authorized exact graceful stop ended runtime `2312 -> 17176`, released its lease, and reconciled 92,125/92,125 committed commands with zero failed, unresolved, duplicate, retried, lost, or mismatched work. The post-close failure does not rewrite the earlier frozen cycle result.
 
-The next action is the mandatory protocol-feasibility and timeout root-cause audit before any distinct cycle. No later phase or live capability is authorized.
+Both causes are now proven and minimally corrected. The old protocol accepted predictions for twelve hours but the immutable review closed at four hours, so unlabeled zero depended on late-cycle luck. The corrected contract reserves five minutes for guarded startup, collects through +3h30m, grants a deterministic 30-minute official-resolution interval, and closes immutably at +4h. On the frozen S27 corpus those exact bounds would have yielded 323/322 unique rows and zero unlabeled; that feasibility result does not alter S27.
+
+The timeout cause was strict priority starvation: the two market commands waited 15,931 and 16,323 ms while newer fee/execution commands overtook them. Eligible heads now receive monotonic age-bounded service after one second while fresh priority and per-key FIFO remain intact. Focused validation is green. Complete the clean broader rerun and exact source qualification before any distinct cycle. No later phase or live capability is authorized.
