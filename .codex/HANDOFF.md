@@ -1,18 +1,28 @@
-# Successor32 active OOS handoff
+# Poly Alpha durable handoff
 
-Successor32 is the sole active prospective cycle and is clean under full pre-OOS guardian coverage.
+## Decision
 
-- Source: tree `9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96`, 4,252/4,252 PASS exactly once.
-- Acquisition: `V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z`.
-- Materialization nonce: `fc1b862cf45f4b299116eff47da10dfa` (consumed once).
-- Phase-One nonce/session: `3fbb80c98c9d49a7a349e3a460ca3cee` / `e70855a354954a61b8975c266c1704b0`.
-- Runtime: `3640 -> 17520`; guardian: `13036 -> 1388`; never relaunch or restart either.
-- Frozen timing: prediction start `1787755799269`, +2h review `1787762399269`, cutoff `1787767799269`, close `1787769599269`.
-- Guardian began at `1787755428864`, 370,405 ms before prediction collection, and is duration-bound through after the immutable close.
-- First post-OOS observation `1787755821171`: 117 capsules, 10 predictions, 32 markets, 1,376 committed commands, source `READY`, and zero binding counters.
+**GENUINE OOS_PASS ACHIEVED. CODEX ACTIVE WORK IS STOPPING.**
 
-The +2h review is clean but insufficient. The exact read-only validator passed with 19,440/19,440 commands committed and zero loss, mismatch, duplicate, retry, capsule, lineage, holdout, or safety defect. Ensemble readiness is `181/181/68/91/22`; model is `180/180/68/90/22` (rank-1/unique/positive/negative/unlabeled).
+Successor32 acquisition `V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z`, session `e70855a354954a61b8975c266c1704b0`, Phase-One nonce `3fbb80c98c9d49a7a349e3a460ca3cee`, runtime `3640 -> 17520`, and guardian `13036 -> 1388` are consumed, terminal, and must never be relaunched or restarted.
 
-Leave both independent processes untouched. The exact next action is the one +4h hard review at or after immutable close `1787769599269`.
+## OOS result
 
-No later phase or live capability is authorized.
+- Ensemble: rank-1 `317`; unique `317`; positive `156`; negative `161`; unlabeled `0`.
+- Model: rank-1 `313`; unique `313`; positive `154`; negative `159`; unlabeled `0`.
+- Temporal violations and invalid lineage/capsule exclusions: `0`.
+- Late post-close outcomes affecting selected markets: `0`.
+
+## Terminal integrity
+
+- Guardian: `427` clean observations, `43` snapshots, `0` failures, empty stderr.
+- Journal: `36,893 / 36,893` committed; unresolved/failed/retries/duplicates all `0`.
+- Database: exact-v6 PASS; quick-check `ok`; FK `0`; schema `6`.
+- Persistence: critical incomplete/lost/failed, mismatch/unexpected loss, deadline-expired, overflow/discard/shutdown-abandonment all `0`.
+- Shutdown: exact graceful stop, terminal fence `1 / 1`, clean telemetry shutdown, lease/process lock released, processes absent.
+
+## Safety and boundary
+
+All live capabilities remain absent; kill switch remains engaged; no Phase Two/Three was entered; V4-HO-001 and holdout remain untouched; authoritative v5 remains byte-identical.
+
+Use `.codex/SUCCESSOR32_OOS_PASS.json` as the canonical evidence index. No later phase is authorized. Do not relaunch/restart Successor32, rewrite OOS, finalize calibration, register/evaluate tournament, enter Phase Two, touch holdout, enter Phase Three, mutate/cut over v5, or enable live capability.

@@ -1,13 +1,15 @@
 # Poly Alpha status
 
-Successor31 is terminal and permanently ineligible. Its guardian-coverage timing defect was corrected by preregistering prediction collection at activation plus ten minutes while retaining the +210-minute cutoff and +240-minute immutable close. The corrected tree passed a fresh exact source seal once: 4,252/4,252, tree `9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96`, with authoritative v5 unchanged.
+Status: **GENUINE OOS_PASS ACHIEVED**
 
-Successor32 materialized once and passed independent cold verification. Its Phase-One runtime is session `e70855a354954a61b8975c266c1704b0`, nonce `3fbb80c98c9d49a7a349e3a460ca3cee`, PIDs `3640 -> 17520`; its independent guardian is `13036 -> 1388`. Both identities are consumed and `MUST_NOT_RELAUNCH`.
+Successor32's exact source tree `9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96` passed `4,252 / 4,252` tests exactly once with exact post-tree equality.
 
-Guardian coverage began 370,405 ms before the frozen prediction start. Initial acquisition progressed from 31 to 55 capsules and 367 to 541 committed commands; source recovered to `READY`. Failures, critical loss/incomplete, reconciliation mismatch, unexpected loss, queue overflow, and source discard are all zero. Live execution surfaces remain absent and the kill switch remains engaged.
+At immutable OOS close, ensemble passed `317 / 317 / 156 / 161 / 0` and model independently passed `313 / 313 / 154 / 159 / 0` (rank-1 / unique / positive / negative / unlabeled). Temporal violations and lineage/capsule exclusions were zero. No selected frozen market used a late outcome.
 
-The +2h review is `CONTINUE_TO_4H`. Guardian coverage has 241 observations and 24 snapshots with zero failures. The exact-v6 read-only validator passed; 19,440/19,440 journal commands were committed with no duplicates, retries, loss, mismatch, or lineage exclusions.
+Guardian coverage was clean: `427` observations, `43` snapshots, no failure artifact, and empty stderr. The exact runtime then stopped gracefully once. Terminal reconciliation proves `36,893 / 36,893` commands committed, zero unresolved/failed/retried/duplicate commands, exact terminal fence `1 / 1`, exact-v6/quick-check/FK PASS, no loss/mismatch/overflow/discard, clean shutdown, released lease/process lock, and absent processes.
 
-Readiness is still insufficient: ensemble 181 rank-1/unique, 68 positive, 91 negative, 22 unlabeled; model 180 rank-1/unique, 68 positive, 90 negative, 22 unlabeled. The same runtime and guardian must continue untouched to frozen close `1787769599269`.
+Safety remains fail-closed: live disabled, real orders impossible, signing/authenticated trading/placement/cancellation unavailable, kill switch engaged, no Phase Two/Three, V4-HO-001 nonexistent/unconsumed, holdout untouched, and authoritative v5 byte-identical.
 
-Next bounded review: the one +4h hard review at or after immutable dataset close `1787769599269`.
+Canonical evidence: `.codex/SUCCESSOR32_OOS_PASS.json`.
+
+Next action: **STOP CODEX.** No later phase is authorized by this packet.

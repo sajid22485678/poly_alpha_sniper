@@ -1,0 +1,358 @@
+{
+  "artifact_hashes": {
+    "3fbb80c98c9d49a7a349e3a460ca3cee.released.json": "db4eddfc54b8cfd001e83e5bb270ac9d7e820ab66ff39cb9157173e5b4cd8562",
+    "guardian.stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "guardian_snapshot_1787755428864.json": "84b35be16b571e42fee9d8db1f66a56f68dbdd31cc569158363e9b0c76188633",
+    "guardian_snapshot_1787768285657.json": "c92c05773f7f71030fe9eef02c90f9c8661894cbe90f455c4af0e8468e86814a",
+    "phase_one_ready_1787768472636.json": "6c6b619ef456fb417d55e770fc4cc45526fda79ea7faee4e4519548314c86fc1",
+    "successor32_oos_pass_stop_authority.json": "628f6ba7db97407ecae7d3689c54a3305e91aa8e35a98cbb778799e232a94266",
+    "successor32_oos_pass_stop_created.json": "2e8679ed329b0e66e80f35661a0789cbfb6588a324b8ff54f23afdf62175ef9e",
+    "successor32_oos_pass_stop_declaration.json": "7fb6c8a4b2484200c61140de877bc9fa472966057caf6e74da27eb71842e232c",
+    "successor32_oos_pass_stop_once.ps1": "6e6535e5ce84897cdca8f77a4a87fb20f08fe660b9f53bff7de29d467fadf11f",
+    "successor32_plus_four_frozen_readonly_review.json": "d0d8de0808860946d82c2161ed8a47673cdc12214cc4bb687577f499ea29fccd"
+  },
+  "bridge": {
+    "canonical_artifact": ".codex/SUCCESSOR32_OOS_PASS.json",
+    "containing_commit": "SELF",
+    "prior_commit": "42f0439b51ced7a5da48df657f14ea7fe2d4b965",
+    "sole_writer": "Codex"
+  },
+  "checkpoint_ts_ms": 1787770985216,
+  "classification": "OOS_PASS",
+  "completed_ts_ms": 1787770933983,
+  "completed_utc": "2026-08-26T19:02:13Z",
+  "contract": "POLY_ALPHA_SUCCESSOR32_GENUINE_OOS_PASS_HANDOFF_V1",
+  "cycle_authority": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+    "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z",
+    "calibration_protocol_id": "f29b50ae5913301d80dbdf11e2151680ebab9d263344227f7b9bc2471376d3b3",
+    "cohort": "prospective_v6_development_9faf38f58dcde027",
+    "cold_database_sha256": "6183a653022ce360cd5699769583133828a6f97caaeafbd90773c20cb86a838f",
+    "cold_verification_sha256": "08582a43126e5becc9b7215a8625f9b5a185d7ce20538114f6a275345e652055",
+    "guardian_identity": "CLEAN_READY_EXIT_MUST_NOT_RESTART",
+    "guardian_pid_pair": [
+      13036,
+      1388
+    ],
+    "materialization_manifest_sha256": "435c027011b8f41939edd9e886068766812faa98da7d1e1746c46e95f7a0877a",
+    "materialization_nonce": "fc1b862cf45f4b299116eff47da10dfa",
+    "phase_one_nonce": "3fbb80c98c9d49a7a349e3a460ca3cee",
+    "reserved_phase_two_nonce": "793ff57b339344768a2fab76a6f318b5",
+    "reserved_phase_two_state": "UNCONSUMED_UNAUTHORIZED",
+    "runtime_identity": "TERMINAL_MUST_NOT_RELAUNCH",
+    "runtime_pid_pair": [
+      3640,
+      17520
+    ],
+    "session_id": "e70855a354954a61b8975c266c1704b0",
+    "successor": 32
+  },
+  "database": {
+    "counts": {
+      "calibration_predictions": 4320,
+      "candidates": 2849,
+      "decision_replay_capsules": 2849,
+      "entries": 0,
+      "exits": 0,
+      "locked_holdout_registrations": 0,
+      "market_identities": 413,
+      "market_outcome_authorities": 383,
+      "pnl_records": 0,
+      "positions": 0,
+      "strategy_candidate_definitions": 0,
+      "strategy_evaluation_runs": 0,
+      "strategy_experiment_definitions": 0
+    },
+    "exact_v6_validator": "PASS",
+    "foreign_key_violations": 0,
+    "journal_duplicate_command_ids": 0,
+    "journal_failed": 0,
+    "journal_retries": 0,
+    "journal_status": [
+      {
+        "rows": 36893,
+        "status": "COMMITTED"
+      }
+    ],
+    "journal_total": 36893,
+    "journal_unresolved": 0,
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\prospective-exact-v6.db",
+    "quick_check": "ok",
+    "user_version": 6
+  },
+  "decision": "GENUINE_OOS_PASS_ACHIEVED",
+  "forbidden_next_actions": [
+    "no Successor32 relaunch or guardian restart",
+    "no retroactive OOS extension or label mutation",
+    "no calibration finalization",
+    "no tournament registration or evaluation",
+    "no Phase Two",
+    "no holdout creation or consumption",
+    "no Phase Three",
+    "no authoritative-v5 mutation or cutover",
+    "no live capability"
+  ],
+  "frozen_oos": {
+    "ready_observation": {
+      "captured_ts_ms": 1787768472636,
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\phase_one_ready_1787768472636.json",
+      "sha256": "6c6b619ef456fb417d55e770fc4cc45526fda79ea7faee4e4519548314c86fc1",
+      "targets": [
+        {
+          "dataset_role": "OOS",
+          "negative_labels": 161,
+          "positive_labels": 156,
+          "rank1_rows": 317,
+          "target_kind": "ENSEMBLE",
+          "target_name": "ENSEMBLE",
+          "target_version": "frequency_v4_ensemble_1",
+          "unique_markets": 317,
+          "unlabeled": 0
+        },
+        {
+          "dataset_role": "OOS",
+          "negative_labels": 159,
+          "positive_labels": 154,
+          "rank1_rows": 313,
+          "target_kind": "MODEL",
+          "target_name": "paired_book_fair_value_parity",
+          "target_version": "frequency_v4_ensemble_1",
+          "unique_markets": 313,
+          "unlabeled": 0
+        }
+      ]
+    },
+    "review": {
+      "capsule_exclusions": {
+        "point_in_time_incomplete": 0,
+        "source_lineage_incomplete": 0,
+        "unsealed": 0,
+        "wrong_source_tree": 0
+      },
+      "dataset_close_ts_ms": 1787769599269,
+      "late_outcome_authorities_total": 18,
+      "late_outcome_selected_markets": 0,
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\successor32_plus_four_frozen_readonly_review.json",
+      "sha256": "d0d8de0808860946d82c2161ed8a47673cdc12214cc4bb687577f499ea29fccd",
+      "targets": [
+        {
+          "negative_labels": 161,
+          "positive_labels": 156,
+          "rank1_rows": 317,
+          "target_kind": "ENSEMBLE",
+          "target_name": "ENSEMBLE",
+          "target_version": "frequency_v4_ensemble_1",
+          "temporal_violations": 0,
+          "unique_markets": 317,
+          "unlabeled": 0
+        },
+        {
+          "negative_labels": 159,
+          "positive_labels": 154,
+          "rank1_rows": 313,
+          "target_kind": "MODEL",
+          "target_name": "paired_book_fair_value_parity",
+          "target_version": "frequency_v4_ensemble_1",
+          "temporal_violations": 0,
+          "unique_markets": 313,
+          "unlabeled": 0
+        }
+      ]
+    }
+  },
+  "guardian": {
+    "failure_artifacts": 0,
+    "first_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\guardian_snapshot_1787755428864.json",
+    "first_snapshot_sha256": "84b35be16b571e42fee9d8db1f66a56f68dbdd31cc569158363e9b0c76188633",
+    "last_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\guardian_snapshot_1787768285657.json",
+    "last_snapshot_sha256": "c92c05773f7f71030fe9eef02c90f9c8661894cbe90f455c4af0e8468e86814a",
+    "observations": 427,
+    "ready_terminal_exit": true,
+    "snapshots": 43,
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+    "calibration_protocol_id": "f29b50ae5913301d80dbdf11e2151680ebab9d263344227f7b9bc2471376d3b3",
+    "launcher_pid": 3640,
+    "must_not_relaunch": true,
+    "phase_one_nonce": "3fbb80c98c9d49a7a349e3a460ca3cee",
+    "runtime_pid": 17520,
+    "session_id": "e70855a354954a61b8975c266c1704b0",
+    "source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96"
+  },
+  "next_boundary": "STOP_CODEX; a distinct later owner packet is required for any post-OOS phase.",
+  "prior_failure_class_binding_recurrence": {
+    "S19_queue_or_stop": false,
+    "S22_retention_or_conflict": false,
+    "S23_reconciliation": false,
+    "S24_durability": false,
+    "S25_deadline_monitor_or_shutdown": false,
+    "S26_persistence_tail_or_deadline": false,
+    "note": "Five corrected stop-probe client timeouts were retained as degraded probe telemetry; zero binding failure occurred and exact graceful terminal drain/fence passed."
+  },
+  "processes": {
+    "guardian_absent_after_clean_ready_exit": true,
+    "guardian_matches": [],
+    "runtime_absent": true,
+    "runtime_launcher_matches": []
+  },
+  "safety": {
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authenticated_trading_client": false,
+    "authoritative_v5_immutable": true,
+    "authoritative_v5_sha256": {
+      "db": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+      "shm": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+      "wal": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "dry_run": true,
+    "holdout_untouched": true,
+    "kill_switch_engaged": true,
+    "live_adapter_present": false,
+    "live_enabled": false,
+    "phase_three_entered": false,
+    "phase_two_entered": false,
+    "real_order_cancellation": false,
+    "real_order_placement": false,
+    "real_orders_possible": false,
+    "real_wallet_signing": false
+  },
+  "schema_version": 1,
+  "source_authority": {
+    "branch": "master",
+    "cumulative_fixes": [
+      "S19 accepted-event bounded backpressure and corrected stop-probe semantics",
+      "S20 canonical host-loss closure",
+      "S22 monotonic retention with immutable conflicts fail-closed",
+      "S23 reconciliation conservation accounting",
+      "S24 physical power-loss durability for acknowledged commits",
+      "S25 acknowledgement deadlines, monotonic timing, stale-monitor protection, and terminal fence",
+      "S26 persistence tail-latency, WAL-pressure, and deadline protection",
+      "S29 causal persistence correction",
+      "S31 ten-minute guarded-start and full-OOS guardian-coverage correction"
+    ],
+    "dirty_tree_preserved": true,
+    "errors": 0,
+    "exact_once": true,
+    "exit_code": 0,
+    "failures": 0,
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "junit_sha256": "11019c6bf88265969831f5da055d317e2a0a47b22f1eac5c43946368199f944b",
+    "post_tree_equal": true,
+    "post_verification_sha256": "b1bf4dd25de8886ba235d54133f3d146af9262f22b6e8a92747ae379896d40aa",
+    "repository": "D:\\claude\\poly_alpha_sniper",
+    "seal_root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor32_20260826T1403Z",
+    "skips": 0,
+    "tested_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "tests": 4252,
+    "working_tree_manifest_sha256": "2c161d702920327753afb64c7bc1944f03396145e5301929d4ae3157a36bc502"
+  },
+  "source_identity": {
+    "branch": "master",
+    "full_suite_errors": 0,
+    "full_suite_exit_code": 0,
+    "full_suite_failures": 0,
+    "full_suite_junit_sha256": "11019c6bf88265969831f5da055d317e2a0a47b22f1eac5c43946368199f944b",
+    "full_suite_skips": 0,
+    "full_suite_tests": 4252,
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "staged_count": 0,
+    "tested_tree_manifest_sha256": "2c161d702920327753afb64c7bc1944f03396145e5301929d4ae3157a36bc502",
+    "tested_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "tracked_modified_count": 59,
+    "untracked_count": 113
+  },
+  "terminal_database_file_set": {
+    "db": {
+      "sha256": "8dae1f2483161026ff6f3281ed52e93b8a138150cbd0cc0407ef5cbe67176581",
+      "size": 2183847936
+    },
+    "interpretation": "STOPPED_READ_ONLY_FILE_SET; WAL_RETAINED; NO_CHECKPOINT_OR_REWRITE_PERFORMED",
+    "shm": {
+      "sha256": "3daba204921777dce0732c19303e7791e7632e3b36913431c2f19d77b32b96b6",
+      "size": 32768
+    },
+    "wal": {
+      "sha256": "777d8c34476793c44ff1b35b7c177fa198b4f518f0dee28f62b54cd7d739246b",
+      "size": 580264952
+    }
+  },
+  "terminal_runtime": {
+    "binding_persistence": {
+      "acknowledgement_failure_rows": 0,
+      "commands_committed": 36893,
+      "commands_failed": 0,
+      "commands_retried": 0,
+      "commands_submitted": 36893,
+      "critical_evidence_incomplete": 0,
+      "critical_evidence_lost": 0,
+      "critical_inflight": 0,
+      "critical_pending": 0,
+      "deadline_expired_rows": 0,
+      "drain_stop_failed": false,
+      "engine_latched_failure_reason": null,
+      "journal_finalization_failures": 0,
+      "queue_overflow_rows": 0,
+      "reconciliation_mismatch": 0,
+      "reconciliation_unexpected_loss": 0,
+      "recovery_blocking_count": 0,
+      "shutdown_abandoned_rows": 0,
+      "sink_failure_rows": 0,
+      "telemetry_data_safety": "HEALTHY",
+      "telemetry_data_safety_reasons": [],
+      "terminal_committed": 1,
+      "terminal_submitted": 1,
+      "true_lost_critical_rows": 0
+    },
+    "phase_one_lease_released": true,
+    "phase_one_release": {
+      "acquired_ts_ms": 1787755244872,
+      "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+      "contract": "V4_PROSPECTIVE_EXACT_V6_LEASE_RELEASED_V1",
+      "database_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\prospective-exact-v6.db",
+      "launch_nonce": "3fbb80c98c9d49a7a349e3a460ca3cee",
+      "pid": 17520,
+      "released_ts_ms": 1787770464489
+    },
+    "phase_two_nonce_unconsumed": true,
+    "process_lock_released": true,
+    "running": false,
+    "runtime_session": {
+      "cohort": "prospective_v6_development_9faf38f58dcde027",
+      "dry_run": 1,
+      "ended_ts_ms": 1787770464378,
+      "kill_switch_engaged": 1,
+      "launch_nonce": "3fbb80c98c9d49a7a349e3a460ca3cee",
+      "live_enabled": 0,
+      "pid": 17520,
+      "real_orders_possible": 0,
+      "session_id": "e70855a354954a61b8975c266c1704b0",
+      "started_ts_ms": 1787755199269,
+      "stop_reason": "graceful_stop"
+    },
+    "runtime_stop_probe_failures": 5,
+    "shutdown_drain_timed_out": false,
+    "state": "STOPPED",
+    "stop_probe_interpretation": "DEGRADED_PROBE_TELEMETRY_ONLY; TERMINAL_DRAIN_AND_FENCE_SUCCEEDED",
+    "telemetry_shutdown_ok": true
+  },
+  "timing": {
+    "activation_ts_ms": 1787755199269,
+    "frozen_review_completed_ts_ms": 1787770122183,
+    "frozen_review_started_ts_ms": 1787769979163,
+    "guardian_start_ts_ms": 1787755428864,
+    "immutable_dataset_close_ts_ms": 1787769599269,
+    "lease_released_ts_ms": 1787770464489,
+    "plus_two_review_ts_ms": 1787762736254,
+    "prediction_cutoff_oos_end_ts_ms": 1787767799269,
+    "prediction_start_ts_ms": 1787755799269,
+    "ready_observation_ts_ms": 1787768472636,
+    "resolution_grace_ms": 1800000,
+    "runtime_ended_ts_ms": 1787770464378,
+    "terminal_reconciliation_ts_ms": 1787770933983
+  }
+}
