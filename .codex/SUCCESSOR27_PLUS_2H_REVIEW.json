@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR27_PLUS_2H_SAME_IDENTITY_REVIEW_V1",
+  "review_ts_ms": 1787711991292,
+  "classification": "CONTINUE_TO_4H",
+  "prior_bridge_commit": "cb6173fcd57a73d1ee6c6f7537d96e97bfc2efa2",
+  "external_review_path": "D:\\poly_alpha_prospective_exact_v6_successor27_20260826T0024Z\\operator\\successor27_plus_2h_review.json",
+  "external_review_sha256": "693fcfd810901ff527f5510b7b67775116d7d40b08c403b85cac5292c9d78a1c",
+  "identity": {
+    "source_tree_sha256": "32f3573ad1e3894bb956570fdf0436495929b23c0b46508fbba66b0224d81e1c",
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR27-20260826T0024Z",
+    "session_id": "2b2e8b62c620488b84168a51e7a7efb7",
+    "phase_one_nonce": "6bac76fc7d134539b2937051000527cd",
+    "runtime_pair": [2312, 17176],
+    "guardian_pair": [14332, 2784],
+    "relaunch_or_fork_detected": false,
+    "must_not_relaunch": true
+  },
+  "guardian": {
+    "observation_lines": 234,
+    "failure_artifacts": 0,
+    "stderr_empty": true,
+    "latest_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor27_20260826T0024Z\\operator\\guardian_snapshot_1787711879322.json",
+    "latest_snapshot_sha256": "5c2fa870cc45e472ca69ef592cc0d3d94094605b39233bbf91f4dae78ebdf60a",
+    "violations": []
+  },
+  "acquisition": {
+    "capsules": 1315,
+    "predictions": 2622,
+    "markets": 234,
+    "outcomes": 166,
+    "journal_total": 19079,
+    "journal_committed": 19079,
+    "journal_failed_or_unresolved": 0,
+    "max_ack_ms": 7129,
+    "over_deadline": 0,
+    "critical_incomplete_or_lost": 0,
+    "reconciliation_mismatch_or_unexpected_loss": 0,
+    "overflow_or_discard": 0
+  },
+  "ensemble_readiness": {
+    "rank1": 190,
+    "unique_markets": 190,
+    "positive": 95,
+    "negative": 71,
+    "unlabeled": 24,
+    "rank1_deficit": 110,
+    "unique_deficit": 110,
+    "ready": false
+  },
+  "model_readiness": {
+    "rank1": 189,
+    "unique_markets": 189,
+    "positive": 95,
+    "negative": 70,
+    "unlabeled": 24,
+    "rank1_deficit": 111,
+    "unique_deficit": 111,
+    "ready": false
+  },
+  "integrity": {
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "schema_version": 6,
+    "lineage_invalid_rows": 0,
+    "temporal_invalid_rows": 0,
+    "predecessor_reuse_rows": 0,
+    "holdout_rows": 0,
+    "prior_failure_class_recurrence": false
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_order_placement_available": false,
+    "real_order_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Continue the same runtime and guardian untouched to the +4h hard review at 1787718983998."
+}

@@ -1,33 +1,14 @@
 {
   "schema_version": 1,
-  "checkpoint_ts_ms": 1787705024659,
-  "state": "SUCCESSOR27_HEALTHY_2_TO_4_HOUR_OOS_CYCLE_ACTIVE",
-  "classification": "HEALTHY_PROGRESSING_SHADOW_ONLY",
-  "prior_bridge_commit": "d9c9b2652db9b4410e02f7cde5099f0dc1b878ca",
+  "checkpoint_ts_ms": 1787711991292,
+  "state": "SUCCESSOR27_CONTINUE_TO_4H_SAME_IDENTITY",
+  "classification": "CONTINUE_TO_4H",
+  "prior_bridge_commit": "cb6173fcd57a73d1ee6c6f7537d96e97bfc2efa2",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR27_INITIAL_HEALTHY_ACQUISITION.json",
-  "identity": {
-    "source_tree_sha256": "32f3573ad1e3894bb956570fdf0436495929b23c0b46508fbba66b0224d81e1c",
-    "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor27_20260826T0024Z",
-    "session_id": "2b2e8b62c620488b84168a51e7a7efb7",
-    "phase_one_nonce": "6bac76fc7d134539b2937051000527cd",
-    "runtime_pair": [2312, 17176],
-    "guardian_pair": [14332, 2784],
-    "must_not_relaunch": true
-  },
-  "source_seal": "4248/4248 PASS exactly once; tree exact; v5 exact",
-  "materialization": "one clean launch; independent cold exact-v6 verification PASS",
-  "guardian": "four-hour exact-bound watcher running; seven clean initial observations; no failure artifact",
-  "initial_readiness": {
-    "ensemble": "9 rank1 / 9 unique / 0 positive / 0 negative / 9 unlabeled",
-    "model": "9 rank1 / 9 unique / 0 positive / 0 negative / 9 unlabeled"
-  },
-  "oos": {
-    "protocol_start_ts_ms": 1787704583998,
-    "protocol_end_ts_ms": 1787747783996,
-    "owner_plus_2h_review_ts_ms": 1787711783998,
-    "owner_plus_4h_review_ts_ms": 1787718983998
-  },
-  "safety": "shadow only; all live/signing/auth/order capabilities absent; kill switch engaged; no Phase Two/Three; V4-HO-001 nonexistent/unconsumed; v5 immutable",
-  "next_action": "Leave runtime and guardian untouched and perform a sparse +2h same-identity review at or after 1787711783998."
+  "canonical_artifact": ".codex/SUCCESSOR27_PLUS_2H_REVIEW.json",
+  "external_artifact_sha256": "693fcfd810901ff527f5510b7b67775116d7d40b08c403b85cac5292c9d78a1c",
+  "identity": "source 32f3573a; session 2b2e8b62c620488b84168a51e7a7efb7; nonce 6bac76fc7d134539b2937051000527cd; runtime 2312->17176; guardian 14332->2784",
+  "decision": "All guardian, persistence, integrity, reconciliation, lineage, temporal, prior-failure and safety gates pass. Both targets remain below rank1/unique quotas and have 24 unlabeled rows, so continue same identity.",
+  "next_review_ts_ms": 1787718983998,
+  "forbidden": "No relaunch, stop, source mutation, calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation, or live capability."
 }
