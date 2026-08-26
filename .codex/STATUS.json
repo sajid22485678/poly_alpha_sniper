@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_ts_ms": 1787740211482,
-  "agent_state": "SUCCESSOR28_SOURCE_SEAL_PREPARED",
-  "classification": "CREATE_ONCE_SOURCE_SEAL_PREPARED_NOT_EXECUTED",
+  "updated_ts_ms": 1787741585845,
+  "agent_state": "SUCCESSOR28_SOURCE_SEAL_PASSED",
+  "classification": "EXACT_ONCE_SOURCE_SEAL_PASSED_MATERIALIZATION_AUTHORIZED",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "f318cc8bbf1f94816c90b7afb2a75d796539ce83",
+  "prior_bridge_commit": "6c4e2d8eca632518b4be15a44197ed96faf62a1d",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR28_SOURCE_SEAL_PREPARED.json",
+  "canonical_artifact": ".codex/SUCCESSOR28_SOURCE_SEAL_PASS.json",
   "identity": {
     "session_id": "2b2e8b62c620488b84168a51e7a7efb7",
     "phase_one_nonce": "6bac76fc7d134539b2937051000527cd",
@@ -23,5 +23,5 @@
   },
   "blocker": null,
   "safety": "all live capabilities absent; kill switch engaged; no Phase Two/Three; V4-HO-001 nonexistent/unconsumed; v5 immutable",
-  "next_action": "Execute the prepared Successor28 full-suite source seal exactly once; never retry this seal identity."
+  "next_action": "Prepare fresh Successor28 materialization authority and execute materialization exactly once."
 }
