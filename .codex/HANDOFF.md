@@ -1,16 +1,15 @@
-# Successor31 terminal handoff
+# Successor32 active OOS handoff
 
-Successor31 is `TERMINAL_OOS_FAILED_GUARDIAN_COVERAGE_GAP` and `MUST_NOT_RELAUNCH`.
+Successor32 is the sole active prospective cycle and is clean under full pre-OOS guardian coverage.
 
-- Source: Successor30 seal, tree `1e608dd9611d8ef0c0dfa3b00ee4ee3d1c5f152df5db3160c4c9d15e07d02556`, 4,252/4,252 PASS once.
-- Acquisition: `V4-PR-001-PROSPECTIVE-SUCCESSOR31-20260826T1333Z`.
-- Materialization nonce: `979a3e1f865e425baf956c012e4fa507`.
-- Phase-One nonce: `1aeacf65f2224296b1056e7ff944d3e3`.
-- Session: `626154fc536b4716919b7d58124b6f70`.
-- Runtime: `15632 -> 18112`; guardian: `17404 -> 10332`; all terminal.
-- First failure: `guardian_failure_1787752211715.json`, SHA-256 `2edf63fda793dcc9e0e3e1227d345afc0eff9c890c74d58a81df51aee7963a32`.
-- Terminal closure: `successor31_terminal_closure.json`, SHA-256 `d0d39b7c9c0b910cfe5f05158f4be543fed86d589934793b97e68c0432a70a71`.
+- Source: tree `9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96`, 4,252/4,252 PASS exactly once.
+- Acquisition: `V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z`.
+- Materialization nonce: `fc1b862cf45f4b299116eff47da10dfa` (consumed once).
+- Phase-One nonce/session: `3fbb80c98c9d49a7a349e3a460ca3cee` / `e70855a354954a61b8975c266c1704b0`.
+- Runtime: `3640 -> 17520`; guardian: `13036 -> 1388`; never relaunch or restart either.
+- Frozen timing: prediction start `1787755799269`, +2h review `1787762399269`, cutoff `1787767799269`, close `1787769599269`.
+- Guardian began at `1787755428864`, 370,405 ms before prediction collection, and is duration-bound through after the immutable close.
 
-The binding defect is protocol timing, not persistence: the guardian started 54,517 ms after OOS prediction collection. The exact stop authority drained 1,223/1,223 commands with zero loss or mismatch and released the lease. Do not reuse any S31 identity.
+Initial evidence is clean and progressing: 31→55 capsules, 367→541 committed commands, source `READY`, and zero failures/loss/mismatch/overflow/discard. Leave both independent processes untouched. The exact next action is one bounded same-identity review at or after `1787762399269`; if it is clean but insufficient, continue unchanged to the immutable close.
 
-Use fail-first tests to extend the guarded startup from five to ten minutes while retaining the +3h30 prediction cutoff, 30-minute resolution grace, and +4h immutable close. Immutable S27 evidence supports feasibility at those ex-ante bounds: ensemble 321 unique/162 positive/159 negative/0 unlabeled; model 320 unique/162 positive/158 negative/0 unlabeled. Fresh source qualification is required after the correction. No later phase or live capability is authorized.
+No later phase or live capability is authorized.

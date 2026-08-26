@@ -1,24 +1,16 @@
 {
   "schema_version": 1,
-  "updated_ts_ms": 1787752661218,
-  "agent_state": "SUCCESSOR31_TERMINAL_GUARDIAN_COVERAGE_DEFECT",
-  "classification": "TERMINAL_OOS_FAILED_GUARDIAN_COVERAGE_GAP",
+  "updated_ts_ms": 1787755526048,
+  "agent_state": "SUCCESSOR32_HEALTHY_OOS_ACQUISITION",
+  "classification": "HEALTHY_FULL_GUARDIAN_COVERAGE_OOS_ACQUISITION_PROGRESSING",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "0c25de4349efc229c090b6f65f023d521f62c8ad",
+  "prior_bridge_commit": "bbe8a1bce34ed85d485dca81062edd253cfaf348",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR31_TERMINAL_GUARDIAN_COVERAGE_DEFECT.json",
-  "identity": {
-    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR31-20260826T1333Z",
-    "session_id": "626154fc536b4716919b7d58124b6f70",
-    "phase_one_nonce": "1aeacf65f2224296b1056e7ff944d3e3",
-    "runtime_pids": [15632, 18112],
-    "guardian_pids": [17404, 10332],
-    "state": "TERMINAL_MUST_NOT_RELAUNCH"
-  },
-  "first_binding_failure": "Guardian began 54517 ms after the preregistered OOS prediction start; later clean observations cannot cure the unguarded interval.",
-  "terminal_reconciliation": "1223/1223 committed; zero incomplete, failed, duplicate, lost, mismatch, overflow, or discard; quick-check ok/FK0/schema6.",
-  "source_authority": "Successor30 tree 1e608dd9 passed 4252/4252 exactly once and was reused by Successor31.",
+  "canonical_artifact": ".codex/SUCCESSOR32_HEALTHY_OOS_ACQUISITION.json",
+  "identity": {"acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z", "session_id": "e70855a354954a61b8975c266c1704b0", "phase_one_nonce": "3fbb80c98c9d49a7a349e3a460ca3cee", "runtime_pids": [3640, 17520], "guardian_pids": [13036, 1388], "state": "RUNNING_MUST_NOT_RELAUNCH"},
+  "source_authority": "Successor32 tree 9faf38f5 passed 4252/4252 exactly once; post-tree exact; authoritative v5 unchanged.",
+  "guardian": "Started 370405 ms before prediction collection; clean and progressing; no binding failures.",
   "blocker": null,
   "safety": "all live capabilities absent; kill switch engaged; no Phase Two/Three; V4-HO-001 nonexistent/unconsumed; v5 immutable",
-  "next_action": "RED/GREEN the guarded-start reserve from five to ten minutes, verify S27 feasibility, source-qualify the changed tree, then use a distinct successor."
+  "next_action": "At or after 1787762399269 perform the one bounded +2h same-identity review. Do not relaunch or restart guardian."
 }

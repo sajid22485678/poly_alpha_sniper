@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR32_HEALTHY_OOS_ACQUISITION_V1",
+  "captured_ts_ms": 1787755526048,
+  "classification": "HEALTHY_FULL_GUARDIAN_COVERAGE_OOS_ACQUISITION_PROGRESSING",
+  "prior_bridge_commit": "bbe8a1bce34ed85d485dca81062edd253cfaf348",
+  "protocol_fix": {
+    "cause": "Successor31's five-minute guarded-start reserve was shorter than sealed-source bootstrap plus independent guardian admission.",
+    "correction": "Prediction start is preregistered at activation plus ten minutes; +210-minute prediction cutoff and +240-minute immutable close are unchanged.",
+    "red_green_verified": true,
+    "immutable_s27_feasibility": {"ensemble": {"rank1": 321, "unique": 321, "positive": 162, "negative": 159, "unlabeled": 0}, "model": {"rank1": 320, "unique": 320, "positive": 162, "negative": 158, "unlabeled": 0}}
+  },
+  "source": {
+    "seal_root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor32_20260826T1403Z",
+    "tested_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "tests": 4252,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "junit_sha256": "11019c6bf88265969831f5da055d317e2a0a47b22f1eac5c43946368199f944b",
+    "post_verification_sha256": "b1bf4dd25de8886ba235d54133f3d146af9262f22b6e8a92747ae379896d40aa",
+    "authoritative_v5_equal": true
+  },
+  "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+    "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z",
+    "materialization_nonce": "fc1b862cf45f4b299116eff47da10dfa",
+    "phase_one_nonce": "3fbb80c98c9d49a7a349e3a460ca3cee",
+    "reserved_phase_two_nonce_unauthorized": "793ff57b339344768a2fab76a6f318b5",
+    "session_id": "e70855a354954a61b8975c266c1704b0",
+    "runtime_pids": [3640, 17520],
+    "guardian_pids": [13036, 1388],
+    "must_not_relaunch": true
+  },
+  "materialization": {"launch_count": 1, "manifest_sha256": "435c027011b8f41939edd9e886068766812faa98da7d1e1746c46e95f7a0877a", "cold_verification_sha256": "08582a43126e5becc9b7215a8625f9b5a185d7ce20538114f6a275345e652055", "cold_database_sha256": "6183a653022ce360cd5699769583133828a6f97caaeafbd90773c20cb86a838f", "quick_check": "ok", "foreign_key_violations": 0, "schema_version": 6},
+  "phase_one_preflight_correction": {"failed_preflight_created_runtime": false, "failed_preflight_consumed_nonce": false, "cause": "Generated acquisition timestamp mismatch", "corrected_launcher_sha256": "d70b5dd7f0c7cf8c21a863d071ebfaf5f707b6d07e563cd9047f11d7267b84e4", "actual_phase_one_launch_count": 1},
+  "timing": {
+    "activation_ts_ms": 1787755199269,
+    "guardian_started_ts_ms": 1787755428864,
+    "oos_prediction_start_ts_ms": 1787755799269,
+    "guardian_pre_oos_coverage_ms": 370405,
+    "plus_two_review_ts_ms": 1787762399269,
+    "prediction_cutoff_ts_ms": 1787767799269,
+    "resolution_grace_ms": 1800000,
+    "dataset_close_plus_four_review_ts_ms": 1787769599269,
+    "guardian_expected_end_ts_ms": 1787769828864
+  },
+  "latest_clean_guardian_snapshot": {"path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\guardian_snapshot_1787755428864.json", "sha256": "84b35be16b571e42fee9d8db1f66a56f68dbdd31cc569158363e9b0c76188633", "failure_artifacts": 0, "stderr_empty": true},
+  "healthy_progression": {"capsules": [31, 50, 55], "committed": [367, 490, 541], "markets": 30, "predictions": 0, "outcomes": 0, "source_state": ["BACKOFF", "READY", "READY"]},
+  "integrity": {"commands_failed": 0, "critical_incomplete": 0, "critical_lost": 0, "reconciliation_mismatch": 0, "unexpected_loss": 0, "queue_overflow": 0, "cex_discard": 0, "polymarket_discard": 0, "acknowledgement_overdue": false, "telemetry_data_safety": "HEALTHY"},
+  "safety": {"LIVE_ENABLED": false, "REAL_ORDERS_POSSIBLE": false, "wallet_signing_available": false, "authenticated_trading_available": false, "real_order_placement_available": false, "real_order_cancellation_available": false, "kill_switch_engaged": true, "phase_two_entered": false, "phase_three_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED", "authoritative_v5_immutable": true},
+  "next_action": "Leave this exact runtime and guardian untouched. At or after 1787762399269 perform one bounded same-identity +2h review; if clean but insufficient, continue unchanged to immutable close 1787769599269."
+}
