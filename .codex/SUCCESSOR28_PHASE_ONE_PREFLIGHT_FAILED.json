@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR28_PHASE_ONE_PREFLIGHT_FAILED_V1",
+  "captured_ts_ms": 1787742615269,
+  "classification": "OPERATOR_PREFLIGHT_FAILED_NO_RUNTIME_STARTED_IDENTITY_RETIRED",
+  "prior_bridge_commit": "f5744b4349d07b73064e000845ef9f269ef66515",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR28-20260826T1056Z",
+  "phase_one_nonce": "e246fee784bb472d8bfb069e8c8f222d",
+  "launcher_invocation_count": 1,
+  "runtime_launch_count": 0,
+  "guardian_launch_count": 0,
+  "first_error": "Phase-One launch authority fields are not exact",
+  "root_cause": "Timestamped acquisition-ID replacement order defect in the external operator generator.",
+  "failure_artifact": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor28_20260826T1032Z\\successor28_phase_one_preflight_failure.json",
+  "failure_artifact_sha256": "97c21247bd867c7db4263aff4fe96797e3fd837c2c2d84d8c3fa427c8ebf9bb9",
+  "disposition": "SUCCESSOR28_PHASE_ONE_IDENTITY_MUST_NOT_RETRY_OR_REUSE",
+  "safety": "No runtime/session/guardian was created; no database nonce was consumed; v5 and live-disabled safety remained unchanged.",
+  "next_action": "Create a distinct Successor29 acquisition with fresh nonces and explicit cross-file identity validation before consuming any launch."
+}

@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_ts_ms": 1787742247971,
-  "agent_state": "SUCCESSOR28_MATERIALIZED_COLD_VERIFIED",
-  "classification": "MATERIALIZED_EXACTLY_ONCE_AND_INDEPENDENTLY_COLD_VERIFIED",
+  "updated_ts_ms": 1787742615269,
+  "agent_state": "SUCCESSOR28_PHASE_ONE_PREFLIGHT_FAILED",
+  "classification": "OPERATOR_PREFLIGHT_FAILED_NO_RUNTIME_STARTED_IDENTITY_RETIRED",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "c5142f4d2f1a865e3fe65eb67cc606a8f9c55082",
+  "prior_bridge_commit": "f5744b4349d07b73064e000845ef9f269ef66515",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR28_MATERIALIZED_COLD_VERIFIED.json",
+  "canonical_artifact": ".codex/SUCCESSOR28_PHASE_ONE_PREFLIGHT_FAILED.json",
   "identity": {
     "session_id": "2b2e8b62c620488b84168a51e7a7efb7",
     "phase_one_nonce": "6bac76fc7d134539b2937051000527cd",
@@ -23,5 +23,5 @@
   },
   "blocker": null,
   "safety": "all live capabilities absent; kill switch engaged; no Phase Two/Three; V4-HO-001 nonexistent/unconsumed; v5 immutable",
-  "next_action": "Prepare and validate the fresh Successor28 Phase-One and guardian operators, then consume each launch authority exactly once."
+  "next_action": "Create a distinct Successor29 acquisition with fresh nonces and explicit operator/authority identity validation before launch."
 }
