@@ -1,15 +1,14 @@
 # Poly Alpha status
 
-Successor26 is terminal, permanently ineligible, and MUST NOT be relaunched.
-Its binding persistence timeout has a durable causal finding: SQLite had fully
-backfilled the logical WAL but retained its physical allocation, and the policy
-needlessly escalated live reclamation. The minimal correction is implemented
-without changing FULL durability or the 15-second acknowledgement deadline.
+Successor27 is healthy and progressing in the authorized 2–4 hour shadow OOS
+cycle. Source seal 4,248/4,248 passed exactly once, materialization and cold
+verification passed once, and Phase One plus its guardian were launched once.
 
-Verification is green: 803/803 affected tests and 265/265 final-patch focused
-tests passed. The next exact authority is one fresh Successor27 full source seal.
-No materialization or launch is authorized until that seal passes unchanged.
+Identity: session `2b2e8b62c620488b84168a51e7a7efb7`, runtime
+`2312 -> 17176`, guardian `14332 -> 2784`. Seven initial guardian observations
+were clean; capsules grew 10→45, predictions 20→90 and committed commands
+393→973 with zero binding loss, mismatch, overflow or discard.
 
-Safety remains fail-closed: no live trading, signing, authenticated trading,
-real placement/cancellation, Phase Two, Phase Three or holdout exists; the kill
-switch is engaged and authoritative v5 remains immutable.
+Next boundary: sparse +2h review at or after `1787711783998`. Never relaunch.
+All live capabilities remain absent, the kill switch is engaged, v5 is immutable,
+and no Phase Two, Phase Three or holdout authority exists.

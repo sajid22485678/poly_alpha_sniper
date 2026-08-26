@@ -1,31 +1,33 @@
 {
   "schema_version": 1,
-  "checkpoint_local": "2026-08-26T06:55:54.1461271+07:00",
-  "state": "SUCCESSOR26_CAUSAL_FIX_QUALIFIED_SUCCESSOR27_SOURCE_SEAL_NEXT",
-  "classification": "SUCCESSOR26_TERMINAL_INELIGIBLE_FIX_QUALIFIED",
-  "prior_bridge_commit": "919e5f9fddfeec02f140ab85fa3e9cc8312100b4",
+  "checkpoint_ts_ms": 1787705024659,
+  "state": "SUCCESSOR27_HEALTHY_2_TO_4_HOUR_OOS_CYCLE_ACTIVE",
+  "classification": "HEALTHY_PROGRESSING_SHADOW_ONLY",
+  "prior_bridge_commit": "d9c9b2652db9b4410e02f7cde5099f0dc1b878ca",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR26_PERSISTENCE_FIX_QUALIFIED.json",
-  "successor26": {
-    "session_id": "94b7f805b73d4c82b851938e20570477",
-    "phase_one_nonce": "6e80d3ea67cc4d12994c1f20427de260",
-    "runtime_state": "STOPPED",
-    "must_not_relaunch": true,
-    "permanently_ineligible": true
+  "canonical_artifact": ".codex/SUCCESSOR27_INITIAL_HEALTHY_ACQUISITION.json",
+  "identity": {
+    "source_tree_sha256": "32f3573ad1e3894bb956570fdf0436495929b23c0b46508fbba66b0224d81e1c",
+    "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor27_20260826T0024Z",
+    "session_id": "2b2e8b62c620488b84168a51e7a7efb7",
+    "phase_one_nonce": "6bac76fc7d134539b2937051000527cd",
+    "runtime_pair": [2312, 17176],
+    "guardian_pair": [14332, 2784],
+    "must_not_relaunch": true
   },
-  "root_cause": "Complete logical PASSIVE backfill was misread from unchanged physical WAL allocation, provoking unnecessary live TRUNCATE before the 15133 ms deadline breach.",
-  "fix": "Logical frame completion resets pressure; routine live checkpoints remain PASSIVE; partial/busy and offline reclamation semantics remain fail-closed.",
-  "verification": "803/803 affected and 265/265 post-final-patch tests passed with zero failure/error/skip.",
-  "safety": {
-    "LIVE_ENABLED": false,
-    "REAL_ORDERS_POSSIBLE": false,
-    "wallet_signing_available": false,
-    "authenticated_trading_available": false,
-    "kill_switch_engaged": true,
-    "phase_two_entered": false,
-    "phase_three_entered": false,
-    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
-    "authoritative_v5_immutable": true
+  "source_seal": "4248/4248 PASS exactly once; tree exact; v5 exact",
+  "materialization": "one clean launch; independent cold exact-v6 verification PASS",
+  "guardian": "four-hour exact-bound watcher running; seven clean initial observations; no failure artifact",
+  "initial_readiness": {
+    "ensemble": "9 rank1 / 9 unique / 0 positive / 0 negative / 9 unlabeled",
+    "model": "9 rank1 / 9 unique / 0 positive / 0 negative / 9 unlabeled"
   },
-  "next_action": "Create a new Successor27 seal root, freeze the current source/documentation tree, and run the full repository suite exactly once. A passing immutable result alone authorizes materialization."
+  "oos": {
+    "protocol_start_ts_ms": 1787704583998,
+    "protocol_end_ts_ms": 1787747783996,
+    "owner_plus_2h_review_ts_ms": 1787711783998,
+    "owner_plus_4h_review_ts_ms": 1787718983998
+  },
+  "safety": "shadow only; all live/signing/auth/order capabilities absent; kill switch engaged; no Phase Two/Three; V4-HO-001 nonexistent/unconsumed; v5 immutable",
+  "next_action": "Leave runtime and guardian untouched and perform a sparse +2h same-identity review at or after 1787711783998."
 }

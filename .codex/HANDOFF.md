@@ -1,14 +1,13 @@
 # Poly Alpha handoff
 
-Current boundary: Successor26 terminal forensic closure and its causal
-checkpoint-policy fix are complete. Canonical detail is in
-`.codex/SUCCESSOR26_PERSISTENCE_FIX_QUALIFIED.json`.
+Canonical current evidence is
+`.codex/SUCCESSOR27_INITIAL_HEALTHY_ACQUISITION.json`.
 
-Exact next action: freeze the current corrected source and documentation into a
-new Successor27 source-seal root and execute the full repository suite exactly
-once. Continue to materialization, cold verification, Phase-One launch and a
-standalone guardian only if the seal is an exact green result with unchanged
-post-tree and authoritative-v5 identities.
+Leave the same Successor27 runtime and guardian untouched. At or after
+`1787711783998`, perform the bounded same-identity +2h review. If both targets
+meet every quota and all guardian/persistence/lineage/safety gates remain clean,
+classify `EARLY_STOP_SUFFICIENT`; otherwise classify `CONTINUE_TO_4H` and keep
+the same identity until the hard review at `1787718983998`.
 
-Never relaunch or reuse Successor26 or any predecessor. Do not enter calibration,
-tournament, Phase Two, holdout, Phase Three, or any live-capability path.
+Do not relaunch, mutate the sealed tree, finalize calibration, enter Phase Two,
+consume holdout, enter Phase Three, or enable any live capability.

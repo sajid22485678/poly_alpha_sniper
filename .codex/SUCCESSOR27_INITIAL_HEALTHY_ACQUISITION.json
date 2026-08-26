@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR27_INITIAL_HEALTHY_ACQUISITION_V1",
+  "captured_ts_ms": 1787705024659,
+  "classification": "HEALTHY_PROGRESSING_SHADOW_ONLY_ENTER_2_TO_4_HOUR_OOS_CYCLE",
+  "prior_bridge_commit": "d9c9b2652db9b4410e02f7cde5099f0dc1b878ca",
+  "source_seal": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor27_20260825T2359Z",
+    "tree_sha256": "32f3573ad1e3894bb956570fdf0436495929b23c0b46508fbba66b0224d81e1c",
+    "manifest_sha256": "f1d6a80cbe240dfd4597ee91cfdaf34941c2d2646ab1d67999518c78d769ec01",
+    "post_verification_sha256": "19b0be8353d15ee60110636f8ff051641b8c396103e109036a3d7d7df1a075ba",
+    "junit_sha256": "95b6b219bc6bd1763ee0c9abbc3fa9b983b14bec2ba5e977359b70c13dd3d185",
+    "tests": 4248,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "exit_code": 0,
+    "pytest_launch_count": 1,
+    "tree_exact": true,
+    "authoritative_v5_equal": true
+  },
+  "materialization": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR27-20260826T0024Z",
+    "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor27_20260826T0024Z",
+    "nonce": "01fdfddc936d4f0f901eab2c7927f6ac",
+    "launch_count": 1,
+    "authority_sha256": "9879449d5350db44be5902b15bedbad43b52d7a717249175a0234a6ad7efdcf1",
+    "manifest_sha256": "e109efcb86897816a8ca1edf4dd9bc78be32646b74521f900885db7f5b1e3503",
+    "verification_sha256": "425ddfc9c5473cee85f4d757be09932120367ccc6a773db1641f2604e800281d",
+    "database_sha256": "c06227fd8c1e6cd4b9a253ee76740859ce696ac3a7e37b73884462a617d4b0cd",
+    "cold_quick_check": "ok",
+    "cold_fk_violations": 0,
+    "cold_schema_version": 6,
+    "cold_table_count": 70,
+    "cold_inherited_state": 0
+  },
+  "phase_one": {
+    "session_id": "2b2e8b62c620488b84168a51e7a7efb7",
+    "nonce": "6bac76fc7d134539b2937051000527cd",
+    "launch_count": 1,
+    "authority_sha256": "77ef1bf7159ceddad00d7fda09772deb67d4c64e43011b203d04e47d428c6b2b",
+    "launch_request_sha256": "2110c775aea643bebf755bf88ea3dc8264f3643a19b507785783043b84bfac18",
+    "process_start_sha256": "41609c218485e6ee3249496b63e1f4b8267b2e3a380498abef49c56ce695a0da",
+    "launcher_pid": 2312,
+    "runtime_pid": 17176,
+    "state": "RUNNING",
+    "must_not_relaunch": true
+  },
+  "guardian": {
+    "launch_count": 1,
+    "authority_sha256": "514a8f5178f2ef4b2b92d8bdca4991de7a604679a5621801bec61321d92a3c51",
+    "launch_request_sha256": "7d9e2c6105adb71ca55cc36ba54626589ef628744873d1af4f2b7b027c42f8e2",
+    "process_start_sha256": "5ad0e25e6bae6f6a5af148642f384d6c52f48659ceade9c1a2a1fb97f90092a2",
+    "launcher_pid": 14332,
+    "worker_pid": 2784,
+    "duration_s": 14400,
+    "interval_s": 30,
+    "snapshot_s": 300,
+    "observations": 7,
+    "failure_artifacts": 0,
+    "stderr_empty": true,
+    "latest_durable_snapshot": "D:\\poly_alpha_prospective_exact_v6_successor27_20260826T0024Z\\operator\\guardian_snapshot_1787704840042.json",
+    "latest_durable_snapshot_sha256": "44659b1f1a154025c66b7baf11ea5e3f0ea333806288b74046abd8ba48aa8ece"
+  },
+  "acquisition_progress": {
+    "first": {"capsules": 10, "predictions": 20, "markets": 40, "outcomes": 0, "committed": 393},
+    "latest": {"capsules": 45, "predictions": 90, "markets": 40, "outcomes": 0, "committed": 973},
+    "critical_failed": 0,
+    "critical_incomplete": 0,
+    "critical_lost": 0,
+    "queue_overflow": 0,
+    "source_discard": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0
+  },
+  "initial_readiness": {
+    "ensemble": {"rank1": 9, "unique_markets": 9, "positive": 0, "negative": 0, "unlabeled": 9},
+    "model": {"rank1": 9, "unique_markets": 9, "positive": 0, "negative": 0, "unlabeled": 9},
+    "thresholds": {"rank1": 300, "unique_markets": 300, "positive": 60, "negative": 60, "unlabeled": 0}
+  },
+  "oos_cycle": {
+    "protocol_start_ts_ms": 1787704583998,
+    "protocol_end_ts_ms": 1787747783996,
+    "owner_cycle_plus_2h_review_ts_ms": 1787711783998,
+    "owner_cycle_plus_4h_review_ts_ms": 1787718983998,
+    "phase_one_ready": false
+  },
+  "reserved_phase_two_nonce_unauthorized": "4fd610878c49410bb7d7f435a4639bb6",
+  "initial_healthy_evidence_sha256": "56af0422890228ac89864dbc02fc78f7e237e1c9b6fcf92d43f1a93ad6e97053",
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_order_placement_available": false,
+    "real_order_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Leave the same runtime and guardian untouched; perform the sparse same-identity +2h review at or after 1787711783998. Never relaunch."
+}

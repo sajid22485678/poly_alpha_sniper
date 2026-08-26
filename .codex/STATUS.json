@@ -1,15 +1,25 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-26T06:55:54.1461271+07:00",
-  "agent_state": "SUCCESSOR26_CAUSAL_FIX_QUALIFIED_SUCCESSOR27_SOURCE_SEAL_NEXT",
-  "classification": "SUCCESSOR26_TERMINAL_INELIGIBLE_FIX_QUALIFIED",
+  "updated_ts_ms": 1787705024659,
+  "agent_state": "SUCCESSOR27_HEALTHY_2_TO_4_HOUR_OOS_CYCLE_ACTIVE",
+  "classification": "HEALTHY_PROGRESSING_SHADOW_ONLY",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "919e5f9fddfeec02f140ab85fa3e9cc8312100b4",
+  "prior_bridge_commit": "d9c9b2652db9b4410e02f7cde5099f0dc1b878ca",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR26_PERSISTENCE_FIX_QUALIFIED.json",
-  "successor26_must_not_relaunch": true,
-  "root_cause_sha256": "89646ce692e5f7b4fce641703de4151eeea1591e5e42b7cea683fca3836ce993",
-  "verification": "803/803 affected PASS; 265/265 final-patch focused PASS",
+  "canonical_artifact": ".codex/SUCCESSOR27_INITIAL_HEALTHY_ACQUISITION.json",
+  "identity": {
+    "source_tree_sha256": "32f3573ad1e3894bb956570fdf0436495929b23c0b46508fbba66b0224d81e1c",
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR27-20260826T0024Z",
+    "session_id": "2b2e8b62c620488b84168a51e7a7efb7",
+    "phase_one_nonce": "6bac76fc7d134539b2937051000527cd",
+    "runtime_pids": [2312, 17176],
+    "guardian_pids": [14332, 2784],
+    "must_not_relaunch": true
+  },
+  "guardian": "7 clean observations; zero failure artifact; stderr empty",
+  "progress": "capsules 10->45; predictions 20->90; committed 393->973; zero binding loss/mismatch/overflow/discard",
+  "plus_2h_review_ts_ms": 1787711783998,
+  "plus_4h_review_ts_ms": 1787718983998,
   "authoritative_v5_immutable": true,
   "safety": {
     "LIVE_ENABLED": false,
@@ -21,5 +31,5 @@
     "phase_three_entered": false,
     "V4_HO_001": "NONEXISTENT_UNCONSUMED"
   },
-  "next_action": "Execute one fresh Successor27 exact-once full source seal from the frozen corrected tree."
+  "next_action": "Sparse same-identity review at or after 1787711783998; do not relaunch or mutate the sealed source."
 }
