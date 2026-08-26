@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR27_OWNER_CYCLE_BOUNDARY_CORRECTION_V1",
+  "created_ts_ms": 1787719498908,
+  "external_artifact": "D:\\poly_alpha_prospective_exact_v6_successor27_20260826T0024Z\\operator\\successor27_owner_cycle_boundary_correction.json",
+  "external_artifact_sha256": "bff2b65dcbd2c47e3d1a8cac5155927a0e0774e9256ec29d72bf1d1e81e6caab",
+  "preserved_early_review_sha256": "693fcfd810901ff527f5510b7b67775116d7d40b08c403b85cac5292c9d78a1c",
+  "corrected_owner_cycle_anchor_ts_ms": 1787704840042,
+  "corrected_plus_2h_ts_ms": 1787712040042,
+  "corrected_plus_4h_ts_ms": 1787719240042,
+  "first_snapshot_after_correct_plus_2h": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor27_20260826T0024Z\\operator\\guardian_snapshot_1787712182125.json",
+    "sha256": "86d3171ab5403ab4212105c1787e7d0a8952c8c5ff660881ec26355dc079a1a0",
+    "classification": "CONTINUE_TO_4H"
+  },
+  "effect": "Non-overwriting correction. The preserved early review was 48,750 ms before the correct +2h boundary; the first later guardian snapshot confirms the same decision."
+}

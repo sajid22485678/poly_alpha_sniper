@@ -1,13 +1,12 @@
 # Poly Alpha status
 
-Successor27 passed its +2h integrity review but not its numerical readiness
-quotas, so the exact classification is `CONTINUE_TO_4H` on the same identity.
+`OOS_DATA_INSUFFICIENT` — Successor27 completed 471 clean independent guardian observations over the corrected owner-authorized four-hour cycle. Persistence, reconciliation, lineage, temporal integrity, prior-failure recurrence, database integrity, and safety all pass.
 
-Guardian, persistence, reconciliation, database integrity, lineage, temporal
-validity, prior-failure recurrence and safety all passed. Journal state was
-19,079/19,079 committed, max acknowledgement 7,129 ms, with zero failed,
-unresolved, overdue, lost, mismatch, overflow or discard.
+Readiness at cycle close:
 
-Readiness: ensemble 190/190/95/71/24 and model 189/189/95/70/24 for
-rank-1/unique/positive/negative/unlabeled. The +4h hard review is at
-`1787718983998`. Continue the exact same runtime and guardian; never relaunch.
+- Ensemble: 372 rank-1, 372 unique, 180 positive, 177 negative, 15 unlabeled.
+- Model: 369 rank-1, 369 unique, 180 positive, 174 negative, 15 unlabeled.
+
+The required `unlabeled = 0` gate did not pass. Official future outcomes cannot be manufactured or added after the bounded cycle. Runtime `2312 -> 17176` remains the unchanged consumed identity; guardian `14332 -> 2784` ended naturally and was not restarted.
+
+Owner action is required to authorize runtime disposition and any new prospective cycle. No later phase or live capability is authorized.

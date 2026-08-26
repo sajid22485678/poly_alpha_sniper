@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR27_PLUS_4H_HARD_REVIEW_V1",
+  "review_ts_ms": 1787719498908,
+  "classification": "OOS_DATA_INSUFFICIENT",
+  "prior_bridge_commit": "db71186c114066f88cb62a02c5f7deed9bd4491c",
+  "external_artifact": "D:\\poly_alpha_prospective_exact_v6_successor27_20260826T0024Z\\operator\\successor27_plus_4h_hard_review.json",
+  "external_artifact_sha256": "44a75bd25d653ffabc0a43637031913f72d488f8e45135d9f29abdeb6d2c00d0",
+  "identity": {
+    "source_tree_sha256": "32f3573ad1e3894bb956570fdf0436495929b23c0b46508fbba66b0224d81e1c",
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR27-20260826T0024Z",
+    "materialization_nonce": "01fdfddc936d4f0f901eab2c7927f6ac",
+    "session_id": "2b2e8b62c620488b84168a51e7a7efb7",
+    "phase_one_nonce": "6bac76fc7d134539b2937051000527cd",
+    "runtime_pair": [2312, 17176],
+    "runtime_state": "RUNNING_SAME_IDENTITY",
+    "guardian_pair": [14332, 2784],
+    "guardian_state": "NATURALLY_COMPLETED_AND_ABSENT",
+    "relaunch_or_fork": false
+  },
+  "guardian": {
+    "coverage_start_ts_ms": 1787704840042,
+    "coverage_end_ts_ms": 1787719255613,
+    "observations": 471,
+    "failure_artifacts": 0,
+    "stderr_empty": true,
+    "final_snapshot": "D:\\poly_alpha_prospective_exact_v6_successor27_20260826T0024Z\\operator\\guardian_snapshot_1787719255613.json",
+    "final_snapshot_sha256": "5c10900bd631742ce824efe40acb566914102fe10858bb709f8deb5234eada8f"
+  },
+  "acquisition": {"capsules": 2292, "predictions": 4560, "markets": 431, "outcomes": 357, "snapshot_committed_commands": 41118},
+  "journal": {"total": 41427, "committed": 41427, "failed": 0, "unresolved": 0, "critical_lost": 0, "mismatch": 0, "unexpected_loss": 0, "max_ack_ms": 7129},
+  "ensemble": {"rank1": 372, "unique_markets": 372, "positive": 180, "negative": 177, "unlabeled": 15, "ready": false},
+  "model": {"rank1": 369, "unique_markets": 369, "positive": 180, "negative": 174, "unlabeled": 15, "ready": false},
+  "integrity": "PASS: quick-check ok, FK 0, schema 6, lineage invalid 0, temporal invalid 0, predecessor reuse 0, holdout 0, all prior failure recurrences false",
+  "safety": "PASS: shadow-only, live/signing/authenticated/place/cancel absent, kill switch engaged, no Phase Two/Three, V4-HO-001 nonexistent/unconsumed, v5 immutable",
+  "external_blocker": "Each target has 15 rank-1 rows without an official verified outcome at immutable 4h cycle close. Software cannot manufacture future outcomes or extend the preregistered result.",
+  "smallest_next_owner_action": "Authorize disposition of the still-running Successor27 identity and explicitly authorize a new bounded prospective cycle plus guardian if more prospective evidence is desired.",
+  "forbidden": "No relaunch, guardian restart, source mutation, calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation, or live capability."
+}

@@ -1,14 +1,15 @@
 {
   "schema_version": 1,
-  "checkpoint_ts_ms": 1787711991292,
-  "state": "SUCCESSOR27_CONTINUE_TO_4H_SAME_IDENTITY",
-  "classification": "CONTINUE_TO_4H",
-  "prior_bridge_commit": "cb6173fcd57a73d1ee6c6f7537d96e97bfc2efa2",
+  "checkpoint_ts_ms": 1787719498908,
+  "state": "SUCCESSOR27_EXTERNAL_PROSPECTIVE_DATA_BLOCKER",
+  "classification": "OOS_DATA_INSUFFICIENT",
+  "prior_bridge_commit": "db71186c114066f88cb62a02c5f7deed9bd4491c",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR27_PLUS_2H_REVIEW.json",
-  "external_artifact_sha256": "693fcfd810901ff527f5510b7b67775116d7d40b08c403b85cac5292c9d78a1c",
-  "identity": "source 32f3573a; session 2b2e8b62c620488b84168a51e7a7efb7; nonce 6bac76fc7d134539b2937051000527cd; runtime 2312->17176; guardian 14332->2784",
-  "decision": "All guardian, persistence, integrity, reconciliation, lineage, temporal, prior-failure and safety gates pass. Both targets remain below rank1/unique quotas and have 24 unlabeled rows, so continue same identity.",
-  "next_review_ts_ms": 1787718983998,
-  "forbidden": "No relaunch, stop, source mutation, calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation, or live capability."
+  "canonical_artifact": ".codex/SUCCESSOR27_PLUS_4H_OOS_DATA_INSUFFICIENT.json",
+  "external_artifact_sha256": "44a75bd25d653ffabc0a43637031913f72d488f8e45135d9f29abdeb6d2c00d0",
+  "identity": "source 32f3573a; session 2b2e8b62c620488b84168a51e7a7efb7; nonce 6bac76fc7d134539b2937051000527cd; runtime 2312->17176 alive; guardian 14332->2784 naturally complete",
+  "decision": "Successor27 remained clean for 471 guardian observations over the corrected four-hour cycle. All gates except unlabeled=0 passed. Both targets closed with 15 unlabeled rows, so OOS_PASS is prohibited.",
+  "blocker": "Missing future official outcome authorities are external prospective data, not an independently solvable software collection defect.",
+  "next_action": "Obtain owner authority for Successor27 runtime disposition and, if desired, a distinct new bounded prospective cycle with independent guardian coverage.",
+  "forbidden": "No relaunch, guardian restart, source mutation, calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation, or live capability."
 }
