@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "checkpoint_ts_ms": 1787749223452,
-  "state": "SUCCESSOR29_TERMINAL_OOS_FAILED_CAUSAL_FIX_VERIFIED",
-  "classification": "SUCCESSOR29_TERMINAL_OOS_FAILED_CAUSAL_FIX_VERIFIED",
-  "prior_bridge_commit": "edfffd3d3dcd2674deb9f1d18ded139082efb296",
+  "checkpoint_ts_ms": 1787752661218,
+  "state": "SUCCESSOR31_TERMINAL_GUARDIAN_COVERAGE_DEFECT",
+  "classification": "TERMINAL_OOS_FAILED_GUARDIAN_COVERAGE_GAP",
+  "prior_bridge_commit": "0c25de4349efc229c090b6f65f023d521f62c8ad",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR29_TERMINAL_FAILURE_AND_CAUSAL_FIX.json",
-  "external_artifact_sha256": "3633d4d5357b6b7188ca13e20fb37fc02b472203c30bcd5d2c334d7686d580d8",
-  "identity": "Successor29 acquisition V4-PR-001-PROSPECTIVE-SUCCESSOR29-20260826T1110Z; session 8b72cd4077494021abdc7aac33ff90ef; nonce 9b0e0721f98f4f83847ff854e336657f; runtime 13504->3256 terminal; guardian 14908->16368 terminal",
-  "decision": "Successor29 is permanently OOS_FAILED after its first binding persistence acknowledgement timeout. Exact graceful closure is complete. The causal write-amplification fix is verified and requires fresh source qualification for a distinct successor.",
+  "canonical_artifact": ".codex/SUCCESSOR31_TERMINAL_GUARDIAN_COVERAGE_DEFECT.json",
+  "external_artifact_sha256": "d0d39b7c9c0b910cfe5f05158f4be543fed86d589934793b97e68c0432a70a71",
+  "identity": "Successor31 session 626154fc536b4716919b7d58124b6f70, nonce 1aeacf65f2224296b1056e7ff944d3e3, runtime 15632->18112 and guardian 17404->10332 all terminal",
+  "decision": "The cycle is inadmissible because guardian coverage began 54517 ms after OOS prediction collection. Exact graceful closure is complete; fix the five-minute guarded-start protocol before a distinct cycle.",
   "blocker": null,
-  "next_action": "Fresh exact source seal for distinct Successor30, then materialize, cold-verify, launch Phase One and guardian exactly once under fresh identities if and only if that seal passes.",
-  "forbidden": "No S29 relaunch or reuse; no calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation, or live capability."
+  "next_action": "Apply the preregistered ten-minute guarded-start correction through RED/GREEN validation, retain the +3h30 cutoff/+4h close, then fresh-seal and start a distinct successor.",
+  "forbidden": "No S31 relaunch or reuse; no calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation, or live capability."
 }

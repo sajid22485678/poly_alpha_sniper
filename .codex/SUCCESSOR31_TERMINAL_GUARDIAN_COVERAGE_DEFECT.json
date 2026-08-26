@@ -1,0 +1,13 @@
+{
+  "contract": "POLY_ALPHA_SUCCESSOR31_TERMINAL_GUARDIAN_COVERAGE_DEFECT_V1",
+  "captured_ts_ms": 1787752661218,
+  "classification": "TERMINAL_OOS_FAILED_GUARDIAN_COVERAGE_GAP",
+  "prior_bridge_commit": "0c25de4349efc229c090b6f65f023d521f62c8ad",
+  "source_seal": {"root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor30_20260826T1305Z", "tree_sha256": "1e608dd9611d8ef0c0dfa3b00ee4ee3d1c5f152df5db3160c4c9d15e07d02556", "tests": 4252, "junit_sha256": "b853ca3b74d679572e950d9259b8ecc1fc25599491fbaf3d8516aa957dd05155"},
+  "identity": {"acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR31-20260826T1333Z", "materialization_nonce": "979a3e1f865e425baf956c012e4fa507", "phase_one_nonce": "1aeacf65f2224296b1056e7ff944d3e3", "session_id": "626154fc536b4716919b7d58124b6f70", "runtime_pids": [15632, 18112], "guardian_pids": [17404, 10332], "must_not_relaunch": true},
+  "first_failure": {"oos_prediction_start_ts_ms": 1787752157198, "guardian_start_ts_ms": 1787752211715, "unguarded_oos_interval_ms": 54517, "path": "D:\\poly_alpha_prospective_exact_v6_successor31_20260826T1333Z\\operator\\guardian_failure_1787752211715.json", "sha256": "2edf63fda793dcc9e0e3e1227d345afc0eff9c890c74d58a81df51aee7963a32"},
+  "terminal": {"closure_sha256": "d0d39b7c9c0b910cfe5f05158f4be543fed86d589934793b97e68c0432a70a71", "journal_total": 1223, "journal_committed": 1223, "journal_incomplete": 0, "quick_check": "ok", "foreign_key_violations": 0, "reconciliation_mismatch": 0, "unexpected_loss": 0, "processes_absent": true, "lease_released": true},
+  "feasibility_at_ten_minute_start": {"prediction_cutoff_offset_minutes": 210, "dataset_close_offset_minutes": 240, "ensemble": {"rank1": 321, "unique": 321, "positive": 162, "negative": 159, "unlabeled": 0}, "model": {"rank1": 320, "unique": 320, "positive": 162, "negative": 158, "unlabeled": 0}},
+  "safety": {"live_enabled": false, "real_orders_possible": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_two_entered": false, "phase_three_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED", "authoritative_v5_immutable": true},
+  "next_action": "RED/GREEN the ten-minute guarded-start correction, then fresh-seal and create a distinct successor."
+}
