@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "checkpoint_ts_ms": 1787739876132,
-  "state": "SUCCESSOR27_CAUSAL_FIX_VALIDATION_ACTIVE",
-  "classification": "PROTOCOL_DEFECT_AND_PRIORITY_STARVATION_CAUSES_FIXED_FOCUSED_VALIDATION_PASS",
-  "prior_bridge_commit": "65e949861d4c71684749aefa1df2c7a9bdb23c7d",
+  "checkpoint_ts_ms": 1787740211482,
+  "state": "SUCCESSOR28_SOURCE_SEAL_PREPARED",
+  "classification": "CREATE_ONCE_SOURCE_SEAL_PREPARED_NOT_EXECUTED",
+  "prior_bridge_commit": "f318cc8bbf1f94816c90b7afb2a75d796539ce83",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR27_PROTOCOL_FEASIBILITY_AND_PERSISTENCE_FIX.json",
-  "external_artifact_sha256": "18f36f5e5548d4f584b7a8419572b3287708dd8e0aafb1bd113a07510f02e582",
+  "canonical_artifact": ".codex/SUCCESSOR28_SOURCE_SEAL_PREPARED.json",
+  "external_artifact_sha256": "08c9282596d8e09d9f6f6967985f1e668d435f81fe92d223c0e67c104c3405cd",
   "identity": "source 32f3573a; session 2b2e8b62c620488b84168a51e7a7efb7; nonce 6bac76fc7d134539b2937051000527cd; runtime 2312->17176 terminal; guardian 14332->2784 naturally complete",
   "decision": "Preserve Successor27 unchanged. Replace the structurally self-defeating 12h prediction window/4h review mismatch with a preregistered +5m start, +3h30m cutoff, 30m grace, +4h close; bound writer priority overtaking by monotonic age.",
   "blocker": null,
-  "next_action": "Complete the clean broader rerun, adversarial validation, and exact source qualification before any distinct new cycle.",
+  "next_action": "Execute the prepared Successor28 source-seal runner exactly once; preserve any first result without retry.",
   "forbidden": "No relaunch, guardian restart, source mutation, calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation, or live capability."
 }

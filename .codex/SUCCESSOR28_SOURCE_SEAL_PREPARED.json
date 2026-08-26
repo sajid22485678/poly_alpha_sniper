@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR28_SOURCE_SEAL_PREPARED_V1",
+  "captured_ts_ms": 1787740211482,
+  "classification": "CREATE_ONCE_SOURCE_SEAL_PREPARED_NOT_EXECUTED",
+  "prior_bridge_commit": "f318cc8bbf1f94816c90b7afb2a75d796539ce83",
+  "seal_root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor28_20260826T1032Z",
+  "tested_tree_sha256": "fa4fcdbfa01eb42289f33c977e56901983f631ec531b1052a0f0e79c188051f7",
+  "manifest_sha256": "08c9282596d8e09d9f6f6967985f1e668d435f81fe92d223c0e67c104c3405cd",
+  "preparation_wrapper_sha256": "140aad299159b3bb61ff4d826049752d6e5e36cfc61d7723329901806a9ec258",
+  "predecessor_template_sha256": "fe9950a80088150035206148520baba82de6d432ef47401b46379ad030dae911",
+  "runner_sha256": "3b96a3a1891c388781162697df8bc7a4e8eba8876fb7e52bc89f3eed1f89e590",
+  "verifier_sha256": "fbd550b8270c7a1d3b6007e19ac65fc8c3a2ceb8dc24b845f52828106bdeba24",
+  "authoritative_v5_pre_sha256": "156188fce68e9c8222965324e17a8d14ce0081eb5d16efd0649ae98b0e47dc92",
+  "path_count": 670,
+  "staged_path_count": 0,
+  "tracked_modified_path_count": 59,
+  "untracked_path_count": 113,
+  "pytest_launch_count": 0,
+  "full_suite_executed": false,
+  "prior_validation": {
+    "focused_tests": 90,
+    "focused_failures": 0,
+    "broader_tests": 282,
+    "broader_failures": 0
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "journal_exists": false
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Execute run_full_suite_once.py exactly once. Preserve this Successor28 seal identity on failure, interruption, or ambiguity; never rerun it."
+}
