@@ -1,12 +1,12 @@
 # Poly Alpha status
 
-`OOS_DATA_INSUFFICIENT` — Successor27 completed 471 clean independent guardian observations over the corrected owner-authorized four-hour cycle. Persistence, reconciliation, lineage, temporal integrity, prior-failure recurrence, database integrity, and safety all pass.
+Successor27 is terminal. Its immutable four-hour result remains `OOS_DATA_INSUFFICIENT`: the clean guardian-covered close had 15 unlabeled rows per target.
 
 Readiness at cycle close:
 
 - Ensemble: 372 rank-1, 372 unique, 180 positive, 177 negative, 15 unlabeled.
 - Model: 369 rank-1, 369 unique, 180 positive, 174 negative, 15 unlabeled.
 
-The required `unlabeled = 0` gate did not pass. Official future outcomes cannot be manufactured or added after the bounded cycle. Runtime `2312 -> 17176` remains the unchanged consumed identity; guardian `14332 -> 2784` ended naturally and was not restarted.
+After the guardian-covered close, the still-running identity separately latched two `V4PersistenceTimeout` events. The owner-authorized exact graceful stop ended runtime `2312 -> 17176`, released its lease, and reconciled 92,125/92,125 committed commands with zero failed, unresolved, duplicate, retried, lost, or mismatched work. The post-close failure does not rewrite the earlier frozen cycle result.
 
-Owner action is required to authorize runtime disposition and any new prospective cycle. No later phase or live capability is authorized.
+The next action is the mandatory protocol-feasibility and timeout root-cause audit before any distinct cycle. No later phase or live capability is authorized.

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR27_TERMINAL_DISPOSITION_BRIDGE_V1",
+  "created_ts_ms": 1787738798077,
+  "prior_bridge_commit": "4dbf0630af96033d6f5a840951febe251c14748c",
+  "classification": "TERMINAL_CLOSED_OOS_DATA_INSUFFICIENT_WITH_POST_CLOSE_PERSISTENCE_FAILURE",
+  "immutable_cycle_close": {
+    "classification": "OOS_DATA_INSUFFICIENT",
+    "ensemble": "372 rank1 / 372 unique / 180 positive / 177 negative / 15 unlabeled",
+    "model": "369 rank1 / 369 unique / 180 positive / 174 negative / 15 unlabeled",
+    "guardian_observations": 471,
+    "guardian_failure_artifacts": 0,
+    "post_close_evidence_cannot_change_result": true
+  },
+  "identity": {
+    "source_tree_sha256": "32f3573ad1e3894bb956570fdf0436495929b23c0b46508fbba66b0224d81e1c",
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR27-20260826T0024Z",
+    "materialization_nonce": "01fdfddc936d4f0f901eab2c7927f6ac",
+    "phase_one_nonce": "6bac76fc7d134539b2937051000527cd",
+    "session_id": "2b2e8b62c620488b84168a51e7a7efb7",
+    "runtime_pair": [2312, 17176],
+    "must_not_relaunch": true
+  },
+  "post_close_failure": {
+    "engine_latched_failure_reason": "V4PersistenceTimeout",
+    "timeout_count": 2,
+    "over_deadline_ack_ms": [15931, 16324],
+    "occurred_after_guardian_cycle_close": true,
+    "observation_sha256": "95e682bf8c90e5ced0acbc2695cec7661959f61e0d0b0303b53d81092e55629f",
+    "runtime_stderr_sha256": "f7973609e8342c5c534d8c71225a009736f39a2c543acd003040fd6d5c120cae"
+  },
+  "graceful_stop": {
+    "ended_ts_ms": 1787738579669,
+    "lease_released_ts_ms": 1787738579742,
+    "runtime_present": false,
+    "guardian_present": false,
+    "stop_request_present": false,
+    "process_lock_present": false,
+    "journal": "92125/92125 committed; failed 0; unresolved 0; duplicates 0; retries 0; terminal 1/1 committed",
+    "evidence_loss_or_reconciliation_failure": false,
+    "v1_operator_failed_before_mutation_sha256": "c5e7f23885a3a57791c06bb8150539481d0499597aa065c74b05e0ce07b67c5c",
+    "v2_stop_authority_sha256": "5620b0c06ce571647d6a14516b75fa4d8315302179625a875c19104d30366f39",
+    "v2_stop_created_sha256": "ee03406a444d66d56a1900fab6d8628fb6480d6ec384d184ad577182c9d99228"
+  },
+  "terminal_closure": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor27_20260826T0024Z\\operator\\successor27_terminal_closure.json",
+    "sha256": "0d156c6f05d63f9fd6118819c59a89d0f0d5b6de91ce048dae5205bd27faa47f",
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "schema_version": 6,
+    "authoritative_v5_immutable": true
+  },
+  "safety": "shadow-only; all live/signing/authenticated/place/cancel capabilities absent; kill switch engaged; no Phase Two/Three; V4-HO-001 nonexistent/unconsumed; v5 immutable",
+  "next_action": "Perform the mandatory prospective-cycle timing feasibility and post-close persistence root-cause audit before authorizing a distinct new cycle."
+}

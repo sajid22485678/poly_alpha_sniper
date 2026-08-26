@@ -1,27 +1,27 @@
 {
   "schema_version": 1,
-  "updated_ts_ms": 1787719498908,
-  "agent_state": "SUCCESSOR27_EXTERNAL_PROSPECTIVE_DATA_BLOCKER",
-  "classification": "OOS_DATA_INSUFFICIENT",
+  "updated_ts_ms": 1787738798077,
+  "agent_state": "SUCCESSOR27_TERMINAL_PROTOCOL_AUDIT_ACTIVE",
+  "classification": "TERMINAL_CLOSED_OOS_DATA_INSUFFICIENT_WITH_POST_CLOSE_PERSISTENCE_FAILURE",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "db71186c114066f88cb62a02c5f7deed9bd4491c",
+  "prior_bridge_commit": "4dbf0630af96033d6f5a840951febe251c14748c",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR27_PLUS_4H_OOS_DATA_INSUFFICIENT.json",
+  "canonical_artifact": ".codex/SUCCESSOR27_TERMINAL_DISPOSITION.json",
   "identity": {
     "session_id": "2b2e8b62c620488b84168a51e7a7efb7",
     "phase_one_nonce": "6bac76fc7d134539b2937051000527cd",
     "runtime_pids": [2312, 17176],
-    "runtime_state": "RUNNING_SAME_IDENTITY_UNCHANGED",
+    "runtime_state": "TERMINAL_GRACEFUL_STOP_MUST_NOT_RELAUNCH",
     "guardian_pids": [14332, 2784],
     "guardian_state": "NATURALLY_COMPLETED_AFTER_471_CLEAN_OBSERVATIONS",
     "must_not_relaunch": true
   },
-  "guardian_and_integrity": "PASS: complete corrected 4h coverage, no failure artifact, persistence/reconciliation/lineage/temporal/prior-failure/safety violations zero",
+  "guardian_and_integrity": "Closed 4h cycle remains clean. Post-close runtime separately latched V4PersistenceTimeout twice; exact graceful stop reconciled 92125/92125 committed with zero loss or mismatch.",
   "readiness": {
     "ensemble": "372 rank1 / 372 unique / 180 positive / 177 negative / 15 unlabeled",
     "model": "369 rank1 / 369 unique / 180 positive / 174 negative / 15 unlabeled"
   },
-  "blocker": "Official verified outcomes were unavailable for 15 qualifying rows per target at cycle close; unlabeled=0 failed and cannot be manufactured.",
+  "blocker": null,
   "safety": "all live capabilities absent; kill switch engaged; no Phase Two/Three; V4-HO-001 nonexistent/unconsumed; v5 immutable",
-  "next_action": "Owner must authorize disposition of the still-running Successor27 identity and any new prospective cycle/guardian authority. Do not relaunch, extend, or enter later phases."
+  "next_action": "Audit prediction-cutoff/resolution-grace feasibility and the post-close persistence timeout before preparing a distinct cycle."
 }
