@@ -11,6 +11,8 @@ Successor32 is the sole active prospective cycle and is clean under full pre-OOS
 - Guardian began at `1787755428864`, 370,405 ms before prediction collection, and is duration-bound through after the immutable close.
 - First post-OOS observation `1787755821171`: 117 capsules, 10 predictions, 32 markets, 1,376 committed commands, source `READY`, and zero binding counters.
 
-Initial evidence is clean and progressing: 31→55 capsules, 367→541 committed commands, source `READY`, and zero failures/loss/mismatch/overflow/discard. Leave both independent processes untouched. The exact next action is one bounded same-identity review at or after `1787762399269`; if it is clean but insufficient, continue unchanged to the immutable close.
+The +2h review is clean but insufficient. The exact read-only validator passed with 19,440/19,440 commands committed and zero loss, mismatch, duplicate, retry, capsule, lineage, holdout, or safety defect. Ensemble readiness is `181/181/68/91/22`; model is `180/180/68/90/22` (rank-1/unique/positive/negative/unlabeled).
+
+Leave both independent processes untouched. The exact next action is the one +4h hard review at or after immutable close `1787769599269`.
 
 No later phase or live capability is authorized.

@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "checkpoint_ts_ms": 1787755848300,
-  "state": "SUCCESSOR32_OOS_START_CLEAN",
-  "classification": "OOS_COLLECTION_STARTED_UNDER_CONTINUOUS_CLEAN_GUARDIAN_COVERAGE",
-  "prior_bridge_commit": "fd497b71fc6bf9e3d7216c1160132cbf8d8e4e83",
+  "checkpoint_ts_ms": 1787762736254,
+  "state": "SUCCESSOR32_PLUS_2H_REVIEW",
+  "classification": "CONTINUE_TO_4H",
+  "prior_bridge_commit": "83ffe2985759dcca0d2abb4a07aaa22993ca853c",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR32_OOS_START_CLEAN.json",
+  "canonical_artifact": ".codex/SUCCESSOR32_PLUS_2H_REVIEW.json",
   "identity": "Successor32 session e70855a354954a61b8975c266c1704b0, nonce 3fbb80c98c9d49a7a349e3a460ca3cee, runtime 3640->17520, guardian 13036->1388; all consumed and MUST_NOT_RELAUNCH",
-  "decision": "Ten-minute guarded-start correction is fully source-qualified. Guardian began 370405 ms before OOS prediction collection; the first post-OOS observation is clean with 10 predictions.",
+  "decision": "+2h is clean but insufficient: ensemble 181 unique/68 positive/91 negative/22 unlabeled; model 180/68/90/22. Continue the same identity to frozen close.",
   "blocker": null,
-  "next_action": "At or after 1787762399269 execute one bounded +2h review. If clean but insufficient, continue the same runtime/guardian unchanged to close 1787769599269.",
+  "next_action": "At or after 1787769599269 execute the one +4h hard review against the immutable cycle close. Leave runtime and guardian unchanged until then.",
   "forbidden": "No S32 relaunch, guardian restart, calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation, or live capability."
 }
