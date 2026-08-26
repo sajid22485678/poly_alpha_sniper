@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "checkpoint_ts_ms": 1787741585845,
-  "state": "SUCCESSOR28_SOURCE_SEAL_PASSED",
-  "classification": "EXACT_ONCE_SOURCE_SEAL_PASSED_MATERIALIZATION_AUTHORIZED",
-  "prior_bridge_commit": "6c4e2d8eca632518b4be15a44197ed96faf62a1d",
+  "checkpoint_ts_ms": 1787741717158,
+  "state": "SUCCESSOR28_MATERIALIZATION_PREPARED",
+  "classification": "CREATE_ONCE_MATERIALIZATION_PREPARED_NOT_EXECUTED",
+  "prior_bridge_commit": "7744612",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR28_SOURCE_SEAL_PASS.json",
-  "external_artifact_sha256": "6f1ad1cd2eef72c15ed39606edb6137eb99b58e6884c9069dc1d7971d0c064ac",
+  "canonical_artifact": ".codex/SUCCESSOR28_MATERIALIZATION_PREPARED.json",
+  "external_artifact_sha256": "358b4b5859022e52aca26cdf8fcb2ec34752696495466749666ea32e08850d12",
   "identity": "source 32f3573a; session 2b2e8b62c620488b84168a51e7a7efb7; nonce 6bac76fc7d134539b2937051000527cd; runtime 2312->17176 terminal; guardian 14332->2784 naturally complete",
   "decision": "Preserve Successor27 unchanged. Replace the structurally self-defeating 12h prediction window/4h review mismatch with a preregistered +5m start, +3h30m cutoff, 30m grace, +4h close; bound writer priority overtaking by monotonic age.",
   "blocker": null,
-  "next_action": "Prepare distinct Successor28 materialization identities and execute materialization exactly once.",
+  "next_action": "Execute the prepared Successor28 materialization exactly once; preserve its first result without retry.",
   "forbidden": "No relaunch, guardian restart, source mutation, calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation, or live capability."
 }

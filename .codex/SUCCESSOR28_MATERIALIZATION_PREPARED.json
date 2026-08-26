@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR28_MATERIALIZATION_PREPARED_V1",
+  "captured_ts_ms": 1787741717158,
+  "classification": "CREATE_ONCE_MATERIALIZATION_PREPARED_NOT_EXECUTED",
+  "prior_bridge_commit": "7744612",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR28-20260826T1056Z",
+  "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor28_20260826T1056Z",
+  "database_path": "D:\\poly_alpha_prospective_exact_v6_successor28_20260826T1056Z\\prospective-exact-v6.db",
+  "materialization_nonce": "8c22fe20ecd744bbacfbfd101f82b8f7",
+  "phase_one_nonce": "e246fee784bb472d8bfb069e8c8f222d",
+  "reserved_phase_two_nonce_unauthorized": "05aee5693ab2478cad056a2ad512caaa",
+  "source_tree_sha256": "fa4fcdbfa01eb42289f33c977e56901983f631ec531b1052a0f0e79c188051f7",
+  "source_tests": 4252,
+  "authority_sha256": "358b4b5859022e52aca26cdf8fcb2ec34752696495466749666ea32e08850d12",
+  "runner_sha256": "d09b979d2068eee8b35fd7ed91a0805b466b9ff250850bd3b9f221716252d0ff",
+  "materialization_launch_count": 0,
+  "target_root_preexisting": false,
+  "phase_two_authorized": false,
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "Execute run_successor28_materialization_once.py exactly once and preserve its first result without retry."
+}
