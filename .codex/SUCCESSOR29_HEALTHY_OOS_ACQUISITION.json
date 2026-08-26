@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR29_HEALTHY_OOS_ACQUISITION_V1",
+  "captured_ts_ms": 1787744144016,
+  "classification": "HEALTHY_GUARDIAN_COVERED_OOS_ACQUISITION_PROGRESSING",
+  "prior_bridge_commit": "7ebe389a9c0837e99d103bec6803726d57bde138",
+  "predecessor": {
+    "successor28_disposition": "PHASE_ONE_OPERATOR_PREFLIGHT_FAILED_NO_RUNTIME_STARTED_MUST_NOT_RETRY_OR_REUSE",
+    "root_cause": "Mechanical replacement order retained the predecessor timestamp in the generated acquisition ID.",
+    "correction": "Successor29 uses a distinct acquisition and nonce set plus explicit cross-file identity validators before both launches."
+  },
+  "source": {
+    "seal_reused_without_source_mutation": true,
+    "seal_root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor28_20260826T1032Z",
+    "tree_sha256": "fa4fcdbfa01eb42289f33c977e56901983f631ec531b1052a0f0e79c188051f7",
+    "tests": 4252,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "junit_sha256": "ff3cb71369dd3999903f68b05d8a356320b74b3204bf722b2f1e4f55f1ca13b4"
+  },
+  "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR29-20260826T1110Z",
+    "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor29_20260826T1110Z",
+    "materialization_nonce": "870edc7d4b9646c6ac0d65d5ccf770e2",
+    "phase_one_nonce": "9b0e0721f98f4f83847ff854e336657f",
+    "reserved_phase_two_nonce_unauthorized": "71261b7c45ac44d79fae2211b91b7877",
+    "session_id": "8b72cd4077494021abdc7aac33ff90ef",
+    "runtime_pids": [13504, 3256],
+    "guardian_pids": [14908, 16368],
+    "must_not_relaunch": true
+  },
+  "materialization": {
+    "launch_count": 1,
+    "manifest_sha256": "debd817c1fabfec3765f67ee3b17364f186df7c61b7eafcdd7ecd338c1b62817",
+    "cold_verification_sha256": "8d2d7e0c65cbb2934f64a05ccbb446872f8897504e926d6e0fd2392d4b9ce18c",
+    "cold_database_sha256": "f0742e0806ba06f7e305b6b521651d725ff7d9e1365df943525c7cd5eddd3250",
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "schema_version": 6
+  },
+  "launch_evidence": {
+    "phase_one_authority_sha256": "e5e9c1abfb6f1e1ebd07186db4335c8928404e44783a465b4c8edad9a58c50e2",
+    "phase_one_cross_identity_validation_sha256": "0441a50c543b5d95b451ceed3abc7ac71c7c1e065ef38cb6780ec18d5c17ab35",
+    "phase_one_launch_request_sha256": "db03be184c6b9d3729ec6a67a9d83fe9434f80c5a43ebe50e3dcfeccbd4f981c",
+    "phase_one_process_start_sha256": "a6bbd4c282a04fbf09fa2fba239ccf2206bdf89f3319433befc28de43374a83c",
+    "guardian_authority_sha256": "ecafadc41b234c28be61330db0416f5bf728162e8f12e293c2a7c503c9b7ce90",
+    "guardian_cross_identity_validation_sha256": "fb0ce94db00b68e3928db96f67f991c19097427c07644865573ed5952abf52e5",
+    "guardian_launch_request_sha256": "a1aa0a355eb2f7eaed998bc6b20ed54411d7b1fdec5d26ab058f2f6122221357",
+    "guardian_process_start_sha256": "cfd2ab6b89f32b978fc068b8c841dae8e452cb69376c1624348c88902bef4e56"
+  },
+  "timing": {
+    "activation_ts_ms": 1787743354155,
+    "guardian_started_ts_ms": 1787743640469,
+    "oos_prediction_start_ts_ms": 1787743654155,
+    "guardian_pre_oos_coverage_ms": 13686,
+    "plus_two_review_ts_ms": 1787750554155,
+    "prediction_cutoff_ts_ms": 1787755954155,
+    "resolution_grace_ms": 1800000,
+    "dataset_close_plus_four_review_ts_ms": 1787757754155,
+    "guardian_expected_end_ts_ms": 1787758040469
+  },
+  "latest_clean_guardian_snapshot": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor29_20260826T1110Z\\operator\\guardian_snapshot_1787743942516.json",
+    "sha256": "30af6e8d3f4a2853202addd8ff73e33cdecb3798c71c7fe065218030dee4bec0",
+    "captured_ts_ms": 1787743942516,
+    "clean_observations_through_snapshot": 11,
+    "failure_artifacts": 0,
+    "stderr_empty": true
+  },
+  "acquisition_at_snapshot": {
+    "capsules": 148,
+    "predictions": 211,
+    "markets": 56,
+    "outcomes": 0,
+    "journal_committed": 1903,
+    "journal_other": 0
+  },
+  "readiness_at_snapshot": {
+    "ensemble": {"rank1": 16, "unique_markets": 16, "positive": 0, "negative": 0, "unlabeled": 16},
+    "model": {"rank1": 15, "unique_markets": 15, "positive": 0, "negative": 0, "unlabeled": 15}
+  },
+  "integrity": {
+    "guardian_violations": 0,
+    "commands_failed": 0,
+    "critical_incomplete": 0,
+    "critical_lost": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "queue_overflow": 0,
+    "cex_discard": 0,
+    "polymarket_discard": 0,
+    "acknowledgement_overdue": false,
+    "telemetry_data_safety": "HEALTHY",
+    "queue_state": "WITHIN_CAPACITY"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_order_placement_available": false,
+    "real_order_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "Leave runtime and guardian untouched. At or after 1787750554155 perform one bounded same-identity +2h review; if insufficient but clean, continue unchanged to immutable dataset close 1787757754155."
+}
