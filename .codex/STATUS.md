@@ -6,4 +6,6 @@ Successor32 materialized once and passed independent cold verification. Its Phas
 
 Guardian coverage began 370,405 ms before the frozen prediction start. Initial acquisition progressed from 31 to 55 capsules and 367 to 541 committed commands; source recovered to `READY`. Failures, critical loss/incomplete, reconciliation mismatch, unexpected loss, queue overflow, and source discard are all zero. Live execution surfaces remain absent and the kill switch remains engaged.
 
+The first post-OOS guardian observation at `1787755821171` is clean: 117 capsules, 10 predictions, 32 markets, 1,376 committed commands, source `READY`, and zero binding counters.
+
 Next bounded review: at or after `1787762399269` (+2h). If clean but insufficient, keep the same identity untouched through prediction cutoff `1787767799269` and immutable dataset close `1787769599269`.

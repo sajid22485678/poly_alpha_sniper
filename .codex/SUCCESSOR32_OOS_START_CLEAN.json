@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR32_OOS_START_CLEAN_V1",
+  "captured_ts_ms": 1787755848300,
+  "classification": "OOS_COLLECTION_STARTED_UNDER_CONTINUOUS_CLEAN_GUARDIAN_COVERAGE",
+  "prior_bridge_commit": "fd497b71fc6bf9e3d7216c1160132cbf8d8e4e83",
+  "identity": {"acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z", "session_id": "e70855a354954a61b8975c266c1704b0", "phase_one_nonce": "3fbb80c98c9d49a7a349e3a460ca3cee", "runtime_pids": [3640, 17520], "guardian_pids": [13036, 1388], "must_not_relaunch": true},
+  "source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+  "guardian_start_ts_ms": 1787755428864,
+  "oos_prediction_start_ts_ms": 1787755799269,
+  "pre_oos_coverage_ms": 370405,
+  "first_post_oos_observation": {"observed_ts_ms": 1787755821171, "elapsed_s": 392.515, "capsules": 117, "predictions": 10, "markets": 32, "outcomes": 0, "journal_committed": 1376, "journal_incomplete": 0, "unconfirmed": 0, "critical_failed": 0, "critical_lost": 0, "queue_overflow": 0, "cex_discarded": 0, "polymarket_discarded": 0, "source_state": "READY"},
+  "guardian_failure_artifacts": 0,
+  "guardian_stderr_empty": true,
+  "safety": {"LIVE_ENABLED": false, "REAL_ORDERS_POSSIBLE": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_two_entered": false, "phase_three_entered": false, "V4_HO_001": "NONEXISTENT_UNCONSUMED", "authoritative_v5_immutable": true},
+  "next_action": "Leave runtime and guardian untouched; perform exactly one bounded +2h review at or after 1787762399269."
+}
