@@ -1,27 +1,27 @@
 {
   "schema_version": 1,
-  "updated_ts_ms": 1787744144016,
-  "agent_state": "SUCCESSOR29_HEALTHY_OOS_ACQUISITION",
-  "classification": "HEALTHY_GUARDIAN_COVERED_OOS_ACQUISITION_PROGRESSING",
+  "updated_ts_ms": 1787749223452,
+  "agent_state": "SUCCESSOR29_TERMINAL_OOS_FAILED_CAUSAL_FIX_VERIFIED",
+  "classification": "SUCCESSOR29_TERMINAL_OOS_FAILED_CAUSAL_FIX_VERIFIED",
   "sole_writer": "Codex",
-  "prior_bridge_commit": "7ebe389a9c0837e99d103bec6803726d57bde138",
+  "prior_bridge_commit": "edfffd3d3dcd2674deb9f1d18ded139082efb296",
   "containing_bridge_commit": "SELF",
-  "canonical_artifact": ".codex/SUCCESSOR29_HEALTHY_OOS_ACQUISITION.json",
+  "canonical_artifact": ".codex/SUCCESSOR29_TERMINAL_FAILURE_AND_CAUSAL_FIX.json",
   "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR29-20260826T1110Z",
     "session_id": "8b72cd4077494021abdc7aac33ff90ef",
     "phase_one_nonce": "9b0e0721f98f4f83847ff854e336657f",
     "runtime_pids": [13504, 3256],
-    "runtime_state": "RUNNING_MUST_NOT_RELAUNCH",
+    "runtime_state": "TERMINAL_MUST_NOT_RELAUNCH",
     "guardian_pids": [14908, 16368],
-    "guardian_state": "RUNNING_CLEAN_BOUND_TO_DATASET_CLOSE",
+    "guardian_state": "TERMINAL_FIRST_BINDING_FAILURE_PRESERVED",
     "must_not_relaunch": true
   },
-  "guardian_and_integrity": "Latest five-minute durable snapshot is clean: 1903 committed-only journal rows; zero failure, critical loss/incomplete, mismatch, unexpected loss, overflow, or source discard.",
-  "readiness": {
-    "ensemble": "16 rank1 / 16 unique / 0 positive / 0 negative / 16 unlabeled at early snapshot",
-    "model": "15 rank1 / 15 unique / 0 positive / 0 negative / 15 unlabeled at early snapshot"
-  },
+  "first_binding_failure": "V4PersistenceTimeout at 1787747461243; command 11828 acknowledged after 60738 ms versus the 15000 ms deadline.",
+  "terminal_reconciliation": "12182/12182 commands committed; zero incomplete, duplicate, retried, failed, reconciliation mismatch, or true durable-row loss.",
+  "causal_fix": "Batch first-seen source/CEX graph writes and eliminate redundant graph reconstruction; the exact 5752-row S29 burst now persists in 1296.637 ms with integrity/FK clean.",
+  "source_authority": "Source differs from qualified S28 tree and requires a fresh exact source seal before any distinct Successor30 materialization.",
   "blocker": null,
   "safety": "all live capabilities absent; kill switch engaged; no Phase Two/Three; V4-HO-001 nonexistent/unconsumed; v5 immutable",
-  "next_action": "Leave Successor29 runtime/guardian untouched and perform one bounded same-identity +2h review at or after 1787750554155."
+  "next_action": "Prepare and consume one fresh exact source seal for distinct Successor30; never reuse or relaunch Successor29."
 }
