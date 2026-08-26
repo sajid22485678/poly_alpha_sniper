@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR28_MATERIALIZED_COLD_VERIFIED_V1",
+  "captured_ts_ms": 1787742247971,
+  "classification": "MATERIALIZED_EXACTLY_ONCE_AND_INDEPENDENTLY_COLD_VERIFIED",
+  "prior_bridge_commit": "c5142f4d2f1a865e3fe65eb67cc606a8f9c55082",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR28-20260826T1056Z",
+  "acquisition_root": "D:\\poly_alpha_prospective_exact_v6_successor28_20260826T1056Z",
+  "database_path": "D:\\poly_alpha_prospective_exact_v6_successor28_20260826T1056Z\\prospective-exact-v6.db",
+  "materialization_nonce": "8c22fe20ecd744bbacfbfd101f82b8f7",
+  "materialization_launch_count": 1,
+  "phase_one_nonce": "e246fee784bb472d8bfb069e8c8f222d",
+  "phase_one_launch_count": 0,
+  "reserved_phase_two_nonce_unauthorized": "05aee5693ab2478cad056a2ad512caaa",
+  "source_tree_sha256": "fa4fcdbfa01eb42289f33c977e56901983f631ec531b1052a0f0e79c188051f7",
+  "materialization_manifest_sha256": "da5c4a13440ca34ca04b503191cb1579ae43af9a560dfb5d8942b3b8367fb7e9",
+  "materialization_content_sha256": "5ae90f0f66b34db62320cb6308fa87adab3d76b7b3b650808b72d0b4b51c3f97",
+  "cold_database_sha256": "1ce09101e826d0f56abb38682ba4d4db6814558a3b0706b7daef6524a8dee42d",
+  "cold_verification_path": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor28_20260826T1032Z\\successor28_materialization_verification.json",
+  "cold_verification_sha256": "01bef4e40235c26694b6bfbd82beef957aeeea74180250a5fe8aff97f09299ce",
+  "immutable_empty_census_sha256": "85b466d164ae893f866af83664e04248883a48011904824bf921f261110efe2f",
+  "database_validation": {
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "user_version": 6,
+    "managed_v6_fingerprint": "3289a18ccc9f6287360fcab9338e5e36d4070532f27b0d12377f9555bd7954dd",
+    "table_count": 70,
+    "inherited_runtime_research_economic_holdout_rows": 0
+  },
+  "authoritative_v5_immutable": true,
+  "phase_two_authorized": false,
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Prepare and validate the fresh Phase-One and guardian operators, then consume each launch authority exactly once."
+}
