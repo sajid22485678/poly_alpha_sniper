@@ -1,11 +1,13 @@
 # Poly Alpha handoff
 
-Canonical evidence: `.codex/SUCCESSOR34_OOS_FAILURE_SUCCESSOR35_SOURCE_QUALIFIED.json`.
+Canonical evidence: `.codex/STABILIZATION_FAILURE_MATRIX_AND_ADJACENT_FIXES.json`.
 
-Successor34 is terminal `OOS_FAILED`, not merely data-insufficient. Runtime stderr SHA-256 `fa958e10…5735` preserves eight background REST-recovery `KeyError` failures. The engine discarded detached task results without retrieving or latching their exceptions, so the guardian’s clean completion was false-green. The original immutable frozen readiness result—298 ensemble and 298 model rank-1/unique rows—remains preserved, but the binding monitoring/source-recovery failure controls admissibility.
+The full predecessor failure matrix is complete. All S19/S20/S22/S23/S24/S25/S26/S27/S29/S31/S33/S34 classes remain preserved and map to current controls and tests. Deep adjacent review found and fixed six related gaps: incomplete critical-task supervision, missing adapter-owner supervision, silent heartbeat send failures, failed dynamic-subscription state convergence, non-latching accepted-processing failures plus stop masking, and a test HTTP-session leak.
 
-Successor34 used its graceful stop once, released the Phase-One lease, closed the session, and reconciled 41,302 committed of 41,302 commands with zero failed/unresolved. Never relaunch session `445db05139234bb8aed55abc5622bf27`, nonce `87d9ed130bb14d4386d62d078c967697`, runtime 16020→32348, or guardian 21836→27464.
+Current evidence: 288/288 broad affected tests pass; focused persistence/reconnect/crash/host-loss/guardian/shutdown batches pass; the 20,000-event worker-backed combined-feed soak is clean with zero overflow/loss/mismatch/latch and scheduler gaps below 100 ms. The final full repository suite has deliberately not run yet—it is reserved for the final frozen tree.
 
-The minimal causal fixes preserve a new-epoch buffer until hydration exists and retrieve/latch every detached task exception. The affected 237-test surface passes. The Successor35-named source authority passed 4,258/4,258 exactly once on tree `9ccac82941cd0be674060c89007a32dcc028f42572371eaf486c9099ae74d643`; post-tree equality and authoritative-v5 equality pass.
+The Successor35-named source seal is superseded evidence only after these source mutations. Do not materialize or launch it. Successor34 remains terminal and permanently unavailable.
 
-Current owner authority supersedes immediate materialization: this seal is evidence only. Do not materialize or launch Successor35. First complete the cumulative failure matrix, adjacent-risk audit, deterministic fault injection, concurrency/persistence/reconnect/crash/guardian/shutdown validation, bounded stabilization soak, behavioral-equivalence review, and one final source freeze/qualification. Any new source edit supersedes the existing seal.
+Successor32 research-core file hashes remain exact for features, models, economics, execution, risk, replay, resolution, model health, positions, and ledger. Changed families are runtime orchestration, transports, startup timeout, health/export observation, and tests. Complete the semantic diff review before asserting final behavioral equivalence.
+
+Next action: finish that equivalence/diff review; if no binding uncertainty remains, create one fresh final source-freeze identity and run the exact full qualification once. No prospective launch occurs before its PASS.

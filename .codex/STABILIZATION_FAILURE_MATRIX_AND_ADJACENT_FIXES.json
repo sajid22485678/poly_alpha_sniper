@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_PRE_FINAL_SUCCESSOR_STABILIZATION_MATRIX_V1",
+  "captured_ts_ms": 1787843164461,
+  "classification": "FAILURE_MATRIX_COMPLETE_ADJACENT_FIXES_GREEN_FINAL_FREEZE_PENDING",
+  "prior_bridge_commit": "ced23f98a178c9f798555d514366090812196195",
+  "repository": {
+    "path": "D:\\claude\\poly_alpha_sniper",
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "deliberate_dirty_tree_preserved": true,
+    "successor35_named_seal": "SUPERSEDED_EVIDENCE_ONLY_NO_MATERIALIZATION_NO_LAUNCH"
+  },
+  "failure_matrix": [
+    {
+      "successor": "S19",
+      "root_cause": "Accepted-event capacity discarded binding evidence; synchronous hot paths could starve the loop; a transient stop-probe timeout was treated as runtime death.",
+      "production_fix": "Bounded accepted-event backpressure, off-loop workers/cooperative scheduling, and healthy-worker-only stop-probe retry.",
+      "regressions": ["test_polymarket_ingest_capacity_backpressures_without_losing_event", "test_healthy_runtime_io_head_of_line_timeout_does_not_kill_supervisor"],
+      "status": "ACTIVE_GREEN",
+      "adjacent_risk": "Combined-feed starvation and stop/failure coincidence",
+      "current_exercise": "20,000-event combined-feed soak plus stop-mask RED/GREEN"
+    },
+    {
+      "successor": "S20",
+      "root_cause": "Host loss stranded an open exact-v6 session without a canonical exact-identity closure.",
+      "production_fix": "Create-once preview/apply forensic closure bound to acquisition/session/nonce/process/boot evidence; no replay or rehabilitation.",
+      "regressions": ["tests/test_frequency_v4_host_loss_recovery.py"],
+      "status": "ACTIVE_GREEN",
+      "adjacent_risk": "PID reuse, competing owner, preview drift, unsafe pending work",
+      "current_exercise": "Full host-loss recovery module passed"
+    },
+    {
+      "successor": "S22",
+      "root_cause": "Mutable retention lifecycle was compared as immutable RAW-versus-PERMANENT evidence, raising V4EvidenceConflict and losing critical work.",
+      "production_fix": "Monotonic retention promotion; weaker retention preserves stored strength; genuine immutable collisions still fail closed.",
+      "regressions": ["test_retention_promotion_is_monotonic_idempotent_and_identity_scoped", "tests/test_frequency_v4_duplicate_evidence.py"],
+      "status": "ACTIVE_GREEN",
+      "adjacent_risk": "Concurrent promotion and immutable-field collision",
+      "current_exercise": "Duplicate-evidence and persistence batches passed"
+    },
+    {
+      "successor": "S23",
+      "root_cause": "One pre-admission dedupe exit was counted in both coalesced and deduplicated conservation buckets.",
+      "production_fix": "Disjoint exhaustive accounting buckets with diagnostic subtype retained separately.",
+      "regressions": ["test_pre_admission_deduplication_is_one_exclusive_conservation_exit"],
+      "status": "ACTIVE_GREEN",
+      "adjacent_risk": "Stage-transition and retry double counting",
+      "current_exercise": "Telemetry accounting/recovery and duplicate-evidence batches passed"
+    },
+    {
+      "successor": "S24",
+      "root_cause": "NORMAL synchronous mode acknowledged a final atomic commit without a physical power-loss barrier; boot-time estimator jitter made reboot evidence unstable.",
+      "production_fix": "FULL synchronous final commit with NORMAL restoration; conservative UTC-minute boot identity.",
+      "regressions": ["test_exact_v6_writer_acknowledges_only_power_loss_durable_final_commit", "test_windows_boot_evidence_is_repeatable_across_estimator_jitter"],
+      "status": "ACTIVE_GREEN",
+      "adjacent_risk": "Crash before/after journal, commit, and acknowledgement",
+      "current_exercise": "Power-loss durability and Successor24 forensic closure batches passed"
+    },
+    {
+      "successor": "S25",
+      "root_cause": "Five-second heartbeat health was substituted for the 15-second acknowledgement deadline; wall time and stale exports could misclassify; shutdown ordering lacked one terminal fence.",
+      "production_fix": "Per-envelope monotonic age/deadline, runtime-published exact boundary, stale-monitor fail-closed semantics, and atomic terminal admission fence.",
+      "regressions": ["tests/test_frequency_v4_guardian.py", "test_shutdown_terminal_fence_drains_existing_rows_then_closes_admission", "test_stale_export_age_stays_honest_while_publish_is_degraded"],
+      "status": "ACTIVE_GREEN",
+      "adjacent_risk": "Stop request masking a coincident critical-task failure",
+      "current_exercise": "New stop-mask RED/GREEN plus guardian/shutdown suites passed"
+    },
+    {
+      "successor": "S26",
+      "root_cause": "Complete PASSIVE WAL backfill with unchanged allocation retained false pressure and provoked unnecessary escalation/tail latency.",
+      "production_fix": "Complete logical backfill clears pressure, normal live maintenance remains PASSIVE, and busy/partial physical pressure retains bounded escalation.",
+      "regressions": ["test_complete_backfill_uses_passive_at_the_next_routine_interval", "tests/test_frequency_v4_maintenance_policy.py", "tests/test_frequency_v4_maintenance_escalation.py"],
+      "status": "ACTIVE_GREEN",
+      "adjacent_risk": "Queue residence, long readers, checkpoint overlap, deadline margin",
+      "current_exercise": "Persistence/integration/queue/maintenance batches passed"
+    },
+    {
+      "successor": "S27/S29",
+      "root_cause": "Large first-seen evidence graphs used per-row inserts and redundant graph derivation; S29 command acknowledgement reached 60,738 ms for 5,752 observations.",
+      "production_fix": "Batched source/CEX/link graph writes, omitted cursor reads, and one reused independently validated graph.",
+      "regressions": ["test_prevalidated_cex_bundle_resolves_existing_graph_in_bounded_queries", "tests/test_frequency_v4_persistence.py", "tests/test_frequency_v4_persistence_integration.py"],
+      "status": "ACTIVE_GREEN",
+      "adjacent_risk": "Giant bundles under concurrent telemetry and WAL pressure",
+      "current_exercise": "Durable 5,752-row causal qualification remains valid at 1,296.637 ms; current persistence batches passed"
+    },
+    {
+      "successor": "S31",
+      "root_cause": "Prediction collection began 54,517 ms before independent guardian coverage.",
+      "production_fix": "Preregistered ten-minute guarded-start interval before OOS prediction start.",
+      "regressions": ["tests/test_frequency_v4_prospective_config.py", "tests/test_frequency_v4_prospective_runtime.py"],
+      "status": "ACTIVE_GREEN",
+      "adjacent_risk": "Delayed guardian startup and identity mismatch",
+      "current_exercise": "Prospective configuration/runtime batch passed"
+    },
+    {
+      "successor": "S33",
+      "root_cause": "Continuously nonempty CEX and Polymarket consumers drained synchronously and starved loop supervision.",
+      "production_fix": "Cooperative yield after at most 64 events or 10 ms.",
+      "regressions": ["test_continuously_backlogged_ingest_consumer_yields_to_loop_health", "test_simultaneous_hot_ingest_consumers_share_the_event_loop"],
+      "status": "ACTIVE_GREEN",
+      "adjacent_risk": "Both feeds hot simultaneously",
+      "current_exercise": "New simultaneous-feed test and 20,000-event soak passed with max scheduler gap below 100 ms"
+    },
+    {
+      "successor": "S34",
+      "root_cause": "Reconnect during snapshot callback removed the old book while a new-epoch delta buffered; deferred flush indexed the vanished book. Detached recovery exceptions were never retrieved or latched.",
+      "production_fix": "Epoch-safe flush, owned background-task result retrieval, first-failure latch, and runtime/guardian export.",
+      "regressions": ["test_reconnect_during_snapshot_publish_preserves_new_epoch_buffer", "test_background_task_exception_is_retrieved_and_latched", "test_processing_failure_latch_is_guardian_visible"],
+      "status": "ACTIVE_GREEN",
+      "adjacent_risk": "Other task owners, heartbeat/reconnect, and subscription rotation failures",
+      "current_exercise": "Adjacent task-owner, heartbeat, subscription, and accepted-processing RED/GREEN fixes below"
+    }
+  ],
+  "adjacent_fixes": [
+    {
+      "defect": "Failed one-shot hydration and clean early exit of a long-lived critical engine task were not both supervised.",
+      "fix": "One critical-task supervisor now retrieves failures, permits only the named successful one-shot, and rejects premature loop exit.",
+      "tests": ["test_critical_task_supervisor_rejects_failed_one_shot_hydration", "test_critical_task_supervisor_rejects_clean_early_loop_exit"]
+    },
+    {
+      "defect": "Adapter transport-owner task failure was outside the engine task census.",
+      "fix": "Critical supervision now includes Polymarket and OKX owner tasks.",
+      "tests": ["test_critical_task_supervisor_observes_adapter_owner_failure"]
+    },
+    {
+      "defect": "OKX and Polymarket heartbeat send exceptions could finish detached heartbeat tasks while the receive iterator remained open.",
+      "fix": "Heartbeat failures are recorded and close the bound transport to force canonical reconnect.",
+      "tests": ["test_heartbeat_send_failure_is_observed_and_closes_transport"]
+    },
+    {
+      "defect": "Dynamic subscription state advanced before send; a failed send was not retried on the same connection and could silently retain stale server subscriptions.",
+      "fix": "Dynamic send/hydration failure records the cause, closes the exact transport, and lets the next epoch install the full desired set.",
+      "tests": ["test_dynamic_subscription_send_failure_forces_full_reconnect"]
+    },
+    {
+      "defect": "Accepted ingest/evaluation exceptions were rejected as data-invalid but did not latch a binding omission failure; a stop request could mask an already-failed task.",
+      "fix": "First accepted-processing failure latches and is guardian-visible; task failure is checked before setting the operator stop flag.",
+      "tests": ["test_accepted_ingest_exception_latches_first_binding_failure", "test_processing_failure_latch_is_guardian_visible", "test_stop_request_cannot_mask_already_failed_critical_task"]
+    },
+    {
+      "defect": "Engine test harness leaked lazily opened public HTTP sessions.",
+      "fix": "Fixture closes both public clients; ResourceWarning-as-error engine module is green.",
+      "tests": ["tests/test_frequency_v4_engine.py with -W error::ResourceWarning"]
+    }
+  ],
+  "validation": {
+    "exact_red_green_cases": "PASS",
+    "broad_affected_suite": {"tests": 288, "passed": 288, "failed": 0, "errors": 0},
+    "persistence_reconnect_shutdown_fault_batches": "PASS",
+    "bounded_combined_feed_soak": {"cex_events": 10000, "polymarket_events": 10000, "queue_overflow": 0, "unexpected_loss": 0, "reconciliation_mismatch": 0, "critical_latch": null, "max_scheduler_gap_ms_lt": 100},
+    "source_diff_check": "PASS",
+    "final_full_suite": "NOT_RUN_RESERVED_FOR_FINAL_FROZEN_TREE"
+  },
+  "behavioral_equivalence_preliminary": {
+    "successor32_source_tree": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "unchanged_exact_hash_families": ["features", "edge_models", "economics", "execution", "risk", "replay", "resolver", "model_health", "positions", "ledger"],
+    "changed_families": ["engine runtime orchestration", "transport adapters", "startup timeout configuration", "health/export observation", "tests"],
+    "current_interpretation": "INFRASTRUCTURE_RUNTIME_ONLY; final semantic diff review pending before freeze"
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "PROTECTED_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "Complete final semantic equivalence/diff review and bounded stabilization disposition. If no binding uncertainty remains, freeze one fresh final source identity and run the full repository qualification exactly once; do not materialize or launch before that PASS."
+}
