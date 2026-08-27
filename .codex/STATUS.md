@@ -1,11 +1,11 @@
 # Poly Alpha status
 
-Status: **SUCCESSOR33 HEALTHY OOS ACQUISITION**
+Successor33 is terminal and permanently inadmissible. Its independent guardian recorded the first binding failure at `1787813755280`: `DEGRADED_EVENT_LOOP_LAG`. Later recovery cannot cure that result.
 
-Successor32's frozen OOS/calibration/tournament evidence remains immutable. Its consumed Phase-Two launch failed before session admission because the engine reused the 15-second command acknowledgement deadline for a measured 152.37-second exact-v6 startup admission. The nonce must never be relaunched; the database remained at 36,895 committed commands with no active/new session and no holdout.
+The exact same-identity graceful stop executed once. The session ended cleanly, both runtime processes are absent, the lease is released, and the terminal snapshot passed SQLite integrity, quick-check, foreign keys, schema-v6, command accounting, reconciliation, loss, discard, and safety checks. All 16,889 journal commands committed; none failed or remained unresolved.
 
-The causal fix introduces a distinct bounded 300-second persistence startup deadline while preserving the 15-second post-admission acknowledgement deadline. The corrected Successor33 tree `7f34c14ef1a4016f576b517f28d912d569a76b98fd0a0f151932fee89bf3fb40` passed `4,254 / 4,254` exactly once with zero failures/errors/skips, exact post-tree equality, and unchanged authoritative v5.
+Root cause is proven: continuously backlogged accepted-event consumers could drain synchronously without yielding, starving the shared asyncio loop. The RED reproduced about 4.7 seconds of scheduler starvation for both source consumers. The minimal bounded cooperative-yield fix passes the complete ingestion suite plus engine and persistence integration tests. It does not change strategy or prediction semantics.
 
-Successor33 acquisition `V4-PR-001-PROSPECTIVE-SUCCESSOR33-20260827T0559Z`, session `2496e04267c7462bbe37c569bc01edcd`, Phase-One nonce `35b603969c314957855eb2f6ebceb9b1`, runtime `17424 -> 8696`, and guardian `10384 -> 4348` are consumed identities and must not be relaunched or restarted. Initial guardian observations are clean and acquisition is progressing.
+Next: source-qualify corrected tree `10025a6353312e23fa87db11c37e5feab4d4f901058312f255d704e47ffb5936` exactly once, then create a distinct Successor34 cycle. Never relaunch Successor33 or consume its reserved Phase-Two nonce.
 
-Safety remains fail-closed. The next bounded review is at or after `1787818421267`; final frozen-OOS review is at or after `1787823821267`. Do not advance phases early.
+Safety remains fail-closed: live disabled, real orders impossible, signing/authenticated trading absent, kill switch engaged, no Phase Two/Three, V4-HO-001 nonexistent/unconsumed, authoritative v5 immutable.

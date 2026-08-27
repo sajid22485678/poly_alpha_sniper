@@ -1,27 +1,11 @@
-# Poly Alpha durable handoff
+# Poly Alpha handoff
 
-## Current decision
+Canonical evidence: `.codex/SUCCESSOR33_TERMINAL_EVENT_LOOP_LAG_FAILURE.json`.
 
-**SUCCESSOR33 IS RUNNING CLEANLY UNDER ITS PREREGISTERED OOS PROTOCOL.**
+Successor33 session `2496e04267c7462bbe37c569bc01edcd` and Phase-One nonce `35b603969c314957855eb2f6ebceb9b1` are consumed and MUST NOT RELAUNCH. Guardian coverage ended at its first binding `DEGRADED_EVENT_LOOP_LAG` failure. The exact graceful stop ran once and terminal reconciliation is clean.
 
-Successor32 remains immutable. Its Phase-Two nonce `793ff57b339344768a2fab76a6f318b5` was consumed by a startup failure before any Phase-Two session row or database mutation. The failure is forensic and must not be relaunched.
+The causal defect is an asyncio fairness failure under a continuously nonempty accepted-event queue. A fail-first regression reproduced multi-second starvation in both ingestion consumers. The minimal fix yields after at most 64 events or 10 ms; the ingestion, engine, and persistence-integration surfaces are green.
 
-The root cause was a timeout-domain defect: exact-v6 open validation took `129.5945s` and its startup census `22.7788s`, but engine startup reused the `15s` post-admission command acknowledgement deadline. The corrected source separates a bounded `300s` startup deadline while retaining the `15s` acknowledgement gate; strategy and prediction behavior are unchanged.
+Exact next action: qualify corrected source tree `10025a6353312e23fa87db11c37e5feab4d4f901058312f255d704e47ffb5936` once. If and only if the seal passes with post-tree equality and unchanged v5, materialize and launch a distinct Successor34 with fresh nonces/session and a fresh independent guardian.
 
-## Successor33 authority
-
-- Source tree: `7f34c14ef1a4016f576b517f28d912d569a76b98fd0a0f151932fee89bf3fb40`; `4,254 / 4,254` PASS exactly once.
-- Acquisition: `V4-PR-001-PROSPECTIVE-SUCCESSOR33-20260827T0559Z`.
-- Session: `2496e04267c7462bbe37c569bc01edcd`.
-- Phase-One nonce: `35b603969c314957855eb2f6ebceb9b1`.
-- Runtime: `17424 -> 8696`; MUST NOT RELAUNCH.
-- Guardian: `10384 -> 4348`; MUST NOT RESTART.
-- OOS start: `1787811821267`; early review: `1787818421267`; frozen end: `1787823821267`.
-
-Initial clean observations grew from 74 to 95 capsules and from 895 to 1,232 committed commands, with zero critical failure/loss, reconciliation mismatch, overflow, discard, or terminally incomplete work. The first guardian snapshot is `D:\poly_alpha_prospective_exact_v6_successor33_20260827T0559Z\operator\guardian_snapshot_1787811558694.json`, SHA-256 `dce6aa44c9e54663f023db6c0d4646ab3c8e57c0ef9c2d9b60f1f8ef84ed26e6`.
-
-## Next action and safety
-
-At or after `1787818421267`, perform one bounded same-identity review. Do not finalize before `1787823821267`. Do not stop/relaunch/restart healthy identities or enter calibration, tournament, Phase Two, holdout, Phase Three, v5 cutover, signing, authenticated trading, or real-order capability early.
-
-Use `.codex/SUCCESSOR33_POST_OOS_RECOVERY_PROGRESS.json` as the canonical evidence index.
+Forbidden: any Successor33 relaunch or guardian restart, consuming its reserved Phase-Two nonce, calibration/tournament/holdout, Phase Three, authoritative-v5 mutation/cutover, or any live/signing/authenticated/real-order capability.

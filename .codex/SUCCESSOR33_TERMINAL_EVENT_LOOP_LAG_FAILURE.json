@@ -1,0 +1,82 @@
+{
+  "contract": "POLY_ALPHA_SUCCESSOR33_TERMINAL_EVENT_LOOP_LAG_FAILURE_PROGRESS_V1",
+  "checkpoint_ts_ms": 1787819786532,
+  "classification": "TERMINAL_OOS_FAILED_EVENT_LOOP_LAG",
+  "prior_bridge_commit": "e35deb862843b88b73240cfc0aecc510b1bd7ffc",
+  "containing_bridge_commit": "SELF",
+  "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR33-20260827T0559Z",
+    "source_tree_sha256": "7f34c14ef1a4016f576b517f28d912d569a76b98fd0a0f151932fee89bf3fb40",
+    "materialization_nonce": "5317493ae2dd46d2803d2c38aa73d6c5",
+    "phase_one_nonce": "35b603969c314957855eb2f6ebceb9b1",
+    "reserved_phase_two_nonce": "f6fd6f54f2b148bfae74725c02fbb94a",
+    "session_id": "2496e04267c7462bbe37c569bc01edcd",
+    "runtime_pids": [17424, 8696],
+    "state": "STOPPED_TERMINAL_MUST_NOT_RELAUNCH",
+    "phase_two_nonce_state": "UNCONSUMED_UNAUTHORIZED"
+  },
+  "first_failure": {
+    "captured_ts_ms": 1787813755280,
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor33_20260827T0559Z\\operator\\guardian_failure_1787813755280.json",
+    "sha256": "d377dadfddc52faa8115f2a9e9d21f9e675c3ae6702002933f126be4eea3e543",
+    "violation": "runtime_state:DEGRADED_EVENT_LOOP_LAG:True",
+    "later_recovery_cannot_cure": true
+  },
+  "guardian": {
+    "launch_count": 1,
+    "historical_pids": [10384, 4348],
+    "coverage_start_ts_ms": 1787811558694,
+    "coverage_end_ts_ms": 1787813755280,
+    "latest_clean_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor33_20260827T0559Z\\operator\\guardian_snapshot_1787813694198.json",
+    "latest_clean_snapshot_sha256": "2bcbed8b8590334fdbfbd07df8771233a1388f90a0179810ee09969f01f0a84a",
+    "stderr_bytes": 0,
+    "must_not_restart": true
+  },
+  "terminal_disposition": {
+    "graceful_stop_execute_invocations": 1,
+    "session_ended_ts_ms": 1787818812396,
+    "runtime_processes_absent": true,
+    "lease_released": true,
+    "operator_sha256": "ccb5e5c5240f1b19699a530d1ab34417ef6d5c903d7b0e430227abda917fa103",
+    "stop_request_sha256": "2559e8b251a59bf40918cd533b6cf2cb01712c9e3f18e43c55390d2bdc708a89",
+    "terminal_snapshot_sha256": "0d41e82604bfd89fb7d0ff9543a3abcb40c41dbae18728185d739650936cfcc5",
+    "terminal_snapshot_verification_sha256": "059583e2ecb3679fbccceb92a9a8d88cdd34247e508be8e2d9645ec4cd58bf2d"
+  },
+  "terminal_accounting": {
+    "commands_total_committed": 16889,
+    "failed": 0,
+    "unresolved": 0,
+    "critical_failed_incomplete_lost": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "overflow_discard": 0,
+    "capsules": 766,
+    "predictions": 1259,
+    "markets": 240,
+    "outcomes": 153,
+    "ensemble": {"rank1": 150, "unique": 150, "positive": 85, "negative": 54, "unlabeled": 11},
+    "model": {"rank1": 149, "unique": 149, "positive": 84, "negative": 54, "unlabeled": 11},
+    "cohort_admissible": false
+  },
+  "root_cause_and_fix": {
+    "cause": "continuously backlogged ingestion consumers could drain synchronously without yielding and starve the event loop",
+    "production_max_lag_ms": 5416,
+    "production_p95_lag_ms": 1369,
+    "red": "both CEX and Polymarket cases failed with approximately 4.7 second scheduler gaps",
+    "fix": "cooperative yield after at most 64 events or 10 ms of uninterrupted ingestion",
+    "strategy_prediction_behavior_changed": false,
+    "focused_validation": "PASS",
+    "corrected_tree_sha256_unqualified": "10025a6353312e23fa87db11c37e5feab4d4f901058312f255d704e47ffb5936"
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "signing_or_authenticated_trading": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "v4_ho_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "Qualify corrected tree 10025a6353312e23fa87db11c37e5feab4d4f901058312f255d704e47ffb5936 exactly once, then materialize and launch a distinct Successor34 cycle with fresh identities and independent guardian."
+}
