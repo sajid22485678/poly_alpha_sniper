@@ -1,15 +1,1 @@
-{
-  "blocker": null,
-  "canonical_artifact": ".codex/SUCCESSOR32_OOS_PASS.json",
-  "checkpoint_ts_ms": 1787770985216,
-  "classification": "OOS_PASS",
-  "containing_bridge_commit": "SELF",
-  "decision": "GENUINE OOS_PASS: ensemble 317/317/156/161/0; model 313/313/154/159/0; all integrity, temporal, guardian, persistence, reconciliation, and safety gates passed.",
-  "forbidden": "No S32 relaunch/restart/OOS rewrite, calibration, tournament, Phase Two, holdout, Phase Three, v5 mutation/cutover, signing, authenticated trading, or real orders.",
-  "identity": "Successor32 session e70855a354954a61b8975c266c1704b0, Phase-One nonce 3fbb80c98c9d49a7a349e3a460ca3cee, runtime 3640->17520, guardian 13036->1388; terminal and MUST_NOT_RELAUNCH/RESTART",
-  "next_action": "STOP CODEX. A distinct owner packet is required for any post-OOS phase.",
-  "prior_bridge_commit": "42f0439b51ced7a5da48df657f14ea7fe2d4b965",
-  "schema_version": 1,
-  "state": "SUCCESSOR32_TERMINAL_OOS_PASS",
-  "terminal": "Graceful stop exactly once; 36893 commands all committed; terminal fence committed; lease/process lock released; processes absent; v5 unchanged."
-}
+{"blocker":null,"canonical_artifact":".codex/SUCCESSOR33_POST_OOS_RECOVERY_PROGRESS.json","checkpoint_ts_ms":1787811728102,"classification":"SUCCESSOR33_HEALTHY_OOS_ACQUISITION","containing_bridge_commit":"SELF","decision":"The Successor32 Phase-Two startup defect was causally fixed without changing strategy/prediction behavior; Successor33 is source-qualified, cold-verified, running, independently guarded, and clean.","forbidden":"No S32 Phase-Two relaunch, no S33 relaunch/guardian restart, no early calibration/tournament/Phase Two/holdout/Phase Three, no v5 mutation/cutover, and no live/signing/authenticated/real-order capability.","identity":"Successor33 session 2496e04267c7462bbe37c569bc01edcd, Phase-One nonce 35b603969c314957855eb2f6ebceb9b1, runtime 17424->8696, guardian 10384->4348; running and MUST_NOT_RELAUNCH/RESTART","next_action":"At or after 1787818421267 run one bounded same-identity review. Do not finalize before frozen OOS end 1787823821267.","prior_bridge_commit":"8017a45e4cff828c4996cefeeaea3c23cb793a6d","schema_version":1,"state":"SUCCESSOR33_HEALTHY_WAIT_REVIEW","successor32_failure":"Consumed Phase-Two nonce 793ff57b339344768a2fab76a6f318b5 timed out during exact-v6 startup validation; no session row or database mutation; lease released; identity forensic."}

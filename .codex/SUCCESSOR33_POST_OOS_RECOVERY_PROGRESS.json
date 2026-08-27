@@ -1,0 +1,147 @@
+{
+  "bridge": {
+    "containing_commit": "SELF",
+    "prior_commit": "8017a45e4cff828c4996cefeeaea3c23cb793a6d",
+    "sole_writer": "Codex"
+  },
+  "checkpoint_ts_ms": 1787811728102,
+  "checkpoint_utc": "2026-08-27T06:22:08.2047228Z",
+  "classification": "SUCCESSOR33_HEALTHY_OOS_ACQUISITION_AFTER_CAUSAL_STARTUP_FIX",
+  "contract": "POLY_ALPHA_SUCCESSOR33_POST_OOS_RECOVERY_PROGRESS_V1",
+  "successor32_post_oos": {
+    "calibration": {
+      "ensemble_artifact_sha256": "d8d207c5d21900aefc31d8c11e112619d62edc575aaae7f8e4f215ff5a0f55b1",
+      "ensemble_verification_sha256": "f0c8e197f837acbeed9bb89871b12fe96f8788b8a79c061132b85538a33f7d06",
+      "model_artifact_sha256": "4e89b843ea6ef52ea27bd60ac3c429d3ebccda6b8b5b5d7471497ba168a264ae",
+      "model_verification_sha256": "44009f3fc569a575b5295e758308df698bcaf13bd5a509740c9dffda30b8bf7",
+      "protocol_id": "f29b50ae5913301d80dbdf11e2151680ebab9d263344227f7b9bc2471376d3b3",
+      "result_sha256": "ffe7e628340147b27ee6b2df8a1749fb0a54a107257be2a601c75d63aa1c6f02",
+      "status": "CONSUMED_PASS"
+    },
+    "frozen_oos_manifest_sha256": "7f755ffe77a2759317b145d8fa893d8b4087244545cc50e4d480affff6263543",
+    "phase_two_launch_failure": {
+      "classification": "PERSISTENCE_STARTUP_TIMEOUT_BEFORE_SESSION_ADMISSION",
+      "consumed_nonce": "793ff57b339344768a2fab76a6f318b5",
+      "database_effects": "NONE",
+      "failed_session_identity": "d8eb94526149416da0a6506c2e8c5fcd",
+      "fatal_diagnostic_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\runtime\\fatal_diagnostic.json",
+      "fatal_diagnostic_sha256": "090b5e7932f219b5286ea184f024bb65ca47c3b2b504676de94d0757602d944d",
+      "first_failure": "TimeoutError at engine persistence startup; subsequent stop reported V4PersistenceTimeout",
+      "launcher_pid": 18264,
+      "lease_acquired_sha256": "de535f04e9c5def0318dcc154c4a492d225b69abba595364b9f90b4b319e0999",
+      "lease_released_sha256": "095d6aff9284f1a30a6e961c9504c5fd425f68ab4e0954598f2d2808dc31f686",
+      "must_not_relaunch": true,
+      "runtime_pid": 13356,
+      "runtime_session_rows_admitted": 0
+    },
+    "tournament_registration": {
+      "challenger_id": "377dd70fce4bfba48ab44606b5313426a302fb509062b13a4c20c8efe1264d88",
+      "development_end_ts_ms": 1787850600000,
+      "development_start_ts_ms": 1787807400000,
+      "experiment_id": "c464be798a01eb54ba8ddccfb625e93740073a308a116fae8bbb427fda9252d0",
+      "incumbent_id": "185ddc2a73d166ca038d9185b4e2a1c294d009723cfab3783d1e014ca580363a",
+      "registration_result_sha256": "a7785a4d034c60a6666e5d1354df73196fd5c421212a394fbbd12d68484820da",
+      "validation_end_ts_ms": 1787893800000
+    }
+  },
+  "causal_fix": {
+    "acknowledgement_deadline_s": 15.0,
+    "changed_strategy_or_prediction_behavior": false,
+    "defect": "engine reused the post-admission command acknowledgement timeout for full exact-v6 startup validation",
+    "measured_exact_v6_census_s": 22.778806200018153,
+    "measured_exact_v6_open_validation_s": 129.59451570000965,
+    "persistence_startup_timeout_s": 300.0,
+    "red_test": "tests/test_frequency_v4_engine.py::test_engine_uses_startup_timeout_not_command_acknowledgement_timeout",
+    "targeted_tests": "PASS",
+    "tested_tree_sha256": "7f34c14ef1a4016f576b517f28d912d569a76b98fd0a0f151932fee89bf3fb40"
+  },
+  "successor33": {
+    "acquisition": {
+      "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR33-20260827T0559Z",
+      "database_path": "D:\\poly_alpha_prospective_exact_v6_successor33_20260827T0559Z\\prospective-exact-v6.db",
+      "managed_v6_fingerprint": "3289a18ccc9f6287360fcab9338e5e36d4070532f27b0d12377f9555bd7954dd",
+      "manifest_sha256": "ae78d174a3fec5b2c3e1c38b12d8b852cf61fac0806591090ec9831265d6f7de",
+      "materialization_nonce": "5317493ae2dd46d2803d2c38aa73d6c5",
+      "materialization_state": "CONSUMED_COLD_VERIFIED_MUST_NOT_RERUN",
+      "phase_one_nonce": "35b603969c314957855eb2f6ebceb9b1",
+      "reserved_phase_two_nonce": "f6fd6f54f2b148bfae74725c02fbb94a",
+      "reserved_phase_two_state": "UNCONSUMED_UNAUTHORIZED"
+    },
+    "guardian": {
+      "coverage_start_ts_ms": 1787811558694,
+      "duration_s": 14400,
+      "first_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor33_20260827T0559Z\\operator\\guardian_snapshot_1787811558694.json",
+      "first_snapshot_sha256": "dce6aa44c9e54663f023db6c0d4646ab3c8e57c0ef9c2d9b60f1f8ef84ed26e6",
+      "guardian_launch_request_sha256": "9a88f0b132ddb883ea05c38fdedc9a84b6f27bd45d967232fe913688183672aa",
+      "guardian_launcher_pid": 10384,
+      "guardian_process_start_sha256": "b43cef7b9bf7683abe85ad6eb2baac20e7b493fa7db1f503985afae0835f78e2",
+      "guardian_stderr_bytes": 0,
+      "guardian_worker_pid": 4348,
+      "launch_count": 1,
+      "state": "RUNNING_CLEAN_MUST_NOT_RESTART"
+    },
+    "initial_health": {
+      "capsules_growth": [74, 74, 79, 95],
+      "committed_growth": [895, 954, 1060, 1232],
+      "critical_failed": 0,
+      "critical_lost": 0,
+      "incomplete_latest": 0,
+      "markets_latest": 56,
+      "reconciliation_mismatch": 0,
+      "source_state": "READY",
+      "unexpected_loss": 0
+    },
+    "oos_protocol": {
+      "early_review_ts_ms": 1787818421267,
+      "oos_end_ts_ms": 1787823821267,
+      "oos_start_ts_ms": 1787811821267,
+      "preregistered_ts_ms": 1787811221267,
+      "protocol_id": "aa2a3771877ff56ccfaac545a4f58d3eb22708e130a0464efd23542ed9aa2ac8",
+      "thresholds_per_target": {
+        "negative_labels": 60,
+        "positive_labels": 60,
+        "rank1_rows": 300,
+        "unique_markets": 300,
+        "unlabeled": 0
+      }
+    },
+    "runtime": {
+      "config_hash": "29365324d80b20b3db19817b70a45d98ffea76a20bc7ede0e480ec109da8ff48",
+      "launch_request_sha256": "a08fc6ebab1b4041cc6a41bb413744d883adcbaf7513793384851045912ab5f3",
+      "launcher_pid": 17424,
+      "process_start_sha256": "b5c04c9ca1ef4078ed441c2db80ad7910fc65fe6eb5643d0467bc765c528fdc1",
+      "runtime_pid": 8696,
+      "session_id": "2496e04267c7462bbe37c569bc01edcd",
+      "state": "RUNNING_MUST_NOT_RELAUNCH"
+    },
+    "source_seal": {
+      "errors": 0,
+      "failures": 0,
+      "junit_sha256": "325f2e077184dd55dd1addc6d387ba319ffb178f4d7b12ada1c84fd7101b947c",
+      "manifest_sha256": "183075951ef34e641bddf36edd11b0ebe7d3924f7835ceb75ef3976582ee71ea",
+      "post_verification_sha256": "df7efa55aa948e529ef5a617882b2cc54e1f4cd6caebddc84794e7e47d7765ff",
+      "pytest_launch_count": 1,
+      "skips": 0,
+      "tests": 4254,
+      "tree_exact": true,
+      "tree_sha256": "7f34c14ef1a4016f576b517f28d912d569a76b98fd0a0f151932fee89bf3fb40"
+    }
+  },
+  "safety": {
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authenticated_trading_available": false,
+    "authoritative_v5_immutable": true,
+    "authoritative_v5_sha256": {
+      "db": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+      "shm": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+      "wal": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "kill_switch_engaged": true,
+    "live_enabled": false,
+    "phase_2_entered": false,
+    "phase_3_entered": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false
+  },
+  "next_action": "At or after 1787818421267 perform one bounded same-identity Successor33 review. Do not stop, relaunch, restart guardian, finalize calibration, register a tournament, consume the reserved Phase-Two nonce, create/consume V4-HO-001, or enter Phase Three before the frozen OOS protocol authorizes it. Final OOS review is at or after 1787823821267."
+}
