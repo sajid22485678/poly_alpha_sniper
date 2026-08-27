@@ -1,0 +1,83 @@
+{
+  "bridge": {
+    "containing_commit": "SELF",
+    "prior_commit": "16303424a64652652fceac1496f6961eb0c93eeb",
+    "sole_writer": "Codex"
+  },
+  "checkpoint_ts_ms": 1787805467547,
+  "checkpoint_utc": "2026-08-27T04:37:47.5518287Z",
+  "classification": "OOS_INPUT_FROZEN",
+  "contract": "POLY_ALPHA_SUCCESSOR32_POST_OOS_PROGRESS_V1",
+  "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+    "calibration_protocol_id": "f29b50ae5913301d80dbdf11e2151680ebab9d263344227f7b9bc2471376d3b3",
+    "cohort": "prospective_v6_development_9faf38f58dcde027",
+    "phase_one_nonce": "3fbb80c98c9d49a7a349e3a460ca3cee",
+    "reserved_phase_two_nonce": "793ff57b339344768a2fab76a6f318b5",
+    "reserved_phase_two_state": "UNCONSUMED_UNACQUIRED",
+    "session_id": "e70855a354954a61b8975c266c1704b0",
+    "source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96"
+  },
+  "oos_input_freeze": {
+    "content_sha256": "bf8f8d2e80eb2fbb7464c6fda6c08e0254d00a6b369bc1ee49e30d170b794158",
+    "freeze_tool_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\freeze_successor32_oos_input_once.py",
+    "freeze_tool_sha256": "af1208f601e6c4a00ddbb36e6b0b8847e0fc9ad1098fdfecd7f2efe8860d0faa",
+    "late_outcome_authorities_at_frozen_review": 18,
+    "later_post_close_authorities_now_visible": 5,
+    "later_post_close_selected_markets_affected": 0,
+    "manifest_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\successor32_oos_research_input_manifest.json",
+    "manifest_sha256": "7f755ffe77a2759317b145d8fa893d8b4087244545cc50e4d480affff6263543",
+    "selected_capsules": 322,
+    "selected_outcome_authorities": 317,
+    "targets": [
+      {
+        "negative_labels": 161,
+        "positive_labels": 156,
+        "rank1_rows": 317,
+        "selected_rows_sha256": "0f4c8c65b409fcd8125688fce05d594b9516f6fcdef17b17f4ddb7509932fea8",
+        "target_kind": "ENSEMBLE",
+        "target_name": "ENSEMBLE",
+        "target_version": "frequency_v4_ensemble_1",
+        "unique_markets": 317,
+        "unlabeled": 0
+      },
+      {
+        "negative_labels": 159,
+        "positive_labels": 154,
+        "rank1_rows": 313,
+        "selected_rows_sha256": "9a7d76e5d2c47c6d67cfb50e0578ad6a5ff173780c5128ef1259914844e142ed",
+        "target_kind": "MODEL",
+        "target_name": "paired_book_fair_value_parity",
+        "target_version": "frequency_v4_ensemble_1",
+        "unique_markets": 313,
+        "unlabeled": 0
+      }
+    ]
+  },
+  "post_oos_state": {
+    "calibration_artifacts": 0,
+    "calibration_protocol_status": "REGISTERED_UNCONSUMED",
+    "holdout_registrations": 0,
+    "journal_committed": 36893,
+    "journal_failed": 0,
+    "journal_unresolved": 0,
+    "runtime": "TERMINAL_MUST_NOT_RELAUNCH",
+    "tournament_definitions": 0
+  },
+  "safety": {
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authenticated_trading_available": false,
+    "authoritative_v5_immutable": true,
+    "authoritative_v5_sha256": {
+      "db": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+      "shm": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+      "wal": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "kill_switch_engaged": true,
+    "live_enabled": false,
+    "phase_3_entered": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false
+  },
+  "next_action": "Create one fresh auxiliary operator lease nonce; finalize calibration exactly once from the frozen manifest; independently verify both target artifacts. Do not consume the reserved Phase-Two runtime nonce during auxiliary finalization or registration."
+}
