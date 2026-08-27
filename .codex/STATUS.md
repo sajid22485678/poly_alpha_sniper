@@ -1,7 +1,7 @@
 # Poly Alpha status
 
-The 4,270/4,270 final stabilized source authority is valid. One fresh Successor37 materialization is prepared for acquisition `V4-PR-001-PROSPECTIVE-SUCCESSOR37-20260827T1625Z`, bound to tree `60adeb550751460589728336a8dd04d332467fc039edad7beb6a9226aa690086`.
+Successor37 is materialized exactly once and independently cold-verified. The database passes immutable quick-check, FK=0, schema v6, managed fingerprint, source binding, and zero inherited research/economic/holdout state. The materializer itself launched once; two earlier transformer wrappers failed before launch and are preserved permanently.
 
-The target root did not preexist and materialization launch count is zero. Materialization, Phase-One, and reserved Phase-Two nonces are distinct; Phase Two remains unauthorized.
+Phase-One launch count remains zero. Next action: prepare and cross-validate exact Phase-One and guardian operators, then launch Phase One once followed by its independent guardian once.
 
-Next action: execute the prepared materializer exactly once and preserve its result without retry, then independently cold-verify before any runtime launch. Safety remains fail-closed.
+Safety remains fail-closed: live disabled, real orders impossible, signing/authenticated trading absent, kill switch engaged, no Phase Two/Three, V4-HO-001 nonexistent/unconsumed, authoritative v5 immutable.
