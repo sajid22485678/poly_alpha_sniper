@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR36_POWER_LOSS_INTERRUPTED_SOURCE_SEAL_V1",
+  "captured_ts_ms": 1787845716419,
+  "classification": "OLD_SEAL_INTERRUPTED_AMBIGUOUS",
+  "prior_bridge_commit": "5427d6639b2a4455c9cfebb6e950c1bf91765c68",
+  "host": {"last_boot_local": "2026-08-27T22:40:00+07:00", "reconciliation_local": "2026-08-27T22:48:36+07:00", "old_seal_process_alive": false, "competing_source_writer_found": false, "runtime_or_guardian_found": false},
+  "seal": {"root": "D:\\pytest_tmp_v4\\poly_alpha_prospective_exact_v6_source_freeze_successor36_20260827T1506Z", "tested_tree_sha256": "60adeb550751460589728336a8dd04d332467fc039edad7beb6a9226aa690086", "manifest_sha256": "d62ea6ab69f291e23339c832530043f8642f1a3dab35275a82a9b77eca2e277c", "runner_sha256": "78587c16e85ea03c02260dfa7f1c3fbd38e1fd80b49125454c16bdb61e70dc5f", "run_started_sha256": "87e91d872ed3cabbec33b84d72d0972b253bb6da24e6b640b565b8da5d31bb7e", "pytest_launch_count": 1, "junit_exists": false, "pytest_exit_exists": false, "run_control_exists": false, "post_verification_exists": false, "terminal_result": "NOT_PROVEN", "disposition": "RETIRED_MUST_NOT_RERUN"},
+  "post_reboot_source": {"tree_equal_to_frozen_manifest": true, "current_tree_sha256": "60adeb550751460589728336a8dd04d332467fc039edad7beb6a9226aa690086", "path_count": 670, "staged_path_count": 0, "tracked_modified_path_count": 61, "untracked_path_count": 113, "diff_check": "PASS_WITH_LINE_ENDING_WARNINGS_ONLY"},
+  "authoritative_v5": {"db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2", "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb", "journal_exists": false, "immutable": true},
+  "safety": {"live_enabled": false, "real_orders_possible": false, "wallet_signing_available": false, "authenticated_trading_available": false, "kill_switch_engaged": true, "phase_two_entered": false, "phase_three_entered": false, "holdout": "PROTECTED_UNCONSUMED"},
+  "next_action": "Prepare one distinct replacement exact source-seal identity for the unchanged stabilized tree, prove launch count zero, and run it exactly once."
+}
