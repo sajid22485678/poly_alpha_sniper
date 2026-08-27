@@ -1,9 +1,7 @@
 # Poly Alpha handoff
 
-Canonical evidence: `.codex/SUCCESSOR36_POWER_LOSS_INTERRUPTED_SEAL.json`.
+Canonical evidence: `.codex/SUCCESSOR37_REPLACEMENT_SOURCE_SEAL_PREPARED.json`, preceded by immutable `.codex/SUCCESSOR36_POWER_LOSS_INTERRUPTED_SEAL.json`.
 
-Successor36 launched its exact-once full suite once, but the host power loss left no authoritative terminal result. Preserve the root and every partial artifact; classify it only as `OLD_SEAL_INTERRUPTED_AMBIGUOUS`; never rerun it.
+The interrupted Successor36 seal is retired permanently. The authorized distinct replacement is prepared at `D:\pytest_tmp_v4\poly_alpha_prospective_exact_v6_source_freeze_successor37_20260827T1552Z` for unchanged tree `60adeb550751460589728336a8dd04d332467fc039edad7beb6a9226aa690086`.
 
-Post-reboot verification proves the repository exactly matches the frozen tree `60adeb550751460589728336a8dd04d332467fc039edad7beb6a9226aa690086`, the index is empty, no writer/runtime/guardian survived, and authoritative v5 remains byte-identical.
-
-Exact next action: create one distinct replacement source-seal identity for the unchanged tree, verify zero prior launch outputs in that new root, and consume its full-suite invocation exactly once. Proceed to materialization only after complete exit-0, JUnit, post-tree, and v5 verification.
+The replacement root has launch count zero and no test outputs. Exact next action: run its `run_full_suite_once.py` exactly once, never retry it, and independently verify complete exit-0/JUnit/post-tree/v5 evidence before any materialization.
