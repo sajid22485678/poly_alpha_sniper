@@ -1,11 +1,11 @@
 # Poly Alpha handoff
 
-Canonical evidence: `.codex/SUCCESSOR34_PLUS_2H_REVIEW.json`.
+Canonical evidence: `.codex/SUCCESSOR34_OOS_FAILURE_SUCCESSOR35_SOURCE_QUALIFIED.json`.
 
-Successor34 acquisition `V4-PR-001-PROSPECTIVE-SUCCESSOR34-20260827T0921Z` completed its one bounded early review with classification `CONTINUE_TO_FROZEN_OOS`. The exact source tree remains equal to its 4,256/4,256 one-shot seal. Runtime session `445db05139234bb8aed55abc5622bf27`, Phase-One nonce `87d9ed130bb14d4386d62d078c967697`, and process pair 16020→32348 remain original and consumed. Guardian 21836→27464 remains original, alive, and clean. Neither may be relaunched or restarted.
+Successor34 is terminal `OOS_FAILED`, not merely data-insufficient. Runtime stderr SHA-256 `fa958e10…5735` preserves eight background REST-recovery `KeyError` failures. The engine discarded detached task results without retrieving or latching their exceptions, so the guardian’s clean completion was false-green. The original immutable frozen readiness result—298 ensemble and 298 model rank-1/unique rows—remains preserved, but the binding monitoring/source-recovery failure controls admissibility.
 
-At the latest durable review snapshot, both targets have 176 rank-1 rows, 176 unique markets, 63 positive labels, 90 negative labels, and 23 unlabeled. Persistence, acknowledgement timing, reconciliation, source lineage, temporal validity, database integrity, and safety pass. There are zero guardian failure artifacts, critical failed/incomplete/lost rows, mismatches, unexpected losses, overflows, or discards.
+Successor34 used its graceful stop once, released the Phase-One lease, closed the session, and reconciled 41,302 committed of 41,302 commands with zero failed/unresolved. Never relaunch session `445db05139234bb8aed55abc5622bf27`, nonce `87d9ed130bb14d4386d62d078c967697`, runtime 16020→32348, or guardian 21836→27464.
 
-Exact next action: at or after frozen OOS end `1787835882821` (2026-08-27 13:04:42.821Z), perform one exact hard review. If clean and both targets pass, follow repository-defined exact terminal disposition; otherwise preserve the immutable classification and follow the already-authorized distinct-cycle or forensic path.
+The minimal causal fixes preserve a new-epoch buffer until hydration exists and retrieve/latch every detached task exception. The affected 237-test surface passes. The Successor35-named source authority passed 4,258/4,258 exactly once on tree `9ccac82941cd0be674060c89007a32dcc028f42572371eaf486c9099ae74d643`; post-tree equality and authoritative-v5 equality pass.
 
-Forbidden before the frozen boundary: stop request absent a binding failure, relaunch/restart, calibration, tournament, Phase Two, holdout, Phase Three, authoritative-v5 mutation/cutover, or any live/signing/authenticated/real-order capability.
+Current owner authority supersedes immediate materialization: this seal is evidence only. Do not materialize or launch Successor35. First complete the cumulative failure matrix, adjacent-risk audit, deterministic fault injection, concurrency/persistence/reconnect/crash/guardian/shutdown validation, bounded stabilization soak, behavioral-equivalence review, and one final source freeze/qualification. Any new source edit supersedes the existing seal.
