@@ -1,7 +1,7 @@
 # Poly Alpha handoff
 
-Canonical evidence: `.codex/SUCCESSOR37_MATERIALIZED_COLD_VERIFIED.json`.
+Canonical evidence: `.codex/SUCCESSOR37_PHASE_ONE_GUARDIAN_STARTED.json`.
 
-Acquisition `V4-PR-001-PROSPECTIVE-SUCCESSOR37-20260827T1625Z` is materialized once and cold verified. Materialization nonce `233b148893cc461b8212d65069b41fdb` is consumed and must not be reused. Phase-One nonce `6f04157ef7c84d3db160c79c47510e63` is unconsumed; Phase-Two nonce `98b526db319043c7929f25db3ce88773` remains reserved and unauthorized.
+Successor37 is materialized/cold-verified, Phase One is consumed once, and guardian is consumed once. The first identity-bound guardian observation is clean. Never relaunch runtime `7448 → 16596` or restart guardian `3336 → 14972`.
 
-Exact next action: prepare and cross-validate the Phase-One and guardian operators against the cold verification and final source authority. Consume Phase One once, then guardian once, and require strong bounded initial health before unattended OOS collection.
+Exact next action: complete only the bounded strong initial-health proof through preregistered OOS start `1787849565596`; require multiple clean observations and acquisition progression. Then leave both independent processes running until the authorized +2h review boundary.
