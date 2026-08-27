@@ -1,7 +1,7 @@
 # Poly Alpha status
 
-Successor37 Phase One and its independent guardian have each launched exactly once. Runtime identity is session `f1e3c4c3b8364996af6df77654848afa`, nonce `6f04157ef7c84d3db160c79c47510e63`, PID pair `7448 → 16596`; guardian PID pair is `3336 → 14972`. Both identities are consumed and must never be relaunched or restarted.
+Successor37 passed strong bounded initial health and is now in unattended OOS acquisition. Runtime `7448 → 16596` and guardian `3336 → 14972` are exact-once, healthy, and must not be relaunched or restarted.
 
-The first guardian observation is clean during the preregistered guarded-start interval. OOS starts at `1787849565596` and ends at `1787861565596`.
+Across 22 clean guardian observations, capsules grew `42 → 246`, predictions `0 → 189`, markets `19 → 27`, and committed commands `402 → 2,013`. Natural hydration/reconnect transitions recovered to READY. All binding persistence, acknowledgement, loss, overflow, discard, reconciliation, source, integrity, and safety counters remain clean.
 
-Next action: obtain bounded multiple-observation initial health across OOS start and confirm predictions, markets, and journal growth. If clean, leave runtime and guardian independently running for the cycle. Safety remains fail-closed.
+Next action: leave both processes untouched. Perform one bounded +2h same-identity review at or after `1787856765596`; if clean but insufficient, continue unchanged to frozen OOS end `1787861565596`.
