@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR37_BINDING_FAILURE_TERMINAL_CHECKPOINT_V1",
+  "checkpoint_ts_ms": 1787860101449,
+  "prior_bridge_commit": "2a82d9feda405bbbd1e51da521d4d309b65ffa64",
+  "containing_bridge_commit": "SELF",
+  "classification": "OOS_FAILED",
+  "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR37-20260827T1625Z",
+    "source_tree_sha256": "60adeb550751460589728336a8dd04d332467fc039edad7beb6a9226aa690086",
+    "session_id": "f1e3c4c3b8364996af6df77654848afa",
+    "materialization_nonce": "233b148893cc461b8212d65069b41fdb",
+    "phase_one_nonce": "6f04157ef7c84d3db160c79c47510e63",
+    "reserved_phase_two_nonce": "98b526db319043c7929f25db3ce88773",
+    "runtime_pids": [7448, 16596],
+    "guardian_pids": [3336, 14972],
+    "runtime_state": "TERMINAL_MUST_NOT_RELAUNCH",
+    "guardian_state": "FAILED_MUST_NOT_RESTART",
+    "relaunch_or_restart_detected": false
+  },
+  "first_binding_failure": {
+    "captured_ts_ms": 1787858846844,
+    "artifact_path": "D:\\poly_alpha_prospective_exact_v6_successor37_20260827T1625Z\\operator\\guardian_failure_1787858846844.json",
+    "artifact_sha256": "03540b96d32a9cbe8f4b3337345a5e1a9a62ee8516d647739ebb62a7d30221e7",
+    "effective_unconfirmed_age_ms": 16218,
+    "acknowledgement_deadline_ms": 15000,
+    "violations": ["monitor_classifier:critical_ack_deadline_exceeded:16218:15000", "classifier:critical_ack_deadline_exceeded:16218:15000"],
+    "binding": true,
+    "later_recovery_cures_failure": false
+  },
+  "guardian": {
+    "observations": 313,
+    "snapshots": 32,
+    "failure_artifacts": 1,
+    "latest_clean_snapshot_sha256": "71f842cf278eb3fa39d89db1a07f548088f51582272f8c0f905c9dc2abe1eb5f",
+    "stdout_sha256": "bd92ae2db679e2f4121a4d45e8fe7c1e188b35e0cb83966f6b232e8ccda804ce",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "terminal": {
+    "runtime_ended_ts_ms": 1787859743320,
+    "lease_released_ts_ms": 1787859743416,
+    "runtime_and_launcher_absent": true,
+    "lock_and_stop_request_absent": true,
+    "graceful_stop_consumed_once": true,
+    "stop_operator_sha256": "8764185eefbdecc38bcc1e7472a8e384537c618b423cc0354bf15c79b46d05dd",
+    "stop_authority_sha256": "8b6e380297c5c1d8ecd7c23d4b5aeab7d4f451f6cb212bf98a9842ce2b729155",
+    "shutdown_drain_timed_out": false,
+    "telemetry_shutdown_ok": true,
+    "journal": {"total": 26650, "committed": 26650, "failed": 0, "unresolved": 0},
+    "critical_incomplete": 0,
+    "critical_lost": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "queue_overflow": 0,
+    "source_discard": 0,
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "schema_version": 6,
+    "managed_v6_fingerprint": "3289a18ccc9f6287360fcab9338e5e36d4070532f27b0d12377f9555bd7954dd"
+  },
+  "acquisition": {"capsules": 1611, "predictions": 2912, "candidates": 1611, "markets": 305, "outcomes": 255},
+  "readiness": {
+    "ensemble": {"rank1": 265, "unique_markets": 265, "positive": 117, "negative": 129, "unlabeled": 19, "rank1_deficit": 35, "unique_market_deficit": 35},
+    "model": {"rank1": 264, "unique_markets": 264, "positive": 116, "negative": 129, "unlabeled": 19, "rank1_deficit": 36, "unique_market_deficit": 36}
+  },
+  "forensic": {
+    "root_cause_status": "UNRESOLVED_REQUIRES_DISTINCT_OWNER_AUTHORITY",
+    "evidence_boundary": "Guardian projected 16,218 ms from 171 ms raw age plus 16,047 ms stale metrics. Terminal max acknowledgement latency is 3,813 ms with timeout_count 0. Establish whether this was an actual deadline breach or conservative stale-snapshot false positive before any correction.",
+    "runtime_stop_probe_timeout_observed": true,
+    "terminal_closure_path": "D:\\poly_alpha_prospective_exact_v6_successor37_20260827T1625Z\\operator\\terminal_persistence_deadline_failure_closure.json",
+    "terminal_closure_sha256": "4a12d2bdcd747d9cfb6792c7bcd86c948a312f7b45059e45e60e32f31b922194"
+  },
+  "authoritative_v5": {
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "journal_exists": false,
+    "immutable": true
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_order_placement_available": false,
+    "real_order_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "STOP under current narrow authority. Distinct owner authorization is required for Successor37 causal forensics, RED/fix/verification, source qualification, or any replacement successor."
+}

@@ -1,7 +1,9 @@
 # Poly Alpha handoff
 
-Canonical evidence: `.codex/SUCCESSOR37_STRONG_INITIAL_HEALTHY_OOS.json`.
+Canonical evidence: `.codex/SUCCESSOR37_BINDING_FAILURE_TERMINAL.json`.
 
-Successor37 session `f1e3c4c3b8364996af6df77654848afa`, Phase-One nonce `6f04157ef7c84d3db160c79c47510e63`, runtime `7448 → 16596`, and guardian `3336 → 14972` are running independently and must remain untouched. Latest durable snapshot: `guardian_snapshot_1787849839568.json`, SHA-256 `7200b6d9a9c33529d8fe084f6a183ad5a4a2666fbccad8fa0082adeba888bd46`.
+Successor37 session `f1e3c4c3b8364996af6df77654848afa` and Phase-One nonce `6f04157ef7c84d3db160c79c47510e63` are terminal and `MUST_NOT_RELAUNCH`. Guardian `3336 → 14972` failed once and `MUST_NOT_RESTART`. First failure artifact SHA-256: `03540b96d32a9cbe8f4b3337345a5e1a9a62ee8516d647739ebb62a7d30221e7`.
 
-Exact next action: no polling before the +2h review boundary `1787856765596`. Then perform one read-only same-identity guardian/persistence/readiness review. Frozen OOS end is `1787861565596`. Never relaunch/restart or enter later phases in the meantime.
+Terminal state is lossless and safe: `26,650 / 26,650` journal commands committed, quick-check `ok`, FK `0`, reconciliation mismatch `0`, unexpected loss `0`, no trades, no calibration/tournament/holdout rows, and authoritative v5 unchanged.
+
+Exact next action: stop under the current narrow authority. A distinct owner packet must authorize causal forensics, mandatory RED/minimal correction and verification, a fresh source seal, and any new successor. Never reuse Successor37 or consume reserved Phase-Two nonce `98b526db319043c7929f25db3ce88773`.
