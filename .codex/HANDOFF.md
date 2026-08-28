@@ -1,5 +1,5 @@
 # Poly Alpha handoff
 
-Successor38 passed its one bounded +2-hour review and is `CONTINUE_TO_4H`. Identity, guardian, persistence, reconciliation, source/tree, database, lineage, temporal validity, authoritative-v5 immutability, holdout separation, and safety are clean. Both targets are 211 rank-1 / 211 unique / 97 positive / 97 negative / 17 unlabeled.
+Successor38 is terminal `OOS_DATA_INSUFFICIENT`, not software-failed. Full guardian coverage completed cleanly. At immutable close, ensemble was 300 rank-1 / 300 unique / 140 positive / 140 negative / 20 unlabeled; model was 299 / 299 / 139 / 140 / 20. Twenty labels learned after close are excluded.
 
-Leave the exact consumed runtime and guardian untouched. At or after frozen OOS end `1787900888054` and required guardian coverage, perform exactly one immutable hard review. No later phase is authorized.
+No new successor, calibration finalization, tournament, Phase Two/Three, holdout, or live action is authorized. Guardian ended naturally. The runtime remains alive under the same consumed identity; exact graceful disposition requires separate owner authority.
