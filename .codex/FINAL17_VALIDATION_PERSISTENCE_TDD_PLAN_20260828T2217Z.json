@@ -1,0 +1,30 @@
+{
+  "captured_ts_ms": 1787955465372,
+  "classification": "FINAL17_VALIDATION_PERSISTENCE_GAP_DEFINED_INERT_NOT_APPLIED",
+  "contract": "POLY_ALPHA_FINAL17_VALIDATION_PERSISTENCE_TDD_PLAN_CHECKPOINT_V1",
+  "current_development_state": {
+    "boundary_eligible": false,
+    "development_end_ts_ms": 1787960700000,
+    "guardian_failure_artifacts": 0,
+    "guardian_wrapper_pid": 30484,
+    "guardian_worker_pid": 26912,
+    "launcher_pid": 20840,
+    "runtime_pid": 18764,
+    "session_id": "53cda14b0ffa4f2ab22febb68e5f6bc2"
+  },
+  "finding": "The sealed experiment, schema, population builder, pure evaluator and standalone read-only evaluator support VALIDATION, but the authoritative prospective CLI, private exact-v6 writer and startup journal verifier admit only DEVELOPMENT.",
+  "inert_plan_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final17_validation_persistence_tdd_plan.json",
+  "inert_plan_sha256": "d0a6b1e3fd91ca8bc9e90e6ada0c2f9359a043a865568bf49a5fa14fc606d260",
+  "next_action": "First complete the exact development guardian terminal, runtime stop, terminal reconciliation, development evaluation, and independent result freeze. Only if that result admits validation, apply the fail-first plan to add narrow DEVELOPMENT/VALIDATION exact-writer authority without changing research semantics, qualify the changed tree exactly once, and launch a distinct validation identity.",
+  "prior_bridge_commit": "284be9b4a3541a6e20aa9e2e6db8e406407c14c9",
+  "safety": {
+    "authoritative_v5": "IMMUTABLE",
+    "holdout": "NONEXISTENT_UNCONSUMED",
+    "kill_switch_engaged": true,
+    "live_enabled": false,
+    "phase_three_entered": false,
+    "real_orders_possible": false
+  },
+  "source_tree_mutated": false,
+  "validation_end_ts_ms": 1788003900000
+}
