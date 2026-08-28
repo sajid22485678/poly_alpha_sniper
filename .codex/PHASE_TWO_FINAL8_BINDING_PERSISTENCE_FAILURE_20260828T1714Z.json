@@ -1,0 +1,46 @@
+{
+  "classification": "PHASE_TWO_FINAL8_BINDING_PERSISTENCE_FAILURE_TERMINALLY_RECONCILED",
+  "created_ts_ms": 1787937266175,
+  "failure": {
+    "critical_evidence_lost_observed": 26,
+    "current_session_failed_commands": 12,
+    "first_durable_failure_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\phase_two_persistence_failure_final8_v3.json",
+    "first_durable_failure_sha256": "1012ae1fa783b053f2568128d6cffe14f256fb81df25ea288816ed3fc83a9476",
+    "failure_classes": [
+      "V4PersistenceTimeout",
+      "V4PersistenceIdempotencyConflict",
+      "outcome authority replay mismatch"
+    ]
+  },
+  "identity": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+    "launch_nonce": "e2c45a5676ed45e8a44ae3b39b7a9c2e",
+    "launcher_pid": 21096,
+    "runtime_pid": 21964,
+    "session_id": "6c19ac8874a44806998c128a6ac32608",
+    "source_tree_sha256": "b6463d3122ac40c7a9d522abecc87ed68d452eb528830e9d48c2c57efa0ff689"
+  },
+  "next_action": "Establish the causal restart outcome-authority/idempotency defect, add RED tests, implement the minimal fix, verify and reseal before any distinct Phase-Two retry.",
+  "prior_bridge_commit": "d6834f873e735780901822a374d36cd55ee5acf3",
+  "safety": {
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "kill_switch_engaged": true,
+    "live_enabled": false,
+    "phase_three_entered": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false
+  },
+  "terminal": {
+    "candidates": 2921,
+    "current_session_committed": 637,
+    "current_session_failed": 12,
+    "current_session_incomplete": 0,
+    "ended_ts_ms": 1787937156620,
+    "guardian_launched": false,
+    "lease_released": true,
+    "processes_remaining": 0,
+    "reconciliation_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\phase_two_final8_terminal_reconciliation.json",
+    "reconciliation_sha256": "e656e23e6a8ee8ab002192fe66fba342740f2a330137ef7dcc89086a1212c3d3",
+    "stop_reason": "graceful_stop"
+  }
+}
