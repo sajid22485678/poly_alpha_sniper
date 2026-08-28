@@ -1,0 +1,53 @@
+{
+  "captured_ts_ms": 1787956233326,
+  "classification": "FINAL17_VALIDATION_PERSISTENCE_RED_GREEN_PATCHES_STAGED_NOT_APPLIED",
+  "contract": "POLY_ALPHA_FINAL17_VALIDATION_PERSISTENCE_STAGED_PATCHES_V1",
+  "development_source_tree_untouched": true,
+  "execution_order": [
+    "require DEVELOPMENT_SELECTION_PASS from the exact independent verifier",
+    "reverify both patch hashes",
+    "apply RED tests patch only",
+    "run the two named focused test files and require the expected validation-authority failures",
+    "apply GREEN implementation patch only",
+    "rerun the focused tests and require PASS",
+    "run the affected exact-v6, tournament, persistence, runtime, release-risk and adversarial suites",
+    "perform one required exact full source qualification for the changed tree"
+  ],
+  "green_patch": {
+    "dry_run_command": "git apply --recount --check final17_validation_persistence_green_implementation.patch",
+    "dry_run_result": "PASS",
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final17_validation_persistence_green_implementation.patch",
+    "sha256": "e8c4987375125d15cadcde1c983cfad030645f4fe4f88d57ec9bc64975ba39c9",
+    "source_files": [
+      "tools/v4_prospective_v6.py",
+      "lite_frequency_v4/store.py"
+    ]
+  },
+  "guardrails": [
+    "VALIDATION requires one independently verified DEVELOPMENT run",
+    "VALIDATION cannot evaluate before the sealed validation end",
+    "one run per experiment and approved split",
+    "the journal reconciler binds offered split to persisted split",
+    "WALK_FORWARD and STRESS remain diagnostics inside the preregistered result, not new authoritative CLI invocations",
+    "participants, population, models, metrics, execution, bootstrap, walk-forward, stress, holdout and promotion semantics remain unchanged"
+  ],
+  "next_action": "Do not apply either patch before the exact development transition, evaluation, and DEVELOPMENT_SELECTION_PASS. The active runtime and guardian remain authoritative until then.",
+  "prior_bridge_commit": "eb3d556abe68c4edb7d4b294cc639b6dcca9ea59",
+  "red_patch": {
+    "dry_run_command": "git apply --recount --check final17_validation_persistence_red_tests.patch",
+    "dry_run_result": "PASS",
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final17_validation_persistence_red_tests.patch",
+    "sha256": "0c1f736934d74878abf683bcc31b928be0ff44ad2cc12cf75893c3e2c5a9ab65",
+    "test_files": [
+      "tests/test_v4_prospective_v6.py",
+      "tests/test_frequency_v4_schema_v6.py"
+    ]
+  },
+  "safety": {
+    "authoritative_v5": "IMMUTABLE",
+    "holdout": "NONEXISTENT_UNCONSUMED",
+    "live_enabled": false,
+    "phase_three_entered": false,
+    "real_orders_possible": false
+  }
+}
