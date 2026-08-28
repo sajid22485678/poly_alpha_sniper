@@ -1,0 +1,89 @@
+{
+  "classification": "COMBINED_POST_OOS_AUTHORITY_VALID",
+  "contract": "POLY_ALPHA_COMBINED_POST_OOS_RUNTIME_SOURCE_PROGRESS_V1",
+  "successor32_research_authority": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+    "classification": "GENUINE_OOS_PASS_ACHIEVED",
+    "source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "oos_pass_not_revoked": true
+  },
+  "successor38_terminal_disposition": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR38-20260828T0323Z",
+    "source_tree_sha256": "b9ef491377329df1575e31553a3b9b469cdfb9b690e495841c41cfb3c61940eb",
+    "runtime_state": "STOPPED",
+    "must_not_relaunch": true
+  },
+  "qualified_runtime_source": {
+    "source_tree_sha256": "f611c2bf1c5d37ea6722db3fd1ffa552ce0bc8e068fe0d9f48e69ccc124eee91",
+    "source_identity": {
+      "branch": "master",
+      "full_suite_errors": 0,
+      "full_suite_exit_code": 0,
+      "full_suite_failures": 0,
+      "full_suite_junit_sha256": "d82d7bd0a2c43a42c5bc04d165cb12f5cb66a7dbd5d21be1e4d8f83817b8cfdf",
+      "full_suite_skips": 0,
+      "full_suite_tests": 4287,
+      "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+      "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+      "staged_count": 0,
+      "tested_tree_manifest_sha256": "11dd1465ed2d15fa9c560485e8893de513aa53d6154dbeb326658134b826aaee",
+      "tested_tree_sha256": "f611c2bf1c5d37ea6722db3fd1ffa552ce0bc8e068fe0d9f48e69ccc124eee91",
+      "tracked_modified_count": 62,
+      "untracked_count": 113
+    },
+    "full_suite_result": "PASS",
+    "full_suite_evidence_root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final17_20260828T2035Z",
+    "post_verification_sha256": "4b9c8a6507e8937881688b4416973cca222aafe927740025d4ec5725be5e1801",
+    "tree_exact": true,
+    "authoritative_v5_equal": true
+  },
+  "behavioral_equivalence": {
+    "classification": "RESEARCH_BEHAVIOR_EQUIVALENT_TO_S32",
+    "research_semantics_unchanged": true,
+    "research_config_surface_diff_count": 0,
+    "recomputed_research_config_hash": "85e5f750bd26d39379307ca3b64231a019c096715db6cfe37c4456488f391ecf",
+    "release_risk_policy_source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "final10_to_final17_changed_paths": [
+      "lite_frequency_v4/persistence.py",
+      "tests/test_frequency_v4_persistence.py",
+      "tests/test_frequency_v4_telemetry_sink_capacity.py"
+    ],
+    "causal_runtime_changes_only": [
+      "bounded auxiliary telemetry SQLite progress interruption",
+      "stable outcome-authority retry envelope after ambiguous acknowledgement",
+      "strict critical-pending lock priority with no telemetry bypass",
+      "first telemetry-store initialization outside the critical write gate"
+    ]
+  },
+  "terminal_failed_phase_two_nonces": [
+    "1fae05b661664d2ea91a39081abfb1a5",
+    "0b341667f7ca48e5a65c17cffcf4c292",
+    "284fca7d83e94fd393e991dcdc10ebc2",
+    "6e407a022aed4d4591bb17cea364ad62",
+    "d346e4fa81b2435fa6bf9c90cee2b288",
+    "14d3f69fa7bb45ddbb328356861083e0",
+    "e2c45a5676ed45e8a44ae3b39b7a9c2e",
+    "95d21ed207ae488f8f59c022510f8461",
+    "73d9261b11b44aa19cef4a2821464770"
+  ],
+  "tournament": {
+    "experiment_id": "d8862bbd5ef4107f27536583c580fa0ec916b47e81384c65bd18c641afe522a1",
+    "development_end_ts_ms": 1787960700000,
+    "validation_end_ts_ms": 1788003900000,
+    "rules_retuned": false
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  }
+}
