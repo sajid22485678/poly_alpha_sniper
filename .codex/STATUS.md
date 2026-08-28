@@ -1,7 +1,7 @@
 # Poly Alpha status
 
-Successor37 is terminal and permanently inadmissible. Its guardian recorded the first binding failure at `1787858846844`: effective unacknowledged critical-command age `16,218 ms` exceeded the fixed `15,000 ms` deadline.
+Successor37 remains terminal and permanently inadmissible. Its exact journal proves the guardian's `16,218 ms` classification came from projecting a stale `171 ms` state snapshot across a control-lane audit-cleanup stall after both named commands had already committed in `147 ms` and `93 ms`.
 
-The exact nonce/PID-bound graceful stop was consumed once. Runtime `7448 → 16596` exited, the lease was released, and the terminal journal is `26,650 / 26,650` committed with zero failed, unresolved, lost, overflow, discard, reconciliation, or safety violations. Later lossless recovery does not cure the first guardian failure.
+The 15-second acknowledgement deadline was not increased. Audit cleanup is isolated from state/heartbeat publication, and guardian classification now binds exact envelope identities to read-only durable journal status. Missing, active, malformed, or failed evidence remains fail-closed.
 
-The causal distinction remains deliberately unresolved: the guardian projection combined a `171 ms` raw age with a `16,047 ms` stale metrics interval, while terminal metrics report maximum acknowledgement latency `3,813 ms` and timeout count zero. Distinct owner authority is required for forensics, RED/fix/verification, source qualification, or any replacement successor.
+Deep stabilization is green: `584 / 584` broad affected tests and `162 / 162` final changed-module tests. Successor32 strategy semantics remain byte-identical. Next is one fresh final exact source qualification; no predecessor identity is reusable.

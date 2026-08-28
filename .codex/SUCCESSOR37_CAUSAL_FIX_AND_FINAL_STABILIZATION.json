@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "contract": "POLY_ALPHA_SUCCESSOR37_CAUSAL_FIX_FINAL_STABILIZATION_V1",
+  "checkpoint_ts_ms": 1787885723083,
+  "checkpoint_utc": "2026-08-28T02:55:23.1569945Z",
+  "prior_bridge_commit": "a07dd64c1004da9691be66e6353cf76511499567",
+  "classification": "CAUSAL_FIX_AND_DEEP_STABILIZATION_PASS_FINAL_SOURCE_SEAL_NEXT",
+  "successor37": {
+    "disposition": "TERMINAL_PERMANENTLY_INADMISSIBLE_MUST_NOT_RELAUNCH",
+    "first_failure_ts_ms": 1787858846844,
+    "first_failure_path": "D:\\poly_alpha_prospective_exact_v6_successor37_20260827T1625Z\\operator\\guardian_failure_1787858846844.json",
+    "first_failure_sha256": "03540b96d32a9cbe8f4b3337345a5e1a9a62ee8516d647739ebb62a7d30221e7",
+    "binding_guardian_result": "critical_ack_deadline_exceeded:16218:15000",
+    "terminal_journal": {"total": 26650, "committed": 26650, "failed": 0, "unresolved": 0},
+    "terminal_closure_sha256": "4a12d2bdcd747d9cfb6792c7bcd86c948a312f7b45059e45e60e32f31b922194"
+  },
+  "root_cause": {
+    "classification": "FALSE_GUARDIAN_DEADLINE_FROM_STALE_RUNTIME_PUBLICATION",
+    "checkpoint_run": 179,
+    "checkpoint_started_ts_ms": 1787858831507,
+    "checkpoint_completed_ts_ms": 1787858846686,
+    "checkpoint_duration_ms": 15188,
+    "runtime_io_blocking_job": "audit_snapshot_sweep",
+    "runtime_io_measured_max_duration_ms": 14125,
+    "state_raw_oldest_age_ms": 171,
+    "state_snapshot_elapsed_ms": 16047,
+    "projected_age_ms": 16218,
+    "exact_commands": [
+      {"persistence_command_id": 24357, "method": "persist_market_bundle", "status": "COMMITTED", "queue_ms": 97, "execution_ms": 50, "total_ack_ms": 147},
+      {"persistence_command_id": 24358, "method": "persist_fee_authority_bundle", "status": "COMMITTED", "queue_ms": 91, "execution_ms": 2, "total_ack_ms": 93}
+    ],
+    "writer_max_actual_ack_ms": 3813,
+    "writer_timeout_count": 0,
+    "interpretation": "The guardian failure remains binding for Successor37. The causal software defect was observational: multi-gigabyte snapshot cleanup occupied the runtime state/heartbeat control lane, and the guardian aged an aggregate stale snapshot after its exact commands had already committed."
+  },
+  "causal_fix": {
+    "runtime_control_lane": "Audit snapshot cleanup now runs outside the runtime state/heartbeat I/O worker.",
+    "guardian_reconciliation": "Writer state publishes exact envelope sequence, command ID, monotonic age and trade-critical scope; the guardian reconciles only those identities against read-only durable journal status.",
+    "fail_closed": "Missing, active, malformed, duplicate-envelope, unknown-status and FAILED evidence remains binding; only exact COMMITTED rows stop ageing.",
+    "timeout_policy": "The 15000 ms acknowledgement deadline was not increased."
+  },
+  "tdd": {
+    "causal_red": "test_slow_snapshot_sweep_cannot_block_runtime_state_publish timed out at 0.5 s while cleanup owned the shared runtime I/O lane.",
+    "causal_green": "The same test passed after the cleanup/control-lane split.",
+    "stale_snapshot_regression": "Exact Successor37-shaped 171+16047 ms stale records reconcile clean only when both durable identities are COMMITTED.",
+    "genuine_overdue_regression": "Missing, SUBMITTED and EXECUTING exact identities remain critical_ack_deadline_exceeded:still-open:16218:15000."
+  },
+  "validation": {
+    "broad_affected": {"tests": 584, "passed": 584, "failed": 0, "errors": 0, "skipped": 0, "junit_sha256": "9706780fce866c8b17136c025863e19d5f235846c8ace81b0c5003b8ee11ceca", "root": "D:\\pytest_tmp_v4\\poly_alpha_s37_stabilization_20260828T0948Z"},
+    "final_changed_modules": {"tests": 162, "passed": 162, "failed": 0, "errors": 0, "skipped": 0, "junit_sha256": "9fcd22cc9650580ee7be80ce1b7d7b226006c338302045ca0f7adb537a859db8", "root": "D:\\pytest_tmp_v4\\poly_alpha_s37_stabilization_current_20260828T0953Z"},
+    "covered_surfaces": ["guardian", "runtime publication", "persistence and exact-v6 journal", "maintenance and WAL pressure", "integrity snapshot lifecycle", "event-loop ingestion fairness", "CEX and Polymarket reconnect", "telemetry accounting", "shutdown fences", "prospective configuration and materialization", "bounded soak"],
+    "diff_check": "PASS"
+  },
+  "successor32_behavioral_equivalence": {
+    "classification": "PASS_INFRASTRUCTURE_ONLY",
+    "byte_identical_families": ["features", "edge_models", "economics", "execution", "risk", "replay", "resolver", "model_health", "positions", "ledger"],
+    "changed_source_families_since_successor32": ["cex transport", "runtime configuration", "engine orchestration", "health export", "guardian observation", "persistence observation", "Polymarket transport"],
+    "strategy_selection_semantics_changed": false,
+    "calibration_target_semantics_changed": false,
+    "oos_selection_boundary_changed": false
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "Freeze one fresh final source identity and run the full repository qualification exactly once. If and only if it passes with exact pre/post tree equality and authoritative-v5 equality, prepare one final distinct successor; never rerun any predecessor seal or identity."
+}

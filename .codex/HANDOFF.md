@@ -1,9 +1,9 @@
 # Poly Alpha handoff
 
-Canonical evidence: `.codex/SUCCESSOR37_BINDING_FAILURE_TERMINAL.json`.
+Canonical evidence: `.codex/SUCCESSOR37_CAUSAL_FIX_AND_FINAL_STABILIZATION.json`.
 
-Successor37 session `f1e3c4c3b8364996af6df77654848afa` and Phase-One nonce `6f04157ef7c84d3db160c79c47510e63` are terminal and `MUST_NOT_RELAUNCH`. Guardian `3336 → 14972` failed once and `MUST_NOT_RESTART`. First failure artifact SHA-256: `03540b96d32a9cbe8f4b3337345a5e1a9a62ee8516d647739ebb62a7d30221e7`.
+Successor37 and every predecessor remain immutable and unavailable. The binding first failure is preserved, but causal forensics now prove it was a stale-publication guardian defect, not a real 16.2-second command acknowledgement. The exact commands committed in 147 ms and 93 ms; audit cleanup had occupied the state/heartbeat control lane.
 
-Terminal state is lossless and safe: `26,650 / 26,650` journal commands committed, quick-check `ok`, FK `0`, reconciliation mismatch `0`, unexpected loss `0`, no trades, no calibration/tournament/holdout rows, and authoritative v5 unchanged.
+The minimal fix and adjacent hardening are green without changing the deadline or strategy semantics. Broad affected validation is `584 / 584`; the final changed guardian/persistence/export/integrity tree is `162 / 162`. Safety remains shadow-only with no Phase Two/Three and no holdout.
 
-Exact next action: stop under the current narrow authority. A distinct owner packet must authorize causal forensics, mandatory RED/minimal correction and verification, a fresh source seal, and any new successor. Never reuse Successor37 or consume reserved Phase-Two nonce `98b526db319043c7929f25db3ce88773`.
+Exact next action: prepare one new final source-seal identity and execute the full suite exactly once. Only a fully verified pass may authorize one final distinct materialization/runtime/guardian identity.
