@@ -1,5 +1,8 @@
 # Poly Alpha status
 
-Successor38 is the one final successor and is strongly healthy under consumed Phase-One and guardian identities. Six guardian observations are clean, acquisition and journal counts are growing, and all binding persistence/integrity/source/safety counters are zero.
-
-Next: sparse exact-identity +2h review at or after `1787896088054`; frozen OOS hard review only after `1787900888054` and required guardian coverage. Runtime and guardian remain running and MUST_NOT_RELAUNCH/RESTART.
+- State: `SUCCESSOR38_CONTINUE_TO_4H`
+- Classification: `CONTINUE_TO_4H`
+- Canonical artifact: `.codex/SUCCESSOR38_PLUS_2H_REVIEW.json`
+- Current gate: +2h review clean; both targets are 211 rank-1 / 211 unique / 97 positive / 97 negative / 17 unlabeled.
+- Next: leave the same identity untouched; hard-review once at or after `1787900888054` and required guardian coverage.
+- Safety: shadow only; no Phase Two/Three or holdout; v5 immutable.
