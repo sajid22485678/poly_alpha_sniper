@@ -1,0 +1,29 @@
+{
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+  "classification": "PHASE_TWO_FINAL6_PRESESSION_RELEASE_RISK_SOURCE_IDENTITY_FAILURE_PRESERVED",
+  "consumed_launch_nonce": "d346e4fa81b2435fa6bf9c90cee2b288",
+  "created_ts_ms": 1787932431961,
+  "database_effect": {
+    "candidates": 2849,
+    "committed_commands": 36897,
+    "failed_commands": 5,
+    "new_runtime_sessions": 0
+  },
+  "failure_artifact_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\combined_phase_two_startup_failure_final6.json",
+  "failure_artifact_sha256": "d13d1cf432fe1b52dd2e9622121fc1bd2463e2b851e6524a66f685255aff4910",
+  "failure_error": "prospective release-risk policy restart identity differs: policy_json,risk_policy_id,source_tree_sha256",
+  "materialization_source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+  "next_action": "Qualify the fail-first-proven release-risk research-source fix, seal the changed tree exactly once, then use only a fresh distinct Phase-Two launch nonce.",
+  "prior_bridge_commit": "f9c8fe5fd11bd994b1a833f2c0e103caa433b6ab",
+  "root_cause": "The preregistered release-risk policy was the sole research authority still bound to the newer runtime source tree instead of the immutable S32 materialization tree. Runtime source remains separately guarded for executable provenance.",
+  "runtime_source_tree_sha256": "6ff529615de4524a945b0923f6914e55475d22768ba2fc47871f1981941335b7",
+  "safety": {
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "kill_switch_engaged": true,
+    "live_enabled": false,
+    "phase_three_entered": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false
+  },
+  "terminal_identity": "MUST_NOT_RELAUNCH"
+}
