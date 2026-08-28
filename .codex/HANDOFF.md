@@ -1,5 +1,5 @@
 # Poly Alpha handoff
 
-Successor38 is terminal `OOS_DATA_INSUFFICIENT`, not software-failed. Full guardian coverage completed cleanly. At immutable close, ensemble was 300 rank-1 / 300 unique / 140 positive / 140 negative / 20 unlabeled; model was 299 / 299 / 139 / 140 / 20. Twenty labels learned after close are excluded.
+`PHASE_TWO_FINAL17_HEALTHY_GUARDED_DEVELOPMENT_RUNNING`
 
-No new successor, calibration finalization, tournament, Phase Two/Three, holdout, or live action is authorized. Guardian ended naturally. The runtime remains alive under the same consumed identity; exact graceful disposition requires separate owner authority.
+Final17 is the sole active Phase-Two identity: nonce `2abf4b...8006`, session `53cda14b...51ef`, runtime `20840 -> 18764`. Independent guardian PID `30484` is clean and must not be restarted. At or after development close `1787960700000`, perform one bounded disk-first census; if guardian first-failure authority, persistence, reconciliation, integrity, source, and safety remain clean, execute only the preregistered development evaluation/selection transition and continue its frozen validation candidate to `1788003900000`. No holdout, Phase Three, or live capability has been authorized or consumed.
