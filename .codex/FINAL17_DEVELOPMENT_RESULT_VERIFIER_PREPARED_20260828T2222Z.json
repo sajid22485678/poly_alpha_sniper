@@ -1,0 +1,52 @@
+{
+  "captured_ts_ms": 1787955727800,
+  "classification": "FINAL17_DEVELOPMENT_RESULT_VERIFIER_PREPARED_NOT_EXECUTED",
+  "contract": "POLY_ALPHA_FINAL17_DEVELOPMENT_RESULT_VERIFIER_PREPARATION_V1",
+  "development_end_ts_ms": 1787960700000,
+  "evaluation_identity": {
+    "evaluation_nonce": "8e4b4a7bf8d14adb9d5c45f284b56c15",
+    "evaluation_operator_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\evaluate_final17_development_once.py",
+    "evaluation_operator_sha256": "953c8eaa9cf666f6743ea13ec6dfe38bc9bb6388d58452273bf9ad0a875c0475",
+    "experiment_id": "d8862bbd5ef4107f27536583c580fa0ec916b47e81384c65bd18c641afe522a1",
+    "split": "DEVELOPMENT"
+  },
+  "fail_closed_decision": {
+    "pass_requires": [
+      "persisted result_status PASS",
+      "fresh recompute_tournament_acceptance accepted true",
+      "fresh reason_codes empty",
+      "promotion_authorized false",
+      "stored independent verification exactly equals fresh build_tournament_verification",
+      "committed journal result exactly equals persisted result projection",
+      "quick_check ok and foreign keys zero",
+      "open runtime sessions zero",
+      "holdout registrations zero"
+    ],
+    "pass_classification": "DEVELOPMENT_SELECTION_PASS",
+    "otherwise": "DEVELOPMENT_SELECTION_FAILED"
+  },
+  "next_action": "After the development evaluation exact-once result exists, execute verify_final17_development_result_once.py --execute exactly once. Continue to the hashed validation-persistence TDD plan only on DEVELOPMENT_SELECTION_PASS.",
+  "outputs_absent": true,
+  "prior_bridge_commit": "3362a42de31755e10fa7ee75d126571bf2f1f82c",
+  "safety": {
+    "holdout": "NONEXISTENT_UNCONSUMED",
+    "live_enabled": false,
+    "phase_three_entered": false,
+    "promotion_authorized": false,
+    "real_orders_possible": false
+  },
+  "test": {
+    "fail_first": "4 failed because the verifier did not exist",
+    "final_result": "4 passed",
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\test_final17_development_result_verifier.py",
+    "sha256": "484610f78b0ae80c18459bfe16c38923364415d6bb69f8ded2a38d8bc662e5fb"
+  },
+  "validation_end_ts_ms": 1788003900000,
+  "verifier": {
+    "check_only_result": "FINAL17_DEVELOPMENT_RESULT_VERIFIER_PREPARED",
+    "evaluation_result_present": false,
+    "output_absent": true,
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\verify_final17_development_result_once.py",
+    "sha256": "7734003229f5224e06b51bc3f5843b234719973da09bc25536109688a10971ca"
+  }
+}
