@@ -1,0 +1,31 @@
+{
+  "classification": "COMBINED_POST_OOS_FINAL10_SOURCE_SEAL_PASS",
+  "contract": "POLY_ALPHA_COMBINED_POST_OOS_FINAL10_SOURCE_SEAL_PASS_V1",
+  "prior_bridge_commit": "f9edbe5205ad5953daeab25b0543938c02ab418c",
+  "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final10_20260828T1735Z",
+  "tested_tree_sha256": "ae114ac50de6b0725ae10ddce6f20f9f7170746258f7e6efc3c10ae9d7443bec",
+  "manifest_sha256": "fd969a0efac6df6a1d4384c333a5168a0e3055403aaf7ad2317bbf20dc711df4",
+  "runner_sha256": "950b05231da5f167fb6171059ea5b427c40847d45aa896433d8e13a79f8a6adf",
+  "junit_sha256": "d29c829d865043ba5e11cb2740cf046ca850855316ed70dcebef129c974416e7",
+  "post_verification_sha256": "73caefe74ea3531e3d6ce3c3fbf2666851f9434175dc1a8bcff47744d4a6356e",
+  "pytest_exit_sha256": "20fb14943cdf9f9007eb6f7d79e1c1f6ff423ca3f9e05b271e3c5403b753d150",
+  "run_control_sha256": "e5b5d2030bf1b2f71f68f9c0a4207101a4b726ddb6d006bbdf55694d523f412b",
+  "pytest_launch_count": 1,
+  "pytest_exit_code": 0,
+  "tests": 4286,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "tree_exact": true,
+  "verified": true,
+  "materialization_authorized": true,
+  "authoritative_v5": {
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "journal_exists": false,
+    "unchanged": true
+  },
+  "next_action": "Prepare a distinct Final11 Phase-Two launch identity bound to Final10 source authority and the existing S32 cohort/tournament continuation. Run preflight before launch; never reuse any earlier Phase-Two nonce.",
+  "safety": "shadow only; no live capability; kill engaged; V4-HO-001 unconsumed; no Phase Three"
+}
