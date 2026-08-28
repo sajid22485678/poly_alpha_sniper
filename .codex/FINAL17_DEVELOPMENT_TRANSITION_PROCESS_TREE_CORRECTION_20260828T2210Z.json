@@ -1,0 +1,68 @@
+{
+  "captured_ts_ms": 1787955028314,
+  "classification": "FINAL17_DEVELOPMENT_TRANSITION_PREPARED_NOT_EXECUTED",
+  "contract": "POLY_ALPHA_FINAL17_DEVELOPMENT_TRANSITION_PROCESS_TREE_CORRECTION_V1",
+  "correction_reason": "The prepared guardian terminal operator bound only the virtual-environment wrapper PID 30484. Current disk authority proves the actual watcher is child PID 26912. Terminating only the wrapper could orphan the watcher and allow post-terminal evidence writes.",
+  "development_end_ts_ms": 1787960700000,
+  "guardian_identity": {
+    "guardian_nonce": "7acf857290b44f54b65d4296f706a579",
+    "watcher_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\watch_combined_phase_two_final17.py",
+    "wrapper_create_time": 1787953084.3917513,
+    "wrapper_pid": 30484,
+    "worker_create_time": 1787953084.437956,
+    "worker_parent_pid": 30484,
+    "worker_pid": 26912
+  },
+  "operators": {
+    "development_evaluation": {
+      "evaluation_nonce": "8e4b4a7bf8d14adb9d5c45f284b56c15",
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\evaluate_final17_development_once.py",
+      "sha256": "953c8eaa9cf666f6743ea13ec6dfe38bc9bb6388d58452273bf9ad0a875c0475"
+    },
+    "guardian_terminal": {
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final17_development_guardian_terminal_once.py",
+      "sha256": "4ae1325443cb6fc4c11369d26f1519398d176aea12afb1014091c6716370e357"
+    },
+    "runtime_stop": {
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final17_development_runtime_stop_once.py",
+      "sha256": "68915fb922242a26ec5d5fe156131a964567f326443e0ba87c33990d33ea7e6e"
+    },
+    "terminal_reconciliation": {
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\reconcile_final17_development_terminal_once.py",
+      "sha256": "6ed356d37537664d1692d9874fc0b1c4573fabaf309795cb340d95003e877ed3"
+    }
+  },
+  "prior_bridge_commit": "78c94c9ef9be19c38f5c507b87a77eecc6696ca0",
+  "runtime_identity": {
+    "experiment_id": "d8862bbd5ef4107f27536583c580fa0ec916b47e81384c65bd18c641afe522a1",
+    "launcher_pid": 20840,
+    "phase_two_nonce": "2abf4b687f77481cb286aa94e5f18006",
+    "runtime_pid": 18764,
+    "session_id": "53cda14b0ffa4f2ab22febb68e5f6bc2",
+    "source_tree_sha256": "f611c2bf1c5d37ea6722db3fd1ffa552ce0bc8e068fe0d9f48e69ccc124eee91"
+  },
+  "safety": {
+    "authoritative_v5": "IMMUTABLE",
+    "kill_switch_engaged": true,
+    "live_enabled": false,
+    "phase_three_entered": false,
+    "real_orders_possible": false,
+    "v4_ho_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "supersedes_for_execution": ".codex/FINAL17_DEVELOPMENT_TRANSITION_PREPARATION_CORRECTION_20260828T2201Z.json",
+  "test_evidence": {
+    "fail_first": "2 failed because the old operator lacked GUARDIAN_WORKER_PID and terminate_guardian_processes; then 1 failed because terminal reconciliation omitted the worker PID",
+    "final_result": "3 passed",
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\test_final17_guardian_terminal_process_tree.py",
+    "sha256": "3f50f4e8988fb8129024a7c14d2bb3fc247e7a404616ebed8d8b08c5bd6ce028"
+  },
+  "transition_status": {
+    "boundary_eligible": false,
+    "exact_once_outputs_absent": true,
+    "guardian_failure_artifacts": 0,
+    "guardian_preflight": "PASS",
+    "runtime_stop_preflight": "PASS",
+    "terminal_reconciliation_preparation": "PASS"
+  },
+  "next_action": "At or after 1787960700000 reverify the four operator hashes and exact process tree, then execute exactly once in order: complete guardian tree terminal disposition; exact runtime graceful stop; terminal reconciliation; development evaluation. Freeze and independently verify the result before creating any distinct validation identity."
+}
