@@ -1,10 +1,10 @@
 # Poly Alpha status
 
-- State: `COMBINED_POST_OOS_AUTHORITY_ESTABLISHED`
-- Classification: `COMBINED_POST_OOS_AUTHORITY_VALID`
-- Canonical artifact: `.codex/SUCCESSOR38_TERMINAL_DISPOSITION_AND_COMBINED_AUTHORITY.json`
-- Successor38: exact graceful stop complete; runtime/guardian absent; 48,782/48,782 commands committed; terminal snapshot integrity PASS; remains immutable `OOS_DATA_INSUFFICIENT`.
-- Successor32: immutable genuine OOS pass supplies research evidence.
-- Equivalence: 670-path manifests equal; only seven infrastructure source files and nine tests changed; research modules byte-identical; 12/12 deterministic semantic checks PASS.
-- Next: verify/adopt S32's frozen input, calibration and participant/rule freeze, then establish a fresh current-tree Phase-Two evaluation authority. Do not reuse S32's failed nonce or create Successor39.
-- Safety: shadow only; no Phase Two/Three or holdout yet; `V4-HO-001` nonexistent/unconsumed; v5 immutable.
+- State: `PHASE_TWO_STARTUP_FIX_QUALIFICATION_RUNNING`
+- Tournament: empty expired parent preserved; child experiment `d8862bbd…` registered as conservative ordinal 2 with identical frozen semantics and no retuning.
+- Failed launch: nonce `1fae05b6…` is terminal/MUST_NOT_RELAUNCH. Maintenance-store admission timed out before session admission; zero candidates were created and its lease released.
+- Root cause: prospective maintenance-store open incorrectly used the 30-second maintenance command deadline rather than the 300-second exact-v6 startup admission deadline. Shutdown also attempted a terminal command despite no registered session.
+- Fix: both causal paths are corrected; 90 focused engine/runtime/persistence tests pass.
+- Qualification: exact-once replacement seal is running at `D:\pytest_tmp_v4\poly_alpha_combined_post_oos_source_freeze_final2_20260828T1210Z`, tested tree `4ab1be22…`.
+- Next: if the seal passes, launch one distinct Phase-Two identity under the existing child experiment and never reuse `1fae05b6…`.
+- Safety: shadow only; no admitted Phase Two/Phase Three; `V4-HO-001` nonexistent/unconsumed; v5 immutable.
