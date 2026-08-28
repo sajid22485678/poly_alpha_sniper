@@ -1,0 +1,33 @@
+{
+  "classification": "COMBINED_POST_OOS_FINAL10_SOURCE_SEAL_PREPARED_NOT_RUN",
+  "contract": "POLY_ALPHA_COMBINED_POST_OOS_FINAL10_SOURCE_SEAL_PREPARED_V1",
+  "created_ts_ms": 1787938454306,
+  "prior_bridge_commit": "5649bc1d30b9ae2b83763fb9af052d5512f1df5d",
+  "retired_preparation": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final9_20260828T1732Z",
+    "classification": "PREPARATION_INTERRUPTED_AMBIGUOUS_RETIRED_MUST_NOT_RERUN",
+    "pytest_launch_count": 0,
+    "durable_files": ["prepare_source_seal.py", "working_tree_manifest.json"]
+  },
+  "prepared_seal": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final10_20260828T1735Z",
+    "tested_tree_sha256": "ae114ac50de6b0725ae10ddce6f20f9f7170746258f7e6efc3c10ae9d7443bec",
+    "manifest_sha256": "fd969a0efac6df6a1d4384c333a5168a0e3055403aaf7ad2317bbf20dc711df4",
+    "runner_sha256": "950b05231da5f167fb6171059ea5b427c40847d45aa896433d8e13a79f8a6adf",
+    "verifier_sha256": "6828bd63987a7916c0c10429a0b523824d7eee83dc132e43f9785378b0de9772",
+    "path_count": 670,
+    "tracked_modified": 62,
+    "untracked": 113,
+    "staged": 0,
+    "pytest_launch_count": 0
+  },
+  "authoritative_v5_pre": {
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "journal_exists": false,
+    "immutable": true
+  },
+  "next_action": "Invoke Final10 run_full_suite_once.py exactly once, preserve its first terminal result, then run create-once post-verification only if durable pytest outputs exist.",
+  "safety": "shadow only; no runtime active; no live capability; kill engaged; V4-HO-001 unconsumed; no Phase Three"
+}
