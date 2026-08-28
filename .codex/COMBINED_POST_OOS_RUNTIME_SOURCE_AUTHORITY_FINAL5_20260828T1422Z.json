@@ -1,0 +1,101 @@
+{
+  "classification": "COMBINED_POST_OOS_AUTHORITY_VALID",
+  "contract": "POLY_ALPHA_COMBINED_POST_OOS_RUNTIME_SOURCE_PROGRESS_V1",
+  "successor32_research_authority": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+    "classification": "GENUINE_OOS_PASS_ACHIEVED",
+    "source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "frozen_input_manifest_sha256": "7f755ffe77a2759317b145d8fa893d8b4087244545cc50e4d480affff6263543",
+    "oos_pass_not_revoked": true
+  },
+  "successor38_terminal_disposition": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR38-20260828T0323Z",
+    "source_tree_sha256": "b9ef491377329df1575e31553a3b9b469cdfb9b690e495841c41cfb3c61940eb",
+    "runtime_state": "STOPPED",
+    "must_not_relaunch": true,
+    "guarded_cycle_classification": "OOS_DATA_INSUFFICIENT"
+  },
+  "qualified_runtime_source": {
+    "source_tree_sha256": "3f2fec18eb6daa0319140b567d01604ceb3185c00f0b63b977623ee2ddef54db",
+    "source_identity": {
+      "branch": "master",
+      "full_suite_errors": 0,
+      "full_suite_exit_code": 0,
+      "full_suite_failures": 0,
+      "full_suite_junit_sha256": "d384e714fc6b0db9f5231cd47754d1b856308162aab3c6d46035daf543456a0c",
+      "full_suite_skips": 0,
+      "full_suite_tests": 4283,
+      "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+      "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+      "staged_count": 0,
+      "tested_tree_manifest_sha256": "306776eb1ec9400c18c00f67184a240ad967b62603c32e0038de96daa859d3db",
+      "tested_tree_sha256": "3f2fec18eb6daa0319140b567d01604ceb3185c00f0b63b977623ee2ddef54db",
+      "tracked_modified_count": 62,
+      "untracked_count": 113
+    },
+    "full_suite_result": "PASS",
+    "full_suite_evidence_root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final5_20260828T2100Z",
+    "post_verification_contract": "POLY_ALPHA_COMBINED_POST_OOS_FINAL5_SOURCE_POST_VERIFICATION_V1",
+    "tree_exact": true,
+    "authoritative_v5_equal": true
+  },
+  "behavioral_equivalence": {
+    "classification": "RESEARCH_BEHAVIOR_EQUIVALENT_TO_S32",
+    "research_semantics_unchanged": true,
+    "current_tree_additions": [
+      "hash-bound combined source admission",
+      "expired-empty parent schedule continuation with semantic equality",
+      "prospective maintenance exact-v6 startup admission timeout separation",
+      "pre-session shutdown terminal guard",
+      "materialization-bound cohort and research-config identity under combined runtime source"
+    ]
+  },
+  "terminal_failed_phase_two_launches": [
+    {
+      "nonce": "1fae05b661664d2ea91a39081abfb1a5",
+      "classification": "FAILED_BEFORE_SESSION_ADMISSION",
+      "must_not_relaunch": true,
+      "failure_artifact": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\combined_phase_two_startup_failure.json"
+    },
+    {
+      "nonce": "0b341667f7ca48e5a65c17cffcf4c292",
+      "classification": "FAILED_BEFORE_SESSION_ADMISSION",
+      "must_not_relaunch": true,
+      "failure_artifact": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\combined_phase_two_startup_failure_final2.json"
+    },
+    {
+      "nonce": "284fca7d83e94fd393e991dcdc10ebc2",
+      "classification": "FAILED_BEFORE_SESSION_ADMISSION",
+      "must_not_relaunch": true,
+      "candidates_created": 0,
+      "lease_released": true,
+      "failure_artifact": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\combined_phase_two_startup_failure_final4.json",
+      "root_cause": "runtime-source provenance incorrectly included in immutable research config hash"
+    }
+  ],
+  "tournament_continuation_policy": {
+    "parent_experiment_id": "c464be798a01eb54ba8ddccfb625e93740073a308a116fae8bbb427fda9252d0",
+    "experiment_id": "d8862bbd5ef4107f27536583c580fa0ec916b47e81384c65bd18c641afe522a1",
+    "challenger_ordinal": 2,
+    "rules_retuned": false,
+    "participant_semantics_changed": false,
+    "per_challenger_alpha_text": "0.005",
+    "development_end_ts_ms": 1787960700000,
+    "validation_end_ts_ms": 1788003900000
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true,
+    "authoritative_v5_db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2"
+  }
+}
