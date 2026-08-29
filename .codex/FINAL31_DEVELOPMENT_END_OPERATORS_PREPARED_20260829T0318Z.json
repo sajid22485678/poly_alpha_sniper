@@ -1,0 +1,104 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_DEVELOPMENT_END_OPERATORS_PREPARED_V1",
+  "classification": "ORDINAL5_PHASE_TWO_HEALTHY_ACQUISITION_IN_PROGRESS_OPERATORS_INERTLY_PREPARED",
+  "captured_ts_ms": 1787973495774,
+  "prior_bridge_commit": "351b1d5f3fb91b26f8ba8ed2423058bca90baab3",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+  "source_authority": {
+    "seal": "FINAL29",
+    "tested_tree_sha256": "be4e9da105b37c7f4eb5e0393f9cea1ba0356ea78d4bc0a950da7a0b0278c199",
+    "tests_passed": 4290,
+    "must_not_rerun": true
+  },
+  "ordinal5": {
+    "experiment_id": "0aceb1f2e441d354a85b30e3471aa0f08489526429b485fb8c8d56af9e06d66a",
+    "development_start_ts_ms": 1787971500000,
+    "development_end_ts_ms": 1788014700000,
+    "validation_end_ts_ms": 1788057900000,
+    "development_end_remaining_ms_at_capture": 41204226
+  },
+  "runtime": {
+    "state": "RUNNING",
+    "session_id": "dac271de33ea4aa598b9146da14952e1",
+    "phase_two_nonce": "584656af2bcb4b9cb21d656bf4001d20",
+    "launcher_pid": 13256,
+    "runtime_pid": 24640,
+    "must_not_relaunch": true
+  },
+  "guardian": {
+    "state": "RUNNING_CLEAN",
+    "guardian_nonce": "290aae513eb049dcb0f8145e83536862",
+    "launcher_pid": 13368,
+    "runtime_pid": 27228,
+    "latest_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_snapshot_final31_1787973131839.json",
+    "latest_snapshot_sha256": "b06e0c2fdda2455378c04578f359ff8831be4218a45fa5a4f1bbe75333e2cfd1",
+    "latest_snapshot_ts_ms": 1787973131839,
+    "failure_artifacts": 0,
+    "must_not_restart": true
+  },
+  "latest_integrity": {
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "current_session_committed": 2424,
+    "current_session_failed": 0,
+    "current_session_incomplete": 0,
+    "true_critical_rows_lost": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "queue_overflow_rows": 0,
+    "guardian_violations": 0,
+    "acquisition_progressing": true
+  },
+  "prepared_not_executed": {
+    "guardian_terminal_operator": {
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_development_guardian_terminal_once.py",
+      "sha256": "54d7e0902cb972b93f52a2cd77312a4fe3e88270dfc54a9bbd6c6b1292324e86",
+      "inert_preflight": "PASS"
+    },
+    "runtime_stop_operator": {
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_development_runtime_stop_once.py",
+      "sha256": "f5b4a8c5321d446842eaa7a31f13df79ca211a28f83664b9ad4e4452b7b2bca1",
+      "inert_preflight": "PASS"
+    },
+    "terminal_reconciliation_operator": {
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\reconcile_final31_development_terminal_once.py",
+      "sha256": "ffc9963fdc13c3d78a44aa3ef7079c51b814bd5df894114250e24a5360046910",
+      "inert_preflight": "PASS"
+    },
+    "development_evaluation_operator": {
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\evaluate_final31_development_once.py",
+      "sha256": "8ad29ae0e9c1a4d58d1adf1fde4be2a41a325763728fe7f41ae89769ed4275a6",
+      "evaluation_nonce": "f4789565d36a4a00bf9ce2f3bd98a466",
+      "nonce_state": "PREPARED_NOT_CONSUMED",
+      "inert_preflight": "PASS"
+    },
+    "development_verifier": {
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\verify_final31_development_result_once.py",
+      "sha256": "7aef21a66065d6531b47cada599233313fc556f1153a31a8c14a5e38c5f4c9eb",
+      "inert_preflight": "PASS"
+    },
+    "all_execution_outputs_absent": true,
+    "no_stop_request_created": true,
+    "no_exact_once_authority_consumed": true
+  },
+  "authorized_future_sequence": [
+    "AT_OR_AFTER_1788014700000_RUN_FINAL31_GUARDIAN_TERMINAL_OPERATOR_WITH_EXECUTE_EXACTLY_ONCE",
+    "RUN_FINAL31_RUNTIME_STOP_OPERATOR_WITH_EXECUTE_EXACTLY_ONCE",
+    "RUN_FINAL31_TERMINAL_RECONCILIATION_OPERATOR_WITH_EXECUTE_EXACTLY_ONCE",
+    "RUN_FINAL31_DEVELOPMENT_EVALUATION_OPERATOR_WITH_EXECUTE_EXACTLY_ONCE",
+    "RUN_FINAL31_DEVELOPMENT_RESULT_VERIFIER_WITH_EXECUTE_EXACTLY_ONCE",
+    "FOLLOW_ONLY_THE_PREREGISTERED_ORDINAL5_TOURNAMENT_RESULT"
+  ],
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "LEAVE_FINAL31_RUNTIME_AND_GUARDIAN_UNTOUCHED; DO_NOT_EXECUTE_PREPARED_OPERATORS_BEFORE_DEVELOPMENT_END_1788014700000; AT_OR_AFTER_THE_BOUNDARY_REVERIFY_EXACT_IDENTITY_AND_FIRST_FAILURE_AUTHORITY_ONCE_THEN_FOLLOW_THE_RECORDED_EXACT_SEQUENCE"
+}
