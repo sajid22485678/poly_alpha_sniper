@@ -1,7 +1,7 @@
 # Poly Alpha handoff
 
-Read `.codex/FINAL31_RECOVERY1_COMBINED_SOURCE_CORRECTION_AUTHORITY_20260829T0814Z.json` first.
+Read `.codex/FINAL31_RECOVERY3_SOURCE_AUTHORITY_20260829T0914Z.json` first.
 
-Recovery1 remains source-qualified exactly once. Ordinal6 is a zero-candidate failed registration: its consumed runtime nonce exited before lease/session creation because its immutable combined source authority had one extra field. Never relaunch or evaluate it. Create the non-overwriting contract-exact combined authority, then register one parent-linked ordinal7 through the failed-registration contract with fresh runtime/guardian identities and unchanged research semantics.
+Ordinal7 is terminal and empty after a genuine pre-session persistence-startup timeout; never relaunch or evaluate it. The causal prospective-only 900-second bounded admission fix is source-qualified exactly once at 4,293/4,293. Create the Recovery3 combined source authority, then register one failed-registration ordinal8 continuation with a 45-minute not-before and fresh runtime/guardian identities.
 
 Safety remains fail-closed: live and real orders disabled, signing/authenticated placement/cancellation unavailable, kill engaged, authoritative v5 immutable, `V4-HO-001` nonexistent/unconsumed, and no Phase Three.

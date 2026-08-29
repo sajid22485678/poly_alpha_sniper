@@ -1,8 +1,8 @@
 # Poly Alpha status
 
-- State: `FINAL31_RECOVERY1_ORDINAL6_REGISTRATION_FAILURE_CORRECTION_PENDING`.
-- Recovery1 tree `faedc20c...c9c1b` remains exactly qualified once at 4,293/4,293; no source change or reseal occurred.
-- Ordinal6 `358d2757...f6556` registered, but runtime nonce `44b8bed4...7c945` failed before lease/session creation because the first combined source authority contained one extra non-contract field. It is immutable and `MUST_NOT_RELAUNCH/MUST_NOT_EVALUATE`; zero candidates were collected and no guardian launched.
-- First failure evidence: `final31_recovery1_phase_two_registration_failure_1787990429899.json`, SHA-256 `f2391659...fa5d8`.
-- Next: create a non-overwriting exact-nine-field combined source authority bound to this pushed checkpoint, then use the repository's failed-registration continuation contract to preregister ordinal7 with fresh identities.
+- State: `FINAL31_RECOVERY3_SOURCE_QUALIFIED_ORDINAL8_REGISTRATION_PENDING`.
+- Ordinal7 `a12ffde5...24e28` is terminal before session creation after the 300-second persistence-startup bound expired; it collected zero candidates, launched no guardian, and must never relaunch/evaluate. Terminal SHA-256: `acab2df7...d3db`.
+- Causal fix: exact-v6 prospective pre-session admission now uses the existing 900-second global cap. Command ACK deadlines, strategy semantics, evaluator/candidates, and production defaults are unchanged.
+- Recovery3 tested tree `86730e8d...0d60d` passed 4,293/4,293 exactly once, zero failure/error/skip, exact post-tree, v5 equal. JUnit `e26cf543...63707`; manifest `c16626c7...7ba29`.
+- Next: create the hash-bound Recovery3 combined source authority, then register one empty failed-registration ordinal8 continuation with a 45-minute not-before and fresh runtime/guardian identities.
 - Safety: shadow only; no live/signing/authenticated placement/cancellation; kill engaged; no Phase Three; `V4-HO-001` nonexistent/unconsumed; authoritative v5 immutable.
