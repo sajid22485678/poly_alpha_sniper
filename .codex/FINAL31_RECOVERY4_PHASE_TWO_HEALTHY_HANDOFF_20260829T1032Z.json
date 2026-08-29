@@ -1,0 +1,190 @@
+{
+  "classification": "PHASE_TWO_DEVELOPMENT_HEALTHY_ACQUISITION_ACTIVE",
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY4_PHASE_TWO_HEALTHY_HANDOFF_V1",
+  "created_ts_ms": 1787999528620,
+  "prior_bridge_commit": "a523b02cf2cb85f4180c1893c123339e35bd92bd",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+  "predecessor_dispositions": {
+    "ordinal6": {
+      "experiment_id": "358d2757ea31ec984f5c8021ec0badb0ca9c2fca0e2923fdb24e37b0612f6556",
+      "phase_two_nonce": "44b8bed485a04bba97dfb80bb5a7c945",
+      "classification": "REGISTRATION_LAUNCH_CONTRACT_REJECTED_BEFORE_LEASE",
+      "must_not_relaunch": true,
+      "must_not_evaluate": true
+    },
+    "ordinal7": {
+      "experiment_id": "a12ffde5ddbb6ca96f2d5b2acfa02b93c33a6d886c9226de1479d988c2524e28",
+      "phase_two_nonce": "03c98576f8ba4fa9a8c24969d1ffc6c3",
+      "classification": "PERSISTENCE_STARTUP_TIMEOUT_BEFORE_SESSION_TERMINAL",
+      "terminal_reconciliation_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\final31_recovery2_persistence_startup_timeout_terminal_1787992992973.json",
+      "terminal_reconciliation_sha256": "acab2df74b673ad1e6fdc2926fc912fd7322ba8fed26d1159ac4898fe6c7d3db",
+      "runtime_session_created": false,
+      "guardian_launched": false,
+      "candidates": 0,
+      "must_not_relaunch": true,
+      "must_not_evaluate": true
+    }
+  },
+  "causal_fix": {
+    "classification": "PROSPECTIVE_PERSISTENCE_STARTUP_TIMEOUT_CAUSALLY_FIXED",
+    "prospective_persistence_startup_timeout_s": 900,
+    "previous_timeout_s": 300,
+    "command_acknowledgement_deadline_ms": 15000,
+    "research_semantics_unchanged": true,
+    "research_config_surface_diff_count": 0
+  },
+  "qualified_source": {
+    "source_tree_sha256": "86730e8d3795d4b88ac66f840ea2c075fb768752e2edb64c4afe38afd600d60d",
+    "evidence_root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_recovery3_20260829T0847Z",
+    "tests": 4293,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "manifest_sha256": "c16626c702dbfa6673dfdcfe5dde9b4a5860717f52c8a62b2d6922e24b97ba29",
+    "junit_sha256": "e26cf54303f42ad97dc818e398869ae90b24537aa51132131e767b20e1c63707",
+    "post_verification_sha256": "dcdd7e2f17a7417707d703b8baca14bfc93d481a8e7c996e018de599de7c657a",
+    "combined_source_authority_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_post_oos_source_authority_final31_recovery3_20260829T0916Z.json",
+    "combined_source_authority_sha256": "44952f468f6494d204ee83a255f6141b852c2f81be2c8fbd11faf6c3102ab3e1",
+    "exact_once": true,
+    "must_not_rerun": true
+  },
+  "ordinal8_registration": {
+    "experiment_id": "390ede2935ef05aa940607e83676fdf7e6692f0c5d53c6467915963cc56e5b60",
+    "challenger_ordinal": 8,
+    "registration_nonce": "8cfb5c4c12a047eea484fe5177e84b58",
+    "development_start_ts_ms": 1787997900000,
+    "development_end_ts_ms": 1788041100000,
+    "validation_end_ts_ms": 1788084300000,
+    "authority_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\v4_pr_001_final31_recovery4_preregistration_authority.json",
+    "authority_sha256": "39e9eafbeb36f724f5f11961bb42fa76692b1113ffd68898847e0f18287a62b5",
+    "result_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\v4_pr_001_final31_recovery4_preregistration_result.json",
+    "result_sha256": "29287286155bb20f48df36e93be052592150aa3a4258a52d1f740044527c2a48",
+    "exact_once": true
+  },
+  "phase_two_runtime": {
+    "phase_two_nonce": "69c0d7f05f854b169713a1ce29ee8f5a",
+    "session_id": "4285ff21d5b84a8980a9921d51b2336a",
+    "launcher_pid": 4348,
+    "runtime_pid": 14800,
+    "session_started_ts_ms": 1787996483494,
+    "state": "RUNNING",
+    "mode": "lite_frequency_v4_shadow",
+    "must_not_relaunch": true,
+    "launcher_script_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\launch_combined_phase_two_final31_recovery4_once.py",
+    "launcher_script_sha256": "ccda351cb6367c87dfee04522d25645b23ef47881e5d2fd9f59feb43c317d57d",
+    "launch_authority_sha256": "e53188a473d0aec129071fcf0d2b4c7255beee7146e7eec88ba1c39847bcbf66",
+    "process_start_sha256": "ad1fb1782c58dfc7d7a92c7cdd0d47043037f26df091ec34a58a6bf4aa390072"
+  },
+  "guardian": {
+    "guardian_nonce": "4ee702a7c47746d5b4437c63d00f6711",
+    "launcher_pid": 17364,
+    "runtime_pid": 16404,
+    "duration_s": 90000,
+    "interval_s": 30,
+    "snapshot_s": 300,
+    "must_not_restart": true,
+    "monitor_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\monitor_live_phase_two_final31_recovery4.py",
+    "monitor_sha256": "cbdf659e44ee6719cd024e8b70c95d349599be38b949275a6e99bdd707630b2b",
+    "watcher_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\watch_combined_phase_two_final31_recovery4.py",
+    "watcher_sha256": "cde623bc600a8475ecc3f8e5be5b1ad50bc8f92ef2d0425bd098a364d4ac28b6",
+    "launcher_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\launch_combined_phase_two_guardian_final31_recovery4_once.ps1",
+    "launcher_sha256": "4ef60a7afbbd9db8f8a71ce943dea2952d0370a225c22b5d5864e05c4747e7c2",
+    "launch_request_sha256": "894a61e700ef6f4715fa08c93299c81c5d8471236241c30746b760c3a86c6a03",
+    "process_start_sha256": "c06563cfbb236e054efe7a6aae5c01cf2aa21b315e7b032ac1d967edbaece50a",
+    "failure_artifacts": 0,
+    "observations": [
+      {
+        "captured_ts_ms": 1787998388992,
+        "sha256": "e7b9689ce6eef9e6daa966ca7c972b68bb4fa0ec04ca3e3d0925ca1ba686c9c6",
+        "candidates": 6093,
+        "journal_committed": 78951,
+        "session_committed": 445,
+        "queue_depth": 1104,
+        "violations": []
+      },
+      {
+        "captured_ts_ms": 1787998725926,
+        "sha256": "6a57e61e5cbb9c5f31eca2b78cdf8cf0f8087d7a6a3228f53db38a645f180847",
+        "candidates": 6166,
+        "journal_committed": 79674,
+        "session_committed": 1126,
+        "queue_depth": 27,
+        "violations": []
+      },
+      {
+        "captured_ts_ms": 1787999056604,
+        "sha256": "72d19448947a462638b00b03a1af4cb8b288e833ccd84502d1ec7eaa978fa316",
+        "candidates": 6221,
+        "journal_committed": 80408,
+        "session_committed": 1931,
+        "queue_depth": 44,
+        "violations": []
+      },
+      {
+        "captured_ts_ms": 1787999392142,
+        "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_snapshot_final31_recovery4_1787999392142.json",
+        "sha256": "eb7ebbd3ac6b24a3e99109746cc6c68386c2cfde530f6d23bb4d6091005e678b",
+        "candidates": 6310,
+        "decision_replay_capsules": 6310,
+        "journal_committed": 81206,
+        "journal_failed_historical": 17,
+        "session_committed": 2656,
+        "session_failed": 0,
+        "session_incomplete": 0,
+        "queue_depth": 316,
+        "queue_overflow": 0,
+        "critical_failed": 0,
+        "critical_incomplete": 0,
+        "historical_critical_lost": 71,
+        "true_critical_lost": 0,
+        "reconciliation_mismatch": 0,
+        "unexpected_loss": 0,
+        "quick_check": "ok",
+        "foreign_key_violations": 0,
+        "runtime_state": "RUNNING",
+        "current_operational_healthy": true,
+        "recovery_blockers": [],
+        "recovery_healthy_windows": 79,
+        "telemetry_data_safety": "HEALTHY",
+        "source": {
+          "cex_data_health": "FRESH",
+          "cex_queue_discarded": 0,
+          "polymarket_connected": true,
+          "polymarket_queue_discarded": 0,
+          "polymarket_state": "HYDRATING"
+        },
+        "violations": []
+      }
+    ]
+  },
+  "authoritative_v5": {
+    "database_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "immutable": true
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "holdout_consumed": false
+  },
+  "forbidden_actions": [
+    "DO_NOT_RELAUNCH_ORDINAL6_ORDINAL7_OR_ORDINAL8",
+    "DO_NOT_RESTART_GUARDIAN",
+    "DO_NOT_MUTATE_SOURCE_DURING_ACTIVE_ACQUISITION",
+    "DO_NOT_EVALUATE_BEFORE_DEVELOPMENT_END_AND_CANONICAL_TERMINAL_SEQUENCE",
+    "DO_NOT_CONSUME_HOLDOUT",
+    "DO_NOT_ENTER_PHASE_THREE",
+    "DO_NOT_ENABLE_ANY_LIVE_CAPABILITY"
+  ],
+  "next_action": "LEAVE_ORDINAL8_RUNTIME_AND_GUARDIAN_RUNNING_UNTOUCHED; USE_SPARSE_BOUNDED_GUARDIAN_CHECKS; AT_OR_AFTER_1788041100000_REVERIFY_EXACT_IDENTITY_AND_FIRST_FAILURE_AUTHORITY_THEN_EXECUTE_THE_REPOSITORY_DEFINED_EXACT_ONCE_DEVELOPMENT_END_SEQUENCE_AND_VERIFY_THE_DEVELOPMENT_RESULT"
+}
