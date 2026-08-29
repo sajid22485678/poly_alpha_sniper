@@ -1,8 +1,8 @@
 # Poly Alpha status
 
-- State: `FINAL31_RECOVERY1_SOURCE_QUALIFIED_ORDINAL6_REGISTRATION_PENDING`.
-- Final31 remains terminal as `HOST_LOSS_INTERRUPTED_DEVELOPMENT`; its data is preserved but inadmissible for selection, and its runtime/guardian must never be relaunched/restarted.
-- Recovery1 tree `faedc20c235ae084facb187e14f4523666d677f281cbc990ffb01c568d5c9c1b` passed 4,293/4,293 exactly once with zero failures/errors/skips, exact post-tree equality, and authoritative-v5 equality.
-- Seal root: `D:\pytest_tmp_v4\poly_alpha_combined_post_oos_source_freeze_final31_recovery1_20260829T0706Z`; manifest `cbd1085e...1f23a`; JUnit `58fe78e6...59fee`.
-- Next legitimate authority: create the Recovery1 combined source authority, then register one parent-linked ordinal6 continuation from Final31 with identical frozen semantics, no retuning, at least 15 minutes preregistered lead, and fresh runtime/guardian identities.
+- State: `FINAL31_RECOVERY1_ORDINAL6_REGISTRATION_FAILURE_CORRECTION_PENDING`.
+- Recovery1 tree `faedc20c...c9c1b` remains exactly qualified once at 4,293/4,293; no source change or reseal occurred.
+- Ordinal6 `358d2757...f6556` registered, but runtime nonce `44b8bed4...7c945` failed before lease/session creation because the first combined source authority contained one extra non-contract field. It is immutable and `MUST_NOT_RELAUNCH/MUST_NOT_EVALUATE`; zero candidates were collected and no guardian launched.
+- First failure evidence: `final31_recovery1_phase_two_registration_failure_1787990429899.json`, SHA-256 `f2391659...fa5d8`.
+- Next: create a non-overwriting exact-nine-field combined source authority bound to this pushed checkpoint, then use the repository's failed-registration continuation contract to preregister ordinal7 with fresh identities.
 - Safety: shadow only; no live/signing/authenticated placement/cancellation; kill engaged; no Phase Three; `V4-HO-001` nonexistent/unconsumed; authoritative v5 immutable.
