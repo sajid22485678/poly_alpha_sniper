@@ -1,0 +1,129 @@
+{
+  "contract": "POLY_ALPHA_FINAL27_FAILURE_FINAL31_HEALTHY_RUNTIME_GUARDIAN_HANDOFF_V1",
+  "classification": "ORDINAL5_PHASE_TWO_HEALTHY_ACQUISITION_IN_PROGRESS",
+  "captured_ts_ms": 1787972544907,
+  "prior_bridge_commit": "5f7c76c5dbbafe59ca5c7ff0ad2d4070f8f7e9d5",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+  "immutable_predecessor": {
+    "experiment_id": "e4f13c6d79bca0bc528913f29558b113f89581b1c6c9e4b19e1348c360e63e34",
+    "session_id": "3f1e608e025641cdb968aaae66549e33",
+    "first_guardian_failure_sha256": "6298981106b336bdcc954a42cbc71ccafae778383052310e26b38e9a4f85f5a1",
+    "terminal_reconciliation_sha256": "138cb7cc8e345bca28323c4346fa2f7eed870bd18ce32d8bab8bfca50802ca25",
+    "must_not_relaunch": true,
+    "must_not_evaluate": true
+  },
+  "causal_corrections": {
+    "guardian_monitor_module_export": "PASS",
+    "failed_parent_absolute_not_before_contract": "PASS",
+    "affected_tests": 126,
+    "affected_failures": 0,
+    "research_semantics_unchanged": true
+  },
+  "qualified_runtime_source": {
+    "seal": "FINAL29",
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final29_20260829T0155Z",
+    "tested_tree_sha256": "be4e9da105b37c7f4eb5e0393f9cea1ba0356ea78d4bc0a950da7a0b0278c199",
+    "manifest_sha256": "4ae3efd874e7d843a1261bea456f4d22d1c70cf036b2d9be950b5c301c56f267",
+    "junit_sha256": "a43cee251a35ecf59185a9e630170fdecb7aedd9578b8b57ed7b7824646127b3",
+    "post_verification_sha256": "fb99b7f520dff6959cc942e00a68c961fda7b97e5f192e2f391e0aa8579276c6",
+    "tests": 4290,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "exit_code": 0,
+    "launch_count": 1,
+    "tree_exact": true,
+    "authoritative_v5_equal": true,
+    "must_not_rerun": true
+  },
+  "combined_source_authority": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_post_oos_source_authority_final29_20260829T0223Z.json",
+    "sha256": "eedb789c0abf427efb3265046315bcf026e025bf1fd8816b176eb26a43bd381c",
+    "verified": true
+  },
+  "ordinal5_registration": {
+    "experiment_id": "0aceb1f2e441d354a85b30e3471aa0f08489526429b485fb8c8d56af9e06d66a",
+    "challenger_ordinal": 5,
+    "parent_experiment_id": "e4f13c6d79bca0bc528913f29558b113f89581b1c6c9e4b19e1348c360e63e34",
+    "registration_nonce": "df3189c828f24682a4079ab7532015d4",
+    "created_ts_ms": 1787970438274,
+    "development_not_before_ts_ms": 1787971338274,
+    "development_start_ts_ms": 1787971500000,
+    "development_end_ts_ms": 1788014700000,
+    "validation_end_ts_ms": 1788057900000,
+    "result_sha256": "c81cb3ac3b6f973504115fddec9092d3c54b33dc83702ae9ed50602371d8b064",
+    "registered_before_development": true
+  },
+  "runtime": {
+    "state": "RUNNING",
+    "phase_two_nonce": "584656af2bcb4b9cb21d656bf4001d20",
+    "session_id": "dac271de33ea4aa598b9146da14952e1",
+    "launcher_pid": 13256,
+    "runtime_pid": 24640,
+    "session_started_ts_ms": 1787971252059,
+    "session_started_before_development_ms": 247941,
+    "launch_authority_sha256": "e9483038f1c9498e94e1b6657c6bf9ef0a42b1fa697bd03ff410815070fd2f16",
+    "process_start_sha256": "04454c55bc17a1134440693ad2736147bacf190a53abb962e87b7ac3b81fe767",
+    "lease_acquired": true,
+    "must_not_relaunch": true
+  },
+  "guardian": {
+    "state": "RUNNING_CLEAN",
+    "guardian_nonce": "290aae513eb049dcb0f8145e83536862",
+    "launcher_pid": 13368,
+    "runtime_pid": 27228,
+    "duration_s": 87000,
+    "interval_s": 30,
+    "snapshot_s": 300,
+    "launch_request_sha256": "7a3a892a456b86aa86edc1360ae92b1489c54314a1eb2fc9a02bd3c4bf8a545c",
+    "process_start_sha256": "f6d4cc3a20fea11c073087f51431966e98fa910f32645017de084e7beea01f36",
+    "first_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_snapshot_final31_1787972458579.json",
+    "first_snapshot_sha256": "acdf7b59d46f9528e432c40db50556fad1388ff46d65598417477231320f5ce6",
+    "clean_observations": 3,
+    "first_observed_ts_ms": 1787972431909,
+    "latest_observed_ts_ms": 1787972544907,
+    "first_failure_artifact": null,
+    "must_not_restart": true
+  },
+  "bounded_health_proof": {
+    "candidates": [3952, 3960, 3972],
+    "current_session_committed": [548, 684, 811],
+    "critical_failed": 0,
+    "critical_incomplete": 0,
+    "historical_critical_lost_baseline": 71,
+    "true_critical_rows_lost": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "evaluation_runs": 0,
+    "acquisition_progressing": true
+  },
+  "database": {
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "open_runtime_sessions": 1,
+    "tournament_definitions": 5,
+    "strategy_evaluation_runs": 0,
+    "holdout_registrations": 0
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "forbidden": [
+    "do not relaunch Final31",
+    "do not restart guardian Final31",
+    "do not evaluate ordinal4",
+    "do not consume holdout before every pre-holdout gate",
+    "do not enter Phase Three or any live-capability path"
+  ],
+  "next_action": "LEAVE_FINAL31_RUNTIME_AND_GUARDIAN_UNTOUCHED; AT_OR_AFTER_DEVELOPMENT_END_1788014700000_PERFORM_ONE_SAME_IDENTITY_GUARDIAN_AND_DEVELOPMENT_CENSUS, THEN FOLLOW_THE_PREREGISTERED_TOURNAMENT_PROTOCOL"
+}

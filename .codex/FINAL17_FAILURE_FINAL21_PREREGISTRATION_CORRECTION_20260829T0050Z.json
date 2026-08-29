@@ -1,0 +1,110 @@
+{
+  "contract": "POLY_ALPHA_FINAL17_FAILURE_FINAL21_PREREGISTRATION_CORRECTION_PROGRESS_V1",
+  "classification": "COMBINED_POST_OOS_AUTHORITY_VALID",
+  "captured_ts_ms": 1787964662769,
+  "prior_bridge_commit": "5f7c76c5dbbafe59ca5c7ff0ad2d4070f8f7e9d5",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+  "calibration_protocol_id": "f29b50ae5913301d80dbdf11e2151680ebab9d263344227f7b9bc2471376d3b3",
+  "final17_failure": {
+    "classification": "FINAL17_INADMISSIBLE_BINDING_GUARDIAN_FAILURE",
+    "experiment_id": "d8862bbd5ef4107f27536583c580fa0ec916b47e81384c65bd18c641afe522a1",
+    "session_id": "53cda14b0ffa4f2ab22febb68e5f6bc2",
+    "phase_two_nonce": "2abf4b687f77481cb286aa94e5f18006",
+    "failure_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_failure_final17_1787956237157.json",
+    "failure_sha256": "be8c1a3b79999a1f4670eb03583279da39683f62cbb952aee9fc912ddbf6a56f",
+    "failure_captured_ts_ms": 1787956237157,
+    "terminal_reconciliation_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final17_guardian_failure_terminal_reconciliation.json",
+    "terminal_reconciliation_sha256": "4ea3dea740ba5bb8616156459ce6158a3cda45db75b42845908995ef11291780",
+    "terminal_journal": {"committed": 11830, "total": 11830, "current_failed": 0, "current_incomplete": 0},
+    "must_not_relaunch": true,
+    "must_not_evaluate": true
+  },
+  "ordinal3_late_registration": {
+    "classification": "REGISTRATION_COMMITTED_AFTER_DEVELOPMENT_START_INADMISSIBLE_EMPTY",
+    "experiment_id": "61071c469f42571346774002c611a9e1107dd792f230e133f1d3f3c2e5a85d35",
+    "challenger_ordinal": 3,
+    "created_ts_ms": 1787960954976,
+    "development_start_ts_ms": 1787961000000,
+    "command_committed_ts_ms": 1787961164623,
+    "candidate_count": 0,
+    "runtime_session_count": 0,
+    "evaluation_count": 0,
+    "reconciliation_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\final19_late_registration_terminal_reconciliation.json",
+    "reconciliation_sha256": "b1ce5c4355ddc103aa8e83fa9b77f60d2c2dad02a0674c4839c4496035b6e3a6",
+    "must_not_launch": true,
+    "must_not_evaluate": true
+  },
+  "causal_preregistration_fix": {
+    "finding": "fixed five-minute request-time lead was consumed by exact-v6 startup validation before durable registration",
+    "contract": "absolute development_not_before_ts_ms plus minimum ten-minute durable lead and append-only empty late-registration retirement",
+    "research_semantics_unchanged": true,
+    "candidate_semantics_unchanged": true,
+    "economics_unchanged": true,
+    "calibration_unchanged": true,
+    "affected_suite": {"tests": 127, "failures": 0, "exit_code": 0},
+    "timing_stress": {"runs": 10, "passes": 10, "failures": 0}
+  },
+  "final20_failed_seal": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final20_20260828T2358Z",
+    "tested_tree_sha256": "46fddac6bad323cb1867e04565f97a1b07af4c6076f392056135bf42dcce767d",
+    "tests": 4290,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 0,
+    "exit_code": 1,
+    "post_verification_sha256": "409a72cab1b4c103e6c5d10965e611350b1b8cf153071a8570a32a61c3aed1e8",
+    "must_not_rerun": true
+  },
+  "qualified_runtime_source": {
+    "seal": "FINAL21",
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final21_20260829T0025Z",
+    "source_identity": {
+      "branch": "master",
+      "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+      "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+      "tested_tree_sha256": "b27f579cc58e707a91726c0330506bb9eb743f0ebd9da6ffe14a957c365ef555",
+      "tested_tree_manifest_sha256": "9e21722f5785149105cbae2c40e17dbad3665a23fcba9caf8bfa745bacff71b3",
+      "full_suite_junit_sha256": "4afbcfedbe4f35aac4b8dd4effdc615b71c97c8af702cfdb308a9cbf9fc38d81",
+      "full_suite_tests": 4290,
+      "full_suite_failures": 0,
+      "full_suite_errors": 0,
+      "full_suite_skips": 0,
+      "full_suite_exit_code": 0,
+      "staged_count": 0,
+      "tracked_modified_count": 62,
+      "untracked_count": 113
+    },
+    "post_verification_path": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final21_20260829T0025Z\\post_verification.json",
+    "post_verification_sha256": "ad3c96d82416d41ed5c7ea24ccd7dc7327d724117cd6e288d9fc90c9c33fcf22",
+    "tree_exact": true,
+    "verified": true,
+    "must_not_rerun": true
+  },
+  "database_state": {
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "open_runtime_sessions": 0,
+    "tournament_definitions": 3,
+    "tournament_evaluations": 0,
+    "holdout_registrations": 0
+  },
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_runtime_active": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "create Final21 combined source authority, preregister a distinct ordinal-4 child of the empty inadmissible ordinal-3 schedule with a development not-before boundary at least ten minutes after creation, independently verify durable completion before interval start, then launch one fresh exact Phase-Two runtime and guardian"
+}
