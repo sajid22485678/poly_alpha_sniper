@@ -1,0 +1,54 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_VALIDATION_SOURCE_EMBARGO_RECONCILED_V1",
+  "classification": "DEVELOPMENT_WINDOW_ACTIVE_VALIDATION_SOURCE_WORK_NOT_YET_AUTHORIZED",
+  "captured_ts_ms": 1787973933787,
+  "prior_bridge_commit": "aa79dbf0b0bce6c989cb914f184012ada4548dbc",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+  "experiment_id": "0aceb1f2e441d354a85b30e3471aa0f08489526429b485fb8c8d56af9e06d66a",
+  "development_end_ts_ms": 1788014700000,
+  "validation_end_ts_ms": 1788057900000,
+  "active_identity": {
+    "session_id": "dac271de33ea4aa598b9146da14952e1",
+    "phase_two_nonce": "584656af2bcb4b9cb21d656bf4001d20",
+    "runtime_pid_pair": [13256, 24640],
+    "guardian_nonce": "290aae513eb049dcb0f8145e83536862",
+    "guardian_pid_pair": [13368, 27228],
+    "must_not_relaunch_or_restart": true
+  },
+  "validation_contract_authority": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final17_validation_persistence_tdd_plan.json",
+    "sha256": "d0a6b1e3fd91ca8bc9e90e6ada0c2f9359a043a865568bf49a5fa14fc606d260",
+    "status": "INERT_NOT_APPLIED_SOURCE_TREE_UNTOUCHED",
+    "causal_gap": "The sealed experiment and pure evaluator support VALIDATION, but the exact-v6 writer, authoritative CLI, and startup journal reconciliation presently admit only DEVELOPMENT.",
+    "source_work_precondition": "FINAL31_DEVELOPMENT_VERIFICATION_SELECTION_FREEZE_CLASSIFIES_DEVELOPMENT_SELECTION_PASS"
+  },
+  "protocol_decision": {
+    "source_edits_before_development_freeze": "FORBIDDEN",
+    "validation_operator_preimplementation_before_development_freeze": "FORBIDDEN",
+    "development_runtime_identity_reuse_for_validation": "FORBIDDEN",
+    "fresh_source_qualification_after_validation_fix": "REQUIRED",
+    "fresh_validation_runtime_nonce_session_and_guardian": "REQUIRED",
+    "development_selection_failure_action": "STOP_VALIDATION_AND_PRESERVE_IMMUTABLE_RESULT"
+  },
+  "conditional_sequence_after_development_selection_pass": [
+    "APPLY_HASHED_VALIDATION_PERSISTENCE_TDD_PLAN_RED_FIRST",
+    "IMPLEMENT_MINIMAL_CLI_WRITER_AND_RECONCILIATION_CHANGES",
+    "RUN_SMALLEST_AFFECTED_TESTS_THEN_BROADER_AFFECTED_SUITES",
+    "PERFORM_FRESH_EXACT_SOURCE_QUALIFICATION_ONCE",
+    "CREATE_FRESH_VALIDATION_NONCE_SESSION_RUNTIME_AND_GUARDIAN_IDENTITIES",
+    "COLLECT_ONLY_THROUGH_IMMUTABLE_VALIDATION_END",
+    "STOP_RECONCILE_EVALUATE_AND_INDEPENDENTLY_VERIFY_VALIDATION_EXACTLY_ONCE"
+  ],
+  "current_action": "PRESERVE_FINAL31_SEALED_DEVELOPMENT_WINDOW_AND_WAIT_FOR_1788014700000",
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false,
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "AT_OR_AFTER_1788014700000_EXECUTE_THE_ALREADY_PREPARED_FINAL31_DEVELOPMENT_TERMINAL_EVALUATION_AND_VERIFICATION_SEQUENCE_EXACTLY_ONCE; APPLY_NO_VALIDATION_SOURCE_WORK_UNLESS_THE_FREEZE_PROVES_DEVELOPMENT_SELECTION_PASS"
+}
