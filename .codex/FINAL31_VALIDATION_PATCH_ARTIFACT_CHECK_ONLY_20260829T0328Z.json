@@ -1,0 +1,39 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_VALIDATION_PATCH_ARTIFACT_CHECK_ONLY_V1",
+  "classification": "VALIDATION_PATCHES_ARE_NON_APPLICABLE_DESIGN_EXCERPTS",
+  "captured_ts_ms": 1787974082674,
+  "prior_bridge_commit": "39cbff13533636a5836c8ff4d148395a81221ea5",
+  "source_head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+  "source_index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+  "source_status_entry_count_after_check": 175,
+  "source_mutated": false,
+  "validation_plan": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final17_validation_persistence_tdd_plan.json",
+    "sha256": "d0a6b1e3fd91ca8bc9e90e6ada0c2f9359a043a865568bf49a5fa14fc606d260",
+    "remains_authoritative": true
+  },
+  "red_patch": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final17_validation_persistence_red_tests.patch",
+    "sha256": "0c1f736934d74878abf683bcc31b928be0ff44ad2cc12cf75893c3e2c5a9ab65",
+    "git_apply_check_exit_code": 128,
+    "git_apply_check_result": "CORRUPT_PATCH_AT_LINE_10",
+    "classification": "DESIGN_EXCERPT_NOT_AN_EXECUTABLE_PATCH"
+  },
+  "implementation_patch": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final17_validation_persistence_green_implementation.patch",
+    "sha256": "e8c4987375125d15cadcde1c983cfad030645f4fe4f88d57ec9bc64975ba39c9",
+    "git_apply_check_exit_code": 128,
+    "git_apply_check_result": "CORRUPT_PATCH_AT_LINE_16",
+    "classification": "DESIGN_EXCERPT_NOT_AN_EXECUTABLE_PATCH"
+  },
+  "future_requirement_after_development_selection_pass": [
+    "DO_NOT_GIT_APPLY_EITHER_EXISTING_PATCH_ARTIFACT",
+    "DERIVE_CURRENT_TREE_RED_TESTS_FROM_THE_HASHED_PLAN",
+    "PROVE_RED_ON_THE_POST_DEVELOPMENT_CURRENT_TREE",
+    "IMPLEMENT_THE_MINIMAL_CAUSAL_FIX_WITH_APPLY_PATCH",
+    "RUN_TARGETED_AND_BROADER_AFFECTED_VALIDATION",
+    "QUALIFY_THE_CHANGED_TREE_EXACTLY_ONCE"
+  ],
+  "current_embargo": "NO_VALIDATION_SOURCE_OR_TEST_MUTATION_BEFORE_DEVELOPMENT_SELECTION_PASS",
+  "next_action": "PRESERVE_FINAL31_UNTIL_1788014700000_AND_EXECUTE_THE_PREPARED_DEVELOPMENT_TERMINAL_EVALUATION_VERIFICATION_SEQUENCE_EXACTLY_ONCE"
+}
