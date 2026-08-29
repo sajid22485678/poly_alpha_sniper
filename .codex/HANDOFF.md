@@ -1,5 +1,7 @@
 # Poly Alpha handoff
 
-`PHASE_TWO_FINAL17_HEALTHY_GUARDED_DEVELOPMENT_RUNNING_TRANSITION_PREPARED`
+Read `.codex/FINAL31_HOST_LOSS_RECOVERY_20260829T0656Z.json` first.
 
-Final17 is the sole active Phase-Two identity: nonce `2abf4b...8006`, session `53cda14b...51ef`, runtime `20840 -> 18764`. Independent guardian PID `30484` is clean and must not be restarted. Use the non-overwriting correction checkpoint as execution authority. At or after development close `1787960700000`, execute exact guardian terminal, exact runtime stop, graceful drain, mandatory terminal reconciliation, then development evaluation once with nonce `8e4b4a7bf8d14adb9d5c45f284b56c15`. Freeze and verify before creating any fresh validation identity. No holdout, Phase Three, or live capability has been authorized or consumed.
+Final31 is canonically terminal as `HOST_LOSS_INTERRUPTED_DEVELOPMENT`; preserve all data and never execute its prepared development-end/evaluation sequence. The next exact action is a fresh exact source qualification for the recovery-changed tree. Only after that passes may one parent-linked ordinal6 development continuation be registered from Final31 with unchanged frozen semantics and fresh runtime/guardian identities.
+
+Safety remains fail-closed: live and real orders disabled, signing/authenticated placement/cancellation unavailable, kill engaged, authoritative v5 immutable, `V4-HO-001` nonexistent/unconsumed, and no Phase Three.
