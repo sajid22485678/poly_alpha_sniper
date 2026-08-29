@@ -1,0 +1,66 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY1_SOURCE_QUALIFICATION_V1",
+  "captured_ts_ms": 1787988815631,
+  "prior_bridge_commit": "8b2eb1f3c7394d881e9402c7b7a394b05c69ef27",
+  "classification": "FINAL31_RECOVERY1_SOURCE_QUALIFICATION_PASS",
+  "host_loss_parent": {
+    "experiment_id": "0aceb1f2e441d354a85b30e3471aa0f08489526429b485fb8c8d56af9e06d66a",
+    "classification": "HOST_LOSS_INTERRUPTED_DEVELOPMENT",
+    "closure_sha256": "50a320d727286dfb173a225f76c89c4af33ea09c71c6705107700db5546cbc39",
+    "must_not_relaunch": true,
+    "must_not_evaluate": true
+  },
+  "source_seal": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_recovery1_20260829T0706Z",
+    "tested_tree_sha256": "faedc20c235ae084facb187e14f4523666d677f281cbc990ffb01c568d5c9c1b",
+    "manifest_sha256": "cbd1085e3d079f69aa66b40d2e8569c5cd65fde08986e4349ee355bc0b31f23a",
+    "junit_sha256": "58fe78e6636a5c2d83eb88df6bf8c41e6d56c7cc6ed101fc560f322ba1259fee",
+    "pytest_exit_sha256": "d15216d8b60da19c3fb7aa7b727cbe086fe06f3e7d00ee51451e67cca37ffbec",
+    "run_control_sha256": "baaeed7b60aad9cf30b304d978bbbf712eb12679fd4a4911849cb2b0b799262f",
+    "post_verification_sha256": "fcfbb9a758d927939760553a362af993625bfb3124ffb873489448cfa1a5c70d",
+    "pytest_launch_count": 1,
+    "pytest_exit_code": 0,
+    "tests": 4293,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "tree_exact": true,
+    "verified": true,
+    "must_not_rerun": true
+  },
+  "source_identity": {
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "staged_count": 0,
+    "tracked_modified_count": 62,
+    "untracked_count": 115,
+    "path_count": 672
+  },
+  "authoritative_v5": {
+    "database_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "unchanged": true
+  },
+  "next_authority": {
+    "kind": "PARENT_LINKED_ORDINAL6_DEVELOPMENT_CONTINUATION",
+    "parent_experiment_id": "0aceb1f2e441d354a85b30e3471aa0f08489526429b485fb8c8d56af9e06d66a",
+    "calibration_protocol_id": "f29b50ae5913301d80dbdf11e2151680ebab9d263344227f7b9bc2471376d3b3",
+    "failed_parent_guardian_sha256": "cc4ff50ba53c6d2a5de092873c51399c513827861bf884cf4727f042642e437c",
+    "failed_parent_captured_ts_ms": 1787983494270,
+    "minimum_registration_lead_ms": 900000,
+    "retuning_allowed": false,
+    "fresh_runtime_and_guardian_required": true
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "v4_ho_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "CREATE_THE_RECOVERY1_COMBINED_SOURCE_AUTHORITY_THEN_REGISTER_EXACTLY_ONE_PARENT_LINKED_ORDINAL6_CONTINUATION_WITH_FRESH_IDENTITIES"
+}
