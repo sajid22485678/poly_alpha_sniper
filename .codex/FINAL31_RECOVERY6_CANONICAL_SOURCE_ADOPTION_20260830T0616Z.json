@@ -1,0 +1,88 @@
+{
+  "classification": "COMBINED_POST_OOS_AUTHORITY_VALID",
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY6_CANONICAL_SOURCE_PROGRESS_V1",
+  "created_ts_ms": 1788069985850,
+  "successor32_research_authority": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+    "classification": "GENUINE_OOS_PASS_ACHIEVED",
+    "source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "oos_pass_not_revoked": true
+  },
+  "ordinal8_terminal_failure": {
+    "classification": "BINDING_FALSE_MONITOR_FAILURE_TERMINAL_INADMISSIBLE",
+    "experiment_id": "390ede2935ef05aa940607e83676fdf7e6692f0c5d53c6467915963cc56e5b60",
+    "phase_two_nonce": "69c0d7f05f854b169713a1ce29ee8f5a",
+    "must_not_relaunch_reuse_evaluate_or_reopen": true
+  },
+  "retired_ordinal9_runtime_attempts": [
+    {
+      "phase_two_nonce": "f7c2e38e52ad42fd9f5754c9e7d31ad1",
+      "classification": "SOURCE_AUTHORITY_CONTRACT_REJECTED_BEFORE_LEASE_OR_SESSION",
+      "must_not_relaunch": true
+    },
+    {
+      "phase_two_nonce": "6c021718a43a41c3b6c2eb9e9844bfe5",
+      "classification": "PERSISTENCE_STARTUP_TIMEOUT_BEFORE_SESSION_PUBLICATION",
+      "must_not_relaunch": true
+    }
+  ],
+  "qualified_runtime_source": {
+    "source_tree_sha256": "d6a1253d5dbaf15d8e22e737ff54e4d3c80c2f5844a7c62cc847ef1ffa7c6365",
+    "source_identity": {
+      "branch": "master",
+      "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+      "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+      "staged_count": 0,
+      "tracked_modified_count": 62,
+      "untracked_count": 115,
+      "tested_tree_manifest_sha256": "b6eb653f0815524b88456949ef60b5df679b73203183c0e1effd40f847f30621",
+      "tested_tree_sha256": "d6a1253d5dbaf15d8e22e737ff54e4d3c80c2f5844a7c62cc847ef1ffa7c6365",
+      "full_suite_tests": 4295,
+      "full_suite_failures": 0,
+      "full_suite_errors": 0,
+      "full_suite_skips": 0,
+      "full_suite_exit_code": 0,
+      "full_suite_junit_sha256": "e72d5f7a2b879cc0a14c50cdcb261cdd6a6701061e87e366e52b5cd93dbef3f7"
+    },
+    "full_suite_result": "PASS",
+    "full_suite_evidence_root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_recovery6_20260830T0608Z",
+    "post_verification_sha256": "8ae99ea8d52f2f61c0102d2d8694a974bb8d49c8cbb06ddb797c67c8762386e8",
+    "tree_exact": true,
+    "authoritative_v5_equal": true
+  },
+  "behavioral_equivalence": {
+    "classification": "RESEARCH_BEHAVIOR_EQUIVALENT_TO_S32",
+    "research_semantics_unchanged": true,
+    "research_config_surface_diff_count": 0,
+    "evaluator_and_candidate_semantics_unchanged": true,
+    "causal_changes_only": [
+      "monitor command age is reconciled against exact durable command status before snapshot elapsed time is applied",
+      "persistence worker startup allowance is 1800 seconds and remains excluded from the research configuration surface",
+      "strict 15-second acknowledgement deadlines, model, strategy, calibration, candidate semantics, tournament rules, risk, economics, and research budget remain unchanged"
+    ]
+  },
+  "database_state": {
+    "runtime_sessions": 8,
+    "open_runtime_sessions": 0,
+    "strategy_experiment_definitions": 9,
+    "strategy_evaluation_runs": 0,
+    "holdout_registrations": 0,
+    "journal_committed": 162722,
+    "journal_failed_historical": 17,
+    "journal_incomplete": 0
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "Create one canonical nine-field Recovery6 combined source authority bound to this artifact, then use a fresh nonce for the already registered ordinal9 experiment."
+}
