@@ -1,0 +1,101 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY6_ORDINAL9_REPLACEMENT_AUTHORITY_ADMITTED_V1",
+  "created_ts_ms": 1788089778616,
+  "prior_bridge_commit": "4baac6f1c495683f41eaafd2242f4f61201e065f",
+  "classification": "ONE_REPLACEMENT_PHASE_TWO_DEVELOPMENT_AUTHORIZED_AFTER_ORDINAL9_TERMINAL_RECONCILIATION",
+  "ordinal9": {
+    "experiment_id": "76500adcf61137736c5faa8f86512bbc5c581a8f91920befe3ef8e86f316cae3",
+    "runtime_session_id": "fee83574c0b54aa0b034d3d1f3746fb2",
+    "runtime_nonce": "5efeb9de7483440e91924d6e9e0cec7b",
+    "runtime_pids": [19556, 8832],
+    "guardian_nonce": "de504f8217444a6baee975df5ecbfaaf",
+    "guardian_pids": [19960, 6968],
+    "development_end_ts_ms": 1788106200000,
+    "coverage_gap_ms": 13075246,
+    "admissibility": "PERMANENTLY_INADMISSIBLE_FORENSIC_SUPPORTING_ONLY",
+    "evaluation_authorized": false,
+    "reuse_or_relaunch_authorized": false,
+    "terminal_sequence": "PREPARED_NOT_EXECUTED_UNTIL_DEVELOPMENT_END"
+  },
+  "owner_authority": {
+    "replacement_experiment_limit": 1,
+    "replacement_experiments_consumed": 0,
+    "parent_link_required": true,
+    "available_only_after_ordinal9_terminal_reconciliation": true,
+    "fresh_experiment_identity_required": true,
+    "fresh_runtime_nonce_session_and_processes_required": true,
+    "fresh_guardian_nonce_and_processes_required": true,
+    "fresh_preregistered_clock_interval_required": true,
+    "additional_replacement_requires_distinct_owner_authority": true
+  },
+  "frozen_semantics": {
+    "research": "UNCHANGED",
+    "model": "UNCHANGED",
+    "strategy": "UNCHANGED",
+    "calibration": "UNCHANGED",
+    "tournament_rules": "UNCHANGED",
+    "risk_and_economic_parameters": "UNCHANGED",
+    "candidate_semantics": "UNCHANGED",
+    "retuning": "PROHIBITED",
+    "ordinal9_evidence_for_parameter_selection": "PROHIBITED"
+  },
+  "guarded_start_contract": {
+    "required_order": [
+      "SOURCE_RUNTIME_ADMISSION",
+      "LEASE_ACQUISITION",
+      "SESSION_COMMIT",
+      "GUARDIAN_LAUNCH",
+      "GUARDIAN_IDENTITY_VERIFICATION",
+      "FIRST_CLEAN_GUARDIAN_OBSERVATION",
+      "ADMISSIBLE_DEVELOPMENT_COLLECTION"
+    ],
+    "guardian_admission_before_collection": true,
+    "pre_guardian_collection_allowed": false,
+    "coverage_backdating_allowed": false,
+    "source_change_policy": "Only if the current repository contract cannot enforce guarded start; then RED, minimal fail-closed fix, focused and broader tests, and one fresh exact source qualification are mandatory before launch."
+  },
+  "prelaunch_gates": [
+    "ORDINAL9_RUNTIME_ABSENT",
+    "ORDINAL9_GUARDIAN_ABSENT",
+    "ORDINAL9_LEASE_RELEASED",
+    "ORDINAL9_TERMINAL_RECONCILIATION_CLEAN",
+    "ORDINAL9_IDENTITIES_RETIRED",
+    "QUALIFIED_SOURCE_AUTHORITY_VALID",
+    "RESEARCH_SEMANTICS_UNCHANGED",
+    "AUTHORITATIVE_V5_IMMUTABLE",
+    "V4_HO_001_NONEXISTENT_UNCONSUMED",
+    "LIVE_ENABLED_FALSE",
+    "REAL_ORDERS_POSSIBLE_FALSE",
+    "SIGNING_UNAVAILABLE",
+    "AUTHENTICATED_PLACEMENT_AND_CANCELLATION_UNAVAILABLE",
+    "KILL_SWITCH_ENGAGED",
+    "PHASE_THREE_NOT_ENTERED"
+  ],
+  "observed_current_state": {
+    "observed_ts_ms": 1788089778616,
+    "boundary_eligible": false,
+    "runtime_pair_alive": true,
+    "guardian_pair_alive": true,
+    "current_identity_guardian_failures": 0,
+    "latest_guardian_observed_ts_ms": 1788089688160,
+    "candidates": 13337,
+    "critical_failed": 0,
+    "critical_incomplete": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "evaluation_runs": 0
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "signing_available": false,
+    "authenticated_placement_available": false,
+    "authenticated_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Before 1788106200000 leave Ordinal9 untouched. At or after the boundary execute the prepared guardian-terminal, runtime-stop, and terminal-reconciliation operators exactly once in order without evaluation. Only after clean terminal reconciliation consume this authority once to create one parent-linked replacement with a verified guardian-first guarded start and unchanged frozen semantics."
+}
