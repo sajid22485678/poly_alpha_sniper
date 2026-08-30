@@ -1,0 +1,73 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY5_STARTUP_TIMEOUT_FIX_V1",
+  "recorded_ts_ms": 1788068169910,
+  "classification": "ORDINAL9_RUNTIME_ATTEMPTS_TERMINAL_PRESESSION_STARTUP_FIX_TESTED_SOURCE_REQUALIFICATION_REQUIRED",
+  "prior_bridge_commit": "eac9bb63460db3d3239a6792e76186add0cc4254",
+  "experiment": {
+    "experiment_id": "76500adcf61137736c5faa8f86512bbc5c581a8f91920befe3ef8e86f316cae3",
+    "ordinal": 9,
+    "parent_experiment_id": "390ede2935ef05aa940607e83676fdf7e6692f0c5d53c6467915963cc56e5b60",
+    "research_semantics_unchanged": true,
+    "evaluation_runs": 0,
+    "holdout_consumed": false
+  },
+  "runtime_attempt1": {
+    "nonce": "f7c2e38e52ad42fd9f5754c9e7d31ad1",
+    "disposition": "TERMINAL_MUST_NOT_RELAUNCH",
+    "failure": "COMBINED_SOURCE_AUTHORITY_FIELDS_DIFFER_FROM_CONTRACT",
+    "lease_acquired": false,
+    "session_created": false,
+    "candidates_created": false
+  },
+  "runtime_attempt2": {
+    "nonce": "6c021718a43a41c3b6c2eb9e9844bfe5",
+    "disposition": "TERMINAL_MUST_NOT_RELAUNCH",
+    "launcher_pid": 14908,
+    "runtime_pid": 8884,
+    "launch_authority_sha256": "629341ae36cf5016bf8cc149cccb6d9b07ee4e538c5883a34727419b09c97353",
+    "process_start_sha256": "315f342275f779ea7109c6ecc53581a603021d5550ab7da9015958a09a25f311",
+    "stderr_sha256": "cd6932b676d66f1e74c2217dc1383ea1c22014826405ab9c397d42e2f88fd378",
+    "lease_acquired_sha256": "8352f6c3a60cbc2ac1dfe618c29dd6e8a0717d254dedb780e80c63214768b53d",
+    "lease_released_sha256": "cda523101388a2f0ef3b8fc644f25ffbcde36422a57d6e3a02911d3136509b20",
+    "failure": "EXACT_V6_PERSISTENCE_STARTUP_TIMEOUT_900S_BEFORE_SESSION_PUBLICATION",
+    "runtime_session_created": false,
+    "candidates_created": false,
+    "guardian_launched": false
+  },
+  "root_cause": {
+    "measured_exact_v6_startup_verification_ms": 1369412,
+    "old_bounded_allowance_ms": 900000,
+    "new_bounded_allowance_ms": 1800000,
+    "strict_command_acknowledgement_deadline_ms": 15000,
+    "research_surface_excludes_persistence_startup_timeout": true,
+    "research_semantics_changed": false
+  },
+  "tdd": {
+    "red": "prospective startup timeout test failed 900.0 != 1800.0",
+    "focused_green_tests": 15,
+    "broader_green_tests": 137,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0
+  },
+  "changed_files": {
+    "lite_frequency_v4/prospective_config.py": "31f5792501261628ad996c74aeea72e6b05a12a37c27d2625371c346bfc044ca",
+    "lite_frequency_v4/config.py": "f8c15d78239232684fa68e66826c2faeec33264f30523a90b4f141a1202bd44d",
+    "tests/test_frequency_v4_prospective_runtime.py": "736081416b3f4971a4db20674d2ad4945e084bd3b236903f1d98614515cb6343",
+    "tests/test_frequency_v4_prospective_config.py": "83db3aafeeac039920c5e6df280c19507994cb23a3d8aac7ddb84f3be829a3fe",
+    "tests/test_frequency_v4_config.py": "edde5340cc4ab847057000eaaeb554e44b69f313308f2949af14de2425f6c0c0"
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_mutated": false
+  },
+  "next_action": "Perform one distinct exact source qualification of the current post-timeout-fix tree; only on PASS create a canonical combined source authority and a fresh non-reused runtime identity for the already registered ordinal9 experiment."
+}
