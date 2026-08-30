@@ -1,0 +1,94 @@
+{
+  "classification": "ORDINAL8_FALSE_MONITOR_TIMING_CAUSAL_FIX_VERIFIED",
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY5_ORDINAL8_MONITOR_TIMING_FIX_V1",
+  "created_ts_ms": 1788055522076,
+  "prior_bridge_commit": "416ae378ae6a7c7b70071f9b1cffb59d2efeb89c",
+  "ordinal8": {
+    "experiment_id": "390ede2935ef05aa940607e83676fdf7e6692f0c5d53c6467915963cc56e5b60",
+    "session_id": "4285ff21d5b84a8980a9921d51b2336a",
+    "phase_two_nonce": "69c0d7f05f854b169713a1ce29ee8f5a",
+    "disposition": "PERMANENTLY_INADMISSIBLE_MUST_NOT_RELAUNCH_REUSE_EVALUATE_OR_REOPEN",
+    "terminal_checkpoint_sha256": "dadf2fea36e858d959e8d4b0d99941007b5f989e22b6c22bf087bdbfd1cb43b5",
+    "first_failure_sha256": "96c202757a54d4d0305c0547365a74ebabe5fbf0a6d657b67a8eddffefc4e55d",
+    "old_runtime_absent": true,
+    "old_guardian_absent": true,
+    "old_lease_released": true,
+    "old_nonce_retired": true
+  },
+  "causal_reconstruction": {
+    "snapshot_raw_oldest_age_ms": 843,
+    "snapshot_elapsed_ms": 17672,
+    "false_aggregate_age_ms": 18515,
+    "strict_acknowledgement_deadline_ms": 15000,
+    "durable_acknowledgement_ms": [1054, 699, 719],
+    "durable_deadline_breach": false,
+    "root_cause": "STALE_SNAPSHOT_AGGREGATE_WAS_CLASSIFIED_BEFORE_EXACT_DURABLE_COMMAND_RECONCILIATION",
+    "fix_contract": "SNAPSHOT_ELAPSED_APPLIES_ONLY_TO_EXACT_COMMANDS_STILL_UNRESOLVED_IN_THE_DURABLE_JOURNAL"
+  },
+  "tdd": {
+    "red": "PASS_AS_RED",
+    "red_reason": "critical_acknowledgement_monitor_violations was absent and the fail-first test failed during import",
+    "fixed_source": "D:\\claude\\poly_alpha_sniper\\lite_frequency_v4\\guardian.py",
+    "fixed_source_sha256": "c13385ee854194447e21b929fd8c996ae4268f8d3ee14a262e6c92f7bdd4030b",
+    "regression_test": "D:\\claude\\poly_alpha_sniper\\tests\\test_frequency_v4_guardian.py",
+    "regression_test_sha256": "2e8b326621c91ad7f51d33339933eb95ab65fc4b49cc75d3ba8b79a82d954959",
+    "focused_guardian_tests": 23,
+    "focused_guardian_result": "PASS",
+    "broader_regression_tests": 218,
+    "broader_regression_result": "PASS",
+    "broader_files": [
+      "tests/test_frequency_v4_guardian.py",
+      "tests/test_frequency_v4_export.py",
+      "tests/test_frequency_v4_runtime.py",
+      "tests/test_frequency_v4_persistence.py",
+      "tests/test_frequency_v4_persistence_integration.py",
+      "tests/test_frequency_v4_prospective_runtime.py"
+    ],
+    "noncanonical_environment_attempt": "NOT_A_TEST_VERDICT_MISSING_AIOHTTP_AND_PYTEST_ASYNCIO_DURING_COLLECTION",
+    "canonical_python": "D:\\claude\\poly_alpha_sniper\\.venv\\Scripts\\python.exe"
+  },
+  "adjacent_timing_audit": {
+    "wall_clock": "EPOCH_ONLY_FOR_DURABLE_TIMESTAMPS_AND_HEARTBEAT_PRESENTATION_NOT_ACK_AGE",
+    "command_age": "WRITER_MONOTONIC",
+    "acknowledgement_latency": "WRITER_MONOTONIC",
+    "guardian_observation_latency": "OBSERVER_MINUS_WRITER_MONOTONIC_SAMPLE",
+    "durable_reconciliation_precedes_binding_stale_snapshot_classification": true,
+    "deadline_weakened": false,
+    "research_semantics_changed": false
+  },
+  "source": {
+    "current_unqualified_tree_sha256": "30b271647532f519a12c81a56b5bb7f152f7150b676aa95405f0d4b88c751436",
+    "entry_count": 672,
+    "fresh_exact_source_qualification_required": true,
+    "prior_recovery3_seal_must_not_rerun": true
+  },
+  "frozen_research_authority": {
+    "successor32_oos_pass_preserved": true,
+    "successor38_runtime_validation_preserved": true,
+    "behavioral_equivalence_preserved": true,
+    "model_unchanged": true,
+    "strategy_unchanged": true,
+    "calibration_unchanged": true,
+    "candidate_semantics_unchanged": true,
+    "tournament_rules_unchanged": true,
+    "risk_and_economic_parameters_unchanged": true,
+    "research_budget_accounting_unchanged": true,
+    "ordinal8_used_for_retuning": false
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "authoritative_v5_wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "authoritative_v5_shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "next_action": "PREPARE_AND_CONSUME_ONE_DISTINCT_FRESH_EXACT_SOURCE_QUALIFICATION_FOR_TREE_30b271647532f519a12c81a56b5bb7f152f7150b676aa95405f0d4b88c751436"
+}
