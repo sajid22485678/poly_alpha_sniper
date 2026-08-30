@@ -1,0 +1,96 @@
+{
+  "classification": "COMBINED_POST_OOS_AUTHORITY_VALID",
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY5_CANONICAL_SOURCE_PROGRESS_V1",
+  "created_ts_ms": 1788062436887,
+  "successor32_research_authority": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+    "classification": "GENUINE_OOS_PASS_ACHIEVED",
+    "source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "oos_pass_not_revoked": true
+  },
+  "successor38_terminal_disposition": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR38-20260828T0323Z",
+    "source_tree_sha256": "b9ef491377329df1575e31553a3b9b469cdfb9b690e495841c41cfb3c61940eb",
+    "runtime_state": "STOPPED",
+    "must_not_relaunch": true
+  },
+  "ordinal8_terminal_failure": {
+    "classification": "BINDING_FALSE_MONITOR_FAILURE_TERMINAL_INADMISSIBLE",
+    "experiment_id": "390ede2935ef05aa940607e83676fdf7e6692f0c5d53c6467915963cc56e5b60",
+    "phase_two_nonce": "69c0d7f05f854b169713a1ce29ee8f5a",
+    "must_not_relaunch_reuse_evaluate_or_reopen": true
+  },
+  "ordinal9_launch_attempt1": {
+    "classification": "COMBINED_SOURCE_AUTHORITY_CONTRACT_REJECTED_BEFORE_LEASE_OR_SESSION",
+    "experiment_id": "76500adcf61137736c5faa8f86512bbc5c581a8f91920befe3ef8e86f316cae3",
+    "phase_two_nonce": "f7c2e38e52ad42fd9f5754c9e7d31ad1",
+    "launcher_pid": 2756,
+    "runtime_pid": 19872,
+    "launch_authority_sha256": "a7258aff6e0eb19428405f0e7ab56548ea7aa65c9f3d2e57a28f06a2c0304b4b",
+    "process_start_sha256": "1e507af1fab4869b37b8c5cd9215874130e65fab5383cf30bff775087b77f7bd",
+    "stderr_sha256": "4e3d03dea6d34ff389d2070e99193fb59f0bdfaede22c187adbab7d620564dc7",
+    "runtime_process_absent": true,
+    "lease_acquired": false,
+    "runtime_session_created": false,
+    "journal_commands_created": false,
+    "candidates_created": false,
+    "must_not_relaunch": true
+  },
+  "qualified_runtime_source": {
+    "source_tree_sha256": "30b271647532f519a12c81a56b5bb7f152f7150b676aa95405f0d4b88c751436",
+    "source_identity": {
+      "branch": "master",
+      "full_suite_errors": 0,
+      "full_suite_exit_code": 0,
+      "full_suite_failures": 0,
+      "full_suite_junit_sha256": "074c167c0512331d726d8e72541f549bdbca7ad29573bb7381b7b0202baec61f",
+      "full_suite_skips": 0,
+      "full_suite_tests": 4295,
+      "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+      "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+      "staged_count": 0,
+      "tested_tree_manifest_sha256": "0810e52c807b6f659ccdbf2712dc63837acc5d69db59014ecc5fadff5ec95bf2",
+      "tested_tree_sha256": "30b271647532f519a12c81a56b5bb7f152f7150b676aa95405f0d4b88c751436",
+      "tracked_modified_count": 62,
+      "untracked_count": 115
+    },
+    "full_suite_result": "PASS",
+    "full_suite_evidence_root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_recovery5_20260830T0205Z",
+    "post_verification_sha256": "8e869ed27f53bb7f85450f3a91079d472e5cd7823dfb2284dbc5cf43b79842c4",
+    "tree_exact": true,
+    "authoritative_v5_equal": true
+  },
+  "behavioral_equivalence": {
+    "classification": "RESEARCH_BEHAVIOR_EQUIVALENT_TO_S32",
+    "research_semantics_unchanged": true,
+    "research_config_surface_diff_count": 0,
+    "evaluator_and_candidate_semantics_unchanged": true,
+    "causal_changes_only": [
+      "monitor command age is reconciled against exact durable command status before snapshot elapsed time is applied",
+      "strict acknowledgement deadlines, research configuration, evaluator logic, candidate semantics, strategy, calibration, tournament rules, risk, economics, and research budget are unchanged"
+    ]
+  },
+  "database_state": {
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "open_runtime_sessions": 0,
+    "tournament_definitions": 9,
+    "tournament_evaluations": 0,
+    "holdout_registrations": 0
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "Create one canonical nine-field combined source authority bound to this artifact, prove build_prospective_v6_config accepts it, then use a fresh nonce for the already registered ordinal9 experiment."
+}
