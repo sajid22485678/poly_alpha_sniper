@@ -1,10 +1,11 @@
 # Poly Alpha status
 
-- State: `FINAL31_RECOVERY4_PHASE_TWO_DEVELOPMENT_ACTIVE_HEALTHY`.
-- Ordinal8 experiment `390ede29...e5b60` is registered exactly once for development `1787997900000..1788041100000` and validation through `1788084300000`.
-- Runtime nonce `69c0d7f...8f5a`, session `4285ff21...2336a`, process pair `4348 -> 14800`; consumed and must not relaunch.
-- Guardian nonce `4ee702a7...f6711`, process pair `17364 -> 16404`, duration 90,000 seconds; consumed and must not restart.
-- Four clean snapshots prove acquisition `6093 -> 6310` candidates, session commits `445 -> 2656`, zero current-session failed/incomplete, zero true loss/mismatch/unexpected loss/overflow, clean DB/FK, and recovered operational health.
-- Recovery3 tree `86730e8d...0d60d` passed 4,293/4,293 exactly once. Do not rerun the seal or mutate source during acquisition.
-- Next: leave runtime and guardian untouched. At or after development end `1788041100000`, reverify exact identity and first-failure authority, then execute the repository-defined exact-once development-end sequence and verify the development result.
+- State: `FINAL31_RECOVERY6_ORDINAL9_PHASE_TWO_DEVELOPMENT_ACTIVE`.
+- Ordinal8 remains terminal and permanently inadmissible. Ordinal9 experiment `76500adc...cae3`, parent-linked to Ordinal8, is sealed with unchanged research semantics for development `1788063000000..1788106200000` and validation through `1788149400000`.
+- Runtime nonce `5efeb9de...cec7b`, session `fee83574...46fb2`, process pair `19556 -> 8832`; consumed and must not relaunch.
+- Guardian nonce `de504f82...cfaaf`, process pair `19960 -> 6968`; consumed once and must not restart.
+- Two clean observations show candidates `12991 -> 12999`, 84,130 committed current-session commands, zero current-session failed/incomplete, zero acknowledgement violations, zero true loss/mismatch/unexpected loss/overflow, clean DB/FK, and fail-closed safety.
+- Independent guardian authority begins at `1788085382134`; the earlier runtime interval is explicitly not backdated as guarded. Final disposition must apply repository coverage requirements fail-closed.
+- Recovery6 tree `d6a1253d...c6365` passed 4,295/4,295 exactly once. Do not rerun the seal or mutate source during acquisition.
+- Next: leave runtime and guardian untouched. At or after development end `1788106200000`, verify exact identity, first-failure authority, and coverage; do not evaluate if coverage requirements are not satisfied.
 - Safety: shadow only; no live/signing/authenticated placement/cancellation; kill engaged; no Phase Three; `V4-HO-001` nonexistent/unconsumed; authoritative v5 immutable.
