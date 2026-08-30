@@ -1,0 +1,58 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY5_REGISTRATION_ATTEMPT_RETIREMENT_V1",
+  "recorded_ts_ms": 1788059769640,
+  "classification": "REGISTRATION_ATTEMPT_TERMINAL_NON_COMMIT_NONCE_RETIRED",
+  "prior_bridge_commit": "1162d6d66f1f401590b81249b2128018b5ce88e8",
+  "parent_experiment_id": "390ede2935ef05aa940607e83676fdf7e6692f0c5d53c6467915963cc56e5b60",
+  "parent_ordinal": 8,
+  "parent_disposition": "TERMINAL_PERMANENTLY_INADMISSIBLE_MUST_NOT_RELAUNCH_REUSE_EVALUATE_OR_REOPEN",
+  "registration_nonce": "0e8164ca0d594cda8b7071d7321f72da",
+  "registration_nonce_disposition": "CONSUMED_RETIRED_MUST_NOT_REUSE",
+  "operator_script": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\register_final31_recovery5_failed_guardian_successor_once.py",
+  "operator_script_sha256": "d8d18995d390211bac9af75bfa5c9a70da8b6eb26817187ee1103d3d104d18d6",
+  "created_ts_ms": 1788058292838,
+  "development_not_before_ts_ms": 1788059492838,
+  "authority_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\v4_pr_001_final31_recovery5_failed_guardian_registration_authority.json",
+  "authority_sha256": "681f1d91fb551acfe51e6656815a880c3a651e21024c528acdadc09e95dc4082",
+  "lease_acquired_sha256": "f661253340bf5eca03afe1bb7289b36ecd8cda4e5a992c61239cb76a276f4fd2",
+  "lease_released_sha256": "0ffb577a80b762b00b73453bab33fa5ad5948faaf1abe7d7094947e473a67c58",
+  "result_artifact": "ABSENT",
+  "terminal_error": {
+    "writer_start": "TimeoutError after 600 seconds",
+    "writer_close": "V4PersistenceTimeout: persistence writer did not stop after draining",
+    "cause": "exact-v6 lease/store startup verification exceeded the operator timeout on the large database",
+    "source_or_research_defect": false
+  },
+  "durable_reconciliation": {
+    "lease_owner_pid": 9956,
+    "lease_owner_process_state": "EXITED",
+    "lease_released": true,
+    "registration_command_present": false,
+    "child_definition_present": false,
+    "strategy_definition_count": 8,
+    "open_runtime_sessions": 0,
+    "holdout_consumed": false,
+    "ordinal8_reopened_or_evaluated": false
+  },
+  "source_qualification": {
+    "tested_tree": "30b271647532f519a12c81a56b5bb7f152f7150b676aa95405f0d4b88c751436",
+    "tests_passed": 4295,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "status": "PASS_UNCHANGED"
+  },
+  "next_action": "Create a distinct failed-parent registration authority with a fresh nonce and startup/drain timeout exceeding the measured exact-v6 verification duration; re-run check-only, then execute exactly once if disk state remains unchanged.",
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_mutated": false
+  }
+}
