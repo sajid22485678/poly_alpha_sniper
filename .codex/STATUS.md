@@ -1,5 +1,13 @@
 # Poly Alpha status
 
+## Prospective research-budget epoch 2 causal fix
+
+- The preregistered epoch-2 mechanism is implemented without rewriting the original ten-slot budget or any predecessor definition.
+- RED was proven at the pure experiment contract, promotion gate, and exact-v6 registration boundaries. Focused contract/statistics/schema-v6 and broader persistence/store/tournament suites are green.
+- The only admissible extension is global ordinal 11 as epoch 2 local slot 1, with one `0.005` test after disk proves zero prior evaluation runs and commands. Cumulative alpha would be `0.005` under the unchanged `0.05` family cap.
+- Registration fails closed unless the database proves the ten contiguous predecessor slots, identical historical fixed budgets, exact parent-budget and authority hashes, unchanged research/candidate semantics, and the existing guarded-start authority.
+- Next: one distinct exact source qualification. No registration, runtime, session, guardian, evaluation, holdout, or later phase has been created.
+
 ## Recovery_10 owner boundary
 
 - The exactly one owner-authorized replacement registration was consumed once and failed closed: `tournament continuation exceeds research budget`.
