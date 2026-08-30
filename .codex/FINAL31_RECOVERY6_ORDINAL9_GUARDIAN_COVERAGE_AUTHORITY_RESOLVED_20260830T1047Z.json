@@ -1,0 +1,72 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY6_ORDINAL9_GUARDIAN_COVERAGE_AUTHORITY_RESOLUTION_V1",
+  "created_ts_ms": 1788086820000,
+  "prior_bridge_commit": "ddd760d7eddb1aa4818ad9b70137e5fe54375d2d",
+  "classification": "DEVELOPMENT_WINDOW_INVALIDATED_BY_COVERAGE_GAP",
+  "experiment_id": "76500adcf61137736c5faa8f86512bbc5c581a8f91920befe3ef8e86f316cae3",
+  "runtime_session_id": "fee83574c0b54aa0b034d3d1f3746fb2",
+  "runtime_started_ts_ms": 1788072306888,
+  "guardian_first_observed_ts_ms": 1788085382134,
+  "guardian_coverage_gap_ms": 13075246,
+  "authority": {
+    "durable_failure_matrix": {
+      "path": ".codex/STABILIZATION_FAILURE_MATRIX_AND_ADJACENT_FIXES.json",
+      "sha256": "1bc8384a86556a6a81823cfce79f11a1b81016847a6dc4febd446a1b7baddcc3",
+      "contract": "POLY_ALPHA_PRE_FINAL_SUCCESSOR_STABILIZATION_MATRIX_V1",
+      "successor31_root_cause": "Prediction collection began 54,517 ms before independent guardian coverage.",
+      "production_fix": "Preregistered ten-minute guarded-start interval before OOS prediction start.",
+      "status": "ACTIVE_GREEN"
+    },
+    "repository_contract": {
+      "source": "lite_frequency_v4/prospective_config.py",
+      "function": "build_prospective_calibration_protocol",
+      "rule": "Reserve ten minutes for independently guarded startup before collection.",
+      "tests": [
+        "tests/test_frequency_v4_prospective_config.py::test_calibration_protocol_reserves_ten_minutes_before_collection",
+        "tests/test_frequency_v4_prospective_runtime.py prospective protocol timing assertions"
+      ],
+      "interpretation": "Guardian admission is a prerequisite to admissible prospective collection, not a post-hoc monitoring convenience."
+    },
+    "owner_host_loss_contract": {
+      "classification_option": "DEVELOPMENT_WINDOW_INVALIDATED_BY_COVERAGE_GAP",
+      "rule": "If continuous guardian/runtime coverage is mandatory, mark the original development cycle inadmissible for final selection while preserving collected data as forensic/supporting evidence.",
+      "continuation_rule": "Use a fresh parent-linked continuation/development interval with unchanged semantics, fresh runtime nonce, fresh guardian nonce, and fresh preregistered clock window; never misrepresent prior data as continuous coverage."
+    }
+  },
+  "decision": {
+    "continuous_guardian_coverage_mandatory": true,
+    "ordinal9_admissible_for_final_selection": false,
+    "ordinal9_evaluation_authorized": false,
+    "ordinal9_data_preservation": "FORENSIC_SUPPORTING_ONLY_NO_TUNING_NO_POOLING",
+    "coverage_backfill_or_retroactive_cure_allowed": false,
+    "runtime_or_guardian_relaunch_allowed": false
+  },
+  "latest_owner_authority_boundary": {
+    "fresh_parent_linked_experiments_authorized_after_ordinal8": 1,
+    "fresh_parent_linked_experiments_consumed_after_ordinal8": 1,
+    "automatic_second_replacement_experiment_authorized": false,
+    "owner_authority_required_after_terminal_closure": "AUTHORIZE_ONE_DISTINCT_PARENT_LINKED_PHASE_TWO_DEVELOPMENT_INTERVAL_WITH_UNCHANGED_RESEARCH_SEMANTICS_AND_A_PREREGISTERED_GUARDED_START"
+  },
+  "terminal_sequence": {
+    "execute_before_development_end": false,
+    "development_end_ts_ms": 1788106200000,
+    "prepared_checkpoint": ".codex/FINAL31_RECOVERY6_ORDINAL9_DEVELOPMENT_END_OPERATORS_PREPARED_20260830T1042Z.json",
+    "execute_order_at_or_after_boundary": [
+      "GUARDIAN_TERMINAL",
+      "RUNTIME_STOP_REQUEST",
+      "TERMINAL_RECONCILIATION"
+    ],
+    "evaluation_after_terminal_reconciliation": "PROHIBITED"
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "holdout": "V4-HO-001_NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false,
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "Leave the consumed runtime and guardian untouched until development end. Execute the prepared fail-closed terminal sequence exactly once after the boundary. Then stop at the owner boundary; do not create or launch another experiment without distinct owner authorization."
+}
