@@ -1,0 +1,60 @@
+{
+  "classification": "FINAL31_RECOVERY5_SOURCE_QUALIFICATION_PASS",
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY5_SOURCE_QUALIFICATION_V1",
+  "created_ts_ms": 1788057183688,
+  "prior_bridge_commit": "ae6d418c7603ff96f6f5f7f6d725d97849113e79",
+  "authority": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_recovery5_20260830T0205Z",
+    "tested_tree_sha256": "30b271647532f519a12c81a56b5bb7f152f7150b676aa95405f0d4b88c751436",
+    "manifest_sha256": "0810e52c807b6f659ccdbf2712dc63837acc5d69db59014ecc5fadff5ec95bf2",
+    "runner_sha256": "ae87fc2a35e4824a3ffcf72e87866d2434390561cb39938b686a99d6093a2fe1",
+    "junit_sha256": "074c167c0512331d726d8e72541f549bdbca7ad29573bb7381b7b0202baec61f",
+    "post_verification_sha256": "8e869ed27f53bb7f85450f3a91079d472e5cd7823dfb2284dbc5cf43b79842c4",
+    "pytest_launch_count": 1,
+    "pytest_exit_code": 0,
+    "tests": 4295,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "tree_exact": true,
+    "verified": true,
+    "must_not_rerun": true
+  },
+  "causal_scope": {
+    "monitor_timing_fix_only": true,
+    "research_semantics_unchanged": true,
+    "model_unchanged": true,
+    "strategy_unchanged": true,
+    "calibration_unchanged": true,
+    "candidate_semantics_unchanged": true,
+    "tournament_rules_unchanged": true,
+    "risk_and_economic_parameters_unchanged": true,
+    "research_budget_accounting_unchanged": true,
+    "retuning_performed": false
+  },
+  "ordinal8": {
+    "experiment_id": "390ede2935ef05aa940607e83676fdf7e6692f0c5d53c6467915963cc56e5b60",
+    "disposition": "PERMANENTLY_INADMISSIBLE",
+    "runtime_absent": true,
+    "guardian_absent": true,
+    "lease_released": true,
+    "nonce_retired": true,
+    "must_not_relaunch_reuse_evaluate_or_reopen": true
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "authoritative_v5_wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "authoritative_v5_shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "next_action": "REGISTER_ONE_FRESH_PARENT_LINKED_PHASE_TWO_DEVELOPMENT_EXPERIMENT_WITH_UNCHANGED_FROZEN_RESEARCH_SEMANTICS"
+}
