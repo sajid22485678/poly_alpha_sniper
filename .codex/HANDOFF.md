@@ -1,5 +1,7 @@
 # Poly Alpha handoff
 
+Read `.codex/FINAL31_RECOVERY7_CAUSAL_FIX_EXACT_SOURCE_QUALIFICATION_PASS_20260830T1725Z.json` first. Recovery7 tree `aae75d18...049f0` passed 4,299/4,299 exactly once. Ordinal9 is terminal/inadmissible and must never be evaluated, relaunched, or pooled. The single owner-authorized guarded replacement remains unconsumed. Create the canonical Recovery7 source-adoption authority, then register and launch exactly one fresh parent-linked Phase-Two experiment. Guardian identity and its first clean exact-session observation must be proven before the preregistered development interval opens. A further replacement requires distinct owner authority.
+
 Read `.codex/FINAL31_RECOVERY6_ORDINAL9_COVERAGE_CONTINUATION_TDD_PLAN_20260830T1143Z.json` first, then the replacement-authority, coverage-resolution, and prepared-operators checkpoints.
 
 Ordinal8 is terminal and permanently inadmissible. Ordinal9 is the active exact Phase-Two development identity: runtime `19556 -> 8832`, nonce `5efeb9de...cec7b`, session `fee83574...46fb2`; guardian `19960 -> 6968`, nonce `de504f82...cfaaf`. Both are consumed: never relaunch or restart them. Two observations are clean and show acquisition growth with zero binding persistence, acknowledgement, reconciliation, integrity, or safety violation.

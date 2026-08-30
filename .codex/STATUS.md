@@ -1,5 +1,13 @@
 # Poly Alpha status
 
+## Recovery7 exact source qualification
+
+- Ordinal9 is terminal, permanently inadmissible, reconciled, and was not evaluated or relaunched.
+- The causal RED cases reproduced the missing coverage-authority registration, stale Phase-Two session binding, and heartbeat/state-export coupling.
+- Minimal fixes are green across guardian, runtime, engine, exact-v6 schema/reconciliation, prospective runtime/research, and persistence suites. Frozen research semantics and all strict deadlines remain unchanged.
+- Recovery7 tested tree `aae75d18...049f0` passed 4,299/4,299 exactly once with zero failures/errors/skips, exact post-tree equality, and byte-identical authoritative v5.
+- Exactly one guarded replacement authority is admitted and still unconsumed. Next: canonical source adoption, then fresh experiment/runtime/session/guardian identities with a verified first clean exact-session guardian observation before development opens.
+
 - State: `FINAL31_RECOVERY6_ORDINAL9_PHASE_TWO_DEVELOPMENT_ACTIVE`.
 - Ordinal8 remains terminal and permanently inadmissible. Ordinal9 experiment `76500adc...cae3`, parent-linked to Ordinal8, is sealed with unchanged research semantics for development `1788063000000..1788106200000` and validation through `1788149400000`.
 - Runtime nonce `5efeb9de...cec7b`, session `fee83574...46fb2`, process pair `19556 -> 8832`; consumed and must not relaunch.
