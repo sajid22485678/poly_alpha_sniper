@@ -1,0 +1,108 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY6_ORDINAL9_DEVELOPMENT_END_OPERATORS_PREPARED_V1",
+  "created_ts_ms": 1788086470000,
+  "prior_bridge_commit": "1cff5faadf60f8eac54aca463b8e68a8d7b70acb",
+  "classification": "PREPARED_NOT_EXECUTED_FAIL_CLOSED_COVERAGE_GAP_DISPOSITION",
+  "experiment_id": "76500adcf61137736c5faa8f86512bbc5c581a8f91920befe3ef8e86f316cae3",
+  "parent_experiment_id": "390ede2935ef05aa940607e83676fdf7e6692f0c5d53c6467915963cc56e5b60",
+  "development_end_ts_ms": 1788106200000,
+  "runtime": {
+    "session_id": "fee83574c0b54aa0b034d3d1f3746fb2",
+    "launch_nonce": "5efeb9de7483440e91924d6e9e0cec7b",
+    "launcher_pid": 19556,
+    "launcher_create_time": 1788071256.28923,
+    "runtime_pid": 8832,
+    "runtime_create_time": 1788071256.316973,
+    "must_not_relaunch": true
+  },
+  "guardian": {
+    "guardian_nonce": "de504f8217444a6baee975df5ecbfaaf",
+    "wrapper_pid": 19960,
+    "wrapper_create_time": 1788085381.047864,
+    "worker_pid": 6968,
+    "worker_create_time": 1788085381.0962136,
+    "must_not_restart": true,
+    "runtime_started_ts_ms": 1788072306888,
+    "first_observed_ts_ms": 1788085382134,
+    "coverage_gap_ms": 13075246,
+    "coverage_backdated": false
+  },
+  "operators": [
+    {
+      "order": 1,
+      "role": "GUARDIAN_TERMINAL",
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_recovery6_ordinal9_development_guardian_terminal_once.py",
+      "sha256": "142e15cc5ea90e76cf8f183815efef2f6a80369fbd7a25ff8ca4b2b4cb02c6e9",
+      "execute_flag": "--execute",
+      "prepared": true,
+      "executed": false,
+      "terminal_classification": "GUARDIAN_TERMINAL_WITH_PRE_COVERAGE_GAP_AT_DEVELOPMENT_BOUNDARY"
+    },
+    {
+      "order": 2,
+      "role": "RUNTIME_STOP_REQUEST",
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_recovery6_ordinal9_development_runtime_stop_once.py",
+      "sha256": "aa45f16d7847cc4e958580875c79584d2a04aa95bf322c8057a3fd37c05635cb",
+      "execute_flag": "--execute",
+      "prepared": true,
+      "executed": false,
+      "expected_stop_request_sha256": "aa538e1c090ce3caffaeb34962f8fb08c8b9d8ec99f64d42e7799a96add71712"
+    },
+    {
+      "order": 3,
+      "role": "TERMINAL_RECONCILIATION",
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\reconcile_final31_recovery6_ordinal9_development_terminal_once.py",
+      "sha256": "84f00e6efe864f5d66497aee12206045a1f727d17907dcf4ae23920d0fb825b1",
+      "execute_flag": "--execute",
+      "prepared": true,
+      "executed": false,
+      "terminal_classification": "FINAL31_RECOVERY6_ORDINAL9_DEVELOPMENT_TERMINAL_INADMISSIBLE_GUARDIAN_COVERAGE_GAP"
+    }
+  ],
+  "verification": {
+    "wrapper_static_compile": "PASS_3_OF_3",
+    "guardian_terminal_inert_preflight": "PASS",
+    "runtime_stop_inert_preflight": "PASS",
+    "terminal_reconciliation_inert_preflight": "PASS_OUTPUT_ABSENT",
+    "runtime_stop_preflight_ts_ms": 1788086340365,
+    "runtime_stop_boundary_eligible": false,
+    "runtime_stop_remaining_ms": 19859635,
+    "current_session_commands": {
+      "COMMITTED": 21039
+    },
+    "current_session_failed": 0,
+    "current_session_incomplete": 0,
+    "critical_acknowledgement_violations": 0,
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "holdout_registrations": 0,
+    "evaluation_runs": 0
+  },
+  "timing_separation": {
+    "critical_command_acknowledgement_deadline_ms": 15000,
+    "deadline_changed": false,
+    "guardian_observation_age_limit_ms": 180000,
+    "guardian_sleep_interval_detection": "STDOUT_EMISSION_AGE_NOT_MONITOR_OBSERVATION_START_AGE",
+    "reason": "The full read-only guardian census takes about 80-120 seconds. Observation-start age and emission/sleep age are separate clocks and must not be conflated with command acknowledgement latency."
+  },
+  "evaluation": {
+    "operator_prepared": false,
+    "authorized": false,
+    "reason": "Independent guardian coverage began after runtime start. The terminal sequence preserves the cohort but classifies it inadmissible unless separate repository authority proves incomplete coverage is admissible; no such authority exists."
+  },
+  "next_action": "Before development end, execute nothing. At or after 1788106200000, reverify first-failure authority and exact process identities, then execute the three prepared operators once in order. Do not prepare or execute evaluation for this cohort.",
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "holdout": "V4-HO-001_NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false,
+    "authoritative_v5_immutable": true
+  }
+}

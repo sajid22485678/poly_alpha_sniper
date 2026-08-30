@@ -7,5 +7,6 @@
 - Two clean observations show candidates `12991 -> 12999`, 84,130 committed current-session commands, zero current-session failed/incomplete, zero acknowledgement violations, zero true loss/mismatch/unexpected loss/overflow, clean DB/FK, and fail-closed safety.
 - Independent guardian authority begins at `1788085382134`; the earlier runtime interval is explicitly not backdated as guarded. Final disposition must apply repository coverage requirements fail-closed.
 - Recovery6 tree `d6a1253d...c6365` passed 4,295/4,295 exactly once. Do not rerun the seal or mutate source during acquisition.
-- Next: leave runtime and guardian untouched. At or after development end `1788106200000`, verify exact identity, first-failure authority, and coverage; do not evaluate if coverage requirements are not satisfied.
+- The exact guardian-terminal, runtime-stop, and terminal-reconciliation operators are prepared and inertly verified. None has executed. Evaluation is deliberately unprepared and unauthorized because the pre-guardian coverage gap remains inadmissible.
+- Next: leave runtime and guardian untouched. At or after development end `1788106200000`, verify exact identity and first-failure authority, then execute the three prepared terminal operators once in order. Do not evaluate Ordinal9.
 - Safety: shadow only; no live/signing/authenticated placement/cancellation; kill engaged; no Phase Three; `V4-HO-001` nonexistent/unconsumed; authoritative v5 immutable.
