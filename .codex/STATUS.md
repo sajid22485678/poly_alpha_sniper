@@ -1,5 +1,14 @@
 # Poly Alpha status
 
+## Recovery_10 exact source qualification
+
+- Recovery_10 tested tree `7a938096...cddc8` passed 4,300/4,300 exactly once with zero failures, errors, or skips, exact post-tree equality, and byte-identical authoritative v5.
+- The causal contract now admits a zero-collection guarded-start failure captured after parent registration and strictly before development opens. Its two-hour evidence-derived lead, safety margin, and strict acknowledgement/persistence deadlines remain unchanged.
+- The earlier `RECOVERY10` preparation-only identity hit an old-token naming collision and never launched pytest; it is preserved. The non-colliding `RECOVERY_10` seal is authoritative.
+- Exactly one owner-authorized replacement experiment remains unconsumed. No runtime, session, lease, or guardian exists.
+- Next: bind the Recovery_10 source authority, register the single replacement with a 7,200,000 ms lead, and prove a clean exact-session guardian observation before development collection becomes admissible.
+- Safety: shadow only; live/signing/authenticated placement/cancellation unavailable; kill engaged; no Phase Three; `V4-HO-001` nonexistent/unconsumed; authoritative v5 immutable.
+
 ## Recovery7 exact source qualification
 
 - Ordinal9 is terminal, permanently inadmissible, reconciled, and was not evaluated or relaunched.
