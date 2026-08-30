@@ -1,0 +1,59 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY5_ORDINAL9_REGISTRATION_CHECKPOINT_V1",
+  "recorded_ts_ms": 1788061438544,
+  "classification": "ORDINAL9_PARENT_LINKED_DEVELOPMENT_EXPERIMENT_REGISTERED_RUNTIME_NOT_LAUNCHED",
+  "prior_bridge_commit": "ed0570d9daef449124c9cf65821b1a9f22f75cc6",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+  "source": {
+    "tested_tree": "30b271647532f519a12c81a56b5bb7f152f7150b676aa95405f0d4b88c751436",
+    "tests_passed": 4295,
+    "status": "EXACT_QUALIFICATION_PASS"
+  },
+  "parent": {
+    "experiment_id": "390ede2935ef05aa940607e83676fdf7e6692f0c5d53c6467915963cc56e5b60",
+    "ordinal": 8,
+    "disposition": "TERMINAL_PERMANENTLY_INADMISSIBLE"
+  },
+  "registration": {
+    "attempt": 2,
+    "nonce": "f2dfdd3ecfd448c2b7d236af9f2a1936",
+    "nonce_disposition": "CONSUMED_MUST_NOT_REUSE",
+    "authority_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\v4_pr_001_final31_recovery5_failed_guardian_registration_attempt2_authority.json",
+    "authority_sha256": "b343c0b2638c455cca3e990b7acc77b834b94c9d66cb43ea36b90fce3de57c2b",
+    "result_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\v4_pr_001_final31_recovery5_failed_guardian_registration_attempt2_result.json",
+    "result_sha256": "2d8d13f6cfcbda9b25c3cc831d2fb19d30ec9e466ee6644e6c70eba9ded6852f",
+    "lease_acquired_sha256": "c351dab83d869382a2a6149ef0e122b9c6dbc0bbcd2ddf258266a782e5e392a9",
+    "lease_released_sha256": "0d19359c0270762dcf1723fb7dcfa0ff79899a01334391f745bfd298d5ed65ab"
+  },
+  "experiment": {
+    "experiment_id": "76500adcf61137736c5faa8f86512bbc5c581a8f91920befe3ef8e86f316cae3",
+    "ordinal": 9,
+    "incumbent_candidate_id": "51ca77223fbb874163be09bc8accfab9cebb63102557437ccc82f4b66a955e8e",
+    "challenger_candidate_id": "26f0b8cd6b0a91b24f99f259fd86c126685e93ac28e79631f5b9b6ce82c16ae1",
+    "created_ts_ms": 1788060016197,
+    "development_start_ts_ms": 1788063000000,
+    "development_end_ts_ms": 1788106200000,
+    "validation_end_ts_ms": 1788149400000,
+    "research_semantics_unchanged": true,
+    "retuning_performed": false,
+    "runtime_launched": false,
+    "guardian_launched": false
+  },
+  "reserved_fresh_identities": {
+    "phase_two_nonce": "f7c2e38e52ad42fd9f5754c9e7d31ad1",
+    "guardian_nonce": "de504f8217444a6baee975df5ecbfaaf"
+  },
+  "holdout": "V4-HO-001_NONEXISTENT_UNCONSUMED",
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "authoritative_v5_mutated": false
+  },
+  "next_action": "Prepare, independently check, and execute exactly once the fresh ordinal9 Phase-Two runtime launch bound to the Recovery5 qualified tree and registered experiment; then launch one fresh independent guardian using the canonical durable-status acknowledgement-age calculation."
+}
