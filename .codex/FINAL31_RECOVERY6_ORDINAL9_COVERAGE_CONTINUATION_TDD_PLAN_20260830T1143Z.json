@@ -1,0 +1,78 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY6_ORDINAL9_COVERAGE_CONTINUATION_TDD_PLAN_V1",
+  "created_ts_ms": 1788090232644,
+  "prior_bridge_commit": "d7832de6df8385f2d7dafba836369a6fba3febe6",
+  "classification": "SOURCE_WORK_REQUIRED_AFTER_ORDINAL9_TERMINAL_RECONCILIATION",
+  "source_mutation_status": "EMBARGOED_WHILE_ORDINAL9_ACTIVE",
+  "causal_finding": {
+    "registration_contract": "register_prospective_tournament accepts a collected failed parent only through failed_parent_guardian_sha256 plus failed_parent_captured_ts_ms, which would falsely characterize Ordinal9's coverage-gap authority as a guardian failure artifact.",
+    "reconciliation_contract": "validate_existing_exact_v6_connection allowlists the same closed payload shapes and therefore cannot verify a first-class coverage-invalidated continuation journal.",
+    "guarded_start": "development_not_before_ts_ms already provides a ten-minute future scheduling lead, and tournament evaluation selects candidates by the preregistered half-open interval. A replacement launched and independently observed before that future start has no admissible pre-guardian collection.",
+    "conclusion": "Add one first-class coverage-invalidated-parent registration shape; do not reuse guardian-failure fields and do not redesign research or runtime semantics."
+  },
+  "proposed_closed_payload": {
+    "required_fields": [
+      "calibration_protocol_id",
+      "created_ts_ms",
+      "parent_experiment_id",
+      "failed_parent_coverage_authority_sha256",
+      "failed_parent_coverage_captured_ts_ms",
+      "failed_parent_coverage_gap_ms",
+      "development_not_before_ts_ms"
+    ],
+    "validation": [
+      "coverage authority SHA-256 is lowercase hexadecimal length 64",
+      "coverage captured timestamp is inside the parent development or validation schedule",
+      "created timestamp is after the coverage captured timestamp",
+      "coverage gap is a positive integer",
+      "the parent has collected prospective candidates and has no evaluation run or existing child",
+      "development not-before is at least created timestamp plus ten minutes",
+      "all frozen experiment, research-budget, and candidate semantics equal the parent after identity fields are removed"
+    ]
+  },
+  "fail_first_red": [
+    {
+      "file": "tests/test_frequency_v4_schema_v6.py",
+      "case": "coverage-invalidated collected parent with exact authority fields and ten-minute lead registers one child",
+      "current_expected_failure": "ValueError: prospective tournament registration fields differ from contract"
+    },
+    {
+      "file": "tests/test_frequency_v4_schema_v6.py",
+      "case": "coverage continuation rejects missing/malformed hash, timestamp outside parent schedule, nonpositive gap, insufficient lead, evaluated parent, or an existing child",
+      "current_expected_failure": "closed contract does not yet recognize the authority class"
+    },
+    {
+      "file": "tests/test_frequency_v4_schema_v6.py",
+      "case": "exact-v6 journal reconciliation accepts and independently verifies the new exact payload shape",
+      "current_expected_failure": "tournament-registration bundle differs"
+    },
+    {
+      "file": "tests/test_frequency_v4_prospective_research.py",
+      "case": "development not-before preserves unchanged definitions and rounds to a future five-minute boundary",
+      "current_expected_failure": "existing behavior should remain green as a non-regression control"
+    }
+  ],
+  "minimal_implementation": [
+    "Extend the register_prospective_tournament closed field allowlist and shape validation with the dedicated coverage-authority fields.",
+    "Add a mutually exclusive coverage-invalidated-parent branch using collected_count greater than zero and the strict ten-minute not-before lead.",
+    "Pass the existing development_not_before_ts_ms into build_v4_pr_001_definitions without changing any research semantics.",
+    "Extend validate_existing_exact_v6_connection journal-shape verification for exactly the new payload.",
+    "Do not change acknowledgement deadlines, persistence deadlines, candidate selection, tournament metrics, calibration, execution, risk, or economic parameters."
+  ],
+  "verification_order": [
+    "prove the new focused tests RED on the post-terminal current tree",
+    "apply the smallest source fix",
+    "run focused schema-v6 registration and reconciliation tests",
+    "run prospective research, persistence, runtime, guardian, and timing regression suites",
+    "perform one distinct fresh exact source qualification",
+    "register the single replacement only after the source qualification and all prelaunch gates pass"
+  ],
+  "ordinal9_evidence_binding": {
+    "coverage_resolution_path": ".codex/FINAL31_RECOVERY6_ORDINAL9_GUARDIAN_COVERAGE_AUTHORITY_RESOLVED_20260830T1047Z.json",
+    "coverage_resolution_sha256": "TO_BE_RECOMPUTED_AND_BOUND_AT_POST_TERMINAL_IMPLEMENTATION",
+    "coverage_captured_ts_ms": 1788086820000,
+    "coverage_gap_ms": 13075246,
+    "use_for_tuning_or_selection": false
+  },
+  "next_action": "Do not edit source while Ordinal9 is active. At development end execute and verify its exact terminal sequence. After clean terminal reconciliation, recompute the authority hash, create the RED tests from this plan, prove RED, implement the minimal closed-contract extension, verify, and fresh-seal before consuming the single replacement authority."
+}

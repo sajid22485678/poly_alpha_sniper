@@ -1,11 +1,13 @@
 # Poly Alpha handoff
 
-Read `.codex/FINAL31_RECOVERY6_ORDINAL9_REPLACEMENT_AUTHORITY_ADMITTED_20260830T1136Z.json` first, then the referenced coverage-resolution and prepared-operators checkpoints.
+Read `.codex/FINAL31_RECOVERY6_ORDINAL9_COVERAGE_CONTINUATION_TDD_PLAN_20260830T1143Z.json` first, then the replacement-authority, coverage-resolution, and prepared-operators checkpoints.
 
 Ordinal8 is terminal and permanently inadmissible. Ordinal9 is the active exact Phase-Two development identity: runtime `19556 -> 8832`, nonce `5efeb9de...cec7b`, session `fee83574...46fb2`; guardian `19960 -> 6968`, nonce `de504f82...cfaaf`. Both are consumed: never relaunch or restart them. Two observations are clean and show acquisition growth with zero binding persistence, acknowledgement, reconciliation, integrity, or safety violation.
 
 Guardian authority begins at `1788085382134`; do not claim the earlier runtime interval was independently guarded. Disk authority proves continuous guardian coverage is mandatory: the S31 stabilization record identifies even a 54,517 ms pre-guardian interval as a binding defect and establishes the guarded-start invariant. Ordinal9's 13,075,246 ms gap therefore makes it forensic/supporting evidence only. The exact terminal operators are prepared and inertly verified. Leave both processes untouched until development end `1788106200000`; then execute the terminal sequence once in order, without evaluation.
 
 The owner has now authorized exactly one replacement parent-linked Phase-Two development experiment after clean Ordinal9 terminal reconciliation. It must use fresh identities and a preregistered guarded start: runtime/session admission, lease and session commit, guardian launch and identity verification, and a first clean guardian observation must all precede admissible development collection. Frozen research/model/strategy/calibration/tournament/risk/economic/candidate semantics remain unchanged; retuning and Ordinal9-based selection are prohibited. A further replacement would require another distinct owner packet.
+
+Read-only contract audit proves a small source extension is required after terminal reconciliation. The exact-v6 writer can currently continue a collected failed parent only through fields that specifically claim a guardian failure artifact; using them for Ordinal9's coverage-gap authority would falsify lineage. Add the dedicated coverage-authority payload described in the TDD plan, including strict ten-minute `development_not_before_ts_ms`, and extend exact-v6 reconciliation. Source edits remain embargoed while Ordinal9 is active; after terminal closure, prove RED, implement minimally, run affected suites, and fresh-seal exactly once before registration.
 
 Safety remains fail-closed: live and real orders disabled, signing/authenticated placement/cancellation unavailable, kill engaged, authoritative v5 immutable, `V4-HO-001` nonexistent/unconsumed, and no Phase Three.
