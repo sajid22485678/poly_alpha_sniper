@@ -1,5 +1,13 @@
 # Poly Alpha status
 
+## Recovery_10 owner boundary
+
+- The exactly one owner-authorized replacement registration was consumed once and failed closed: `tournament continuation exceeds research budget`.
+- Parent ordinal is 10; a child would be ordinal 11, while the frozen research budget permits at most 10 confirmatory challengers. No research parameter was changed or retuned.
+- The failed transaction created no child definition. Lease release, quick-check, FK state, journal terminality, zero open sessions/evaluations/holdout, and authoritative-v5 hashes are clean.
+- No runtime or guardian was launched. The registration and nonce must not be retried.
+- Next: stop and obtain distinct owner authority before any research-budget change or further experiment.
+
 ## Recovery_10 exact source qualification
 
 - Recovery_10 tested tree `7a938096...cddc8` passed 4,300/4,300 exactly once with zero failures, errors, or skips, exact post-tree equality, and byte-identical authoritative v5.
