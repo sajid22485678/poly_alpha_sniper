@@ -15,3 +15,12 @@
 - The existing future `development_not_before_ts_ms` contract and interval-selected tournament population are sufficient for guarded start once the new authority class is admitted: launch and verify the guardian during the ten-minute lead, before the preregistered development interval opens.
 - Next: leave runtime and guardian untouched. At or after development end `1788106200000`, verify exact identity and first-failure authority, then execute the three prepared terminal operators once in order. Do not evaluate Ordinal9. After clean terminal reconciliation, consume the new authority exactly once for the guarded replacement.
 - Safety: shadow only; no live/signing/authenticated placement/cancellation; kill engaged; no Phase Three; `V4-HO-001` nonexistent/unconsumed; authoritative v5 immutable.
+
+## Ordinal9 terminal result
+
+- A binding guardian failure occurred at `1788104520596`: `heartbeat_age_ms:34653`, SHA-256 `5b9efc01...1e61df0`. It is genuine under the frozen contract and later heartbeat recovery does not cure it.
+- The prepared clean guardian-terminal operator was not executed because it correctly rejects any existing guardian failure artifact.
+- A new exact failure-closure operator created one nonce/PID-bound stop request. The runtime exited gracefully, released its lease, removed its lock and stop request, and was not relaunched.
+- Terminal reconciliation passed: `53,596` exact-session commands committed, quick-check `ok`, zero FK/duplicate/open-session/evaluation/holdout/mismatch/unexpected-loss/true-critical-loss.
+- Additional defects are preserved for RED: stale predecessor-session binding in `phase_two_integrity`, and a terminal writer timeout latch followed by a durable late critical success.
+- The single guarded replacement authority remains admitted but unconsumed. Source RED/fix/verification and a fresh exact seal are mandatory before it can be used.

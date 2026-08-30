@@ -1,0 +1,89 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY6_ORDINAL9_BINDING_FAILURE_TERMINAL_RECONCILED_V1",
+  "created_ts_ms": 1788108516209,
+  "prior_bridge_commit": "467c9a9cb530bf7d2e150680989d123ec17fd960",
+  "classification": "ORDINAL9_TERMINAL_INADMISSIBLE_BINDING_GUARDIAN_HEARTBEAT_LIVENESS_FAILURE",
+  "experiment_id": "76500adcf61137736c5faa8f86512bbc5c581a8f91920befe3ef8e86f316cae3",
+  "session_id": "fee83574c0b54aa0b034d3d1f3746fb2",
+  "launch_nonce": "5efeb9de7483440e91924d6e9e0cec7b",
+  "development_end_ts_ms": 1788106200000,
+  "first_binding_failure": {
+    "captured_ts_ms": 1788104520596,
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_failure_final31_recovery6_1788104520596.json",
+    "sha256": "5b9efc01fa113d039205cf3354247d418b5554ba8109e554c04459df41e61df0",
+    "violations": [
+      "heartbeat_age_ms:34653"
+    ],
+    "later_recovery_cures_failure": false,
+    "guardian_restarted": false
+  },
+  "contradicted_prepared_operator": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_recovery6_ordinal9_development_guardian_terminal_once.py",
+    "sha256": "142e15cc5ea90e76cf8f183815efef2f6a80369fbd7a25ff8ca4b2b4cb02c6e9",
+    "executed": false,
+    "reason": "The operator correctly refuses any existing guardian failure artifact and therefore became inapplicable when the binding first failure occurred."
+  },
+  "failure_stop": {
+    "operator_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_recovery6_ordinal9_guardian_failure_runtime_stop_once.py",
+    "operator_sha256": "c4c6988032df658ff2523c45575a55bac31c50dbb92344da087cbc4cf5d2f24b",
+    "declaration_sha256": "73d060c61a53a838858abebf85e47955615d82c31ce1558cedf46ec87a51e007",
+    "authority_sha256": "e5fb63ea6ac741e8abe2c27e4549848c8bbe192e2a0415afce4055a92589dae8",
+    "result_sha256": "439108381d66776e9e49e58af835f5e0e1bba47364ddc3e5ba3213624b0cf2ec",
+    "stop_request_sha256": "aa538e1c090ce3caffaeb34962f8fb08c8b9d8ec99f64d42e7799a96add71712",
+    "actual_execute_invocations": 1,
+    "runtime_processes_absent": true,
+    "guardian_processes_absent": true,
+    "lease_released": true
+  },
+  "terminal_reconciliation": {
+    "operator_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\reconcile_final31_recovery6_ordinal9_guardian_failure_terminal_once.py",
+    "operator_sha256": "36f7efc136ec74edaf37f454e2243f4df2795583214d64960da85e17f7510cd4",
+    "result_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_recovery6_ordinal9_guardian_failure_terminal_reconciliation.json",
+    "result_sha256": "e507d00e76eb20c5dc99211babdec1e66305bb5608dd9c6e092704745647cff0",
+    "session_ended_ts_ms": 1788108280104,
+    "stop_reason": "graceful_stop",
+    "current_session_commands": {
+      "COMMITTED": 53596
+    },
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "duplicate_command_ids": 0,
+    "open_runtime_sessions": 0,
+    "evaluation_runs": 0,
+    "holdout_registrations": 0,
+    "true_critical_rows_lost": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0
+  },
+  "new_defects_requiring_red": [
+    {
+      "class": "GUARDIAN_RUNTIME_HEARTBEAT_LIVENESS_FAILURE",
+      "evidence": "The runtime heartbeat was genuinely 34,653 ms old when sampled before the monitor database census; later recovery does not cure the failure."
+    },
+    {
+      "class": "GUARDIAN_PHASE_TWO_INTEGRITY_SESSION_STALE_BINDING",
+      "evidence": "Recovery6 phase_two_integrity remained bound to predecessor session 4285ff21d5b84a8980a9921d51b2336a rather than Ordinal9 session fee83574c0b54aa0b034d3d1f3746fb2."
+    },
+    {
+      "class": "TERMINAL_WRITER_TIMEOUT_LATE_COMMIT",
+      "evidence": "The terminal state recorded V4PersistenceTimeout and timeout_count=1, followed by one late critical success; the terminal command is durably committed and no critical row was lost."
+    }
+  ],
+  "single_replacement_authority": {
+    "admitted": true,
+    "consumed": false,
+    "source_fix_and_fresh_seal_required_before_consumption": true,
+    "additional_replacement_authorized": false
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "signing_available": false,
+    "authenticated_placement_or_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "holdout": "V4-HO-001_NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Prove RED for the exact-session guardian binding and the runtime/terminal liveness semantics, combine those minimal causal fixes with the already-preregistered coverage-invalidated-parent registration/reconciliation fix, run affected suites, and perform one fresh exact source qualification before consuming the single guarded replacement authority."
+}
