@@ -1,0 +1,50 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_RECOVERY6_EXACT_SOURCE_QUALIFICATION_PASS_V1",
+  "recorded_utc": "2026-08-30T06:03:02.108535Z",
+  "classification": "EXACT_SOURCE_QUALIFICATION_PASS",
+  "parent_bridge_commit": "88e6fc20b97e2b3a736e6b8de4ee5182bc11cac5",
+  "source_qualification": {
+    "identity": "FINAL31_RECOVERY6_20260830T0608Z",
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_recovery6_20260830T0608Z",
+    "tested_tree_sha256": "d6a1253d5dbaf15d8e22e737ff54e4d3c80c2f5844a7c62cc847ef1ffa7c6365",
+    "manifest_sha256": "b6eb653f0815524b88456949ef60b5df679b73203183c0e1effd40f847f30621",
+    "junit_sha256": "e72d5f7a2b879cc0a14c50cdcb261cdd6a6701061e87e366e52b5cd93dbef3f7",
+    "post_verification_sha256": "8ae99ea8d52f2f61c0102d2d8694a974bb8d49c8cbb06ddb797c67c8762386e8",
+    "pytest_launch_count": 1,
+    "pytest_exit_code": 0,
+    "tests": 4295,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "post_tree_exact": true,
+    "verified": true
+  },
+  "ordinal9": {
+    "experiment_id": "76500adcf61137736c5faa8f86512bbc5c581a8f91920befe3ef8e86f316cae3",
+    "parent_ordinal8_experiment_id": "390ede2935ef05aa940607e83676fdf7e6692f0c5d53c6467915963cc56e5b60",
+    "research_semantics": "UNCHANGED",
+    "runtime_state": "NOT_LAUNCHED_UNDER_RECOVERY6"
+  },
+  "retired_runtime_nonces": [
+    "f7c2e38e52ad42fd9f5754c9e7d31ad1",
+    "6c021718a43a41c3b6c2eb9e9844bfe5"
+  ],
+  "authoritative_v5": {
+    "immutable": true,
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "v4_ho_001": "NONEXISTENT_UNCONSUMED",
+    "phase_3_entered": false
+  },
+  "next_action": "Create a canonical Recovery6 source-adoption authority, then launch ordinal9 once under a fresh runtime nonce; launch the fresh guardian only after the exact runtime/session identity is healthy."
+}
