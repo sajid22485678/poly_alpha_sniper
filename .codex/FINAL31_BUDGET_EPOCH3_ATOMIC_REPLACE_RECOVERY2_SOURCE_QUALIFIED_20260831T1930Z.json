@@ -1,0 +1,56 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH3_ATOMIC_REPLACE_RECOVERY2_SOURCE_QUALIFIED_V1",
+  "classification": "SOURCE_QUALIFICATION_PASS_CONTINUATION_NOT_YET_REGISTERED",
+  "created_ts_ms": 1788204600000,
+  "prior_bridge_commit": "00e1c174a6cbedfb9be818242971a5fd3865cef1",
+  "failed_interval": {
+    "experiment_id": "3397f9eded6841c713860012a7bfa8f90e8223b081616cc6829ec91ee626e3fc",
+    "challenger_ordinal": 12,
+    "budget_epoch_ordinal": 3,
+    "session_id": "5e85893968be40e39931ba03526cb292",
+    "runtime_nonce": "da488983de894d10b6889e42cf319f30",
+    "guardian_nonce": "dea7e5bf6b554104a80a5cef91b7e7f4",
+    "first_failure_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_failure_final31_budget_epoch3_1788201720524.json",
+    "first_failure_sha256": "6852a80c5e960af3b879c3b1bec1dac0eccd33dd532d38a6e961608a1edd04c9",
+    "classification": "PERMANENTLY_INADMISSIBLE_MUST_NOT_RELAUNCH_RESTART_OR_EVALUATE",
+    "statistical_evaluations": 0,
+    "alpha_spent_text": "0"
+  },
+  "causal_fix": {
+    "defect": "transient Windows replace denial exhausted a 250ms atomic JSON publish deadline and fatally stopped the heartbeat export task",
+    "change": "atomic replace retry deadline increased to 1500ms without changing acknowledgement, persistence, guardian, research, risk, or economic semantics",
+    "red_test": "tests/test_frequency_v4_runtime.py::test_atomic_json_recovers_when_first_denied_replace_call_consumes_300ms",
+    "focused_and_broader_tests": "PASS"
+  },
+  "retired_failed_seal": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_budget_epoch3_atomic_replace_recovery1_20260831T1855Z",
+    "tests": 4320,
+    "failures": 4,
+    "cause": "Windows path-length pressure in the long external seal root",
+    "must_not_rerun_or_relabel": true
+  },
+  "qualified_source": {
+    "root": "D:\\pytest_tmp_v4\\s39_ar2_20260831T1926Z",
+    "tested_tree_sha256": "55d36b6b6e73d0a41a637ece39a9edefed25a573dc285ab27d54ad6af1fc422e",
+    "working_tree_manifest_sha256": "bab31722044af8e6c1f6dbb7af1d8ebd4c360d9eeca3f4953ae122d6feaf1ab7",
+    "junit_sha256": "82b80a15f3afa1bfd840cbbc55c0d7834a7010c1790030cf162909ea008f3d56",
+    "tests": 4320,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "post_tree_equal": true,
+    "materialization_authorized": true,
+    "authoritative_v5_unchanged": true
+  },
+  "next_action": "Add a fail-first contract for a guardian-failed parent plus a prospective one-slot budget supersession, qualify the distinct changed tree, then register one fresh parent-linked guarded Phase-Two interval with unchanged frozen research semantics.",
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "holdout": "NONEXISTENT_UNCONSUMED",
+    "phase_three": false
+  }
+}
