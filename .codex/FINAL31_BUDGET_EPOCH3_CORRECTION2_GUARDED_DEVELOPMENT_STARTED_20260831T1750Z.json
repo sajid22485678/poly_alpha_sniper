@@ -1,0 +1,91 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH3_CORRECTION2_GUARDED_DEVELOPMENT_STARTED_V1",
+  "classification": "GUARDED_PHASE_TWO_DEVELOPMENT_STARTED",
+  "recorded_ts_ms": 1788198632026,
+  "prior_bridge_commit": "42753a7d59a05c01b37e6ac0ef34648c97590d6d",
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+  "experiment": {
+    "experiment_id": "3397f9eded6841c713860012a7bfa8f90e8223b081616cc6829ec91ee626e3fc",
+    "parent_experiment_id": "e57b1ad05f6e7619d12974b9b857e3afedf3f9e9a7c78a4dbc784c96642a77ac",
+    "development_start_ts_ms": 1788198600000,
+    "development_end_ts_ms": 1788241800000,
+    "validation_end_ts_ms": 1788285000000,
+    "research_semantics_changed": false,
+    "holdout_consumed": false
+  },
+  "source": {
+    "runtime_source_tree_sha256": "60fc59304dbf98a241419a493c9f52799be0c5f6cd94ddc78acb6f84b2d3c909",
+    "research_source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "exact_suite": "4319/4319 PASS exactly once",
+    "tested_tree_manifest_sha256": "cde91c33c70de7079e751e2e1d23456964722959fd4cfe287613798974f9076c",
+    "junit_sha256": "2a8cb54645b73eb7f1cd27a2e27f10438121a5158ecc814b9578825a34687c49",
+    "combined_source_authority_sha256": "56b78a7b1cc6b2310034a8bd10e9eff2c4cd05aa4bdd4fc131dcf97a2f995e46"
+  },
+  "runtime": {
+    "launch_nonce": "da488983de894d10b6889e42cf319f30",
+    "session_id": "5e85893968be40e39931ba03526cb292",
+    "launcher_pid": 16708,
+    "runtime_pid": 16424,
+    "lease_acquired_ts_ms": 1788194651259,
+    "session_started_ts_ms": 1788194036303,
+    "launch_authority_sha256": "80b79549be8a8edb264ebfacb528e8c3d31ac38f50df969eb69ff27d14fae5a1",
+    "launch_operator_sha256": "1259a08101a3c0f11ce82a7249d9965183d7c32a87ff3b9599e32a774802a3cb",
+    "must_not_relaunch": true
+  },
+  "guardian": {
+    "correction1_preflight_result": "FAILED_CLOSED_BEFORE_GUARDIAN_PROCESS",
+    "correction1_error": "Final31 BudgetEpoch3 runtime is not guardian eligible",
+    "correction1_launcher_sha256": "22c492bcc7198ad755af0349c418eb67191b9fc20546380d1cda623b6fd86d15",
+    "correction1_execute_outputs_created": false,
+    "correction2_guardian_nonce": "dea7e5bf6b554104a80a5cef91b7e7f4",
+    "correction2_guardian_pid": 12048,
+    "correction2_launcher_sha256": "5907c8f1f38210ebda5fd826b250de4110df4e8ee9c6804acfc7e7064338b25c",
+    "launch_request_sha256": "1ed43174f1f2f0dce6682a6edfc30288817349fa7fc72039218ec04d77d5b128",
+    "process_start_sha256": "bd9ae1173f6940918a54930b78b1775bb8679bab5d55ab8736bc694683fb1e0f",
+    "guardian_started_ts_ms": 1788198388445,
+    "first_clean_observation_ts_ms": 1788198388967,
+    "first_clean_snapshot_ts_ms": 1788198497039,
+    "first_clean_snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_snapshot_final31_budget_epoch3_1788198497039.json",
+    "first_clean_snapshot_sha256": "b99fd58c5ed27a4bda7cd73fa281fed2eeb53c5897f04dbc2bb9ca76eb7717a0",
+    "first_clean_snapshot_violations": [],
+    "first_failure_artifacts": [],
+    "must_not_restart": true
+  },
+  "first_clean_census": {
+    "runtime_state": "RUNNING",
+    "critical_persistence_state": "HEALTHY",
+    "critical_failed": 0,
+    "critical_incomplete": 0,
+    "true_critical_rows_lost": 0,
+    "historical_critical_evidence_lost_baseline": 71,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "queue_overflow": 0,
+    "cex_discard": 0,
+    "polymarket_discard": 0,
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "locked_holdout_registrations": 0
+  },
+  "guarded_start": {
+    "development_open_ts_ms": 1788198600000,
+    "guardian_started_before_open_ms": 211555,
+    "first_clean_observation_before_open_ms": 211033,
+    "first_clean_snapshot_before_open_ms": 102961,
+    "result": "PASS"
+  },
+  "safety": {
+    "shadow_only": true,
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_order_placement_available": false,
+    "real_order_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "v4_ho_001": "NONEXISTENT_UNCONSUMED",
+    "phase_3_entered": false
+  },
+  "next_action": "Leave the exact runtime and guardian untouched; use sparse first-failure-aware checks during development. At or after 1788241800000 execute only the repository-defined exact terminal guardian/runtime/reconciliation and development evaluation sequence for this experiment, then advance only on a verified DEVELOPMENT_SELECTION_PASS."
+}
