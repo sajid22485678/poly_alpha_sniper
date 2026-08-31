@@ -1,0 +1,87 @@
+{
+  "classification": "COMBINED_POST_OOS_AUTHORITY_VALID",
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH2_CANONICAL_SOURCE_PROGRESS_V1",
+  "created_ts_ms": 1788142584579,
+  "successor32_research_authority": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+    "classification": "GENUINE_OOS_PASS_ACHIEVED",
+    "source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "oos_pass_not_revoked": true
+  },
+  "successor38_terminal_disposition": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR38-20260828T0323Z",
+    "source_tree_sha256": "b9ef491377329df1575e31553a3b9b469cdfb9b690e495841c41cfb3c61940eb",
+    "runtime_state": "STOPPED",
+    "must_not_relaunch": true
+  },
+  "qualified_runtime_source": {
+    "source_tree_sha256": "54bf3a443ed64d9c968796a14555e3761d279cc029fcfa968b5b27bdfbc275cb",
+    "source_identity": {
+      "branch": "master",
+      "full_suite_errors": 0,
+      "full_suite_exit_code": 0,
+      "full_suite_failures": 0,
+      "full_suite_junit_sha256": "9537530fde58d7f406bf41f80617942119b9bea2e0e223ce2646408f4fbe1c7b",
+      "full_suite_skips": 0,
+      "full_suite_tests": 4310,
+      "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+      "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+      "staged_count": 0,
+      "tested_tree_manifest_sha256": "0de58b8f6284e38eff03d398ed56ff17516666ca8d2aa68970a394d33cc05e6d",
+      "tested_tree_sha256": "54bf3a443ed64d9c968796a14555e3761d279cc029fcfa968b5b27bdfbc275cb",
+      "tracked_modified_count": 62,
+      "untracked_count": 115
+    },
+    "full_suite_result": "PASS",
+    "full_suite_evidence_root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_budget_epoch2_correction2_20260831T0212Z",
+    "post_verification_sha256": "65399cf16027c056cb5e324648113f3d09cd997c4ef9d7e1205f41bde7690b82",
+    "tree_exact": true,
+    "authoritative_v5_equal": true
+  },
+  "behavioral_equivalence": {
+    "classification": "RESEARCH_BEHAVIOR_EQUIVALENT_TO_S32",
+    "research_semantics_unchanged": true,
+    "research_config_surface_diff_count": 0,
+    "evaluator_and_candidate_semantics_unchanged": true,
+    "causal_changes_only": [
+      "prospective one-test alpha-spending budget epoch after zero prior evaluations",
+      "hash-bound database-derived budget supersession authority",
+      "historical evaluator authority remains bound to its own source while new persistence requires the qualified evaluator"
+    ]
+  },
+  "prospective_budget_epoch": {
+    "global_challenger_ordinal": 11,
+    "epoch_ordinal": 2,
+    "epoch_local_ordinal": 1,
+    "epoch_max_confirmatory_challengers": 1,
+    "family_wise_alpha": "0.05",
+    "epoch_alpha": "0.005",
+    "prior_evaluation_runs": 0,
+    "prior_alpha_spent": "0",
+    "retuning_performed": false,
+    "experiment_id": "e57b1ad05f6e7619d12974b9b857e3afedf3f9e9a7c78a4dbc784c96642a77ac"
+  },
+  "retired_runtime_attempt": {
+    "phase_two_nonce": "3aa03f0a020348e388f0f5866842225a",
+    "classification": "PRE_LEASE_COMBINED_SOURCE_AUTHORITY_SHAPE_REJECTED",
+    "lease_created": false,
+    "session_created": false,
+    "guardian_created": false,
+    "must_not_relaunch": true
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_two_entered": false,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "Hash-bind a canonical combined source authority to this progress artifact and consume one distinct fresh runtime nonce for the already-registered single budget-epoch experiment."
+}
