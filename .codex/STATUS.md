@@ -1,5 +1,12 @@
 # Poly Alpha status
 
+## Budget epoch 2 registration-1 startup provenance failure
+
+- Fresh nonce `db2486b...a03a` failed closed during exact-v6 writer startup, before any persistence command or child experiment existed. Its authority and lease artifacts are immutable and the nonce must not be retried.
+- Root cause: startup validation recomputed immutable historical evaluator hashes from the current bundle. Historical definitions are already canonical and content-addressed; new persistence must use the current evaluator, while historical validation must honor the embedded evaluator authority.
+- RED reproduced the failure. The minimal split between historical validation and new persistence is green across affected schema/store/persistence/tournament suites; no research semantics changed.
+- Next: a distinct corrected source seal, then a fresh registration nonce for the still-uncreated single owner-authorized experiment.
+
 ## Budget epoch 2 corrected source authority
 
 - Corrected tree `acfba2d9...3ef1` passed 4,310/4,310 exactly once with zero failures/errors/skips, exact post-tree equality, and unchanged v5.
