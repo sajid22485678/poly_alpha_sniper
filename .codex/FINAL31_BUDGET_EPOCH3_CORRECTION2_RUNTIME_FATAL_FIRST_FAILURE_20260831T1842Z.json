@@ -1,0 +1,87 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH3_CORRECTION2_RUNTIME_FATAL_FIRST_FAILURE_V1",
+  "checkpoint_ts_ms": 1788202167647,
+  "prior_bridge_commit": "dc35aab8b95006f06585704a43da2da45ffc9379",
+  "classification": "PHASE_TWO_INFRASTRUCTURE_FAILED_BEFORE_DEVELOPMENT_CLOSE_MUST_NOT_EVALUATE",
+  "source": {
+    "qualified_tree_sha256": "60fc59304dbf98a241419a493c9f52799be0c5f6cd94ddc78acb6f84b2d3c909",
+    "qualification_tests": 4319,
+    "qualification_result": "PASS_EXACTLY_ONCE",
+    "qualification_junit_sha256": "2a8cb54645b73eb7f1cd27a2e27f10438121a5158ecc814b9578825a34687c49"
+  },
+  "experiment": {
+    "experiment_id": "3397f9eded6841c713860012a7bfa8f90e8223b081616cc6829ec91ee626e3fc",
+    "parent_experiment_id": "e57b1ad05f6e7619d12974b9b857e3afedf3f9e9a7c78a4dbc784c96642a77ac",
+    "development_start_ts_ms": 1788198600000,
+    "development_end_ts_ms": 1788241800000,
+    "validation_end_ts_ms": 1788285000000,
+    "research_semantics_unchanged": true,
+    "evaluation_runs": 0,
+    "admissibility": "PERMANENTLY_INADMISSIBLE_FOR_SELECTION_OR_EVALUATION"
+  },
+  "runtime": {
+    "launch_nonce": "da488983de894d10b6889e42cf319f30",
+    "session_id": "5e85893968be40e39931ba03526cb292",
+    "launcher_pid": 16708,
+    "runtime_pid": 16424,
+    "started_ts_ms": 1788194036303,
+    "ended_ts_ms": 1788201625611,
+    "stop_reason": "fatal_RuntimeError",
+    "identity_state": "CONSUMED_MUST_NOT_RELAUNCH",
+    "stderr_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\combined_phase_two_runtime_final31_budget_epoch3_correction1.stderr.txt",
+    "causal_error": "PermissionError [WinError 5] replacing runtime/heartbeat.json remained denied after the single attempt permitted by the 0.250 second atomic-replace deadline, causing critical task v4-heartbeat-export to fail",
+    "lease_acquired_sha256": "0198f1c6a344e8289ba29c8e0466a618aed849554e0aa9b15dc70fb04f11e341",
+    "lease_released_sha256": "910f972dc418d30130ccc79d307a281fc64e320723b2dc304741fd1fccdfac4f",
+    "lease_released_ts_ms": 1788201625687
+  },
+  "guardian": {
+    "guardian_nonce": "dea7e5bf6b554104a80a5cef91b7e7f4",
+    "launcher_pid": 12048,
+    "child_pid": 11588,
+    "identity_state": "CONSUMED_TERMINAL_MUST_NOT_RESTART",
+    "first_failure_ts_ms": 1788201720524,
+    "first_failure_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_failure_final31_budget_epoch3_1788201720524.json",
+    "first_failure_sha256": "6852a80c5e960af3b879c3b1bec1dac0eccd33dd532d38a6e961608a1edd04c9",
+    "violations": [
+      "runtime_not_running:FAILED",
+      "critical_health:STOPPED"
+    ],
+    "stderr_bytes": 0
+  },
+  "terminal_reconciliation": {
+    "session_closed": true,
+    "current_session_committed": 84130,
+    "current_session_failed": 0,
+    "current_session_incomplete": 0,
+    "critical_rows_lost": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "foreign_key_violations": 0,
+    "quick_check": "ok",
+    "holdout_registrations": 0
+  },
+  "authoritative_v5": {
+    "database_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "immutable": true
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "research_disposition": {
+    "development_result": "NOT_EVALUATED",
+    "retuning_permitted": false,
+    "observations_may_be_used_for_selection": false,
+    "failure_class": "INFRASTRUCTURE_ATOMIC_HEARTBEAT_PUBLISH_CONTENTION"
+  },
+  "next_action": "Write and prove a fail-first regression in tests/test_frequency_v4_runtime.py for a first Windows os.replace denial that itself consumes more than the historical 0.250 second deadline, then apply the smallest bounded retry correction without changing research or acknowledgement semantics."
+}
