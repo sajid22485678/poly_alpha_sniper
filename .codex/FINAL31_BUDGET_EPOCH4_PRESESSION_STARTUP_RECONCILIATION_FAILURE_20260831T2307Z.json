@@ -1,0 +1,62 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH4_PRESESSION_STARTUP_RECONCILIATION_FAILURE_V1",
+  "observed_utc": "2026-08-31T23:07:38.2803510Z",
+  "prior_bridge_commit": "e1d41b356c77a664745ef8d60ee141ebb977b0f8",
+  "classification": "PRESESSION_STARTUP_RECONCILIATION_FAILED_CLOSED",
+  "admissible_for_relaunch": false,
+  "admissible_for_evaluation": false,
+  "experiment_id": "f11b337866ab2d603d98ab74eade75c339dfe9aab5a4ac5f17f7dd1db5867020",
+  "budget_epoch": 4,
+  "global_challenger_ordinal": 13,
+  "runtime": {
+    "launch_nonce": "4c0bb9b634df489584d2c81afdebb318",
+    "launcher_pid": 11324,
+    "runtime_pid": 20384,
+    "session_created": false,
+    "runtime_absent_after_failure": true,
+    "process_start_sha256": "958dd3680245e720864429dc0dc220761773ef1c4907578ecd4ed0fd2f46b609",
+    "launch_authority_sha256": "d950d58548a30206faa1a7de7be6a8d8b2263bf5284bb95f07f506c565652521",
+    "stderr_sha256": "9305ffd4d58cb02218ea204250bfc7fc2e5e68eb1a21544e4f3440ff7bbfcb48",
+    "lease_acquired_sha256": "22310710bb754b2458acf1f509e24ae860a323b29bb5a8e6771d63d46bea3421",
+    "lease_released_sha256": "e812ecf50dd0f6ae3551075f33546baecf262760d0541b6ff6ae7a3fd797798b"
+  },
+  "first_failure": {
+    "error_type": "V4PersistenceError",
+    "reason": "exact-v6 startup census rejected the combined guardian-failed continuation plus budget-supersession registration",
+    "committed_tournament_registration_errors": 1,
+    "unjournaled_tournament_definitions": 1,
+    "domain_blockers": 2,
+    "blocking_count": 2,
+    "all_other_startup_census_fields_zero": true
+  },
+  "registration": {
+    "result_sha256": "98929d25694d4df88fc587aeaa93ea02d4ff853c0eacfadd75347201309cf68c",
+    "definition_preserved": true,
+    "research_semantics_unchanged": true,
+    "retuning_performed": false
+  },
+  "guardian": {
+    "launch_performed": false,
+    "guardian_nonce_consumed": false,
+    "prepared_nonce": "94b901fff3814217849c40a3315004d6",
+    "prepared_launcher_sha256": "0c81f5b98e05eda614c89df982f8e153c3e7c00458c1592a1962ca3ec9e70c52"
+  },
+  "qualified_source": {
+    "tested_tree_sha256": "78e4dbf5017853449aa447ddbb90b2fb30cbad07711bafae1b55ba8c3bf9def0",
+    "tests": 4320,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Reproduce the combined registration reconciliation defect with fail-first tests, implement the smallest fail-closed reconciliation extension, verify and freshly source-qualify, then use a distinct prospective budget/experiment/runtime identity under standing owner authority. Never relaunch this nonce or use this failed interval for selection."
+}
