@@ -1,0 +1,53 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH3_ATOMIC_REPLACE_SEAL1_FAILED_PATH_LENGTH_CAUSE_V1",
+  "prior_bridge_commit": "5f8935522c77658bc8cf8f43277f80ac88f07caa",
+  "classification": "SOURCE_SEAL_FAILED_OPERATOR_PATH_LENGTH_SOURCE_TREE_UNCHANGED",
+  "failed_seal": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_budget_epoch3_atomic_replace_recovery1_20260831T1855Z",
+    "tested_tree_sha256": "55d36b6b6e73d0a41a637ece39a9edefed25a573dc285ab27d54ad6af1fc422e",
+    "manifest_sha256": "b772edfc663dcd7829e7e805ef8e1b3665a7aff885ebcc1bc59cb50d545477bd",
+    "pytest_launch_count": 1,
+    "pytest_exit_code": 1,
+    "tests": 4320,
+    "failures": 4,
+    "errors": 0,
+    "skipped": 0,
+    "junit_sha256": "11f2fdb4a28e93f5d253aa5ba3fc979d0c75d08d48686838cdf2c0c50d4d1608",
+    "post_tree_sha256": "55d36b6b6e73d0a41a637ece39a9edefed25a573dc285ab27d54ad6af1fc422e",
+    "tree_exact": true,
+    "verified": false,
+    "state": "FAILED_IMMUTABLE_MUST_NOT_RERUN_OR_RELABEL"
+  },
+  "failed_tests": [
+    "tests/test_frequency_v4_export_freshness.py::test_atomic_publication_keeps_the_last_valid_export_on_failure",
+    "tests/test_frequency_v4_persistence_integration.py::test_production_start_stop_owns_all_blocking_resources_off_loop",
+    "tests/test_frequency_v4_persistence_integration.py::test_export_generation_stays_fresh_during_sustained_telemetry",
+    "tests/test_frequency_v4_prospective_runtime.py::test_real_engine_start_stop_uses_leased_exact_v6_graph"
+  ],
+  "causal_diagnosis": {
+    "failure_mode": "Windows FileNotFoundError from a 264-character pytest temporary export filename",
+    "failing_path_length": 264,
+    "windows_long_paths_enabled": false,
+    "source_regression": false,
+    "focused_short_basetemp_command_exit_code": 0,
+    "focused_short_basetemp_tests": 4,
+    "focused_short_basetemp_result": "PASS"
+  },
+  "authoritative_v5": {
+    "database_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "unchanged": true,
+    "journal_exists": false
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Prepare and execute one distinct exact source seal using a short root path while preserving the same tested source tree and the failed seal immutably."
+}
