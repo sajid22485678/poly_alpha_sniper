@@ -1,0 +1,57 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH4_GUARDIAN_CONTINUATION_OPERATOR_PREPARED_V1",
+  "classification": "PREPARED_NOT_CONSUMED_INTEGRITY_PREFLIGHT_PENDING",
+  "created_ts_ms": 1788208800000,
+  "prior_bridge_commit": "c30705b9ed3a5ff1a0cffa08340c5255776d58bf",
+  "operator_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\register_final31_budget_epoch4_guardian_continuation_once.py",
+  "operator_sha256": "8d0e1fe40cb27421cd0af5e45acf687bed6b211c4ef21cf46fae996f4197ef66",
+  "registration_nonce": "b28e534e67d54e9d82164ed00358e0a7",
+  "registration_nonce_state": "PREPARED_NOT_CONSUMED",
+  "parent_experiment_id": "3397f9eded6841c713860012a7bfa8f90e8223b081616cc6829ec91ee626e3fc",
+  "parent_global_ordinal": 12,
+  "parent_budget_epoch": 3,
+  "first_guardian_failure_sha256": "6852a80c5e960af3b879c3b1bec1dac0eccd33dd532d38a6e961608a1edd04c9",
+  "failed_runtime_release_sha256": "910f972dc418d30130ccc79d307a281fc64e320723b2dc304741fd1fccdfac4f",
+  "qualified_tree_sha256": "78e4dbf5017853449aa447ddbb90b2fb30cbad07711bafae1b55ba8c3bf9def0",
+  "qualified_seal_root": "D:\\pytest_tmp_v4\\s40_be4_20260901T0305Z",
+  "next_global_ordinal": 13,
+  "next_budget_epoch": 4,
+  "budget": {
+    "prior_consumed_challenger_slots": 12,
+    "prior_statistical_evaluations": 0,
+    "prior_alpha_spent_text": "0",
+    "epoch_max_confirmatory_challengers": 1,
+    "epoch_per_challenger_alpha_text": "0.005",
+    "epoch_alpha_cap_text": "0.005",
+    "cumulative_alpha_if_tested_text": "0.005",
+    "family_alpha_cap_text": "0.05",
+    "prior_inadmissible_evidence_used_for_selection": false,
+    "research_semantics_unchanged": true
+  },
+  "guarded_start": {
+    "required_lead_ms": 14400000,
+    "guardian_must_be_verified_before_development": true,
+    "first_clean_guardian_observation_required_before_development": true
+  },
+  "current_integrity_scan": "READ_ONLY_IN_PROGRESS",
+  "forbidden": [
+    "retry ordinal12",
+    "evaluate ordinal12",
+    "reuse any consumed nonce",
+    "register before integrity preflight passes",
+    "launch development without pre-opening guardian proof",
+    "consume holdout",
+    "enter Phase Three",
+    "enable live capability"
+  ],
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three": false
+  }
+}
