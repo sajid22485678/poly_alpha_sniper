@@ -1,0 +1,29 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH4_RUNTIME_OPERATOR_PREPARED_V1",
+  "classification": "PREPARED_NOT_CONSUMED_STATIC_TRANSFORM_PASS",
+  "created_ts_ms": 1788215100000,
+  "prior_bridge_commit": "953994c",
+  "experiment_id": "f11b337866ab2d603d98ab74eade75c339dfe9aab5a4ac5f17f7dd1db5867020",
+  "runtime_nonce": "4c0bb9b634df489584d2c81afdebb318",
+  "runtime_nonce_state": "PREPARED_NOT_CONSUMED",
+  "operator_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\launch_combined_phase_two_final31_budget_epoch4_correction1_once.py",
+  "operator_sha256": "29b487babb78498f0e9c4aec35ae869854e72fb9b4e8705ca6191df04ef4796d",
+  "source_authority_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_post_oos_source_authority_final31_budget_epoch4_correction1.json",
+  "source_authority_sha256": "a95ea877dd76fb4eb8c8fa8e0425991ce049e1119b6d884518e1811761bd27d1",
+  "source_parser_admission": "PASS",
+  "registration_result_sha256": "98929d25694d4df88fc587aeaa93ea02d4ff853c0eacfadd75347201309cf68c",
+  "development_start_ts_ms": 1788227100000,
+  "development_end_ts_ms": 1788270300000,
+  "validation_end_ts_ms": 1788313500000,
+  "next_action": "Execute this operator exactly once; verify durable session/lease and process identity, then launch one fresh independent guardian and obtain a clean observation before development opens.",
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three": false
+  }
+}
