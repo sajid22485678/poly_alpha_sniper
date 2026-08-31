@@ -1,0 +1,43 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH4_REGISTRATION_PASS_V1",
+  "classification": "PROSPECTIVE_TOURNAMENT_REGISTERED_RUNTIME_NOT_YET_LAUNCHED",
+  "created_ts_ms": 1788213985000,
+  "prior_bridge_commit": "756e0a5",
+  "registration": {
+    "nonce": "b28e534e67d54e9d82164ed00358e0a7",
+    "state": "CONSUMED_MUST_NOT_RETRY",
+    "result_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\v4_pr_001_final31_budget_epoch4_registration_result.json",
+    "result_sha256": "98929d25694d4df88fc587aeaa93ea02d4ff853c0eacfadd75347201309cf68c",
+    "authority_sha256": "2d3cea12bacd6ff60e7437806fc11bf8e7ac026c47c34f526f8a9a1d9c68d50f",
+    "lease_released_sha256": "eb743618593ded26fb2771a8303860c22eedea49e59f5867dd8e0c4bf01fb841"
+  },
+  "experiment": {
+    "experiment_id": "f11b337866ab2d603d98ab74eade75c339dfe9aab5a4ac5f17f7dd1db5867020",
+    "parent_experiment_id": "3397f9eded6841c713860012a7bfa8f90e8223b081616cc6829ec91ee626e3fc",
+    "global_challenger_ordinal": 13,
+    "budget_epoch_ordinal": 4,
+    "development_start_ts_ms": 1788227100000,
+    "development_end_ts_ms": 1788270300000,
+    "validation_end_ts_ms": 1788313500000,
+    "evaluations": 0,
+    "research_semantics_unchanged": true,
+    "retuning_performed": false
+  },
+  "qualified_runtime_tree_sha256": "78e4dbf5017853449aa447ddbb90b2fb30cbad07711bafae1b55ba8c3bf9def0",
+  "database_state": {
+    "definitions": 13,
+    "open_sessions": 0,
+    "holdout": 0
+  },
+  "next_action": "Create a complete combined source authority for the qualified runtime tree, prepare one fresh runtime nonce and guardian nonce, inert-validate both operators, launch runtime early, admit and verify guardian, and obtain at least one clean durable observation before development_start_ts_ms.",
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three": false
+  }
+}
