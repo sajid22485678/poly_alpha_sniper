@@ -1,0 +1,62 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH3_ATOMIC_REPLACE_TDD_GREEN_SEAL_PREPARED_V1",
+  "prior_bridge_commit": "167737dbf1ef7eef5ff6452777714d716a25e43b",
+  "classification": "CAUSAL_TDD_GREEN_DISTINCT_SOURCE_SEAL_PREPARED_NOT_EXECUTED",
+  "first_failure": {
+    "guardian_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_failure_final31_budget_epoch3_1788201720524.json",
+    "guardian_sha256": "6852a80c5e960af3b879c3b1bec1dac0eccd33dd532d38a6e961608a1edd04c9",
+    "runtime_stderr_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\combined_phase_two_runtime_final31_budget_epoch3_correction1.stderr.txt",
+    "cause": "A first Windows os.replace denial consumed more than the historical 0.250 second deadline, leaving no retry and fatally stopping v4-heartbeat-export."
+  },
+  "tdd": {
+    "test": "tests/test_frequency_v4_runtime.py::test_atomic_json_recovers_when_first_denied_replace_call_consumes_300ms",
+    "red": {
+      "exit_code": 1,
+      "expected_failure": "PermissionError still denied after 1 attempts over 0.250s"
+    },
+    "implementation": {
+      "file": "lite_frequency_v4/runtime.py",
+      "change": "Increase only the bounded atomic-replace transient-lock deadline from 0.250 seconds to 1.500 seconds.",
+      "research_semantics_changed": false,
+      "acknowledgement_deadlines_changed": false,
+      "persistence_contract_changed": false
+    },
+    "green": {
+      "causal_test_exit_code": 0,
+      "adjacent_atomic_publish_tests": 13,
+      "adjacent_atomic_publish_exit_code": 0,
+      "broader_suites": [
+        "tests/test_frequency_v4_runtime.py",
+        "tests/test_frequency_v4_export.py",
+        "tests/test_frequency_v4_guardian.py",
+        "tests/test_frequency_v4_workers.py",
+        "tests/test_frequency_v4_persistence.py",
+        "tests/test_frequency_v4_persistence_integration.py"
+      ],
+      "broader_exit_code": 0,
+      "diff_check_exit_code": 0
+    }
+  },
+  "prepared_seal": {
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_budget_epoch3_atomic_replace_recovery1_20260831T1855Z",
+    "manifest_sha256": "b772edfc663dcd7829e7e805ef8e1b3665a7aff885ebcc1bc59cb50d545477bd",
+    "tested_tree_sha256": "55d36b6b6e73d0a41a637ece39a9edefed25a573dc285ab27d54ad6af1fc422e",
+    "runner_sha256": "a30712b3cb623b3c49cd3c74ff3be1430dadd652377cc4c00154119d7516b0da",
+    "tracked_modified": 62,
+    "untracked": 117,
+    "staged": 0,
+    "pytest_launch_count": 0,
+    "state": "PREPARED_NOT_EXECUTED"
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_database_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2"
+  },
+  "next_action": "Reverify no competing pytest/source-writer process and exact prepared outputs absent, then execute run_full_suite_once.py exactly once."
+}
