@@ -1,0 +1,83 @@
+{
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+  "admission_latency_causal_finding": {
+    "classification": "REDUNDANT_DEEP_SOURCE_DATABASE_VERIFICATION_BEFORE_SESSION_COMMIT",
+    "fixed_behavior": "one pre-lease deep verification plus one fresh post-lease engine verification",
+    "original_behavior": "two immediate builder validations plus one fresh post-lease engine validation",
+    "research_semantics_changed": false,
+    "safety_or_integrity_gate_weakened": false,
+    "toctou_post_lease_reverification_preserved": true
+  },
+  "affected_validation": {
+    "broader_guardian_runtime_persistence_tests_passed": 403,
+    "combined_corrected_affected_suite_green": true,
+    "prospective_focused_tests_passed": 53,
+    "red_regression_observed": true
+  },
+  "authoritative_v5": {
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "immutable": true,
+    "journal_exists": false,
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "classification": "SOURCE_QUALIFIED_OWNER_AUTHORITY_BOUNDARY",
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH2_ADMISSION_DEDUP_SOURCE_QUALIFIED_OWNER_BOUNDARY_V1",
+  "failed_predecessor_seal": {
+    "classification": "IMMUTABLE_FAILED_SOURCE_SEAL",
+    "errors": 0,
+    "failures": 1,
+    "junit_sha256": "0c87f12ce748d5dd22594558263d33a5ae30b4c1627f5cb8e97ed1b8bfc75642",
+    "post_verification_sha256": "f5bddc84a3a64e61f033cc5b4d97eb60b330f807802d303a0289612e3ef3750e",
+    "pytest_exit_code": 1,
+    "pytest_launch_count": 1,
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_admission_dedup_recovery1_20260831T0348Z",
+    "skipped": 0,
+    "tests": 4311,
+    "tested_tree_sha256": "9cdb7a27e7e0adf88bc61cd176bd12d53142da46a026c7ed22c85a605a846349"
+  },
+  "fresh_experiment_created": false,
+  "holdout_consumed": false,
+  "observed_utc": "2026-08-31T04:40:55.584Z",
+  "owner_boundary": {
+    "consumed_experiment_id": "e57b1ad05f6e7619d12974b9b857e3afedf3f9e9a7c78a4dbc784c96642a77ac",
+    "experiment_slot_consumed": true,
+    "next_authority_required": "DISTINCT_OWNER_AUTHORITY_REQUIRED_FOR_ANY_FURTHER_PHASE_TWO_EXPERIMENT_AND_CANONICAL_STALE_LEASE_DISPOSITION",
+    "no_admissible_development_collection": true,
+    "runtime_process_absent": true,
+    "session_committed": false
+  },
+  "qualified_successor_seal": {
+    "errors": 0,
+    "failures": 0,
+    "junit_sha256": "7c0fdb4dadf98fef2534dbcd45b7ad028ee7d0978a6dd1d6876312f0732719a6",
+    "manifest_sha256": "3a30e733ee7484c476a519bb62d81c7fadab38e548af341fa7972a5fd8d5b2e4",
+    "post_verification_sha256": "0cc96891439bfa98c65f984a3bdfe9a9dbc5921422d4943583aad51bc913982b",
+    "pytest_exit_code": 0,
+    "pytest_launch_count": 1,
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_admission_dedup_correction1_20260831T0420Z",
+    "skipped": 0,
+    "tested_tree_sha256": "b1080a3c9f117d51c2fa70c8009e77909d82ae709c1ce35fb1dfbb55d2f2e2fe",
+    "tests": 4311,
+    "tree_exact": true,
+    "verified": true
+  },
+  "research_budget_epoch": {
+    "alpha_spent": "0",
+    "epoch_max_confirmatory_challengers": 1,
+    "epoch_ordinal": 2,
+    "global_challenger_ordinal": 11,
+    "prior_history_preserved": true
+  },
+  "safety": {
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "live_enabled": false,
+    "phase_three_entered": false,
+    "real_cancellation_available": false,
+    "real_orders_possible": false,
+    "real_placement_available": false,
+    "wallet_signing_available": false
+  }
+}
