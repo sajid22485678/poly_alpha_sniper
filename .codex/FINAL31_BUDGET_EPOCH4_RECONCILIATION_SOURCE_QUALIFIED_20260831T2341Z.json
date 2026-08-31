@@ -1,0 +1,52 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH4_RECONCILIATION_SOURCE_QUALIFIED_V1",
+  "observed_utc": "2026-08-31T23:41:29.3994887Z",
+  "prior_bridge_commit": "d14344a971d6a64d1e37c039c959c851956a84e6",
+  "failed_runtime_nonce": "4c0bb9b634df489584d2c81afdebb318",
+  "failed_runtime_classification": "TERMINAL_PRESESSION_STARTUP_RECONCILIATION_FAILED_CLOSED",
+  "guardian_launch_performed": false,
+  "root_cause": "exact-v6 startup reconciliation omitted the already-supported combined guardian-failed continuation plus research-budget supersession payload shape",
+  "tdd": {
+    "red_reproduced": true,
+    "red_test": "tests/test_frequency_v4_schema_v6.py::test_budget_supersession_registers_one_global_ordinal_after_zero_evaluations",
+    "minimal_fix": "add the exact combined field set to tournament-registration journal reconciliation",
+    "research_semantics_changed": false,
+    "deadlines_changed": false
+  },
+  "affected_suites": {
+    "schema_persistence_runtime": "PASS",
+    "store_persistence_integration_tournament": "PASS"
+  },
+  "source_seal": {
+    "root": "D:\\pytest_tmp_v4\\s41_reconcile_20260901T0615Z",
+    "tested_tree_sha256": "f66888011e931a08a8ebf9b385213bfdb4e7d507adb39db310fc6d945ccae972",
+    "manifest_sha256": "8fcff554fd62ed3b04e3eda27d1ea927c04deaad5ef741199e7ee49614513e66",
+    "runner_sha256": "a99ac60f705f7a6db9c96064d2c2774c043ef1713197c0a9341a1d6ed52ebec8",
+    "verifier_sha256": "5ae9835b4547bc44781e6f13c437e65dc3e361c825115386a54b7f5fae470496",
+    "junit_sha256": "7da8e9d43ab1e18378bd57df1c26f9cf34186ea6923f8b525a53ca1bf484adc5",
+    "post_verification_sha256": "37a9f3c73b3c253fde6865b5752389b0602ed8202ad0869d2171f415d3627179",
+    "tests": 4320,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "pytest_launch_count": 1,
+    "tree_exact": true,
+    "verified": true
+  },
+  "authoritative_v5": {
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "unchanged": true
+  },
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Preregister one distinct budget-supersession epoch and one parent-linked replacement experiment for the terminal pre-session failure, with a fresh runtime/guardian identity and conservative guarded-start lead."
+}
