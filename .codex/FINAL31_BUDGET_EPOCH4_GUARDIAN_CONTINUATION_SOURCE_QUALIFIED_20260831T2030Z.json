@@ -1,0 +1,52 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH4_GUARDIAN_CONTINUATION_SOURCE_QUALIFIED_V1",
+  "classification": "SOURCE_QUALIFICATION_PASS_REGISTRATION_NOT_YET_CONSUMED",
+  "created_ts_ms": 1788208200000,
+  "prior_bridge_commit": "05abbbf9d0b9ac76c60dbed769704bf4520d7d33",
+  "causal_contract_extension": {
+    "defect": "exact-v6 registration admitted guardian-failed continuation and research-budget supersession separately but not as one closed field set",
+    "red": "epoch4 guardian-failed parent plus one-slot budget supersession rejected before repository validation",
+    "implementation": "admit only the exact conjunction of existing guardian-failure-with-lead fields and existing supersession fields",
+    "research_semantics_changed": false,
+    "focused_and_broader_tests": "PASS"
+  },
+  "qualified_source": {
+    "root": "D:\\pytest_tmp_v4\\s40_be4_20260901T0305Z",
+    "tested_tree_sha256": "78e4dbf5017853449aa447ddbb90b2fb30cbad07711bafae1b55ba8c3bf9def0",
+    "working_tree_manifest_sha256": "43ac83a4a3f7abb1d657044aff0377408116eae93b280c31a4170f467eea97bb",
+    "runner_sha256": "7ea4b8efd66a7e6ed4ba7f222025d5e9b93025a99fa9b375293fb0a420a888b8",
+    "junit_sha256": "95ec8e5085cff678b93d989f14a319b9db2f11ae87bb873cdcaf068e6c7173c1",
+    "tests": 4320,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "tree_exact": true,
+    "authoritative_v5_equal": true,
+    "verified": true
+  },
+  "prospective_continuation": {
+    "failed_parent_experiment_id": "3397f9eded6841c713860012a7bfa8f90e8223b081616cc6829ec91ee626e3fc",
+    "failed_parent_ordinal": 12,
+    "failed_parent_epoch": 3,
+    "first_guardian_failure_sha256": "6852a80c5e960af3b879c3b1bec1dac0eccd33dd532d38a6e961608a1edd04c9",
+    "next_global_ordinal": 13,
+    "next_epoch_ordinal": 4,
+    "prior_statistical_evaluations": 0,
+    "prior_alpha_spent_text": "0",
+    "new_slot_limit": 1,
+    "per_challenger_alpha_text": "0.005",
+    "family_alpha_cap_text": "0.05",
+    "prior_inadmissible_evidence_used_for_selection": false
+  },
+  "next_action": "Create and inert-validate one exact-once ordinal-13 epoch-4 registration operator bound to this seal and the immutable first guardian failure; register before a conservative guarded-start interval, then launch fresh runtime and guardian identities.",
+  "safety": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "holdout": "NONEXISTENT_UNCONSUMED",
+    "phase_three": false
+  }
+}
