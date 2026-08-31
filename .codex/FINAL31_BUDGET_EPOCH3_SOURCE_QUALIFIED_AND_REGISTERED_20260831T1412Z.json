@@ -1,0 +1,86 @@
+{
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+  "authoritative_v5": {
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "immutable": true,
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "classification": "BUDGET_EPOCH3_SOURCE_QUALIFIED_AND_PROSPECTIVE_TOURNAMENT_REGISTERED",
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH3_SOURCE_QUALIFIED_AND_REGISTERED_CHECKPOINT_V1",
+  "database_post_registration": {
+    "active_journal_commands": 0,
+    "definitions": 12,
+    "evaluations": 0,
+    "holdouts": 0,
+    "open_sessions": 0,
+    "ordinals": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  },
+  "experiment": {
+    "challenger_candidate_id": "2622901bc94232185c84c20322dd23498270c4c771bf438748041ded01b0e1d3",
+    "challenger_ordinal": 12,
+    "created_ts_ms": 1788183959046,
+    "development_end_ts_ms": 1788241800000,
+    "development_start_ts_ms": 1788198600000,
+    "experiment_id": "3397f9eded6841c713860012a7bfa8f90e8223b081616cc6829ec91ee626e3fc",
+    "incumbent_candidate_id": "4855c0af3d83c2a97a03371babb186d67aae19127f5e43e2a5f998a0efa7e3d1",
+    "parent_experiment_id": "e57b1ad05f6e7619d12974b9b857e3afedf3f9e9a7c78a4dbc784c96642a77ac",
+    "validation_end_ts_ms": 1788285000000
+  },
+  "guarded_start": {
+    "development_not_before_ts_ms": 1788198359046,
+    "observed_worst_case_admission_ms": 7075766,
+    "required_lead_ms": 14400000,
+    "runtime_launched": false,
+    "safety_cutoff_policy": "FAIL_CLOSED_BEFORE_DEVELOPMENT_OPEN_IF_GUARDIAN_NOT_DURABLY_CLEAN"
+  },
+  "next_action": "Prepare and execute exactly one fresh runtime launch for experiment 3397f9eded6841c713860012a7bfa8f90e8223b081616cc6829ec91ee626e3fc, then launch and bind a fresh independent guardian and prove at least one clean durable observation before 1788198600000.",
+  "observed_utc": "2026-08-31T14:12:03Z",
+  "prior_bridge_commit": "893193a70e38bad798541007e59616bb20636f00",
+  "registration": {
+    "authority_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\v4_pr_001_final31_budget_epoch3_registration_authority.json",
+    "authority_sha256": "90797ee35b7c2abd9da6de126ba74f1a345575bdb81ba103988f6dd0e7ff7116",
+    "lease_acquired_sha256": "46559ec7a90ae68dae1f846da2199ce285a0103838b761e2568eda84aaed9909",
+    "lease_released_sha256": "e2aa0bd5a457d1239224b3ff3b4fb13e7cec1726fe505472752efb9814a4516f",
+    "nonce": "de6e7fff4f704987bbcc9857d2b44d70",
+    "result_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\v4_pr_001_final31_budget_epoch3_registration_result.json",
+    "result_sha256": "e4fe1b799b3567542dfa5d89eaf934c4160acdfc7930b16e74c8732c8b98db69"
+  },
+  "research_budget": {
+    "authority_file_sha256": "9ff140a44d293f42ab9857b31487218ac8dec6405ba1373c1771b3e1eefcc9d0",
+    "authority_sha256": "c9a40573072fcecc4d7f3a1df79ad3507e971f20c986e6c04ee52465f8bf293c",
+    "cumulative_alpha_if_tested": "0.005",
+    "epoch_ordinal": 3,
+    "family_alpha_cap": "0.05",
+    "prior_alpha_spent": "0",
+    "prior_consumed_slots": 11,
+    "prior_statistical_evaluations": 0,
+    "research_semantics_unchanged": true
+  },
+  "safety": {
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "live_enabled": false,
+    "phase_three_entered": false,
+    "real_cancellation_available": false,
+    "real_orders_possible": false,
+    "real_placement_available": false,
+    "wallet_signing_available": false
+  },
+  "source_qualification": {
+    "errors": 0,
+    "failures": 0,
+    "junit_sha256": "2a8cb54645b73eb7f1cd27a2e27f10438121a5158ecc814b9578825a34687c49",
+    "manifest_sha256": "cde91c33c70de7079e751e2e1d23456964722959fd4cfe287613798974f9076c",
+    "post_verification_sha256": "c32f96111a241d00fe9571d7084e0781f0fa0bd972c557f3fe5e18472560d904",
+    "pytest_exit_code": 0,
+    "pytest_launch_count": 1,
+    "root": "D:\\pytest_tmp_v4\\poly_alpha_combined_post_oos_source_freeze_final31_budget_epoch3_continuation1_20260831T1320Z",
+    "skipped": 0,
+    "tested_tree_sha256": "60fc59304dbf98a241419a493c9f52799be0c5f6cd94ddc78acb6f84b2d3c909",
+    "tests": 4319,
+    "tree_exact": true,
+    "verified": true
+  }
+}
