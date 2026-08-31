@@ -1,5 +1,12 @@
 # Poly Alpha status
 
+## Budget epoch 2 corrected source authority
+
+- Corrected tree `acfba2d9...3ef1` passed 4,310/4,310 exactly once with zero failures/errors/skips, exact post-tree equality, and unchanged v5.
+- The earlier `dea55c83...152b0` seal remains an immutable PASS but is not registration authority: a post-seal disk-binding check found that the historical candidate evaluator hash must transition to the newly qualified evaluator hash while every candidate semantic field remains exact.
+- The narrow evaluator-authority transition is implemented and all affected suites are green. No registration, runtime, guardian, evaluation, holdout, or later phase exists yet.
+- Next: create the canonical hash-bound one-test epoch authority and execute one fresh registration nonce with the existing two-hour guarded-start lead.
+
 ## Prospective research-budget epoch 2 causal fix
 
 - The preregistered epoch-2 mechanism is implemented without rewriting the original ten-slot budget or any predecessor definition.
