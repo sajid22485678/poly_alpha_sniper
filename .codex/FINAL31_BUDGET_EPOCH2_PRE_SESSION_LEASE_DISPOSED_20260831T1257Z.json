@@ -1,0 +1,73 @@
+{
+  "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+  "authoritative_v5": {
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "immutable": true,
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "classification": "STALE_PROCESS_PRE_SESSION_DISPOSED",
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH2_PRE_SESSION_LEASE_DISPOSED_CHECKPOINT_V1",
+  "database_integrity": {
+    "failed_persistence_commands_historical": 18,
+    "foreign_key_violations": 0,
+    "incomplete_persistence_commands": 0,
+    "integrity_evidence_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_budget_epoch2_pre_session_lease_integrity.json",
+    "integrity_evidence_sha256": "e1214fd6d7e9dcd6acaa38d2e9692c6d409f3bdfeda06d2fe1b45d8a112dee01",
+    "locked_holdout_registrations": 0,
+    "open_runtime_sessions": 0,
+    "quick_check": "ok",
+    "runtime_nonce_session_count": 0,
+    "sqlite_shm_reader_metadata_changed": true,
+    "strategy_evaluation_runs": 0,
+    "user_version": 6
+  },
+  "disposition": {
+    "canonical_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\leases\\bb1a1e9df7a740c1b224db606c80ab19.pre-session-disposed.json",
+    "canonical_sha256": "f94797489178de0ba2926cf2a4752c70c07349dc1585cc538bc4dea04ff1c28d",
+    "database_writes": 0,
+    "disposition_nonce": "e5c57ef8f2584b34bf475df28545f750",
+    "evidence_rewritten": false,
+    "historical_release_fabricated": false,
+    "normal_release_exists": false,
+    "result": "DISPOSED",
+    "result_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_budget_epoch2_pre_session_lease_disposition_result.json",
+    "result_sha256": "8e878893f316bda152d21dea37deff18c7cc22491358a1538eada08f16970d45",
+    "session_fabricated": false
+  },
+  "exact_stale_identity": {
+    "experiment_id": "e57b1ad05f6e7619d12974b9b857e3afedf3f9e9a7c78a4dbc784c96642a77ac",
+    "guardian_started": false,
+    "launcher_pid": 10008,
+    "lease_acquired_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\leases\\bb1a1e9df7a740c1b224db606c80ab19.acquired.json",
+    "lease_acquired_sha256": "f851186231daea54bb7a27925359105a4df2809446c36b64b5d85cd2edff0094",
+    "runtime_nonce": "bb1a1e9df7a740c1b224db606c80ab19",
+    "runtime_pid": 9700,
+    "runtime_process_absent": true,
+    "session_committed": false
+  },
+  "next_action": "Construct and prove a prospective hash-bound research-budget continuation beyond consumed epoch2 without retuning; then perform one fresh exact source qualification before the single owner-authorized guarded Phase-Two experiment.",
+  "observed_utc": "2026-08-31T12:57:00Z",
+  "prior_bridge_commit": "72f2026d007397ddfb38fe66eced35ea94f8c7fd",
+  "safety": {
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "live_enabled": false,
+    "phase_three_entered": false,
+    "real_cancellation_available": false,
+    "real_orders_possible": false,
+    "real_placement_available": false,
+    "wallet_signing_available": false
+  },
+  "source": {
+    "last_qualified_tree_sha256": "b1080a3c9f117d51c2fa70c8009e77909d82ae709c1ce35fb1dfbb55d2f2e2fe",
+    "pre_session_recovery_module_sha256": "50a32159a307abd60b2e75cdabb70d96918b0fc8309ad160a71935caf51e845d",
+    "source_changes_require_fresh_exact_qualification": true,
+    "tests": {
+      "broader_adjacent_passed": 63,
+      "focused_passed": 7,
+      "red_reproduced": true
+    }
+  }
+}
