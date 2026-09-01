@@ -1,0 +1,65 @@
+{
+  "schema": "POLY_ALPHA_FINAL31_BUDGET_EPOCH5_LEASE_ACQUIRED_SESSION_PENDING_V1",
+  "captured_ts_ms": 1788223333085,
+  "prior_bridge_commit": "aac59c634926083a7ee2df25e0f1c8d475022783",
+  "classification": "LEASE_ACQUIRED_SESSION_NOT_COMMITTED_GUARDIAN_PROHIBITED",
+  "experiment_id": "1a55f8595073aa341a73c6c28e700f93a5bf43e615597acbdf4b0882626feb0c",
+  "source_tree_sha256": "f66888011e931a08a8ebf9b385213bfdb4e7d507adb39db310fc6d945ccae972",
+  "runtime": {
+    "launch_nonce": "07defc2eeeb34b6c8aecf97ebbaf0ff1",
+    "launcher_pid": 2088,
+    "runtime_pid": 13656,
+    "process_pair_alive": true,
+    "stderr_empty": true,
+    "must_not_relaunch": true
+  },
+  "lease": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\leases\\07defc2eeeb34b6c8aecf97ebbaf0ff1.acquired.json",
+    "sha256": "e4e214b8ab00212e4757f22a3bbef549a363441b9e5422f9c40d015c7d43eb4e",
+    "acquired_ts_ms": 1788223280687,
+    "pid": 13656,
+    "identity_and_safety_match": true
+  },
+  "session": {
+    "exact_nonce_row_count": 0,
+    "query_mode": "READ_ONLY_QUERY_ONLY",
+    "committed": false
+  },
+  "monitor_observation": {
+    "exit_code": 0,
+    "selected_launch_nonce": "4c0bb9b634df489584d2c81afdebb318",
+    "selected_pid": 20384,
+    "selected_running": false,
+    "interpretation": "The monitor still sees the terminal epoch-4 session because epoch 5 has not committed a runtime session. This is not epoch-5 guardian eligibility."
+  },
+  "prepared_inert_operators": {
+    "monitor_sha256": "c7b6bdd1cefac48f5b4476787db02bd1fe014ede98a8be9c145e218a22a7a693",
+    "watcher_sha256": "bcbf5e33bcddb9d2a397ea22461c26dca588419c86b0047e44ed4b3646db7880",
+    "executed": false,
+    "guardian_identity_consumed": false
+  },
+  "next_action": "Wait on the same consumed runtime until a durable runtime_sessions row exists for launch nonce 07defc2eeeb34b6c8aecf97ebbaf0ff1. Then rerun independent epoch-5 monitor verification and only launch a fresh guardian if every exact identity, persistence, reconciliation, source, integrity and safety gate is healthy.",
+  "forbidden": [
+    "treat_lease_alone_as_guardian_eligibility",
+    "bind_guardian_to_terminal_epoch4_session",
+    "relaunch_runtime",
+    "launch_guardian_before_epoch5_session_commit",
+    "reuse_retired_guardian_nonce",
+    "mutate_source_during_active_runtime",
+    "consume_holdout",
+    "enter_phase_three",
+    "enable_live_capability"
+  ],
+  "safety": {
+    "shadow_only": true,
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "order_placement_available": false,
+    "order_cancel_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "holdout_state": "NONEXISTENT_UNCONSUMED",
+    "phase_three": false
+  }
+}
