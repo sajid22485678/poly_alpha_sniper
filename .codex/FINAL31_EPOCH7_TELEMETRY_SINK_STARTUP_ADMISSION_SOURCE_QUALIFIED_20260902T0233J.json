@@ -1,0 +1,63 @@
+{
+  "contract": "POLY_ALPHA_CODEX_PROGRESS_FINAL31_EPOCH7_TELEMETRY_SINK_STARTUP_ADMISSION_SOURCE_QUALIFIED_V1",
+  "created_ts_ms": 1788291176035,
+  "prior_bridge_commit": "5ba969a272164b5e552cba7acc1d4d24e0846552",
+  "phase": "PHASE_TWO_PRE_ADMISSION_ENGINEERING_COMPLETE",
+  "classification": "SOURCE_QUALIFIED_RUNTIME_CONTINUATION_AUTHORIZED",
+  "terminal_runtime": {
+    "session_id": "5200c997cc814c4cbf5046bccabda409",
+    "launch_nonce": "dba2eeb00a0a4802ae779cd42044061d",
+    "disposition": "CONSUMED_TERMINAL_MUST_NOT_RELAUNCH",
+    "operator_deadline_origin_error_preserved": true,
+    "startup_timeout_proven": false,
+    "guardian_created": false,
+    "evaluation_performed": false
+  },
+  "causal_fix": {
+    "verification_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_epoch7_telemetry_sink_startup_admission_fix_verified.json",
+    "verification_sha256": "32ba4ccf9b1ea65b036aa7694a6d01c49a6592e1b9c92bdefba0618351a45b7e",
+    "root_cause": "LAZY_AUXILIARY_EXACT_V6_ADMISSION_ESCAPED_STARTUP_READINESS",
+    "red_proven": true,
+    "affected_tests": 208,
+    "affected_exit_code": 0,
+    "full_exact_v6_validator_preserved": true,
+    "strict_acknowledgement_deadline_ms": 15000,
+    "research_semantics_unchanged": true
+  },
+  "source_qualification": {
+    "root": "D:\\pytest_tmp_v4\\s46_telemetry_sink_startup_admission_20260902T0205J",
+    "runner_sha256": "cd44f04f0e7871f7c44ccc00e8f0f27e0b7d1fbc94ac3bee239ef9046cef68ef",
+    "manifest_sha256": "7671c7f41f5e5a4bc3325336edaba70a3fdce54cf48fdd632608313554da9226",
+    "post_verification_sha256": "89a1b7ee469b877b037c61ef1d0578539071cd7705ed0500c5d57a2ee9286db0",
+    "junit_sha256": "2aedb937dd277768ff1bc82d95e2f3ce9adf6d0589aca866c4d2deb7afdfe364",
+    "tested_tree_sha256": "76ed3e2fda2789afb06ce81ee2d568630cf2cffc6620f99e0682bff218fb3f7e",
+    "tests": 4323,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "exit_code": 0,
+    "tree_exact": true,
+    "authoritative_v5_equal": true
+  },
+  "research_state": {
+    "experiment_id": "c820d4e0286c2550c0fd8ff1b308b0773183fa41a3fa736c524be31a0e8e7eb7",
+    "challenger_ordinal": 16,
+    "definition_status": "SEALED",
+    "evaluation_count": 0,
+    "development_opened": false,
+    "holdout_registrations": 0
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Bind the qualified s46 source to one fresh correction3 runtime authority for the existing sealed ordinal16 experiment. Consume fresh runtime and guardian identities only, require owner-thread telemetry admission before session commit, and prove one clean independent guardian observation before admissible development collection."
+}
