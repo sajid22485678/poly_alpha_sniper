@@ -1,0 +1,61 @@
+{
+  "contract": "POLY_ALPHA_CODEX_PROGRESS_FINAL31_EPOCH7_REGISTRATION_STARTUP_TIMEOUT_RECONCILED_V1",
+  "created_ts_ms": 1788268946316,
+  "prior_bridge_commit": "8a68363d0bd80f289b1ec38c2462d4fed2addc00",
+  "phase": "PHASE_TWO_PRE_ADMISSION_ENGINEERING",
+  "classification": "PRE_ADMISSION_OPERATIONAL_FAILURE_NO_RESEARCH_IMPACT",
+  "source": {
+    "qualified_tree_sha256": "c428f2f3fb69d4c22eaa7e2898cbe5b35db168edca00a24f5ccb009875ab513f",
+    "seal_root": "D:\\pytest_tmp_v4\\s44_guardian_scope_telemetry_pressure_20260901T1815J",
+    "tests": 4322,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0
+  },
+  "epoch7_registration": {
+    "nonce": "805eebfb91094190b501798106dc9f6a",
+    "disposition": "CONSUMED_MUST_NOT_RETRY_OR_REUSE",
+    "created_ts_ms": 1788263855799,
+    "development_not_before_ts_ms": 1788278400000,
+    "operator_sha256": "2025e93367c03ff1a89d82c63c94baf3ec0a6f02c05a605bebc78fb006b2ced2",
+    "acquired_sha256": "836165b1fb0d6a82b876c63d4a11c2f8068bc8e9e7b3fd3157d6d1fa4874ed95",
+    "released_sha256": "addaee75679d08a322a5e6fe5c310ed90e3c0408534bd4e023379d82727bf47f",
+    "elapsed_acquired_to_released_ms": 4517092,
+    "failure": "writer exact-v6 pre-session readiness exceeded the 3600-second operational admission bound",
+    "source_authority_sha256": "af1943371185e709610bc1d78c8eb82dceab532231ba946d1015eace38169944",
+    "supersession_authority_sha256": "4e16fc4add3aa4b5c09676258e7c04939a93a5b235757969fcdf9f36b4241e77",
+    "registration_authority_sha256": "7fa82e9283c40b39be6acf149b556858e056c86c8aea62e8b7d78f1114348d7c",
+    "result_artifact_created": false
+  },
+  "reconciliation": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_budget_epoch7_registration_startup_timeout_reconciliation.json",
+    "sha256": "d8ee5fca552e4d14607f4ede6f86c68641b45335e88e1fc87caf321e0967c3fd",
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "strategy_experiment_definitions": 15,
+    "challenger_ordinals": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    "epoch7_definitions": 0,
+    "journal_commands_for_nonce": 0,
+    "journal_active": 0,
+    "open_sessions": 0,
+    "runtime_sessions_for_nonce": 0,
+    "evaluations": 0,
+    "holdout_registrations": 0,
+    "research_collected": false
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "authoritative_v5_wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "authoritative_v5_shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Stop identity churn; causally profile and reproduce the exact-v6 immutable payload-claim cold-admission scaling failure, add a fail-first performance/contract regression, implement the smallest TOCTOU-safe admission optimization without weakening the strict 15-second acknowledgement deadline or integrity validation, run focused and broader affected tests, exact-source-qualify if production source changes, then preregister a distinct prospective epoch with fresh identities."
+}
