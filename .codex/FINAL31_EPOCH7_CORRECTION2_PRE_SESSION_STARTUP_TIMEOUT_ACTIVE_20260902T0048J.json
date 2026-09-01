@@ -1,0 +1,75 @@
+{
+  "contract": "POLY_ALPHA_CODEX_PROGRESS_FINAL31_EPOCH7_CORRECTION2_PRE_SESSION_STARTUP_TIMEOUT_ACTIVE_V1",
+  "created_ts_ms": 1788284982910,
+  "prior_bridge_commit": "c69faddc57242557485b3cac4590c4e290b8431f",
+  "phase": "PHASE_TWO_GUARDED_START_PRE_SESSION_FAILURE_DISPOSITION",
+  "classification": "PRE_SESSION_STARTUP_TIMEOUT_CANONICAL_EXIT_PENDING",
+  "experiment": {
+    "experiment_id": "c820d4e0286c2550c0fd8ff1b308b0773183fa41a3fa736c524be31a0e8e7eb7",
+    "global_challenger_ordinal": 16,
+    "budget_epoch_ordinal": 7,
+    "development_start_ts_ms": 1788291300000,
+    "development_end_ts_ms": 1788334500000,
+    "validation_end_ts_ms": 1788377700000,
+    "research_semantics_unchanged": true
+  },
+  "source_authority": {
+    "qualified_tree_sha256": "b4143a0a941f0f9d3b419863afd7b894950e59953e81bb401b87be2e60b6f393",
+    "tests": 4322,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "seal_manifest_sha256": "088746a18d4b80f018b8d77d0030c1ee0227eb73c7812128feba6516a5516837",
+    "combined_source_authority_sha256": "382b8a07e0cd75c2df91204960a2e79b42367c9e2b77890cd49c4a990d898a10"
+  },
+  "runtime": {
+    "runtime_nonce": "dba2eeb00a0a4802ae779cd42044061d",
+    "disposition": "CONSUMED_INADMISSIBLE_MUST_NOT_RELAUNCH_OR_REUSE",
+    "launcher_pid": 13172,
+    "runtime_pid": 17840,
+    "process_start_ts": "2026-09-01T23:39:03.6020844+07:00",
+    "configured_persistence_startup_timeout_s": 3600,
+    "timeout_observed_ts": "2026-09-02T00:40:14.6145909+07:00",
+    "timeout_state": "BOTH_PROCESSES_ALIVE_NO_SESSION",
+    "cleanup_wait_end_ts": "2026-09-02T00:47:40.1439353+07:00",
+    "cleanup_wait_state": "BOTH_PROCESSES_STILL_ALIVE_CANONICAL_CANCELLATION_PENDING",
+    "cpu_active_after_timeout": true,
+    "runtime_sessions_for_nonce": 0,
+    "guardian_created": false,
+    "research_collected": false,
+    "lease_acquired_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\leases\\dba2eeb00a0a4802ae779cd42044061d.acquired.json",
+    "lease_acquired_sha256": "f71b3c5dccb48eb435371127e0859f7a52db7a02777954e8628926ee2a3ab16a",
+    "lease_released": false,
+    "stdout_length": 62,
+    "stderr_length": 0,
+    "stdout_stderr_hash_state": "UNAVAILABLE_WHILE_RUNTIME_HOLDS_OUTPUT_HANDLES"
+  },
+  "decision": {
+    "admission_result": "FAILED_BY_STRICT_STARTUP_TIMEOUT",
+    "late_session_admissible": false,
+    "guardian_launch_authorized": false,
+    "external_kill_performed": false,
+    "relaunch_performed": false,
+    "source_mutation_performed": false,
+    "next_action": "Allow the exact canonical timeout/cancellation path to finish independently. On process exit, preserve output and exact lease/session state, reconcile this consumed pre-session identity without relaunch, then establish the smallest causal operational correction under standing owner authority."
+  },
+  "scheduler": {
+    "automation_id": "poly-alpha-epoch3-phase-two-guard",
+    "name": "poly-alpha-epoch7-correction2-guard",
+    "status": "ACTIVE",
+    "mode": "EVENT_FIRST_TERMINAL_DISPOSITION",
+    "late_session_guardian_forbidden": true
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  }
+}
