@@ -1,0 +1,57 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_EPOCH9_ORDINAL18_RUNTIME_LAUNCHED_ADMISSION_PENDING_V1",
+  "classification": "EXACT_ONCE_RUNTIME_LAUNCHED_COLD_ADMISSION_PENDING",
+  "created_ts_ms": 1788302678514,
+  "prior_bridge_commit": "7c1c5bdb5745af4b510a64b2ffb17dcc7c65b9b2",
+  "source": {
+    "tested_tree_sha256": "76ed3e2fda2789afb06ce81ee2d568630cf2cffc6620f99e0682bff218fb3f7e",
+    "tests": 4323,
+    "result": "PASS_EXACTLY_ONCE_MUST_NOT_RERUN"
+  },
+  "experiment": {
+    "budget_epoch": 9,
+    "global_challenger_ordinal": 18,
+    "experiment_id": "c90cb2d3d8150701d1585556020de844ff79cf38ee22baa32475a91477c04e33",
+    "parent_experiment_id": "d894347356097e72a61688c4bb33f95348d832b26ffc83d0a978d9d8cfc1a4b2",
+    "development_start_ts_ms": 1788316200000,
+    "development_end_ts_ms": 1788359400000,
+    "validation_end_ts_ms": 1788402600000,
+    "registration_result_sha256": "c114bb3ac6e22f0c633a8bee8257b863d857f41db023609115363c3ad3e5ada1"
+  },
+  "runtime": {
+    "phase_two_nonce": "b0f95328d3d7f4eb07c187919cf3a9f6",
+    "nonce_disposition": "CONSUMED_MUST_NOT_RELAUNCH",
+    "operator_script_sha256": "0933e4993c61724ecc6f6a959425a9a84740e4d42c780a3b538fc99e0f1fde81",
+    "launch_authority_sha256": "3a209d371bde85a747f8feb2e575b3d223d0472e6688c7b59ef5ecdf3c91cc8b",
+    "process_start_sha256": "f304016aa00fd1a008dd1a8be7fe678e407015525d058c7332db335603fea679",
+    "launcher_pid": 10616,
+    "observed_runtime_child_pid": 14392,
+    "launcher_alive_at_checkpoint": true,
+    "runtime_child_alive_at_checkpoint": true,
+    "session_committed_at_checkpoint": false,
+    "stdout_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\combined_phase_two_runtime_final31_budget_epoch9_correction1.stdout.txt",
+    "stderr_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\combined_phase_two_runtime_final31_budget_epoch9_correction1.stderr.txt",
+    "cold_admission_interpretation": "NORMAL_IN_PROGRESS_NO_FAILURE_EVIDENCE"
+  },
+  "guardian": {
+    "launched": false,
+    "reason": "Exact runtime session and durable process identity are not committed yet.",
+    "corrected_watcher_sha256": "26893fd57419b98a4813052b3bfc6dafae3ba6822337171d7b6fa4d2eece76c8",
+    "must_bind_exact_session_and_processes_before_launch": true,
+    "first_clean_durable_observation_required_before_development": true
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Use sparse event-first observation of this exact consumed nonce. If one healthy runtime session commits, create one fresh exact guardian identity, launch the corrected Epoch9 guardian once, bind it to the exact session and PID pair, and require the first clean durable observation before 1788316200000. On process exit or any binding failure preserve first evidence and do not relaunch."
+}
