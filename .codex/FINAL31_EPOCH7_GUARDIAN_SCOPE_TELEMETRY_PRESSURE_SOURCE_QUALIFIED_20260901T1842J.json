@@ -1,0 +1,83 @@
+{
+  "classification": "EPOCH7_CAUSAL_SOURCE_QUALIFICATION_PASS",
+  "contract": "POLY_ALPHA_FINAL31_EPOCH7_GUARDIAN_SCOPE_TELEMETRY_PRESSURE_SOURCE_QUALIFIED_PROGRESS_V1",
+  "created_ts_ms": 1788262924154,
+  "prior_bridge_commit": "e19187306908d51c8fafcaadd2f78046bb272b98",
+  "failed_parent": {
+    "experiment_id": "3eb7e0a99b3081ee211000793dd82d798d5ff7e33e5beb9a92172c73d1120271",
+    "research_budget_epoch": 6,
+    "global_ordinal": 15,
+    "classification": "PERMANENTLY_INADMISSIBLE",
+    "first_failure_sha256": "68627cdcfd2bd154c357c6282919f12f1308bbf85a95aaf69b403ad4e40c434f",
+    "terminal_reconciliation_sha256": "88dbc10f02796cee0cf1f26b7aaccd67569eeb2aba1c208a28da91cbb6abd8cb",
+    "evaluated": false,
+    "must_not_relaunch": true
+  },
+  "causal_red_green": {
+    "guardian_scope_red": "canonical session-parameterized Phase-Two integrity collector was absent",
+    "guardian_scope_fix": "source-qualified collector uses one explicit session for every current-session query and returns the same scope for independent guardian comparison",
+    "telemetry_pressure_red": "aggregate backlog escalation changed DEFER to ADMIT under sustained writer pressure",
+    "telemetry_pressure_fix": "active producers always retain deferred aggregates; only finite terminal drain may use ADMIT",
+    "strict_acknowledgement_deadline_ms": 15000,
+    "deadline_weakened": false,
+    "research_semantics_changed": false,
+    "focused_red_proven": true,
+    "focused_green": true,
+    "guardian_engine_telemetry_persistence_union": "PASS",
+    "prospective_runtime_worker_maintenance_union": "PASS"
+  },
+  "stale_test_disposition": {
+    "classification": "STALE_ORPHANED_PREDECESSOR_RED_TEST_PROCESS_TREE_TERMINATED",
+    "census_sha256": "dd5148a5c47763ed83e89fbd9ab3ae92bddffdd37a1cb0c7fd58551962175519",
+    "interrupted_test_result": "NOT_PROVEN_PASS_OR_FAIL",
+    "basetemp_preserved": true,
+    "source_or_runtime_mutated": false
+  },
+  "exact_source_qualification": {
+    "root": "D:\\pytest_tmp_v4\\s44_guardian_scope_telemetry_pressure_20260901T1815J",
+    "runner_sha256": "5264d1ad0403ae6946d6c77bbff0d3f821507348e1f79b28efa30e5593d88993",
+    "manifest_sha256": "64782c57b3d52238317e708c97e12d0a5f54815003c32de26d99b72a2387b7d3",
+    "post_verification_file_sha256": "3b2ddd647b60015228f10c2565cad69d6726b6c328dabba0faeac675af3fceb9",
+    "tested_tree_sha256": "c428f2f3fb69d4c22eaa7e2898cbe5b35db168edca00a24f5ccb009875ab513f",
+    "post_tree_sha256": "c428f2f3fb69d4c22eaa7e2898cbe5b35db168edca00a24f5ccb009875ab513f",
+    "junit_sha256": "422dab02d0514c0f27ee71a574b6573b912eaaa60442b49a489e263db9f402be",
+    "pytest_launch_count": 1,
+    "pytest_exit_code": 0,
+    "tests": 4322,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "tree_exact": true,
+    "verified": true
+  },
+  "authoritative_v5": {
+    "database_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "unchanged": true,
+    "journal_exists": false
+  },
+  "research_governance": {
+    "successor32_oos_pass_preserved": true,
+    "prior_consumed_challenger_slots": 15,
+    "prior_statistical_evaluations": 0,
+    "prior_alpha_spent_text": "0",
+    "next_epoch_max_confirmatory_challengers": 1,
+    "next_epoch_per_challenger_alpha_text": "0.005",
+    "no_retuning": true,
+    "new_budget_authority_required_before_registration": true
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "CAPTURE_FRESH_READ_ONLY_EXACT_V6_INTEGRITY_THEN_PREREGISTER_ONE_DISTINCT_EPOCH7_PARENT_LINKED_EXPERIMENT_WITH_A_FOUR_HOUR_GUARDED_START_LEAD_AND_FRESH_IDENTITIES"
+}
