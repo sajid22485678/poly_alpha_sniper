@@ -1,0 +1,64 @@
+{
+  "contract": "POLY_ALPHA_CODEX_PROGRESS_FINAL31_EPOCH7_CORRECTION2_OPERATOR_DEADLINE_ORIGIN_CORRECTED_V1",
+  "created_ts_ms": 1788288617840,
+  "prior_bridge_commit": "6353e62f29020f3170035053262cd54d1259ca22",
+  "phase": "PHASE_TWO_OPERATOR_ERROR_FORENSIC_CORRECTION",
+  "classification": "OPERATOR_ABORTED_VALID_PRE_DEVELOPMENT_ADMISSION_USING_WRONG_DEADLINE_ORIGIN",
+  "correction": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_epoch7_correction2_operator_deadline_origin_error_reconciliation.json",
+    "sha256": "c1d44b88afb859066c3e437589b1afeb179a6abfa26acf92dc311db62772f74e",
+    "incorrect_origin": "OS_PROCESS_CREATION",
+    "canonical_origin": "PERSISTENCE_START_INVOCATION_APPROXIMATED_CONSERVATIVELY_BY_EXACT_LEASE_ACQUISITION",
+    "lease_acquired_ts_ms": 1788282413316,
+    "conservative_deadline_ts_ms": 1788286013316,
+    "first_session_observation_ts_ms": 1788285670176,
+    "session_observed_before_deadline_ms": 343140,
+    "startup_timeout_proven": false
+  },
+  "superseded_checkpoints": [
+    {
+      "commit": "28961be3860bbd7bffb768c6ca45aee67ddc9c92",
+      "classification": "PRE_SESSION_STARTUP_TIMEOUT_CANONICAL_EXIT_PENDING",
+      "status": "PRESERVED_SUPERSEDED_INCORRECT_CLASSIFICATION"
+    },
+    {
+      "commit": "6353e62f29020f3170035053262cd54d1259ca22",
+      "incorrect_failure_label": "BINDING_PRE_SESSION_STARTUP_TIMEOUT_WITH_LATE_SESSION_COMMIT",
+      "terminal_counts_and_integrity": "REMAIN_VALID",
+      "status": "PRESERVED_PARTIALLY_SUPERSEDED"
+    }
+  ],
+  "runtime": {
+    "session_id": "5200c997cc814c4cbf5046bccabda409",
+    "launch_nonce": "dba2eeb00a0a4802ae779cd42044061d",
+    "disposition": "CONSUMED_TERMINAL_MUST_NOT_RELAUNCH",
+    "operator_stop_created": true,
+    "guardian_created": false,
+    "development_window_opened": false,
+    "evaluation_performed": false,
+    "terminal_shutdown_failure_observed": "telemetry owner thread did not stop before verification"
+  },
+  "forensic_population": {
+    "candidates": 4,
+    "source_events": 123,
+    "admissibility": "PERMANENTLY_INADMISSIBLE_UNGUARDED_OPERATOR_ABORTED",
+    "evaluation_pooling_tuning_forbidden": true
+  },
+  "source_decision": {
+    "startup_timeout_fix_authorized": false,
+    "startup_timeout_red_authorized": false,
+    "terminal_shutdown_failure_requires_independent_root_cause": true,
+    "research_semantics_changed": false
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Trace and reproduce only the independently observed terminal telemetry-owner shutdown failure. Make no startup-timeout source change. If a causal RED is established, implement and verify the smallest shutdown lifecycle correction; otherwise preserve the operator-aborted runtime and continue through a distinct authorized runtime identity using the still-valid registered experiment."
+}
