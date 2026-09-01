@@ -1,0 +1,85 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH5_CORRECTION2_GUARDIAN_HEALTHY_HANDOFF_V1",
+  "recorded_ts_ms": 1788228116189,
+  "prior_bridge_commit": "1fd623a153b2bd686dfbab598bd9a46ee61424f2",
+  "classification": "GUARDED_START_ADMITTED_WAIT_DEVELOPMENT_OPENING",
+  "experiment": {
+    "experiment_id": "1a55f8595073aa341a73c6c28e700f93a5bf43e615597acbdf4b0882626feb0c",
+    "research_budget_epoch": 5,
+    "global_ordinal": 14,
+    "development_start_ts_ms": 1788234600000,
+    "development_end_ts_ms": 1788277800000,
+    "validation_end_ts_ms": 1788321000000,
+    "lead_remaining_at_checkpoint_ms": 6483811
+  },
+  "source": {
+    "tested_tree_sha256": "f66888011e931a08a8ebf9b385213bfdb4e7d507adb39db310fc6d945ccae972",
+    "qualification_tests": 4320,
+    "qualification_exit_code": 0,
+    "source_authority_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_post_oos_source_authority_final31_budget_epoch5_correction1.json",
+    "source_authority_sha256": "271b1c1680c7e0b861b0034f38503dc5bccf28e5d71e5dbe6e96eee22d5a5623"
+  },
+  "runtime": {
+    "session_id": "ca50c3b317864a38b687cc05fa94c027",
+    "launch_nonce": "07defc2eeeb34b6c8aecf97ebbaf0ff1",
+    "launcher_pid": 2088,
+    "runtime_pid": 13656,
+    "state": "RUNNING",
+    "must_not_relaunch": true,
+    "lease_acquired_sha256": "e4e214b8ab00212e4757f22a3bbef549a363441b9e5422f9c40d015c7d43eb4e"
+  },
+  "failed_guardian_preserved": {
+    "guardian_nonce": "48f04ee919af462b988f03d223a8b19e",
+    "classification": "PRE_DEVELOPMENT_OPERATOR_ADAPTER_FAILURE",
+    "failure_sha256": "6b25431545f4ae3ea224643a6ecbdfdf2f098a1af3c6016e56f38dad9862d0d6",
+    "must_not_restart": true
+  },
+  "active_guardian": {
+    "guardian_nonce": "fcba5b1f2ad845acad05dd937b1577be",
+    "guardian_pid": 11816,
+    "started_utc": "2026-09-01T01:58:31.4888212Z",
+    "duration_s": 60000,
+    "interval_s": 30,
+    "snapshot_s": 300,
+    "must_not_restart": true,
+    "monitor_sha256": "889dadccd15b92deae6cfd9e46b8a18698ca09a743411d90df49fd03918a4dab",
+    "watcher_sha256": "671f4117dfabb05007e65a9aa35eccfd50b6a33dad8186993200be1ad1876779",
+    "launcher_sha256": "04995dab760ac424266dcaae158e975a1351df0eddf2a9e9f4aac52cfaa3572e",
+    "launch_request_sha256": "035435853951f6af9eeed2b52979a38a32ade3669b13511525fa2f7d953e5607",
+    "process_start_sha256": "55b4d8f8652a1b82554b97f2e8d8f74db37cb79f8c1fa26dfb473f9feb91d64b",
+    "exact_command_sha256": "68e59b7132938cf85c2619cffb5aa2abccea8e6fda9f2e59c20a4e02fb210a04"
+  },
+  "first_clean_observation": {
+    "snapshot_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_snapshot_final31_budget_epoch5_correction2_1788228025913.json",
+    "snapshot_sha256": "33fe5b917643809e50b50e3dfd86802bcdd6819bfea3bb73754a0e1d9037b0d6",
+    "guardian_failure_artifacts": 0,
+    "runtime_session_exact": true,
+    "runtime_nonce_exact": true,
+    "runtime_pid_exact": true,
+    "critical_persistence_state": "HEALTHY",
+    "current_session_failed": 0,
+    "current_session_incomplete": 0,
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "historical_critical_evidence_lost_baseline": 71,
+    "true_critical_rows_lost": 0,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "queue_overflow": 0,
+    "telemetry_data_safety": "HEALTHY",
+    "locked_holdout_registrations": 0
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "leave exact runtime and guardian untouched before development opening; use sparse first-failure-aware heartbeat checks; at or after development end execute only the repository-defined exact terminal and evaluation sequence if the guardian stream remains admissible"
+}
