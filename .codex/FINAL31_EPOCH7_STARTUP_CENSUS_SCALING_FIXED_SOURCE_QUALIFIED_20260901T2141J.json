@@ -1,0 +1,58 @@
+{
+  "contract": "POLY_ALPHA_CODEX_PROGRESS_FINAL31_EPOCH7_STARTUP_CENSUS_SCALING_FIXED_SOURCE_QUALIFIED_V1",
+  "created_ts_ms": 1788273657120,
+  "prior_bridge_commit": "3532e77f7cfb4f1039108b96e2da35b268debac9",
+  "phase": "PHASE_TWO_PRE_ADMISSION_ENGINEERING_COMPLETE",
+  "classification": "SOURCE_QUALIFIED_RUNTIME_CONTINUATION_AUTHORIZED",
+  "failed_registration": {
+    "nonce": "805eebfb91094190b501798106dc9f6a",
+    "disposition": "CONSUMED_MUST_NOT_RETRY_OR_REUSE",
+    "reconciliation_sha256": "d8ee5fca552e4d14607f4ede6f86c68641b45335e88e1fc87caf321e0967c3fd",
+    "experiment_created": false,
+    "research_collected": false
+  },
+  "causal_fix": {
+    "verification_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_epoch7_startup_census_scaling_fix_verified.json",
+    "verification_sha256": "60604853261abe705d44e2bd203c515de5e990ecfe87e8362ae317fc7a3401db",
+    "real_host_census_elapsed_seconds": 829.3633114999975,
+    "prior_failed_elapsed_seconds": 4517.092,
+    "blocking_count": 0,
+    "integrity_checks_removed": false,
+    "strict_acknowledgement_deadline_ms": 15000,
+    "research_semantics_unchanged": true
+  },
+  "source_qualification": {
+    "root": "D:\\pytest_tmp_v4\\s45_epoch7_startup_census_scaling_20260901T2100J",
+    "runner_sha256": "ad2d72e1cf11e90e991f5839762d60e968ee1342e226c2c08d4bcad41e1cbbef",
+    "manifest_sha256": "088746a18d4b80f018b8d77d0030c1ee0227eb73c7812128feba6516a5516837",
+    "post_verification_sha256": "91b857fa705c5b68f1ae7ab64ad32f67134edf7e7c57431d9036095b9d2b994c",
+    "junit_sha256": "6884688a61deabf4936fc4f6626c2b88db3b7ec497a52d4cae5cf78c2dfc83f2",
+    "tested_tree_sha256": "b4143a0a941f0f9d3b419863afd7b894950e59953e81bb401b87be2e60b6f393",
+    "tests": 4322,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "exit_code": 0,
+    "tree_exact": true,
+    "authoritative_v5_equal": true
+  },
+  "research_state": {
+    "strategy_experiment_definitions": 15,
+    "challenger_ordinals": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    "strategy_evaluation_runs": 0,
+    "holdout_registrations": 0
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Create and validate a distinct prospective budget-epoch authority for one operational continuation from parent ordinal 15, preserving global challenger ordinal 16 and zero prior statistical evaluations; consume fresh registration/runtime/guardian identities only after exact-v6 preflight and a conservative guarded-start schedule."
+}
