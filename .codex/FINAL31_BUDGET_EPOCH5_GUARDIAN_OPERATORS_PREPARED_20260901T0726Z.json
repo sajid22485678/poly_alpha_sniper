@@ -1,0 +1,54 @@
+{
+  "schema": "POLY_ALPHA_FINAL31_BUDGET_EPOCH5_GUARDIAN_OPERATORS_PREPARED_V1",
+  "captured_ts_ms": 1788222276066,
+  "prior_bridge_commit": "c32048fa23de45399f1e295390b37f28cb045c6e",
+  "classification": "RUNTIME_ADMISSION_ACTIVE_GUARDIAN_OPERATORS_PREPARED_NOT_EXECUTED",
+  "source_tree_sha256": "f66888011e931a08a8ebf9b385213bfdb4e7d507adb39db310fc6d945ccae972",
+  "experiment_id": "1a55f8595073aa341a73c6c28e700f93a5bf43e615597acbdf4b0882626feb0c",
+  "runtime": {
+    "launch_nonce": "07defc2eeeb34b6c8aecf97ebbaf0ff1",
+    "launcher_pid": 2088,
+    "runtime_pid": 13656,
+    "must_not_relaunch": true,
+    "process_pair_alive": true,
+    "lease_present": false,
+    "session_committed": false,
+    "stderr_empty": true
+  },
+  "timing": {
+    "development_start_ts_ms": 1788234600000,
+    "development_end_ts_ms": 1788277800000,
+    "validation_end_ts_ms": 1788321000000
+  },
+  "prepared_not_executed": {
+    "monitor_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\monitor_live_phase_two_final31_budget_epoch5.py",
+    "monitor_sha256": "c7b6bdd1cefac48f5b4476787db02bd1fe014ede98a8be9c145e218a22a7a693",
+    "watcher_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\watch_combined_phase_two_final31_budget_epoch5.py",
+    "watcher_sha256": "bcbf5e33bcddb9d2a397ea22461c26dca588419c86b0047e44ed4b3646db7880",
+    "static_compile": "PASS",
+    "guardian_identity_consumed": false,
+    "guardian_process_started": false
+  },
+  "next_action": "Wait for the exact nonce-owned lease and durable session commit. Then independently verify identity, integrity, reconciliation, source and safety; create a fresh epoch-5 guardian nonce and one exact launcher bound to the committed session and PID pair; launch once and require a clean durable observation before development opens.",
+  "forbidden": [
+    "relaunch_runtime",
+    "launch_guardian_before_session_commit",
+    "reuse_epoch4_guardian_nonce",
+    "restart_failed_guardian",
+    "mutate_source_during_active_admission",
+    "consume_holdout",
+    "enter_phase_three",
+    "enable_live_capability"
+  ],
+  "safety": {
+    "shadow_only": true,
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "holdout_state": "NONEXISTENT_UNCONSUMED",
+    "phase_three": false
+  }
+}
