@@ -1,0 +1,74 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_EPOCH9_ORDINAL18_REGISTERED_PROGRESS_V1",
+  "classification": "EPOCH9_ORDINAL18_REGISTERED_GUARDED_START_PENDING",
+  "created_ts_ms": 1788302392855,
+  "prior_bridge_commit": "299e1345da743b86e29a6b7ff5968eae7a14b7a2",
+  "source_qualification": {
+    "root": "D:\\pytest_tmp_v4\\s46_telemetry_sink_startup_admission_20260902T0205J",
+    "tested_tree_sha256": "76ed3e2fda2789afb06ce81ee2d568630cf2cffc6620f99e0682bff218fb3f7e",
+    "tests": 4323,
+    "result": "PASS_EXACTLY_ONCE",
+    "must_not_rerun": true
+  },
+  "immutable_parent": {
+    "experiment_id": "d894347356097e72a61688c4bb33f95348d832b26ffc83d0a978d9d8cfc1a4b2",
+    "challenger_ordinal": 17,
+    "disposition": "TERMINAL_INADMISSIBLE_PRE_DEVELOPMENT_GUARDIAN_LAUNCH_FAILURE",
+    "first_failure_sha256": "4dbed56b418531c9a35d492ba8a5c8a58aad17fda91e49d2d4a85d28ae7af6f1",
+    "terminal_reconciliation_sha256": "2458acf1272e565fe775cc95fc1ad2104200eafc7be73d83f7d1745e82aca391",
+    "must_not_relaunch_or_evaluate": true
+  },
+  "registration": {
+    "budget_epoch": 9,
+    "global_challenger_ordinal": 18,
+    "registration_nonce": "3786a72134534ce58aeb3ad9b14d8b34",
+    "registration_nonce_disposition": "CONSUMED_RELEASED_MUST_NOT_REUSE",
+    "operator_script_sha256": "ce887618da4a307d08072174e89f865cfcb30511513d60aa612261beae75f572",
+    "source_authority_sha256": "30990724fca38af9f1f6aba32409b35b338cc87ea489b201f5960978284b0503",
+    "research_budget_file_sha256": "78e5f7067483b5bf9e3daaf0a725daee27fffeca7d4b1cd2fa91f743faec2d01",
+    "research_budget_canonical_sha256": "406e8c4a74823196e724e27ac36c2c5444242943dff9bf00181afaac92fec985",
+    "registration_authority_sha256": "7da536bf0d3f2a3f25c1d1079987b5919d46d2212aa30d90ad4993c75d358d95",
+    "registration_result_sha256": "c114bb3ac6e22f0c633a8bee8257b863d857f41db023609115363c3ad3e5ada1",
+    "lease_acquired_sha256": "e5f2a54e9f5f3dcd24985c98292c97b34d2e29771cf7c5df55a3d9bf450802ca",
+    "lease_released_sha256": "87a24484716f0df81104f3656cf4be04676452f7f715d613d639dfb5a7f82f6c",
+    "prior_consumed_challenger_slots": 17,
+    "prior_statistical_evaluations": 0,
+    "prior_alpha_spent_text": "0",
+    "epoch_per_challenger_alpha_text": "0.005",
+    "cumulative_alpha_if_tested_text": "0.005",
+    "research_semantics_unchanged": true
+  },
+  "ordinal18": {
+    "experiment_id": "c90cb2d3d8150701d1585556020de844ff79cf38ee22baa32475a91477c04e33",
+    "incumbent_candidate_id": "15d575f06592ceb68ff9d46b96ba4a6a5a546664a442fec60f6bcc131061a9e3",
+    "challenger_candidate_id": "89a8053df90979c407f0df0568fbbdc1a3cab5dda35c2ca94723e9917438f207",
+    "development_start_ts_ms": 1788316200000,
+    "development_end_ts_ms": 1788359400000,
+    "validation_end_ts_ms": 1788402600000,
+    "observed_worst_startup_admission_ms": 6353494,
+    "minimum_required_guarded_lead_ms": 14400000,
+    "scheduled_guarded_lead_ms": 14674474,
+    "admissibility": "PENDING_FRESH_RUNTIME_AND_INDEPENDENT_GUARDIAN_BEFORE_DEVELOPMENT_OPEN"
+  },
+  "guardian_operator_correction": {
+    "watcher_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\watch_combined_phase_two_final31_budget_epoch9_correction1.py",
+    "watcher_sha256": "26893fd57419b98a4813052b3bfc6dafae3ba6822337171d7b6fa4d2eece76c8",
+    "regression_record_sha256": "996938866af5410caa985b0917ec7fa49eb939c9321c2518571631aa3117e13a",
+    "static_generation_result": "PASS",
+    "source_tree_changed": false
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Create fresh exact runtime/session and guardian identities for Ordinal18, launch the shadow runtime once, then launch and bind the corrected independent Epoch9 guardian and preserve at least one clean durable observation before 1788316200000."
+}
