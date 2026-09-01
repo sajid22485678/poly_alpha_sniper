@@ -1,0 +1,56 @@
+{
+  "contract": "POLY_ALPHA_CODEX_PROGRESS_FINAL31_EPOCH8_REGISTRATION_BUDGET_ORDINAL_MISMATCH_RECONCILED_V1",
+  "created_ts_ms": 1788275890000,
+  "prior_bridge_commit": "eca744571aa77c944b4ba3213b2752083ab54a66",
+  "phase": "PHASE_TWO_RESEARCH_GOVERNANCE_CORRECTION",
+  "classification": "PRE_RESEARCH_GOVERNANCE_REGISTRATION_FAILURE_NO_RESEARCH_IMPACT",
+  "failed_registration": {
+    "nonce": "73e301c1852a4280af4c784527bade45",
+    "disposition": "CONSUMED_MUST_NOT_RETRY_OR_REUSE",
+    "operator_sha256": "858b86e29a918990d6c71d4bc19a1c3719c0beacbf9d8540eedd1fab4b067f31",
+    "reconciliation_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_budget_epoch8_registration_budget_ordinal_mismatch_reconciliation.json",
+    "reconciliation_sha256": "0ddd7a8355f72d67ad42500a7c9d1fafae56508a4283e0395c94edf289a4b1bf",
+    "failed_command_id": "budget-epoch7-continuation:3eb7e0a99b3081ee211000793dd82d798d5ff7e33e5beb9a92172c73d1120271:9b7bb99a2eca2ea184261780ab6626779ac12e287bdd9853e9dce526c803fa3f:1788274821116",
+    "failed_command_status": "FAILED",
+    "error": "prospective research budget supersession differs",
+    "experiment_created": false,
+    "research_collected": false,
+    "runtime_session_created": false,
+    "guardian_created": false
+  },
+  "causal_classification": {
+    "database_parent_budget_epoch": 6,
+    "invalid_preregistered_epoch_ordinal": 8,
+    "statistically_valid_next_epoch_ordinal": 7,
+    "reason": "The prior external epoch-7 registration failed before creating a database experiment, so it did not advance the persisted research-budget epoch.",
+    "prior_alpha_spent": 0,
+    "prior_statistical_evaluations": 0,
+    "retuning": false
+  },
+  "database_state": {
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "strategy_experiment_definitions": 15,
+    "challenger_ordinals": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    "strategy_evaluation_runs": 0,
+    "open_sessions": 0,
+    "holdout_registrations": 0
+  },
+  "qualified_source": {
+    "root": "D:\\pytest_tmp_v4\\s45_epoch7_startup_census_scaling_20260901T2100J",
+    "tested_tree_sha256": "b4143a0a941f0f9d3b419863afd7b894950e59953e81bb401b87be2e60b6f393",
+    "tests": 4322,
+    "verified": true
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Preserve every failed authority artifact; create one distinct hash-bound epoch-7 correction registration authority with a fresh nonce, the unchanged parent/global ordinal 16, the parser-valid combined source authority, the existing qualified source, and conservative guarded-start timing; preflight inertly before exactly-once execution."
+}
