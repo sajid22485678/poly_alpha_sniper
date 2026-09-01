@@ -1,0 +1,59 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_EPOCH8_ORDINAL17_RUNTIME_LAUNCHED_ADMISSION_PENDING_V1",
+  "classification": "FRESH_RUNTIME_LAUNCHED_EXACTLY_ONCE_COLD_ADMISSION_PENDING",
+  "created_ts_ms": 1788293436320,
+  "prior_bridge_commit": "b61460e3b82e937028c220ab13bd10de8f89d0e3",
+  "experiment": {
+    "budget_epoch": 8,
+    "challenger_ordinal": 17,
+    "experiment_id": "d894347356097e72a61688c4bb33f95348d832b26ffc83d0a978d9d8cfc1a4b2",
+    "development_start_ts_ms": 1788306600000,
+    "development_end_ts_ms": 1788349800000,
+    "validation_end_ts_ms": 1788393000000,
+    "registration_result_sha256": "8bd5ce5a3792acda1ed299f017984b08d5a656b39e1421e8aa6a0a4a4a1176db"
+  },
+  "runtime": {
+    "phase_two_nonce": "b49bc5e87a284641989912a5e0316894",
+    "nonce_disposition": "CONSUMED_MUST_NOT_RELAUNCH",
+    "launcher_pid": 20116,
+    "launcher_alive_at_observation": true,
+    "session_id": null,
+    "runtime_child_pid": null,
+    "admission_state": "COLD_EXACT_V6_ADMISSION_IN_PROGRESS",
+    "stdout_length": 0,
+    "stderr_length": 0,
+    "launch_operator_sha256": "1c4aa986604d77c39a004b5c77d15aa1e9f24d43296d09627b6c152c9357bb9c",
+    "launch_authority_sha256": "a3e833e89cdc03a4d6115beb8afc3a53c535e1945c4df6e9bcfb5992cd15a582",
+    "process_start_sha256": "114f5d5c7eeb5517b19dcad9d8322212dbc4d133262aae51d361e2ccfce083e2",
+    "exact_command_sha256": "5fe42cf135ba2d4c9a6cce22e7924a2a2f6fa9de5568cae3b836ef3b23adaadd"
+  },
+  "guardian": {
+    "state": "NOT_YET_LAUNCHED",
+    "reason": "Guardian identity must bind the durably admitted session and exact runtime process pair.",
+    "required_before_development_open": true,
+    "minimum_clean_observations_before_open": 1
+  },
+  "source": {
+    "tested_tree_sha256": "76ed3e2fda2789afb06ce81ee2d568630cf2cffc6620f99e0682bff218fb3f7e",
+    "seal_result": "4323_OF_4323_PASS_EXACTLY_ONCE",
+    "must_not_rerun": true
+  },
+  "research": {
+    "retuning_performed": false,
+    "research_semantics_unchanged": true,
+    "evaluations": 0,
+    "holdout_consumed": false
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Wait event-first for this exact nonce to durably commit one session and runtime child; if healthy, launch one fresh exact-bound independent guardian and require a clean durable observation before 1788306600000."
+}
