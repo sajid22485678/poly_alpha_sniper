@@ -1,0 +1,65 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_EPOCH8_ORDINAL17_REGISTERED_PROGRESS_V1",
+  "classification": "EPOCH8_ORDINAL17_REGISTERED_GUARDED_START_PENDING",
+  "created_ts_ms": 1788293142455,
+  "prior_bridge_commit": "1c13486811d737db286819f225b0f66badfc5c60",
+  "source_qualification": {
+    "root": "D:\\pytest_tmp_v4\\s46_telemetry_sink_startup_admission_20260902T0205J",
+    "tested_tree_sha256": "76ed3e2fda2789afb06ce81ee2d568630cf2cffc6620f99e0682bff218fb3f7e",
+    "tests": 4323,
+    "result": "PASS_EXACTLY_ONCE",
+    "must_not_rerun": true
+  },
+  "immutable_parent": {
+    "experiment_id": "c820d4e0286c2550c0fd8ff1b308b0773183fa41a3fa736c524be31a0e8e7eb7",
+    "challenger_ordinal": 16,
+    "disposition": "INFRASTRUCTURE_INVALID_PRE_ADMISSION_NO_RESEARCH_IMPACT",
+    "guarded_start_authority_sha256": "a67dcfa6cf7ca347eccea457971367d788b9456aa203cf5141d3770dc7521503",
+    "must_not_launch_or_evaluate": true
+  },
+  "registration": {
+    "budget_epoch": 8,
+    "global_challenger_ordinal": 17,
+    "registration_nonce": "6de67bd1b02b4bca85576a0ea38bc7ab",
+    "registration_nonce_disposition": "CONSUMED_RELEASED_MUST_NOT_REUSE",
+    "operator_script_sha256": "d5b1937d6846147a68d3c4ea482f8a7f0ac8668fdfd027d516899393b5da0cfb",
+    "source_authority_sha256": "0d7ec1d498ab5a090b15f1811184ecf6eaed8e0dcc620859fdd95ff5916d181c",
+    "research_budget_file_sha256": "6e83e516c0ec64739622ea4c12d2c936d7229abd9976cc2c2e9311354fd6e805",
+    "research_budget_canonical_sha256": "ea6bee8d06ef4df77c8147f1163f9a7d14071b87dd74d12631f8fe57f0c8494e",
+    "registration_authority_sha256": "37993e95b718f17c3f174fb3df729991b864a180b93b6a524c5b2178eee10838",
+    "registration_result_sha256": "8bd5ce5a3792acda1ed299f017984b08d5a656b39e1421e8aa6a0a4a4a1176db",
+    "lease_acquired_sha256": "c59ec7647c8c060e584f9a4f3fd8f2352dd1b783c880b20afce7edc3f752568e",
+    "lease_released_sha256": "044da01028bcf30f2c360240e25b6a38e1d06d4dd59567bf1fa267ad55418200",
+    "prior_consumed_challenger_slots": 16,
+    "prior_statistical_evaluations": 0,
+    "prior_alpha_spent_text": "0",
+    "epoch_per_challenger_alpha_text": "0.005",
+    "cumulative_alpha_if_tested_text": "0.005",
+    "research_semantics_unchanged": true
+  },
+  "ordinal17": {
+    "experiment_id": "d894347356097e72a61688c4bb33f95348d832b26ffc83d0a978d9d8cfc1a4b2",
+    "incumbent_candidate_id": "3bb4c074b3567a08229282c3d2c481259e2e45417a436f1eb779b72fc12d8254",
+    "challenger_candidate_id": "70e7c58324fb3008f2e0cf6f17773564f331fae7b829f7cebabaccfbda6ed022",
+    "development_start_ts_ms": 1788306600000,
+    "development_end_ts_ms": 1788349800000,
+    "validation_end_ts_ms": 1788393000000,
+    "minimum_required_guarded_lead_ms": 7200000,
+    "scheduled_guarded_lead_ms": 14400000,
+    "admissibility": "PENDING_FRESH_RUNTIME_AND_INDEPENDENT_GUARDIAN_BEFORE_DEVELOPMENT_OPEN"
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Create fresh exact runtime/session and guardian identities for Ordinal17, launch the shadow runtime once, then launch and bind an independent guardian and preserve at least one clean durable observation before 1788306600000."
+}
