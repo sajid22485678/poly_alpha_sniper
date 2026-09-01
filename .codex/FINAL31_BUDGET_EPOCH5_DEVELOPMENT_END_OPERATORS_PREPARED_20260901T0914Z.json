@@ -1,0 +1,101 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH5_DEVELOPMENT_END_OPERATORS_PREPARED_V1",
+  "recorded_ts_ms": 1788228872841,
+  "prior_bridge_commit": "9e5b0609f5dc2bfb5c2c559071cf3c0cad1c11cd",
+  "classification": "DEVELOPMENT_END_SEQUENCE_PREPARED_NOT_EXECUTED",
+  "experiment_id": "1a55f8595073aa341a73c6c28e700f93a5bf43e615597acbdf4b0882626feb0c",
+  "development_start_ts_ms": 1788234600000,
+  "development_end_ts_ms": 1788277800000,
+  "validation_end_ts_ms": 1788321000000,
+  "active_identity": {
+    "session_id": "ca50c3b317864a38b687cc05fa94c027",
+    "runtime_nonce": "07defc2eeeb34b6c8aecf97ebbaf0ff1",
+    "launcher_pid": 2088,
+    "launcher_create_time": 1788222001.5107508,
+    "runtime_pid": 13656,
+    "runtime_create_time": 1788222001.5457845,
+    "guardian_nonce": "fcba5b1f2ad845acad05dd937b1577be",
+    "guardian_pid": 11816,
+    "guardian_create_time": 1788227911.4888213,
+    "guardian_worker_pid": 18740,
+    "guardian_worker_create_time": 1788227911.5444603,
+    "must_not_relaunch_or_restart": true
+  },
+  "operators": [
+    {
+      "order": 1,
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_budget_epoch5_correction2_development_guardian_terminal_once.py",
+      "sha256": "d479ca7872e92299c62fe2adc4ab483f4aabdff680a3fdf6bad56f9f08d94b12",
+      "preflight": "PASS",
+      "execute": "NOT_EXECUTED"
+    },
+    {
+      "order": 2,
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_budget_epoch5_correction2_development_runtime_stop_once.py",
+      "sha256": "c9370dfe7c13467a17bab100a883068c7cc65ee7d1a4a9caf546edfec7b7fb2a",
+      "preflight": "PASS",
+      "execute": "NOT_EXECUTED",
+      "stop_request_sha256": "7a722339d86cfa1ec0c39083e6ccccb3d18e99685b84f0c6972e4b1a6cab3f29"
+    },
+    {
+      "order": 3,
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\reconcile_final31_budget_epoch5_correction2_development_terminal_once.py",
+      "sha256": "efc3b88c11ee17fc2d9a8d2c1ab7c07f7b1a58fb59b4e9700297d72a98071ad3",
+      "preflight": "PASS",
+      "execute": "NOT_EXECUTED",
+      "expected_global_failed_predecessor_rows": 18
+    },
+    {
+      "order": 4,
+      "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\evaluate_final31_budget_epoch5_correction2_development_once.py",
+      "sha256": "bbee94e2af78ef6003bb5261d9b1dcef84d096d3e0e36108b8c157fefb8d214e",
+      "preflight": "PASS",
+      "execute": "NOT_EXECUTED",
+      "evaluation_nonce": "aaa26547098c442ca2bc0c15910f54e8",
+      "evaluation_nonce_state": "PREPARED_UNCONSUMED"
+    }
+  ],
+  "timing_regression": {
+    "red": "historical terminal operator rejected a clean guardian observation as stale because it treated monitor internal observation time as guardian-output completion time; observed false age 152377 ms",
+    "cause": "monitor processing latency was conflated with completed guardian observation age",
+    "fix": "measure completed-observation freshness from durable stdout mtime; permit a 300000 ms completed-output bound and a 360 second wait for a fresh inter-observation interval",
+    "green": "exact guardian wrapper and worker identities matched; latest completed output age 110533 ms; failure count zero; stderr zero; critical failed/incomplete zero; reconciliation clean",
+    "unchanged_strict_gates": [
+      "critical acknowledgement deadline",
+      "persistence failure",
+      "critical evidence loss",
+      "reconciliation mismatch",
+      "unexpected loss",
+      "guardian first failure",
+      "session identity",
+      "process identity",
+      "safety"
+    ]
+  },
+  "preflight_evidence": {
+    "runtime_boundary_eligible": false,
+    "current_session_status": {
+      "COMMITTED": 3239
+    },
+    "current_session_failed": 0,
+    "current_session_incomplete": 0,
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "strategy_evaluation_runs": 0,
+    "locked_holdout_registrations": 0,
+    "source_authority_sha256": "271b1c1680c7e0b861b0034f38503dc5bccf28e5d71e5dbe6e96eee22d5a5623",
+    "qualified_source_tree_sha256": "f66888011e931a08a8ebf9b385213bfdb4e7d507adb39db310fc6d945ccae972",
+    "create_once_output_collisions": 0
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "before development end leave runtime and guardian untouched and use sparse first-failure-aware checks; at or after 1788277800000 reverify exact hashes, process identities, latest completed guardian observation, failure stream and safety once, then execute the four operators exactly once in recorded order"
+}
