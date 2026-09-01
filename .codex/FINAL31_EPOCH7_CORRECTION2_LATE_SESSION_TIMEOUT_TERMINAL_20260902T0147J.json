@@ -1,0 +1,76 @@
+{
+  "contract": "POLY_ALPHA_CODEX_PROGRESS_FINAL31_EPOCH7_CORRECTION2_LATE_SESSION_TIMEOUT_TERMINAL_V1",
+  "created_ts_ms": 1788288423445,
+  "prior_bridge_commit": "28961be3860bbd7bffb768c6ca45aee67ddc9c92",
+  "phase": "PHASE_TWO_PRE_ADMISSION_FAILURE_FORENSIC_COMPLETE",
+  "classification": "TERMINAL_INADMISSIBLE_PRE_DEVELOPMENT_STARTUP_TIMEOUT_LATE_SESSION",
+  "experiment": {
+    "experiment_id": "c820d4e0286c2550c0fd8ff1b308b0773183fa41a3fa736c524be31a0e8e7eb7",
+    "challenger_ordinal": 16,
+    "budget_epoch_ordinal": 7,
+    "definition_preserved": true,
+    "evaluations": 0,
+    "research_semantics_changed": false
+  },
+  "runtime": {
+    "session_id": "5200c997cc814c4cbf5046bccabda409",
+    "launch_nonce": "dba2eeb00a0a4802ae779cd42044061d",
+    "disposition": "CONSUMED_TERMINAL_MUST_NOT_RELAUNCH_OR_REUSE",
+    "session_ended_ts_ms": 1788286124273,
+    "session_stop_reason": "graceful_stop",
+    "processes_absent": true,
+    "process_lock_absent": true,
+    "lease_released": true,
+    "runtime_state": "FAILED",
+    "runtime_last_error": "telemetry_shutdown_forced_after_drain_timeout",
+    "telemetry_shutdown_ok": false
+  },
+  "binding_failures": [
+    "BINDING_PRE_SESSION_STARTUP_TIMEOUT_WITH_LATE_SESSION_COMMIT",
+    "TERMINAL_TELEMETRY_OWNER_THREAD_DID_NOT_STOP_BEFORE_VERIFICATION",
+    "MAINTENANCE_FUTURE_BOUNDED_CHECKPOINT_RETENTION_TIMEOUT"
+  ],
+  "terminal_reconciliation": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_epoch7_correction2_late_session_timeout_terminal_reconciliation_correction1.json",
+    "sha256": "734a8887b2e68f92539728c62555037de10e5b9eb1926c1eb37c612736486cc7",
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "open_sessions": 0,
+    "journal_committed": 130,
+    "journal_failed": 0,
+    "journal_incomplete": 0,
+    "holdout_registrations": 0
+  },
+  "consumed_reconciliation_attempt": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_epoch7_correction2_late_session_timeout_terminal_reconciliation_attempt1_failed.json",
+    "sha256": "d967454c70e3486275afd31f45ac07baaa125bb531c22a68f160e5dcac1e2fc5",
+    "classification": "RECONCILIATION_OPERATOR_FALSE_ZERO_CANDIDATE_INVARIANT",
+    "same_operator_rerun_forbidden": true
+  },
+  "forensic_population": {
+    "session_candidates": 4,
+    "session_source_events": 123,
+    "guardian_created": false,
+    "development_window_opened": false,
+    "admissibility": "PERMANENTLY_INADMISSIBLE_UNGUARDED_PRE_DEVELOPMENT",
+    "evaluation_authorized": false,
+    "pooling_authorized": false,
+    "tuning_authorized": false
+  },
+  "source": {
+    "qualified_tree_sha256": "b4143a0a941f0f9d3b419863afd7b894950e59953e81bb401b87be2e60b6f393",
+    "qualified_tests": 4322,
+    "current_source_mutation_after_seal": false
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Establish fail-first RED coverage for persistence-start timeout cancellation permitting a late session commit and for terminal telemetry-owner verification failure; implement the smallest lifecycle correction without research-semantic changes, run focused and broader affected suites, then perform one fresh exact source qualification before any distinct runtime identity."
+}
