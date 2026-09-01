@@ -1,0 +1,63 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH5_GUARDIAN1_FAILED_ADAPTER_FIX_GREEN_V1",
+  "recorded_ts_ms": 1788227679979,
+  "prior_bridge_commit": "f95791c84f087d55f7c4a2d619ebfe298096e390",
+  "classification": "PRE_DEVELOPMENT_GUARDIAN_OPERATOR_FAILURE_PRESERVED_CAUSAL_FIX_GREEN",
+  "experiment_id": "1a55f8595073aa341a73c6c28e700f93a5bf43e615597acbdf4b0882626feb0c",
+  "development_start_ts_ms": 1788234600000,
+  "development_end_ts_ms": 1788277800000,
+  "validation_end_ts_ms": 1788321000000,
+  "runtime": {
+    "session_id": "ca50c3b317864a38b687cc05fa94c027",
+    "launch_nonce": "07defc2eeeb34b6c8aecf97ebbaf0ff1",
+    "launcher_pid": 2088,
+    "runtime_pid": 13656,
+    "state": "RUNNING",
+    "must_not_relaunch": true
+  },
+  "failed_guardian": {
+    "guardian_nonce": "48f04ee919af462b988f03d223a8b19e",
+    "launch_count": 1,
+    "exit_code": 2,
+    "must_not_restart": true,
+    "failure_artifact": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_failure_final31_budget_epoch5_1788227542080.json",
+    "failure_sha256": "6b25431545f4ae3ea224643a6ecbdfdf2f098a1af3c6016e56f38dad9862d0d6",
+    "violation": "monitor_exception:AttributeError:module 'phase_two_final31_budget_epoch5_monitor' has no attribute 'collect'",
+    "admissible_development_impact": "NONE_BEFORE_FROZEN_OPENING"
+  },
+  "causal_boundary": {
+    "cause": "epoch5 script adapter executed the epoch3 source in a private globals dictionary and therefore did not export collect when imported by the watcher",
+    "red": "RED_old_collect_exported=False",
+    "fix": "non_overwriting_correction2_monitor_explicitly_imports_epoch3_and_exports_collect; correction2_watcher_resolves_that_monitor",
+    "green": "GREEN_new_collect_exported=True; correction2 watcher CLI import and argument parser PASS",
+    "failed_monitor_sha256": "c7b6bdd1cefac48f5b4476787db02bd1fe014ede98a8be9c145e218a22a7a693",
+    "failed_watcher_sha256": "bcbf5e33bcddb9d2a397ea22461c26dca588419c86b0047e44ed4b3646db7880",
+    "correction2_monitor_sha256": "889dadccd15b92deae6cfd9e46b8a18698ca09a743411d90df49fd03918a4dab",
+    "correction2_watcher_sha256": "671f4117dfabb05007e65a9aa35eccfd50b6a33dad8186993200be1ad1876779",
+    "production_source_changed": false,
+    "research_semantics_changed": false
+  },
+  "next_guardian": {
+    "fresh_nonce": "fcba5b1f2ad845acad05dd937b1577be",
+    "state": "PREPARED_UNCONSUMED",
+    "authority": "standing owner packet pre-admission operational recovery",
+    "required_result": "exact identity bound and at least one clean durable observation before development opening"
+  },
+  "source": {
+    "tested_tree_sha256": "f66888011e931a08a8ebf9b385213bfdb4e7d507adb39db310fc6d945ccae972",
+    "qualification_tests": 4320,
+    "qualification_exit_code": 0,
+    "source_authority_sha256": "271b1c1680c7e0b861b0034f38503dc5bccf28e5d71e5dbe6e96eee22d5a5623"
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "create a fresh correction2 exact-once guardian launcher, run its strict current-session preflight once, launch guardian nonce fcba5b1f2ad845acad05dd937b1577be once, and require the first clean durable observation before the frozen development opening"
+}
