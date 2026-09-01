@@ -1,0 +1,85 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_EPOCH5_ACK_CLAIM_CACHE_SOURCE_QUALIFIED_V1",
+  "captured_utc": "2026-09-01T05:36:17.540449Z",
+  "prior_bridge_commit": "ad5797f31c65de071a66148a859b0359510f945f",
+  "classification": "EXACT_SOURCE_QUALIFICATION_PASS",
+  "failed_experiment": {
+    "experiment_id": "1a55f8595073aa341a73c6c28e700f93a5bf43e615597acbdf4b0882626feb0c",
+    "research_budget_epoch": 5,
+    "global_ordinal": 14,
+    "admissible_for_evaluation": false,
+    "evaluation_performed": false,
+    "must_not_reopen": true,
+    "first_binding_failure_sha256": "752eb732c798de48f8c739b0a75a5d422865676dc2855af1403b9ca296463430",
+    "terminal_reconciliation_sha256": "e67b79471a475b60641da6744b8a8c1b4ed853cbf20ff649603e039f9a30fa2c"
+  },
+  "causal_fix": {
+    "failure_class": "CRITICAL_ACK_DEADLINE_EXCEEDED_BY_REPEATED_UNINDEXED_EXACT_V6_PAYLOAD_CLAIM_SCANS",
+    "offending_command_acknowledgement_ms": 15011,
+    "strict_deadline_ms": 15000,
+    "offending_command_queue_ms": 14903,
+    "offending_command_commit_ms": 108,
+    "journal_rows_at_failure_review": 237074,
+    "payload_claim_rows_preloaded": 154840,
+    "measured_one_time_preload_seconds": 0.86,
+    "changed_paths_from_prior_qualified_tree": [
+      "lite_frequency_v4/persistence.py",
+      "tests/test_frequency_v4_schema_v6.py"
+    ],
+    "research_semantics_changed": false,
+    "deadline_changed": false,
+    "database_schema_changed": false
+  },
+  "tdd": {
+    "red_test": "tests/test_frequency_v4_schema_v6.py::test_exact_v6_payload_claim_validation_is_not_a_per_command_table_scan",
+    "red_result": "FAIL_V4PersistenceTimeout_AT_0_1_SECONDS",
+    "green_result": "PASS",
+    "focused_tests": 5,
+    "focused_failures": 0,
+    "persistence_suite_tests": 59,
+    "persistence_suite_failures": 0,
+    "schema_v6_suite_result": "PASS",
+    "broader_runtime_guardian_suite_result": "PASS"
+  },
+  "source_qualification": {
+    "root": "D:\\pytest_tmp_v4\\s42_epoch5_ack_claim_cache_20260901T0510Z",
+    "tested_tree_sha256": "a6be45a21c9774dcdaab8632f21417e6217bd6b0b1cd85b3664381244058155f",
+    "manifest_sha256": "cc1415a608bb7697230a5c9b0ca328eddd7721d4966ba906c704497eaa65e172",
+    "runner_sha256": "32608dcac5cc492c6c1bc0ea8c1833a7f24d0ac8712015d8cdeb069be3c0a451",
+    "junit_sha256": "0bc143563df7bd2d8955cdf9de988826aaae1906cdef8a0ad2bd0c447a349662",
+    "post_verification_sha256": "0e23f4a1c1f0481bbfacc678e53fa552b46ae221580d2cc12c67d90036e2a8e7",
+    "pytest_launch_count": 1,
+    "pytest_exit_code": 0,
+    "tests": 4321,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "tree_exact": true,
+    "verified": true,
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "staged_path_count": 0,
+    "tracked_modified_path_count": 62,
+    "untracked_path_count": 117
+  },
+  "authoritative_v5": {
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "unchanged": true
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "CREATE_AND_VALIDATE_EXACT_COMBINED_SOURCE_AUTHORITY_FOR_TREE_A6BE45A2_THEN_REGISTER_ONE_DISTINCT_PARENT_LINKED_OPERATIONAL_CONTINUATION_WITH_FRESH_RUNTIME_SESSION_GUARDIAN_IDENTITIES_AND_CONSERVATIVE_GUARDED_START"
+}
