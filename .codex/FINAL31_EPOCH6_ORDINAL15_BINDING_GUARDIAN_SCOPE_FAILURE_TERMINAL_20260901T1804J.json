@@ -1,0 +1,103 @@
+{
+  "classification": "EPOCH6_ORDINAL15_PERMANENTLY_INADMISSIBLE",
+  "contract": "POLY_ALPHA_FINAL31_EPOCH6_ORDINAL15_BINDING_GUARDIAN_SCOPE_FAILURE_TERMINAL_PROGRESS_V1",
+  "created_ts_ms": 1788260649295,
+  "prior_bridge_commit": "5302d78b8ce0e6ade8001a41d721d5b949efd0e9",
+  "source": {
+    "branch": "master",
+    "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+    "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+    "staged_count": 0,
+    "tracked_modified_count": 62,
+    "untracked_count": 117,
+    "qualified_tree_sha256": "abbba0acad1d2ce90fbfef07fe3798b15e4d533ffc4c71e8bb80f0a364bbadec",
+    "qualified_full_suite_tests": 4321,
+    "qualified_full_suite_result": "PASS",
+    "qualified_junit_sha256": "4122e07c5395397dcf69e47bfbd75cf85876a9fd0aeab3e6a6bf147661e2ae11",
+    "source_tree_mutated_during_runtime": false
+  },
+  "experiment": {
+    "experiment_id": "3eb7e0a99b3081ee211000793dd82d798d5ff7e33e5beb9a92172c73d1120271",
+    "research_budget_epoch": 6,
+    "global_ordinal": 15,
+    "registration_nonce": "0eb1b110e34b413c903912d95ccda613",
+    "runtime_launch_nonce": "0154817d187847bdb33f7019fc607f31",
+    "session_id": "33ff67724ef544aba5305af21f721b8b",
+    "launcher_pid": 20352,
+    "runtime_pid": 8144,
+    "guardian_nonce": "6292e06669594e5da7710d975865352e",
+    "guardian_wrapper_pid": 12248,
+    "guardian_worker_pid": 14328,
+    "must_not_relaunch_or_restart": true,
+    "evaluated": false,
+    "retuning_performed": false,
+    "research_semantics_unchanged": true
+  },
+  "first_binding_failure": {
+    "classification": "BINDING_GUARDIAN_CURRENT_SESSION_JOURNAL_SCOPE_MISMATCH",
+    "artifact_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_failure_final31_budget_epoch6_correction2_independent_1788259426700.json",
+    "artifact_sha256": "68627cdcfd2bd154c357c6282919f12f1308bbf85a95aaf69b403ad4e40c434f",
+    "guardian_snapshot_session_scope": "4285ff21d5b84a8980a9921d51b2336a",
+    "actual_runtime_session_scope": "33ff67724ef544aba5305af21f721b8b",
+    "reported_current_session_committed": 84130,
+    "actual_current_session_committed_at_failure_reconciliation": 7117,
+    "later_observations_cannot_cure": true
+  },
+  "canonical_closure": {
+    "guardian_terminal_result_sha256": "22fc5ed4566017840c1c08e0b81d83c75e13e66cba434a72e0194283818851b7",
+    "runtime_stop_operator_sha256": "b52f8e43d47934d3919e71966b0c701073d79e27adedce6d398a77131d1750e0",
+    "runtime_stop_result_sha256": "86337b287ab321b8a9b421f5cac8b356f5c5d4ef25f02297726cea0aeb3b1b68",
+    "terminal_reconciliation_operator_sha256": "963baf8703878acc61f914420e90500ff4ae3532616893a1b2a91661253ed9d1",
+    "terminal_reconciliation_sha256": "88dbc10f02796cee0cf1f26b7aaccd67569eeb2aba1c208a28da91cbb6abd8cb",
+    "runtime_and_guardian_processes_absent": true,
+    "lease_released": true,
+    "session_ended_ts_ms": 1788259863030,
+    "session_stop_reason": "graceful_stop",
+    "current_session_commands": {
+      "COMMITTED": 8014
+    },
+    "failed_commands": 0,
+    "incomplete_commands": 0,
+    "duplicate_command_ids": 0,
+    "open_runtime_sessions": 0,
+    "sqlite_quick_check": "ok",
+    "foreign_key_violations": 0,
+    "schema_version": 6,
+    "strategy_experiment_definitions": 15,
+    "strategy_evaluation_runs": 0,
+    "holdout_registrations": 0,
+    "current_true_critical_rows_lost": 0,
+    "critical_evidence_incomplete": 0,
+    "reconciliation_mismatch": 0
+  },
+  "later_terminal_failure": {
+    "classification": "NONCRITICAL_TELEMETRY_SHUTDOWN_OVERFLOW_AND_ABANDONMENT",
+    "telemetry_shutdown_ok": false,
+    "telemetry_overflow_rows": 8762,
+    "telemetry_shutdown_abandoned_rows": 20000,
+    "telemetry_unexpected_loss": 28762,
+    "does_not_supersede_first_binding_failure": true,
+    "requires_causal_fix_before_any_fresh_runtime": true
+  },
+  "research_authority": {
+    "successor32_oos_pass_preserved": true,
+    "ordinal15_inadmissible_and_unevaluated": true,
+    "epoch6_slot_consumed": true,
+    "new_prospective_budget_epoch_required": true,
+    "no_prior_inadmissible_evidence_may_be_used_for_tuning_or_selection": true
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false,
+    "authoritative_v5_immutable_from_latest_exact_source_qualification": true
+  },
+  "next_action": "RED_REPRODUCE_CURRENT_SESSION_GUARDIAN_JOURNAL_SCOPE_MISMATCH_AND_TERMINAL_TELEMETRY_OVERFLOW_THEN_APPLY_MINIMAL_CAUSAL_FIX_RUN_FOCUSED_AND_BROADER_TESTS_AND_EXACTLY_ONCE_SOURCE_QUALIFICATION_BEFORE_ANY_DISTINCT_EPOCH7_EXPERIMENT"
+}
