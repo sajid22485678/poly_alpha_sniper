@@ -1,0 +1,119 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_BUDGET_EPOCH5_CORRECTION2_BINDING_PERSISTENCE_TIMEOUT_TERMINAL_V1",
+  "recorded_ts_ms": 1788238222591,
+  "recorded_utc": "2026-09-01T04:50:22.5815356Z",
+  "prior_bridge_commit": "ceb0a63563ae95429f71a1cc9f36b8771b7dc5f3",
+  "classification": "EPOCH5_ORDINAL14_INADMISSIBLE_BINDING_PERSISTENCE_TIMEOUT",
+  "experiment": {
+    "experiment_id": "1a55f8595073aa341a73c6c28e700f93a5bf43e615597acbdf4b0882626feb0c",
+    "research_budget_epoch": 5,
+    "global_ordinal": 14,
+    "development_start_ts_ms": 1788234600000,
+    "development_end_ts_ms": 1788277800000,
+    "evaluation_performed": false,
+    "admissible_for_evaluation": false,
+    "must_not_reopen": true
+  },
+  "source": {
+    "tested_tree_sha256": "f66888011e931a08a8ebf9b385213bfdb4e7d507adb39db310fc6d945ccae972",
+    "qualification_tests": 4320,
+    "qualification_exit_code": 0,
+    "source_authority_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_post_oos_source_authority_final31_budget_epoch5_correction1.json",
+    "source_authority_sha256": "271b1c1680c7e0b861b0034f38503dc5bccf28e5d71e5dbe6e96eee22d5a5623"
+  },
+  "first_binding_failure": {
+    "captured_ts_ms": 1788237587221,
+    "violation": "critical_latch:V4PersistenceTimeout",
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_phase_two_guardian_failure_final31_budget_epoch5_correction2_1788237587221.json",
+    "sha256": "752eb732c798de48f8c739b0a75a5d422865676dc2855af1403b9ca296463430",
+    "offending_command_id": "ca50c3b317864a38b687cc05fa94c027:000000015253:persist-outcome-authority-bundle",
+    "submitted_ts_ms": 1788237351548,
+    "committed_ts_ms": 1788237366559,
+    "acknowledgement_ms": 15011,
+    "strict_deadline_ms": 15000,
+    "deadline_excess_ms": 11,
+    "later_commit_does_not_cure_failure": true
+  },
+  "terminal_identity": {
+    "session_id": "ca50c3b317864a38b687cc05fa94c027",
+    "runtime_nonce": "07defc2eeeb34b6c8aecf97ebbaf0ff1",
+    "launcher_pid": 2088,
+    "runtime_pid": 13656,
+    "guardian_nonce": "fcba5b1f2ad845acad05dd937b1577be",
+    "guardian_pid": 11816,
+    "guardian_worker_pid": 18740,
+    "all_processes_absent": true,
+    "session_ended_ts_ms": 1788237909779,
+    "stop_reason": "fatal_RuntimeError",
+    "lease_released_sha256": "8f86215848b423b26513f1fb3408df2c32313d4cd21856afea08326c65e3b865",
+    "must_not_relaunch_or_restart": true
+  },
+  "terminal_reconciliation": {
+    "operator_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\reconcile_final31_budget_epoch5_correction2_guardian_failure_self_terminal_once.py",
+    "operator_sha256": "5066bafae204193ca971a320fcc6256b23ec0bb4ab727710233db0ca63c23375",
+    "result_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_budget_epoch5_correction2_guardian_failure_self_terminal_reconciliation.json",
+    "result_sha256": "e67b79471a475b60641da6744b8a8c1b4ed853cbf20ff649603e039f9a30fa2c",
+    "current_session_commands": {
+      "COMMITTED": 15980
+    },
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "open_runtime_sessions": 0,
+    "duplicate_current_command_ids": 0,
+    "current_session_failed": 0,
+    "current_session_incomplete": 0,
+    "true_critical_rows_lost": 0,
+    "historical_critical_evidence_lost_baseline": 71,
+    "reconciliation_mismatch": 0,
+    "unexpected_loss": 0,
+    "queue_overflow": 0,
+    "shutdown_abandoned": 0,
+    "sink_failure": 0,
+    "terminal_command_committed": true
+  },
+  "unused_failure_stop": {
+    "operator_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\final31_budget_epoch5_correction2_guardian_failure_runtime_stop_once.py",
+    "operator_sha256": "651b61fb8d0f1249f39e7d6bf6290e6db501e2d26fd49385ad8825e965a37d47",
+    "preflight_result": "NOT_ADMITTED_RUNTIME_ALREADY_SELF_TERMINALIZING",
+    "execute_invocations": 0,
+    "stop_request_created": false,
+    "authority_outputs_created": false,
+    "state": "RETIRED_UNCONSUMED_NOT_APPLICABLE"
+  },
+  "retired_development_end_sequence": {
+    "guardian_terminal_execute": "NOT_EXECUTED_AND_NOW_INAPPLICABLE",
+    "runtime_stop_execute": "NOT_EXECUTED_AND_NOW_INAPPLICABLE",
+    "development_reconciliation_execute": "NOT_EXECUTED_AND_NOW_INAPPLICABLE",
+    "development_evaluation_execute": "NOT_EXECUTED_AND_FORBIDDEN",
+    "evaluation_nonce": "aaa26547098c442ca2bc0c15910f54e8",
+    "evaluation_nonce_state": "PREPARED_UNCONSUMED_RETIRED_FOR_THIS_INADMISSIBLE_INTERVAL"
+  },
+  "authoritative_v5": {
+    "db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "unchanged": true
+  },
+  "research_integrity": {
+    "model_retuned": false,
+    "strategy_retuned": false,
+    "calibration_changed": false,
+    "candidate_semantics_changed": false,
+    "risk_or_economic_semantics_changed": false,
+    "inadmissible_interval_used_for_selection": false,
+    "holdout_consumed": false
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Reproduce the 15011 ms persistence acknowledgement breach causally with fail-first tests, determine why bounded telemetry/WAL pressure allowed a critical outcome-authority command to cross the strict 15000 ms deadline, implement the smallest infrastructure-only fix without weakening deadlines or research semantics, run focused and broader affected tests, freshly source-qualify if production source changes, then create a distinct parent-linked operational continuation with fresh exact identities under standing owner authority."
+}
