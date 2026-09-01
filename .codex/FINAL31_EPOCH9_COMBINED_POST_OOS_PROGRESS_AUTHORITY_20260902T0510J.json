@@ -1,0 +1,85 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_EPOCH9_COMBINED_POST_OOS_PROGRESS_AUTHORITY_V1",
+  "classification": "COMBINED_POST_OOS_AUTHORITY_VALID",
+  "created_ts_ms": 1788301040002,
+  "prior_bridge_commit": "48aa6c330dffbe6c6c0102758767e00d9d336e34",
+  "successor32_research_authority": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR32-20260826T1428Z",
+    "classification": "GENUINE_OOS_PASS_ACHIEVED",
+    "source_tree_sha256": "9faf38f58dcde027172496fd60f5438293deab769ec55a158e328431c8addd96",
+    "oos_pass_not_revoked": true
+  },
+  "successor38_terminal_disposition": {
+    "acquisition_id": "V4-PR-001-PROSPECTIVE-SUCCESSOR38-20260828T0323Z",
+    "source_tree_sha256": "b9ef491377329df1575e31553a3b9b469cdfb9b690e495841c41cfb3c61940eb",
+    "runtime_state": "STOPPED",
+    "must_not_relaunch": true,
+    "runtime_validation_authority_preserved": true
+  },
+  "qualified_runtime_source": {
+    "source_tree_sha256": "76ed3e2fda2789afb06ce81ee2d568630cf2cffc6620f99e0682bff218fb3f7e",
+    "source_identity": {
+      "branch": "master",
+      "head": "d3364f219feb37a09a547ff1daba6f0f96377fe4",
+      "index_tree": "700307bdbc9a4fdab7615d79eea83fe1bf6463cb",
+      "staged_count": 0,
+      "tracked_modified_count": 63,
+      "untracked_count": 117,
+      "tested_tree_manifest_sha256": "7671c7f41f5e5a4bc3325336edaba70a3fdce54cf48fdd632608313554da9226",
+      "tested_tree_sha256": "76ed3e2fda2789afb06ce81ee2d568630cf2cffc6620f99e0682bff218fb3f7e",
+      "full_suite_tests": 4323,
+      "full_suite_failures": 0,
+      "full_suite_errors": 0,
+      "full_suite_skips": 0,
+      "full_suite_exit_code": 0,
+      "full_suite_junit_sha256": "2aedb937dd277768ff1bc82d95e2f3ce9adf6d0589aca866c4d2deb7afdfe364"
+    },
+    "full_suite_result": "PASS",
+    "full_suite_evidence_root": "D:\\pytest_tmp_v4\\s46_telemetry_sink_startup_admission_20260902T0205J",
+    "post_verification_sha256": "89a1b7ee469b877b037c61ef1d0578539071cd7705ed0500c5d57a2ee9286db0",
+    "tree_exact": true,
+    "authoritative_v5_equal": true
+  },
+  "behavioral_equivalence": {
+    "classification": "RESEARCH_BEHAVIOR_EQUIVALENT_TO_S32",
+    "research_semantics_unchanged": true,
+    "research_config_surface_diff_count": 0,
+    "model_strategy_calibration_tournament_risk_economics_unchanged": true,
+    "evaluator_and_candidate_semantics_unchanged": true,
+    "strict_acknowledgement_and_persistence_deadlines_unchanged": true,
+    "causal_changes_only": [
+      "session-parameterized Phase-Two guardian integrity collection",
+      "lossless telemetry event-count deferral under sustained writer pressure",
+      "set-based exact-v6 authority graph startup verification",
+      "set-based unjournaled execution-book reference census",
+      "telemetry owner-thread exact-v6 auxiliary admission completed before session readiness",
+      "prospective external watcher path generation uses one namespace transformation with exact-path assertion"
+    ]
+  },
+  "operational_history": {
+    "ordinal17_experiment_id": "d894347356097e72a61688c4bb33f95348d832b26ffc83d0a978d9d8cfc1a4b2",
+    "ordinal17_disposition": "TERMINAL_INADMISSIBLE_PRE_DEVELOPMENT_GUARDIAN_LAUNCH_FAILURE",
+    "ordinal17_first_failure_sha256": "4dbed56b418531c9a35d492ba8a5c8a58aad17fda91e49d2d4a85d28ae7af6f1",
+    "ordinal17_terminal_reconciliation_sha256": "2458acf1272e565fe775cc95fc1ad2104200eafc7be73d83f7d1745e82aca391",
+    "latest_runtime_nonce": "b49bc5e87a284641989912a5e0316894",
+    "latest_runtime_disposition": "CONSUMED_TERMINAL_MUST_NOT_RELAUNCH",
+    "latest_runtime_session": "54e6b4fdef43493bad5b3d4e39d764df",
+    "latest_runtime_candidates_forensic_only": 114,
+    "strategy_evaluation_runs": 0,
+    "guardian_watcher_regression_sha256": "996938866af5410caa985b0917ec7fa49eb939c9321c2518571631aa3117e13a"
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "phase_three_entered": false,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "authoritative_v5_immutable": true
+  },
+  "next_action": "Preregister budget epoch9 global ordinal18 from the pre-development guarded-start failure, preserving zero evaluation/alpha spend and using a conservative four-hour guarded-start lead."
+}
