@@ -1,0 +1,80 @@
+{
+  "contract": "POLY_ALPHA_FINAL31_EPOCH8_ORDINAL17_GUARDIAN_LAUNCH_FAILURE_TERMINAL_PROGRESS_V1",
+  "classification": "ORDINAL17_TERMINAL_INADMISSIBLE_PRE_DEVELOPMENT_GUARDIAN_LAUNCH_FAILURE",
+  "created_ts_ms": 1788301040000,
+  "prior_bridge_commit": "02a4d45b2aaee28eb20bd892f102314fa871da0e",
+  "experiment": {
+    "budget_epoch": 8,
+    "challenger_ordinal": 17,
+    "experiment_id": "d894347356097e72a61688c4bb33f95348d832b26ffc83d0a978d9d8cfc1a4b2",
+    "runtime_nonce": "b49bc5e87a284641989912a5e0316894",
+    "session_id": "54e6b4fdef43493bad5b3d4e39d764df",
+    "launcher_pid": 20116,
+    "runtime_pid": 11672,
+    "guardian_nonce": "a284d397c5134923a3e11f83d4427b19",
+    "all_identities_consumed": true,
+    "must_not_relaunch_or_restart": true,
+    "must_not_evaluate_or_pool": true
+  },
+  "first_failure": {
+    "classification": "BINDING_PRE_DEVELOPMENT_GUARDIAN_LAUNCH_FAILURE_NO_SELECTION_AUTHORITY",
+    "cause": "Watcher generation duplicated the epoch suffix in the monitor filename after an exact replacement followed by a broad final31 replacement.",
+    "failure_artifact_sha256": "4dbed56b418531c9a35d492ba8a5c8a58aad17fda91e49d2d4a85d28ae7af6f1",
+    "guardian_launch_request_sha256": "fcf60c70235bd7eacc7d6cba0636e0c838eab100eab165c266f4cfe35251aefe",
+    "guardian_stderr_sha256": "5e82df58ac61529d40e335dfe9463afdb147f382a85769382a6b9071eb20d3dd",
+    "guardian_process_start_artifact_created": false,
+    "later_recovery_cannot_cure": true
+  },
+  "canonical_stop": {
+    "stop_declaration_sha256": "700928930790af947c220b094a64dace26aedaacf7b37055866bfe538019bfa1",
+    "stop_authority_sha256": "ed896d75f68d72605c9272d81093e62c0933c87d3434b477713d144c1f1f228e",
+    "stop_result_sha256": "ec6862280265f05442b472bd16877715ccd9d29cec4473c89f9139e43b7abd15",
+    "lease_release_sha256": "2877456fb10aa149170606a0e0c35c06cc82802693c29a6f2e4cdbc699d41a61",
+    "session_ended_ts_ms": 1788299838318,
+    "stop_reason": "graceful_stop",
+    "processes_absent": true,
+    "lease_released": true
+  },
+  "terminal_reconciliation": {
+    "artifact_sha256": "2458acf1272e565fe775cc95fc1ad2104200eafc7be73d83f7d1745e82aca391",
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "schema_version": 6,
+    "open_runtime_sessions": 0,
+    "session_command_statuses": {
+      "COMMITTED": 1183
+    },
+    "session_failed": 0,
+    "session_incomplete": 0,
+    "session_candidates_forensic_only": 114,
+    "experiment_evaluations": 0,
+    "holdout_registrations": 0,
+    "experiment_definitions": 17
+  },
+  "source": {
+    "tested_tree_sha256": "76ed3e2fda2789afb06ce81ee2d568630cf2cffc6620f99e0682bff218fb3f7e",
+    "tests": 4323,
+    "result": "PASS_EXACTLY_ONCE",
+    "source_changed_after_seal": false,
+    "seal_rerun_authorized": false
+  },
+  "research": {
+    "retuning_performed": false,
+    "ordinal17_evidence_used_for_selection": false,
+    "statistical_evaluations": 0,
+    "alpha_spent_text": "0",
+    "holdout_consumed": false
+  },
+  "safety": {
+    "mode": "SHADOW_ONLY",
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Create a distinct corrected watcher that proves the monitor path before launch, then preregister prospective budget epoch9 global ordinal18 with unchanged research semantics and a conservative guarded-start lead."
+}
