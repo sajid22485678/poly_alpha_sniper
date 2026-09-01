@@ -1,0 +1,65 @@
+{
+  "contract": "POLY_ALPHA_CODEX_PROGRESS_FINAL31_EPOCH7_CORRECTION1_REGISTERED_V1",
+  "created_ts_ms": 1788277800000,
+  "prior_bridge_commit": "1e204ee4bffa7a30f7bbf0f226c41fb1e6aad367",
+  "phase": "PHASE_TWO_GUARDED_START_PRE_RUNTIME",
+  "classification": "PROSPECTIVE_RESEARCH_BUDGET_EPOCH7_CORRECTION1_REGISTERED",
+  "registration": {
+    "nonce": "ee7449bf3fb34f0ebf54995c0ffb79f1",
+    "disposition": "CONSUMED_MUST_NOT_RETRY_OR_REUSE",
+    "operator_sha256": "5096113be400cb88e63fd399fdd8649728ee13cab94c6f8d7c802476be235167",
+    "result_path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\post_oos\\v4_pr_001_final31_budget_epoch7_correction1_registration_result.json",
+    "result_sha256": "72747aac2890cf48690ddf54d36d5a418f346aec042dbbe859a82c4b3e8a200f",
+    "experiment_id": "c820d4e0286c2550c0fd8ff1b308b0773183fa41a3fa736c524be31a0e8e7eb7",
+    "global_challenger_ordinal": 16,
+    "budget_epoch_ordinal": 7,
+    "prior_consumed_challenger_slots": 15,
+    "prior_statistical_evaluations": 0,
+    "prior_alpha_spent_text": "0",
+    "epoch_alpha_cap_text": "0.005",
+    "research_semantics_unchanged": true,
+    "development_start_ts_ms": 1788291300000,
+    "development_end_ts_ms": 1788334500000,
+    "validation_end_ts_ms": 1788377700000
+  },
+  "source_authority": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_post_oos_source_authority_final31_budget_epoch7_correction1.json",
+    "sha256": "57a1ea22d18f1b2b94c4d297291b3475d10a2c42824e88bb8a0ace10275b09ad",
+    "repository_parser": "PASS",
+    "runtime_source_tree_sha256": "b4143a0a941f0f9d3b419863afd7b894950e59953e81bb401b87be2e60b6f393",
+    "source_seal_tests": 4322,
+    "source_seal_result": "PASS"
+  },
+  "database": {
+    "quick_check": "ok",
+    "foreign_key_violations": 0,
+    "strategy_experiment_definitions": 16,
+    "strategy_evaluation_runs": 0,
+    "open_runtime_sessions": 0,
+    "registered_experiment_sealed": true,
+    "registered_experiment_parent": "3eb7e0a99b3081ee211000793dd82d798d5ff7e33e5beb9a92172c73d1120271"
+  },
+  "runtime_boundary": {
+    "runtime_created": false,
+    "guardian_created": false,
+    "exact_v4_processes": 0,
+    "lease_released": true,
+    "guarded_start_required_lead_ms": 14400000,
+    "guardian_first_clean_observation_required_before_development": true
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "real_placement_available": false,
+    "real_cancellation_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_db_sha256": "92ee57b53468e11bdec2dd9082d3451f980d596212e10198ffd9bf8db7bd94d2",
+    "authoritative_v5_wal_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "authoritative_v5_shm_sha256": "fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb",
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "Using the registered epoch7-correction1 experiment and qualified s45 source, create fresh exact runtime/session and guardian identities; admit runtime, launch and bind the independent guardian, require at least one clean durable guardian observation before 1788291300000, then allow only the preregistered shadow development interval."
+}
