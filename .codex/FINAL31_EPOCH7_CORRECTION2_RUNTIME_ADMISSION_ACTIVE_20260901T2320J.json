@@ -1,0 +1,62 @@
+{
+  "contract": "POLY_ALPHA_CODEX_PROGRESS_FINAL31_EPOCH7_CORRECTION2_RUNTIME_ADMISSION_ACTIVE_V1",
+  "created_ts_ms": 1788281000000,
+  "prior_bridge_commit": "52971c70540bd7a396164ef6ae5c26bb0da600ab",
+  "phase": "PHASE_TWO_GUARDED_START_RUNTIME_ADMISSION",
+  "classification": "RUNTIME_PRE_SESSION_ADMISSION_ACTIVE",
+  "experiment": {
+    "experiment_id": "c820d4e0286c2550c0fd8ff1b308b0773183fa41a3fa736c524be31a0e8e7eb7",
+    "global_challenger_ordinal": 16,
+    "budget_epoch_ordinal": 7,
+    "development_start_ts_ms": 1788291300000,
+    "development_end_ts_ms": 1788334500000,
+    "validation_end_ts_ms": 1788377700000,
+    "research_semantics_unchanged": true
+  },
+  "retired_pre_session_identity": {
+    "runtime_nonce": "605cbff6a4d645f3a397455afcb68298",
+    "disposition": "CONSUMED_MUST_NOT_RELAUNCH_OR_REUSE",
+    "reconciliation_sha256": "9450aa426b4a35daf322aa740f516d6c7c5413ba4a8ed4522d9dad60f57447c3",
+    "lease_created": false,
+    "session_created": false,
+    "research_collected": false
+  },
+  "active_runtime": {
+    "runtime_nonce": "dba2eeb00a0a4802ae779cd42044061d",
+    "disposition": "CONSUMED_MUST_NOT_RELAUNCH",
+    "launcher_pid": 13172,
+    "runtime_pid": 17840,
+    "process_pair_verified": true,
+    "session_state": "NOT_YET_COMMITTED_PRE_SESSION_ADMISSION",
+    "guardian_state": "NOT_YET_AUTHORIZED_UNTIL_SESSION_BINDING",
+    "launch_operator_sha256": "d9ff6139cd459c6b814df9cca0de5c2f9b1b3c124ad4ae4bc98d10236677953c",
+    "launch_authority_sha256": "f821c5c0eb8b1594a96740a4062610b756eefada002677bf0fdd76f385b64eb2",
+    "process_start_sha256": "d9d9ece1092b3d65b81f54d8fe5ae10139e3d78955323cd0e639de542690475b"
+  },
+  "source_authority": {
+    "path": "D:\\poly_alpha_prospective_exact_v6_successor32_20260826T1428Z\\operator\\combined_post_oos_source_authority_final31_budget_epoch7_correction1_runtime_correction2.json",
+    "sha256": "382b8a07e0cd75c2df91204960a2e79b42367c9e2b77890cd49c4a990d898a10",
+    "repository_parser": "PASS",
+    "qualified_tree_sha256": "b4143a0a941f0f9d3b419863afd7b894950e59953e81bb401b87be2e60b6f393",
+    "qualified_tests": 4322
+  },
+  "continuation_scheduler": {
+    "automation_id": "poly-alpha-epoch3-phase-two-guard",
+    "name": "poly-alpha-epoch7-correction2-guard",
+    "status": "ACTIVE",
+    "frequency": "TEN_MINUTE_EVENT_FIRST",
+    "next_event": "DURABLE_SESSION_COMMIT_OR_RUNTIME_EXIT",
+    "guardian_contract": "Launch exactly once after session commit, bind current session/nonce/PIDs, use collect_phase_two_integrity(session_id=current_session), enforce phase_two_integrity_guardian_violations(expected_session_id=current_session), and require one clean durable observation before development opens."
+  },
+  "safety": {
+    "LIVE_ENABLED": false,
+    "REAL_ORDERS_POSSIBLE": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "authoritative_v5_immutable": true,
+    "V4_HO_001": "NONEXISTENT_UNCONSUMED",
+    "phase_three_entered": false
+  },
+  "next_action": "At the next event-first heartbeat, inspect this exact runtime identity once. If the durable session exists, create and launch the fresh independent session-bound guardian and prove its first clean snapshot before 1788291300000. If the process exited, preserve first failure and reconcile without relaunching this nonce."
+}
