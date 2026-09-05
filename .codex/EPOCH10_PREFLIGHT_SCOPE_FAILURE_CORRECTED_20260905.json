@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "project": "poly_alpha_sniper",
+  "classification": "EXTERNAL_OPERATOR_PREFLIGHT_SCOPE_FAILURE_CORRECTED",
+  "phase": "Prospective registration preflight",
+  "finding": "The external operator compared a whole-session population expectation with a frozen-interval population query. The query was correct; registration failed before database admission.",
+  "preservation": "The failed invocation is permanently retired. No child experiment was registered or evaluated. Detailed diagnostic evidence is retained locally, not published.",
+  "verification": "Inert regression reproduced the failure, then passed with the interval-scoped expectation. Nine altered invariants and ten metadata changes were rejected. Existing source qualification remains unchanged; no full suite was rerun.",
+  "source_modified": false,
+  "research_semantics_changed": false,
+  "live_trading_enabled": false,
+  "safety": "Shadow-only; no signing or real order capability, kill switch engaged, no holdout consumption or later phase.",
+  "next_action": "Use the locally preserved corrected operator with a distinct invocation identity, existing unconsumed prospective budget, and a fresh guarded-start schedule. Verify terminal registration before any runtime admission.",
+  "publication": "Sanitized progress only; no credentials, raw database content, internal filesystem paths or runtime identity values. Detailed continuation evidence remains local."
+}
