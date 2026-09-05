@@ -1,0 +1,32 @@
+{
+  "contract": "POLY_ALPHA_S47_SOURCE_QUALIFICATION_VERIFIED_V1",
+  "prior_bridge_commit": "77495aae599d713716380bdc8a4391293eed266a",
+  "classification": "S47_SOURCE_QUALIFICATION_PASS_ORDINAL18_TERMINAL_INADMISSIBLE",
+  "qualification_root": "D:\\pytest_tmp_v4\\s47_atomic_replace_slow_first_denial_20260902T1030J",
+  "qualification_observed_utc": "2026-09-02T03:59:14.837487Z",
+  "tested_tree_sha256": "948791c82fe91225c7cd233910b5dd9db6452afecc7d6853dcdd40a88a593997",
+  "tests": 4324,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "pytest_exit_code": 0,
+  "pytest_launch_count": 1,
+  "tree_exact_at_qualification": true,
+  "authoritative_v5_equal_at_qualification": true,
+  "post_verification_sha256": "6e1341a357c7d1cce9f831cf2574ced23151e8916bdd427ebe30dfc87f5aa5e2",
+  "junit_sha256": "65ba33b832f76db6952ab0a8e5d549945f466bd8f554c3d9b601fa8c3ae41f2f",
+  "seal_disposition": "CONSUMED_PASS_MUST_NOT_RERUN",
+  "ordinal18_disposition": "TERMINAL_INADMISSIBLE_MUST_NOT_RELAUNCH_RESTART_EVALUATE_POOL_OR_TUNE",
+  "current_read_only_process_census": "NO_POLY_ALPHA_PYTHON_RUNTIME_GUARDIAN_OR_SEAL_PROCESS_FOUND",
+  "current_database_census": "NOT_REPEATED_IN_THIS_CHECKPOINT",
+  "safety_at_qualification": {
+    "live_enabled": false,
+    "real_orders_possible": false,
+    "wallet_signing_available": false,
+    "authenticated_trading_available": false,
+    "kill_switch_engaged": true,
+    "phase_3_entered": false,
+    "v4_ho_001": "NONEXISTENT_UNCONSUMED"
+  },
+  "next_action": "Verify current source still binds S47 and current DB/session/lease/research-budget state. Under standing owner authority, derive the smallest legal prospective operational continuation after infrastructure-invalid Ordinal18, preserving all historical slots and zero retuning. Preregister any required budget supersession before a fresh parent-linked experiment. Establish conservative guarded-start timing and independent guardian admission before development. Never execute retired Ordinal18 evaluation or success-path operators. No new registration or runtime identity was consumed by this checkpoint."
+}
