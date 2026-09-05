@@ -1,0 +1,40 @@
+{
+  "contract": "POLY_ALPHA_S48_CONFIG_DRIFT_QUALIFICATION_INVOKED_V1",
+  "prior_bridge_commit": "a15844622e4c0cc4d05f54c31d225b0424a3d33e",
+  "classification": "S48_EXACT_ONCE_RUNNER_INVOKED_TERMINAL_RESULT_PENDING",
+  "source_drift": {
+    "S47_entries_checked": 674,
+    "matching_entries": 673,
+    "changed_path": ".codex/config.toml",
+    "previous_sha256": "2937c1c3295826545458d10bc41751c858a09d699ccd05ea28c36f5b2021edd2",
+    "current_sha256": "22ba624786f4e8f2b981243594f72ce89780c1bde12db0e75eeceac74eaf6088",
+    "unknown_change_preserved": true,
+    "production_source_changed_since_S47": false,
+    "qualification_required_by": "lite_frequency_v4/prospective_v6.py source_identity_from_tested_seal requires complete tested manifest equality; no config exemption exists",
+    "S47_disposition": "HISTORICAL_PASS_4324_ONCE_MUST_NOT_RERUN"
+  },
+  "database_read_only_census": {
+    "definitions": 18,
+    "maximum_challenger_ordinal": 18,
+    "evaluations": 0,
+    "holdout_registrations": 0,
+    "open_sessions": 0
+  },
+  "s48": {
+    "root": "D:\\pytest_tmp_v4\\s48_config_drift_20260905",
+    "runner_sha256": "6b0c81bdafbf1a551c9d612d80580e73d0f734630cb08462986395d23bb02b25",
+    "template_sha256": "32608dcac5cc492c6c1bc0ea8c1833a7f24d0ac8712015d8cdeb069be3c0a451",
+    "inert_syntax_template_check": "PASS",
+    "launcher_pid": 13164,
+    "launcher_creation_local": "2026-09-05T14:32:45.353971+07:00",
+    "runner_invocations": 1,
+    "suite_launch_count": "PENDING_DURABLE_RUN_CONTROL",
+    "result": "PENDING",
+    "independent_hidden_process": true,
+    "prelaunch_poly_alpha_test_process_census": "ABSENT",
+    "must_not_rerun_or_relaunch": true
+  },
+  "ordinal18": "TERMINAL_INADMISSIBLE_MUST_NOT_RELAUNCH_RESTART_EVALUATE_POOL_OR_TUNE",
+  "safety_policy": "SHADOW_ONLY_LIVE_DISABLED_ORDERS_IMPOSSIBLE_SIGNING_AUTH_UNAVAILABLE_KILL_ENGAGED_V5_IMMUTABLE_NO_PHASE3_HOLDOUT_UNAVAILABLE",
+  "next_action": "Allow the existing independent S48 runner to complete. On next event/wake inspect only its durable run_control, pytest_exit, JUnit, post_verification and process identity; never relaunch if interrupted. No source changes while active. If PASS and current tree still matches, continue repository-defined parent-linked prospective recovery under standing owner authority, preserving Ordinal18 and all budgets. No replacement experiment or runtime was created by this checkpoint."
+}
